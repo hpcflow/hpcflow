@@ -30,3 +30,7 @@ jobs:
         run: pip install pyinstaller
       - name: Build with pyinstaller for ${{matrix.os}}
         run: ${{ matrix.cmd }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: binary
+          path: dist/hpcflow-exe.exe
