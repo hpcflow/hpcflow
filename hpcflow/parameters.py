@@ -33,6 +33,7 @@ class Output(Parameter):
 
 
 class ParameterValue:
+    """ParameterValue"""
 
     def __init__(self, parameter, value):
         self.parameter = parameter
