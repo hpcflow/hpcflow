@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hpcflow"
-version = "0.2.0"
+version = "0.0.0"
 description = "Computational workflow management."
 authors = ["aplowman <adam.jp@live.co.uk>"]
 license = "MIT"
