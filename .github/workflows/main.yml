@@ -7,9 +7,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [3.9]
-        poetry-version: [1.1.11]
-        os: [ubuntu-18.04, macos-latest, windows-latest]
+        include:
+          - python-version: 3.9
+            poetry-version: 1.1.11
+            os: windows-latest
+            cmd: pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -24,3 +26,7 @@ jobs:
         run: poetry install
       - name: poetry build
         run: poetry build
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      - name: Build with pyinstaller for ${{matrix.os}}
+        run: ${{ matrix.cmd }}
