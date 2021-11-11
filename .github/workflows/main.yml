@@ -17,4 +17,4 @@ jobs:
     - name: PyInstaller Windows
       uses: JackMcKew/pyinstaller-action-windows@main
       with:
-        path: hpcflow/cli.py
+        path: hpcflow
