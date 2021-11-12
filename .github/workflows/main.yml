@@ -8,17 +8,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+        
           - python-version: 3.7
             os: windows-latest
             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
 
-          - python-version: 3.8
-            os: windows-latest
-            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+#           - python-version: 3.8
+#             os: windows-latest
+#             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
             
-          - python-version: 3.9
-            os: windows-latest
-            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+#           - python-version: 3.9
+#             os: windows-latest
+#             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
             
     runs-on: ${{ matrix.os }}
     steps:
@@ -35,13 +36,17 @@ jobs:
       
       - name: Configure poetry
         run: |
-          python -m poetry config virtualenvs.in-project true      
+          poetry config virtualenvs.in-project true      
       
       - name: Cache the virtualenv
         uses: actions/cache@v2
         with:
           path: ./.venv
           key: ${{ runner.os }}-venv-${{ hashFiles('**/poetry.lock') }}      
+                
+      - name: Install dependencies
+        run: |
+          poetry install             
                 
       - name: Build with pyinstaller for ${{matrix.os}}
         run: ${{ matrix.cmd }}
