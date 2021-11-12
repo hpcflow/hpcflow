@@ -8,13 +8,13 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.9] # [3.7, 3.8, 3.9]
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-2019, ubuntu-18.04, macos-10.15]
         include:
-          - os: windows-latest
+          - os: windows-2019
             out-file: hpcflow.exe
-          - os: ubuntu-latest
+          - os: ubuntu-18.04
             out-file: hpcflow
-          - os: macos-latest
+          - os: macos-10.15
             out-file: hpcflow
 
     runs-on: ${{ matrix.os }}
