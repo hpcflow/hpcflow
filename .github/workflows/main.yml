@@ -64,10 +64,10 @@ jobs:
         
       - uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.python-version }}-hpcflow
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-hpcflow
           path: dist/${{ matrix.out-file }}
           
       - uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.python-version }}-warn-hpcflow.txt
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-warn-hpcflow.txt
           path: build/hpcflow/warn-hpcflow.txt
