@@ -51,10 +51,14 @@ jobs:
         run: |
           poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
 
+      - name: Rename executable
+        run: |
+          mv ${{ matrix.out-file }} ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
+
       - uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
-          path: dist/${{ matrix.out-file }}
+          path: dist/${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
 
       - uses: actions/upload-artifact@v2
         with:
