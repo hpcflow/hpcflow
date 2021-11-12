@@ -7,48 +7,55 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [3.9] # [3.7, 3.8, 3.9]
         os: [windows-latest, ubuntu-latest, macos-latest]
-        include:    
+        include:
           - os: windows-latest
             out-file: hpcflow.exe
-            
+          - os: ubuntu-latest
+            out-file: hpcflow
+          - os: macos-latest
+            out-file: hpcflow
+
     runs-on: ${{ matrix.os }}
     steps:
-      
       - uses: actions/checkout@v2
-      
+
       - uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}          
-      
+          python-version: ${{ matrix.python-version }}
+
       - name: Install poetry
         run: |
-          python -m pip install poetry==1.1.11      
-      
+          python -m pip install poetry==1.1.11
+
       - name: Configure poetry
         run: |
-          poetry config virtualenvs.in-project true      
-      
+          poetry config virtualenvs.in-project true
+
       - name: Cache the virtualenv
         uses: actions/cache@v2
         with:
           path: ./.venv
-          key: ${{ runner.os }}-venv-${{ hashFiles('**/poetry.lock') }}      
-                
+          key: ${{ runner.os }}-venv-${{ hashFiles('**/poetry.lock') }}
+
       - name: Install dependencies
         run: |
-          poetry install             
-                
+          poetry install
+
+      - name: Run tests
+        run: |
+          poetry run python -m pytest --verbose --exitfirst
+
       - name: Build with pyinstaller for ${{matrix.os}}
         run: |
           poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
-        
+
       - uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.os }}-${{ matrix.python-version }}-hpcflow
           path: dist/${{ matrix.out-file }}
-          
+
       - uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.os }}-${{ matrix.python-version }}-warn-hpcflow.txt
