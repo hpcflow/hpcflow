@@ -13,13 +13,13 @@ jobs:
             os: windows-latest
             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
 
-#           - python-version: 3.8
-#             os: windows-latest
-#             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+          - python-version: 3.8
+            os: windows-latest
+            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
             
-#           - python-version: 3.9
-#             os: windows-latest
-#             cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+          - python-version: 3.9
+            os: windows-latest
+            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
             
     runs-on: ${{ matrix.os }}
     steps:
