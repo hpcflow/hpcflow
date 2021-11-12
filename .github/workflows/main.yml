@@ -24,10 +24,8 @@ jobs:
           poetry-version: ${{ matrix.poetry-version }}
       - name: poetry install
         run: poetry install
-      - name: poetry build
-        run: poetry build
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: test click import
+        run: python -c "import click; print(click)"
       - name: Build with pyinstaller for ${{matrix.os}}
         run: ${{ matrix.cmd }}
       - uses: actions/upload-artifact@v2
