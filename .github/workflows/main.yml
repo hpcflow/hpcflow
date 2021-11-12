@@ -9,17 +9,28 @@ jobs:
       matrix:
         include:
         
-          - python-version: 3.7
-            os: windows-latest
-            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+#           - python-version: 3.7
+#             os: windows-latest
+#             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
 
-          - python-version: 3.8
-            os: windows-latest
-            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+#           - python-version: 3.8
+#             os: windows-latest
+#             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
             
           - python-version: 3.9
             os: windows-latest
-            cmd: poetry run pyinstaller hpcflow/cli.py -n=hpcflow-exe --onefile
+            cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
+            out-file: hpcflow.exe
+            
+          - python-version: 3.9
+            os: linux-latest
+            cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
+            out-file: hpcflow
+
+          - python-version: 3.9
+            os: macos-latest
+            cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
+            out-file: hpcflow
             
     runs-on: ${{ matrix.os }}
     steps:
@@ -50,12 +61,13 @@ jobs:
                 
       - name: Build with pyinstaller for ${{matrix.os}}
         run: ${{ matrix.cmd }}
+        
       - uses: actions/upload-artifact@v2
         with:
-          name: binary
-          path: dist/hpcflow-exe.exe
+          name: ${{ matrix.python-version }}-hpcflow
+          path: dist/${{ matrix.out-file }}
           
       - uses: actions/upload-artifact@v2
         with:
-          name: warn-hpcflow-exe.txt
-          path: build/hpcflow-exe/warn-hpcflow-exe.txt
+          name: ${{ matrix.python-version }}-warn-hpcflow.txt
+          path: build/hpcflow/warn-hpcflow.txt
