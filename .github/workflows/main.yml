@@ -64,7 +64,7 @@ jobs:
       - uses: actions/download-artifact@v2
         with:
           name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
-          path: docs/executables
+          path: docs/executables/${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
 
       - name: look at git
         run: |
