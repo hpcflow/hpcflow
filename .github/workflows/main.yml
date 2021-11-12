@@ -70,14 +70,12 @@ jobs:
           name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
           path: docs/executables
 
-      - name: look at git
+      - name: Push executables
         run: |
           git status
-
-      - uses: actions/checkout@v2
-      - run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add docs/executables/${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
           git commit -m "generated"
           git push
+
