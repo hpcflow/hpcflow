@@ -23,7 +23,7 @@ jobs:
             out-file: hpcflow.exe
             
           - python-version: 3.9
-            os: linux-latest
+            os: ubuntu-latest
             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
             out-file: hpcflow
 
