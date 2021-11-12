@@ -53,7 +53,7 @@ jobs:
 
       - uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.os }}-${{ matrix.python-version }}-hpcflow
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
           path: dist/${{ matrix.out-file }}
 
       - uses: actions/upload-artifact@v2
@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/download-artifact@v2
         with:
-          name: ${{ matrix.os }}-${{ matrix.python-version }}-hpcflow
+          name: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.out-file }}
           path: docs/executables
 
       - name: look at git
