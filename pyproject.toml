@@ -6,7 +6,7 @@ authors = ["aplowman <adam.jp@live.co.uk>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.11"
+python = ">=3.7,<3.11"
 numpy = "^1.21.4"
 click = "^8.0.3"
 
