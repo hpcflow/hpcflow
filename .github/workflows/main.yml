@@ -7,28 +7,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        python-version: [3.7, 3.8, 3.9]
         include:
-        
-#           - python-version: 3.7
-#             os: windows-latest
-#             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
-
-#           - python-version: 3.8
-#             os: windows-latest
-#             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
-            
-          - python-version: 3.9
-            os: windows-latest
+    
+          - os: windows-latest
             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
             out-file: hpcflow.exe
             
-          - python-version: 3.9
-            os: ubuntu-latest
+          - os: ubuntu-latest
             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
             out-file: hpcflow
 
-          - python-version: 3.9
-            os: macos-latest
+          - os: macos-latest
             cmd: poetry run pyinstaller hpcflow/cli.py --name=hpcflow --onefile
             out-file: hpcflow
             
