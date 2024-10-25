@@ -389,8 +389,8 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         """
         if skip_duplicates:
             for obj in objs:
-                index_ = self.add_object(obj, index, skip_duplicates=True)
-                index = index if index_ is None else index_ + 1
+                if (i := self.add_object(obj, index, skip_duplicates=True)) is not None:
+                    index = i + 1
         else:
             for obj in objs:
                 index = self.add_object(obj, index) + 1

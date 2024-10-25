@@ -164,16 +164,16 @@ class SGEPosix(QueuedScheduler):
             print(stderr)
         return stdout.strip().split("\n")
 
-    def _format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
+    def __format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
         if resources.num_cores and resources.num_cores > 1:
             yield f"{self.js_cmd} -pe {resources.SGE_parallel_env} {resources.num_cores}"
         if resources.max_array_items:
             yield f"{self.js_cmd} -tc {resources.max_array_items}"
 
-    def _format_array_request(self, num_elements: int) -> str:
+    def __format_array_request(self, num_elements: int) -> str:
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}"
 
-    def _format_std_stream_file_option_lines(
+    def __format_std_stream_file_option_lines(
         self, is_array: bool, sub_idx: int
     ) -> Iterator[str]:
         # note: we can't modify the file names
@@ -189,11 +189,11 @@ class SGEPosix(QueuedScheduler):
         """
         opts: list[str] = []
         opts.append(self.format_switch(self.cwd_switch))
-        opts.extend(self._format_core_request_lines(resources))
+        opts.extend(self.__format_core_request_lines(resources))
         if is_array:
-            opts.append(self._format_array_request(num_elements))
+            opts.append(self.__format_array_request(num_elements))
 
-        opts.extend(self._format_std_stream_file_option_lines(is_array, sub_idx))
+        opts.extend(self.__format_std_stream_file_option_lines(is_array, sub_idx))
 
         for opt_k, opt_v in self.options.items():
             if opt_v is None:

@@ -253,7 +253,7 @@ class Singleton(type, Generic[T]):
         The type of the class that is a singleton.
     """
 
-    _instances: ClassVar[dict[Singleton[T], Any]] = {}
+    _instances: ClassVar[dict[Singleton, Any]] = {}
 
     def __call__(cls: Singleton[T], *args, **kwargs) -> T:
         """

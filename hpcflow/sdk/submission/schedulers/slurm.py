@@ -21,7 +21,7 @@ from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.utils import run_cmd
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
     from typing import Any, ClassVar
     from ...config.types import SchedulerConfigDescriptor, SLURMPartitionsDescriptor
     from ...core.element import ElementResources
@@ -237,10 +237,10 @@ class SlurmPosix(QueuedScheduler):
             # TODO: we when we support ParallelMode.HYBRID, these checks will have to
             # consider the total number of cores requested per node
             # (num_cores_per_node * num_threads)?
-            part_num_cores = part.get("num_cores", [])
-            part_num_cores_per_node = part.get("num_cores_per_node", [])
-            part_num_nodes = part.get("num_nodes", [])
-            part_para_modes = part.get("parallel_modes", [])
+            part_num_cores = part.get("num_cores", ())
+            part_num_cores_per_node = part.get("num_cores_per_node", ())
+            part_num_nodes = part.get("num_nodes", ())
+            part_para_modes = part.get("parallel_modes", ())
             if cls.__is_present_unsupported(num_cores, part_num_cores):
                 raise IncompatibleSLURMPartitionError(
                     resources.SLURM_partition, "number of cores", num_cores
@@ -271,7 +271,7 @@ class SlurmPosix(QueuedScheduler):
 
     @classmethod
     def __is_present_unsupported(
-        cls, num_req: int | None, part_have: list[int] | None
+        cls, num_req: int | None, part_have: Sequence[int] | None
     ) -> bool:
         """
         Test if information is present on both sides, but doesn't match.
@@ -282,7 +282,7 @@ class SlurmPosix(QueuedScheduler):
 
     @classmethod
     def __is_present_supported(
-        cls, num_req: int | None, part_have: list[int] | None
+        cls, num_req: int | None, part_have: Sequence[int] | None
     ) -> bool:
         """
         Test if information is present on both sides, and also matches.
@@ -325,7 +325,7 @@ class SlurmPosix(QueuedScheduler):
             return True
         return False
 
-    def _format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
+    def __format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
         if resources.SLURM_partition:
             yield f"{self.js_cmd} --partition {resources.SLURM_partition}"
         if resources.SLURM_num_nodes:  # TODO: option for --exclusive ?
@@ -337,13 +337,13 @@ class SlurmPosix(QueuedScheduler):
         if resources.SLURM_num_cpus_per_task:
             yield f"{self.js_cmd} --cpus-per-task {resources.SLURM_num_cpus_per_task}"
 
-    def _format_array_request(self, num_elements: int, resources: ElementResources):
+    def __format_array_request(self, num_elements: int, resources: ElementResources):
         # TODO: Slurm docs start indices at zero, why are we starting at one?
         #   https://slurm.schedmd.com/sbatch.html#OPT_array
         max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
-    def _format_std_stream_file_option_lines(
+    def __format_std_stream_file_option_lines(
         self, is_array: bool, sub_idx: int
     ) -> Iterator[str]:
         pattern = R"%x_%A.%a" if is_array else R"%x_%j"
@@ -359,12 +359,12 @@ class SlurmPosix(QueuedScheduler):
         Format the options to the scheduler.
         """
         opts: list[str] = []
-        opts.extend(self._format_core_request_lines(resources))
+        opts.extend(self.__format_core_request_lines(resources))
 
         if is_array:
-            opts.append(self._format_array_request(num_elements, resources))
+            opts.append(self.__format_array_request(num_elements, resources))
 
-        opts.extend(self._format_std_stream_file_option_lines(is_array, sub_idx))
+        opts.extend(self.__format_std_stream_file_option_lines(is_array, sub_idx))
 
         for opt_k, opt_v in self.options.items():
             if isinstance(opt_v, list):
@@ -458,7 +458,7 @@ class SlurmPosix(QueuedScheduler):
                 _arr_idx.append(int(i_range_str) - 1)
         return base_job_ID, _arr_idx
 
-    def _parse_job_states(
+    def __parse_job_states(
         self, stdout: str
     ) -> dict[str, dict[int | None, JobscriptElementState]]:
         """Parse output from Slurm `squeue` command with a simple format."""
@@ -476,11 +476,10 @@ class SlurmPosix(QueuedScheduler):
 
         return info
 
-    def _query_job_states(self, job_IDs: list[str]) -> tuple[str, str]:
+    def __query_job_states(self, job_IDs: Iterable[str]) -> tuple[str, str]:
         """Query the state of the specified jobs."""
         cmd = [
-            "squeue",
-            "--me",
+            *self.show_cmd,
             "--noheader",
             "--format",
             R"%40i %30T",
@@ -489,11 +488,11 @@ class SlurmPosix(QueuedScheduler):
         ]
         return run_cmd(cmd, logger=self._app.submission_logger)
 
-    def _get_job_valid_IDs(self, job_IDs: list[str] | None = None) -> list[str]:
+    def __get_job_valid_IDs(self, job_IDs: Collection[str] | None = None) -> set[str]:
         """Get a list of job IDs that are known by the scheduler, optionally filtered by
         specified job IDs."""
 
-        cmd = ["squeue", "--me", "--noheader", "--format", r"%F"]
+        cmd = [*self.show_cmd, "--noheader", "--format", r"%F"]
         stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
         if stderr:
             raise ValueError(
@@ -503,8 +502,8 @@ class SlurmPosix(QueuedScheduler):
         else:
             known_jobs = set(i.strip() for i in stdout.split("\n") if i.strip())
         if job_IDs is None:
-            return list(known_jobs)
-        return list(known_jobs.intersection(job_IDs))
+            return known_jobs
+        return known_jobs.intersection(job_IDs)
 
     @override
     def get_job_state_info(
@@ -520,16 +519,13 @@ class SlurmPosix(QueuedScheduler):
 
         # if job_IDs are passed, then assume they are existant, otherwise retrieve valid
         # jobs:
-        if not js_refs:
-            js_refs = self._get_job_valid_IDs()
-            if not js_refs:
-                return {}
+        refs: Collection[str] = js_refs or self.__get_job_valid_IDs()
 
         count = 0
-        while True:
-            stdout, stderr = self._query_job_states(js_refs)
+        while refs:
+            stdout, stderr = self.__query_job_states(refs)
             if not stderr:
-                return self._parse_job_states(stdout)
+                return self.__parse_job_states(stdout)
             if "Invalid job id specified" not in stderr:
                 raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
             if count >= self.NUM_STATE_QUERY_TRIES:
@@ -542,10 +538,9 @@ class SlurmPosix(QueuedScheduler):
                 "A specified job ID is non-existant; refreshing known job IDs..."
             )
             time.sleep(self.INTER_STATE_QUERY_DELAY)
-            js_refs = self._get_job_valid_IDs(js_refs)
-            if not js_refs:
-                return {}
+            refs = self.__get_job_valid_IDs(refs)
             count += 1
+        return {}
 
     @override
     def cancel_jobs(
@@ -557,7 +552,7 @@ class SlurmPosix(QueuedScheduler):
         """
         Cancel submitted jobs.
         """
-        cmd = [self.del_cmd] + js_refs
+        cmd = [self.del_cmd, *js_refs]
         self._app.submission_logger.info(
             f"cancelling {self.__class__.__name__} jobscripts with command: {cmd}."
         )

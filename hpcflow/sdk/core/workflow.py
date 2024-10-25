@@ -213,7 +213,7 @@ class WorkflowTemplate(JSONLike):
         Whether to merge the environemtns into task resources.
     """
 
-    _validation_schema: ClassVar = "workflow_spec_schema.yaml"
+    _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(

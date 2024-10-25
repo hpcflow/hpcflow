@@ -737,7 +737,7 @@ class ValueSequence(JSONLike):
         #: The label of this sequence.
         self.label = label_
         #: The nesting order for this sequence.
-        self.nesting_order = float(nesting_order) if nesting_order is not None else None
+        self.nesting_order = None if nesting_order is None else float(nesting_order)
         #: Name of a method used to generate sequence values.
         self.value_class_method = value_class_method
 
@@ -1517,7 +1517,7 @@ class InputValue(AbstractInputValue):
         self,
         parameter: Parameter | SchemaInput | str,
         value: Any | None = None,
-        label: str | Any = None,
+        label: str | int | None = None,
         value_class_method: str | None = None,
         path: str | None = None,
         _check_obj: bool = True,
@@ -1539,7 +1539,7 @@ class InputValue(AbstractInputValue):
         self.label = str(label) if label is not None else ""
         #: Dot-delimited path within the parameter's nested data structure for which
         #: `value` should be set.
-        self.path = (path.strip(".") if path else None) or None
+        self.path = (path.strip(".") or None) if path else None
         #: A class method that can be invoked with the `value` attribute as keyword
         #: arguments.
         self.value_class_method = value_class_method

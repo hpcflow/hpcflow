@@ -4,7 +4,7 @@ Errors from the workflow system.
 
 from __future__ import annotations
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -557,8 +557,8 @@ class UnsupportedSchedulerError(ResourceValidationError):
             )
         super().__init__(message)
         self.scheduler = scheduler
-        self.supported = tuple(supported) if supported is not None else None
-        self.available = tuple(available) if available is not None else None
+        self.supported = None if supported is None else tuple(supported)
+        self.available = None if available is None else tuple(available)
 
 
 class UnknownSGEPEError(ResourceValidationError):
@@ -788,14 +788,20 @@ class SubmissionEnvironmentError(ValueError):
     """
 
 
+def _spec_to_ref(env_spec: Mapping[str, Any]):
+    non_name_spec = {k: v for k, v in env_spec.items() if k != "name"}
+    spec_str = f" with specifiers {non_name_spec!r}" if non_name_spec else ""
+    return f"{env_spec['name']!r}{spec_str}"
+
+
 class MissingEnvironmentExecutableError(SubmissionEnvironmentError):
     """
     The environment does not have the requested executable at all.
     """
 
-    def __init__(self, env_ref: str, exec_label: str) -> None:
+    def __init__(self, env_spec: Mapping[str, Any], exec_label: str) -> None:
         super().__init__(
-            f"The environment {env_ref} as defined on this machine has no "
+            f"The environment {_spec_to_ref(env_spec)} as defined on this machine has no "
             f"executable labelled {exec_label!r}, which is required for this "
             f"submission, so the submission cannot be created."
         )
@@ -806,10 +812,10 @@ class MissingEnvironmentExecutableInstanceError(SubmissionEnvironmentError):
     The environment does not have a suitable instance of the requested executable.
     """
 
-    def __init__(self, env_ref: str, exec_label: str, js_idx: int, res: dict) -> None:
+    def __init__(self, env_spec: Mapping[str, Any], exec_label: str, js_idx: int, res: dict) -> None:
         super().__init__(
             f"No matching executable instances found for executable "
-            f"{exec_label!r} of environment {env_ref} for jobscript "
+            f"{exec_label!r} of environment {_spec_to_ref(env_spec)} for jobscript "
             f"index {js_idx!r} with requested resources {res!r}."
         )
 
@@ -819,9 +825,9 @@ class MissingEnvironmentError(SubmissionEnvironmentError):
     There is no environment with that name.
     """
 
-    def __init__(self, env_ref: str) -> None:
+    def __init__(self, env_spec: Mapping[str, Any]) -> None:
         super().__init__(
-            f"The environment {env_ref} is not defined on this machine, so the "
+            f"The environment {_spec_to_ref(env_spec)} is not defined on this machine, so the "
             f"submission cannot be created."
         )
 
@@ -907,8 +913,8 @@ class MultipleEnvironmentsError(ValueError):
     Multiple applicable execution environments exist.
     """
 
-    def __init__(self, env_ref: str) -> None:
-        super().__init__(f"Multiple environments {env_ref} are defined on this machine.")
+    def __init__(self, env_spec: Mapping[str, Any]) -> None:
+        super().__init__(f"Multiple environments {_spec_to_ref(env_spec)} are defined on this machine.")
 
 
 class MissingElementGroup(ValueError):

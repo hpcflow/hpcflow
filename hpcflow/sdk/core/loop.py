@@ -155,7 +155,7 @@ class Loop(JSONLike):
     @workflow_template.setter
     def workflow_template(self, template: WorkflowTemplate):
         self._workflow_template = template
-        self._validate_against_template()
+        self.__validate_against_template()
 
     def __workflow(self) -> None | Workflow:
         if (wt := self.workflow_template) is None:
@@ -173,7 +173,7 @@ class Loop(JSONLike):
             )
         return tuple(wf.tasks.get(insert_ID=i) for i in self.task_insert_IDs)
 
-    def _validate_against_template(self) -> None:
+    def __validate_against_template(self) -> None:
         """Validate the loop parameters against the associated workflow."""
 
         # insert IDs must exist:
@@ -295,28 +295,28 @@ class WorkflowLoop(AppAware):
         else:
             return self._num_added_iterations
 
+    @property
+    def __pending(self) -> dict[tuple[int, ...], int]:
+        if not self._pending_num_added_iterations:
+            self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
+        return self._pending_num_added_iterations
+
     def _initialise_pending_added_iters(self, added_iters_key: tuple[int, ...]):
         if not self._pending_num_added_iterations:
             self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
 
-        if added_iters_key not in self._pending_num_added_iterations:
-            self._pending_num_added_iterations[added_iters_key] = 1
+        if added_iters_key not in (pending := self.__pending):
+            pending[added_iters_key] = 1
 
     def _increment_pending_added_iters(self, added_iters_key: tuple[int, ...]):
-        if not self._pending_num_added_iterations:
-            self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
-
-        self._pending_num_added_iterations[added_iters_key] += 1
+        self.__pending[added_iters_key] += 1
 
     def _update_parents(self, parent: WorkflowLoop):
         assert parent.name
         self._pending_parents.append(parent.name)
 
-        if not self._pending_num_added_iterations:
-            self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
-
         self._pending_num_added_iterations = {
-            (*k, 0): v for k, v in self._pending_num_added_iterations.items()
+            (*k, 0): v for k, v in (self._pending_num_added_iterations or self._num_added_iterations).items()
         }
 
         self.workflow._store.update_loop_parents(

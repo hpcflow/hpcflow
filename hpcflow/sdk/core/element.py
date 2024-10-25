@@ -65,8 +65,8 @@ class _ElementPrefixedParameter(AppAware):
                 label_i: self._app.ElementParameter(
                     path=f"{self._prefix}.{name}[{label_i}]",
                     task=self._task,
-                    parent=self._parent,
-                    element=self._element_iteration_obj,
+                    parent=self.__parent,
+                    element=self.__element_iteration_obj,
                 )
                 for label_i in labels
             }
@@ -75,8 +75,8 @@ class _ElementPrefixedParameter(AppAware):
             return self._app.ElementParameter(
                 path=f"{self._prefix}.{name}",
                 task=self._task,
-                parent=self._parent,
-                element=self._element_iteration_obj,
+                parent=self.__parent,
+                element=self.__element_iteration_obj,
             )
 
     def __dir__(self) -> Iterator[str]:
@@ -84,21 +84,21 @@ class _ElementPrefixedParameter(AppAware):
         yield from self.prefixed_names_unlabelled
 
     @property
-    def _parent(self) -> ElementIteration | ElementActionRun | ElementAction:
+    def __parent(self) -> ElementIteration | ElementActionRun | ElementAction:
         p = self._element_iteration or self._element_action or self._element_action_run
         assert p is not None
         return p
 
     @property
-    def _element_iteration_obj(self) -> ElementIteration:
-        p = self._parent
+    def __element_iteration_obj(self) -> ElementIteration:
+        p = self.__parent
         if isinstance(p, ElementIteration):
             return p
         return p.element_iteration
 
     @property
     def _task(self) -> WorkflowTask:
-        return self._parent.task
+        return self.__parent.task
 
     @property
     def prefixed_names_unlabelled(self) -> dict[str, list[str]]:
@@ -110,7 +110,7 @@ class _ElementPrefixedParameter(AppAware):
 
         """
         if self._prefixed_names_unlabelled is None:
-            self._prefixed_names_unlabelled = self._get_prefixed_names_unlabelled()
+            self._prefixed_names_unlabelled = self.__get_prefixed_names_unlabelled()
         return self._prefixed_names_unlabelled
 
     @property
@@ -130,12 +130,11 @@ class _ElementPrefixedParameter(AppAware):
         return f"{self.__class__.__name__}({names})"
 
     def _get_prefixed_names(self) -> list[str]:
-        return sorted(self._parent.get_parameter_names(self._prefix))
+        return sorted(self.__parent.get_parameter_names(self._prefix))
 
-    def _get_prefixed_names_unlabelled(self) -> dict[str, list[str]]:
-        names = self._get_prefixed_names()
+    def __get_prefixed_names_unlabelled(self) -> dict[str, list[str]]:
         all_names: dict[str, list[str]] = {}
-        for i in names:
+        for i in self._get_prefixed_names():
             if "[" in i:
                 unlab_i, label_i = split_param_label(i)
                 if unlab_i is not None and label_i is not None:
@@ -1255,8 +1254,8 @@ class ElementIteration(AppAware):
         env_name: str = env_spec["name"]
 
         # set default env specifiers, if none set:
-        if "environments" not in resource_specs.setdefault("any", {}):
-            resource_specs["any"]["environments"] = {env_name: copy.deepcopy(env_spec)}
+        if "environments" not in (any_specs := resource_specs.setdefault("any", {})):
+            any_specs["environments"] = {env_name: copy.deepcopy(env_spec)}
 
         for dat in resource_specs.values():
             if "environments" in dat:
@@ -1270,19 +1269,18 @@ class ElementIteration(AppAware):
                 )
 
         resources: dict[str, Any] = {}
-        for scope_v in action.get_possible_scopes()[::-1]:
-            # loop in reverse so higher-specificity scopes take precedence:
-            scope_res = resource_specs.get(scope_v.to_string(), {})
-            resources.update((k, v) for k, v in scope_res.items() if v is not None)
+        for scope in action._get_possible_scopes_reversed():
+            # loop from least-specific to most so higher-specificity scopes take precedence:
+            if (scope_res := resource_specs.get(scope.to_string())):
+                resources.update((k, v) for k, v in scope_res.items() if v is not None)
 
         if set_defaults:
             # used in e.g. `Rule.test` if testing resource rules on element iterations:
-            if "os_name" not in resources:
-                resources["os_name"] = self._app.ElementResources.get_default_os_name()
-            if "shell" not in resources:
-                resources["shell"] = self._app.ElementResources.get_default_shell()
+            ER = self._app.ElementResources
+            resources.setdefault("os_name", ER.get_default_os_name())
+            resources.setdefault("shell", ER.get_default_shell())
             if "scheduler" not in resources:
-                resources["scheduler"] = self._app.ElementResources.get_default_scheduler(
+                resources["scheduler"] = ER.get_default_scheduler(
                     resources["os_name"], resources["shell"]
                 )
 

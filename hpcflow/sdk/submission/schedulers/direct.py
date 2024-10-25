@@ -66,7 +66,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         return shell.get_direct_submit_command(js_path)
 
     @staticmethod
-    def _kill_processes(
+    def __kill_processes(
         procs: list[psutil.Process],
         sig: signal.Signals = signal.SIGTERM,
         timeout: float | None = None,
@@ -87,7 +87,7 @@ class DirectScheduler(Scheduler[DirectRef]):
             p.kill()
 
     @staticmethod
-    def _get_jobscript_processes(js_refs: list[DirectRef]) -> list[psutil.Process]:
+    def __get_jobscript_processes(js_refs: list[DirectRef]) -> list[psutil.Process]:
         procs: list[psutil.Process] = []
         for p_id, p_cmdline in js_refs:
             try:
@@ -124,7 +124,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         callback: Callable[[psutil.Process], None] | None = None,
     ) -> list[psutil.Process] | None:
         """Wait until the specified jobscripts have completed."""
-        procs = cls._get_jobscript_processes(js_refs)
+        procs = cls.__get_jobscript_processes(js_refs)
         (gone, alive) = psutil.wait_procs(procs, callback=callback)
         assert not alive
         return gone if callback else None
@@ -179,12 +179,12 @@ class DirectScheduler(Scheduler[DirectRef]):
                 f"terminated (user-initiated cancel) with exit code {proc.returncode}."
             )
 
-        procs = self._get_jobscript_processes(js_refs)
+        procs = self.__get_jobscript_processes(js_refs)
         self._app.submission_logger.info(
             f"cancelling {self.__class__.__name__} jobscript processes: {procs}."
         )
         js_proc_id = {i.pid: jobscripts[idx] for idx, i in enumerate(procs) if jobscripts}
-        self._kill_processes(procs, timeout=3, on_terminate=callback)
+        self.__kill_processes(procs, timeout=3, on_terminate=callback)
         self._app.submission_logger.info("jobscripts cancel command executed.")
 
     def is_jobscript_active(self, process_ID: int, process_cmdline: list[str]):

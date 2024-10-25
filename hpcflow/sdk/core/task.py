@@ -329,7 +329,7 @@ class ElementSet(JSONLike):
     @task_template.setter
     def task_template(self, value: Task) -> None:
         self._task_template = value
-        self._validate_against_template()
+        self.__validate_against_template()
 
     @property
     def input_types(self) -> list[str]:
@@ -420,7 +420,7 @@ class ElementSet(JSONLike):
         if self.env_preset and self.environments:
             raise ValueError("Specify at most one of `env_preset` and `environments`.")
 
-    def _validate_against_template(self) -> None:
+    def __validate_against_template(self) -> None:
         expected_types = self.task_template.all_schema_input_types
         if unexpected_types := set(self.input_types) - expected_types:
             raise TaskTemplateUnexpectedInput(unexpected_types)
@@ -815,7 +815,7 @@ class Task(JSONLike):
         self._pending_element_sets: list[ElementSet] = []
 
         self._validate()
-        self._name = self._get_name()
+        self._name = self.__get_name()
 
         #: The template workflow that this task is within.
         self.workflow_template: WorkflowTemplate | None = (
@@ -825,13 +825,13 @@ class Task(JSONLike):
         self._dir_name: str | None = None
 
         if self.merge_envs:
-            self._merge_envs_into_resources()
+            self.__merge_envs_into_resources()
 
         # TODO: consider adding a new element_set; will need to merge new environments?
 
         self._set_parent_refs({"schema": "schemas"})
 
-    def _merge_envs_into_resources(self) -> None:
+    def __merge_envs_into_resources(self) -> None:
         # for each element set, merge `env_preset` into `resources` (this mutates
         # `resources`, and should only happen on creation of the task, not
         # re-initialisation from a persistent workflow):
@@ -975,7 +975,7 @@ class Task(JSONLike):
         if len(names) > 1:
             raise TaskTemplateMultipleSchemaObjectives(names)
 
-    def _get_name(self) -> str:
+    def __get_name(self) -> str:
         out = self.objective.name
         for idx, schema_i in enumerate(self.schemas, start=1):
             need_and = idx < len(self.schemas) and (
@@ -1107,7 +1107,7 @@ class Task(JSONLike):
             return [element._index for element in task.elements]
         return None
 
-    def _get_task_source_element_iters(
+    def __get_task_source_element_iters(
         self, in_or_out: str, src_task: Task, labelled_path: str, element_set: ElementSet
     ) -> list[int]:
         """Get a sorted list of element iteration IDs that provide either inputs or
@@ -1162,16 +1162,15 @@ class Task(JSONLike):
         inp_s = inputs_path.split(".")
         try:
             get_relative_path(lab_s, inp_s)
-        except ValueError:
-            try:
-                get_relative_path(inp_s, lab_s)
-            except ValueError:
-                # no intersection between paths
-                return None
-            else:
-                return inputs_path
-        else:
             return labelled_path
+        except ValueError:
+            pass
+        try:
+            get_relative_path(inp_s, lab_s)
+            return inputs_path
+        except ValueError:
+            # no intersection between paths
+            return None
 
     @staticmethod
     def __filtered_iters(wk_task: WorkflowTask, where: Rule) -> list[int]:
@@ -1274,7 +1273,7 @@ class Task(JSONLike):
 
                     if not src_elem_iters:
                         try:
-                            src_elem_iters = self._get_task_source_element_iters(
+                            src_elem_iters = self.__get_task_source_element_iters(
                                 in_or_out=in_or_out,
                                 src_task=src_task_i,
                                 labelled_path=labelled_path,
@@ -1840,7 +1839,7 @@ class WorkflowTask(AppAware):
 
         return [cast(int, group_dat_idx)]  # TODO: generalise to multiple groups
 
-    def _make_new_elements_persistent(
+    def __make_new_elements_persistent(
         self,
         element_set: ElementSet,
         element_set_idx: int,
@@ -2395,7 +2394,7 @@ class WorkflowTask(AppAware):
         for iter_i in iters:
             if not iter_i.EARs_initialised:
                 try:
-                    self._initialise_element_iter_EARs(iter_i)
+                    self.__initialise_element_iter_EARs(iter_i)
                     initialised.append(iter_i.id_)
                 except UnsetParameterDataError:
                     # raised by `Action.test_rules`; cannot yet initialise EARs
@@ -2409,7 +2408,7 @@ class WorkflowTask(AppAware):
         return initialised
 
     @TimeIt.decorator
-    def _initialise_element_iter_EARs(self, element_iter: ElementIteration) -> None:
+    def __initialise_element_iter_EARs(self, element_iter: ElementIteration) -> None:
         # keys are (act_idx, EAR_idx):
         all_data_idx: dict[tuple[int, int], DataIndex] = {}
         action_runs: dict[tuple[int, int], dict[str, Any]] = {}
@@ -2489,7 +2488,7 @@ class WorkflowTask(AppAware):
         # may modify element_set.input_sources:
         padded_elem_iters = self.ensure_input_sources(element_set)
 
-        (input_data_idx, seq_idx, src_idx) = self._make_new_elements_persistent(
+        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
             padded_elem_iters=padded_elem_iters,
@@ -3355,7 +3354,7 @@ class Elements:
         return self._task
 
     @TimeIt.decorator
-    def _get_selection(self, selection: int | slice | list[int]) -> list[int]:
+    def __get_selection(self, selection: int | slice | list[int]) -> list[int]:
         """Normalise an element selection into a list of element indices."""
         if isinstance(selection, int):
             return [selection]
@@ -3397,7 +3396,7 @@ class Elements:
         selection: int | slice | list[int],
     ) -> Element | list[Element]:
         elements = self.task.workflow.get_task_elements(
-            self.task, self._get_selection(selection)
+            self.task, self.__get_selection(selection)
         )
 
         if isinstance(selection, int):
@@ -3442,7 +3441,7 @@ class Parameters(AppAware):
     default: Any | None = None
 
     @TimeIt.decorator
-    def _get_selection(
+    def __get_selection(
         self, selection: int | slice | list[int] | tuple[int, ...]
     ) -> list[int]:
         """Normalise an element selection into a list of element indices."""
@@ -3475,7 +3474,7 @@ class Parameters(AppAware):
         self,
         selection: int | slice | list[int],
     ) -> Any | ElementParameter | list[Any | ElementParameter]:
-        idx_lst = self._get_selection(selection)
+        idx_lst = self.__get_selection(selection)
         elements = self.task.workflow.get_task_elements(self.task, idx_lst)
         if self.return_element_parameters:
             params = [
@@ -3519,26 +3518,26 @@ class TaskInputParameters(AppAware):
 
     #: The task that this represents the input parameters of.
     task: WorkflowTask
-    __input_names: list[str] | None = field(default=None, init=False, compare=False)
+    __input_names: frozenset[str] | None = field(default=None, init=False, compare=False)
 
     def __getattr__(self, name: str) -> Parameters:
-        if name not in self._get_input_names():
+        if name not in self.__get_input_names():
             raise ValueError(f"No input named {name!r}.")
         return self._app.Parameters(self.task, f"inputs.{name}", True)
 
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
-            f"{', '.join(f'{i!r}' for i in self._get_input_names())})"
+            f"{', '.join(f'{i!r}' for i in sorted(self.__get_input_names()))})"
         )
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
-        yield from self._get_input_names()
+        yield from sorted(self.__get_input_names())
 
-    def _get_input_names(self) -> list[str]:
+    def __get_input_names(self) -> frozenset[str]:
         if self.__input_names is None:
-            self.__input_names = sorted(self.task.template.all_schema_input_types)
+            self.__input_names = frozenset(self.task.template.all_schema_input_types)
         return self.__input_names
 
 
@@ -3557,26 +3556,26 @@ class TaskOutputParameters(AppAware):
 
     #: The task that this represents the output parameters of.
     task: WorkflowTask
-    __output_names: list[str] | None = field(default=None, init=False, compare=False)
+    __output_names: frozenset[str] | None = field(default=None, init=False, compare=False)
 
     def __getattr__(self, name: str) -> Parameters:
-        if name not in self._get_output_names():
+        if name not in self.__get_output_names():
             raise ValueError(f"No output named {name!r}.")
         return self._app.Parameters(self.task, f"outputs.{name}", True)
 
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
-            f"{', '.join(f'{i!r}' for i in self._get_output_names())})"
+            f"{', '.join(f'{i!r}' for i in sorted(self.__get_output_names()))})"
         )
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
-        yield from self._get_output_names()
+        yield from sorted(self.__get_output_names())
 
-    def _get_output_names(self) -> list[str]:
+    def __get_output_names(self) -> frozenset[str]:
         if self.__output_names is None:
-            self.__output_names = sorted(self.task.template.all_schema_output_types)
+            self.__output_names = frozenset(self.task.template.all_schema_output_types)
         return self.__output_names
 
 

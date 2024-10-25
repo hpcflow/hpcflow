@@ -41,7 +41,7 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Container, Sequence
+    from collections.abc import Container, Iterator, Sequence
     from re import Pattern
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self
@@ -1589,9 +1589,9 @@ class Action(JSONLike):
         #: Any applicable output file parsers.
         self.output_file_parsers = output_file_parsers or []
         #: The input files to the action's commands.
-        self.input_files = self._resolve_input_files(input_files or [])
+        self.input_files = self.__resolve_input_files(input_files or [])
         #: The output files from the action's commands.
-        self.output_files = self._resolve_output_files(output_files or [])
+        self.output_files = self.__resolve_output_files(output_files or [])
         #: How to determine whether to run the action.
         self.rules = rules or []
         #: The names of files to be explicitly saved after each step.
@@ -1769,14 +1769,14 @@ class Action(JSONLike):
         assert self._task_schema is not None
         return self._task_schema
 
-    def _resolve_input_files(self, input_files: list[FileSpec]) -> list[FileSpec]:
+    def __resolve_input_files(self, input_files: list[FileSpec]) -> list[FileSpec]:
         in_files = input_files
         for ifg in self.input_file_generators:
             if ifg.input_file not in in_files:
                 in_files.append(ifg.input_file)
         return in_files
 
-    def _resolve_output_files(self, output_files: list[FileSpec]) -> list[FileSpec]:
+    def __resolve_output_files(self, output_files: list[FileSpec]) -> list[FileSpec]:
         out_files = output_files
         for ofp in self.output_file_parsers:
             for out_file in ofp.output_files:
@@ -1789,10 +1789,11 @@ class Action(JSONLike):
             ifg.input_file.label: [j.typ for j in ifg.inputs]
             for ifg in self.input_file_generators
         }
-        OFPs: dict[str, list[str]] = {}
-        for idx, ofp in enumerate(self.output_file_parsers):
-            key = ofp.output.typ if ofp.output else f"OFP_{idx}"
-            OFPs[key] = [out_file.label for out_file in ofp.output_files]
+        OFPs = {
+            ofp.output.typ if ofp.output else f"OFP_{idx}": [
+                out_file.label for out_file in ofp.output_files]
+            for idx, ofp in enumerate(self.output_file_parsers)
+        }
 
         out: list[str] = []
         if self.commands:
@@ -1843,7 +1844,7 @@ class Action(JSONLike):
         ] = []  # TODO: indices of commands in which this parameter appears
         return {"input_file_writers": writer_files, "commands": commands}
 
-    def _get_resolved_action_env(
+    def __get_resolved_action_env(
         self,
         relevant_scopes: tuple[ActionScopeType, ...],
         input_file_generator: InputFileGenerator | None = None,
@@ -1878,7 +1879,7 @@ class Action(JSONLike):
         """
         Get the actual environment to use for an input file generator.
         """
-        return self._get_resolved_action_env(
+        return self.__get_resolved_action_env(
             relevant_scopes=(
                 ActionScopeType.ANY,
                 ActionScopeType.PROCESSING,
@@ -1893,7 +1894,7 @@ class Action(JSONLike):
         """
         Get the actual environment to use for an output file parser.
         """
-        return self._get_resolved_action_env(
+        return self.__get_resolved_action_env(
             relevant_scopes=(
                 ActionScopeType.ANY,
                 ActionScopeType.PROCESSING,
@@ -1906,7 +1907,7 @@ class Action(JSONLike):
         """
         Get the actual environment to use for the action commands.
         """
-        return self._get_resolved_action_env(
+        return self.__get_resolved_action_env(
             relevant_scopes=(ActionScopeType.ANY, ActionScopeType.MAIN),
             commands=self.commands,
         )
@@ -2045,157 +2046,157 @@ class Action(JSONLike):
             # already expanded
             return [self]
 
-        else:
-            # run main if:
-            #   - one or more output files are not passed
-            # run IFG if:
-            #   - one or more output files are not passed
-            #   - AND input file is not passed
-            # always run OPs, for now
+        # run main if:
+        #   - one or more output files are not passed
+        # run IFG if:
+        #   - one or more output files are not passed
+        #   - AND input file is not passed
+        # always run OPs, for now
 
-            main_rules = self.rules + [
-                self._app.ActionRule.check_missing(f"output_files.{of.label}")
-                for of in self.output_files
-            ]
+        main_rules = self.rules + [
+            self._app.ActionRule.check_missing(f"output_files.{of.label}")
+            for of in self.output_files
+        ]
 
-            # note we keep the IFG/OPs in the new actions, so we can check the parameters
-            # used/produced.
+        # note we keep the IFG/OPs in the new actions, so we can check the parameters
+        # used/produced.
 
-            inp_files = []
-            inp_acts: list[Action] = []
-            for ifg in self.input_file_generators:
-                exe = "<<executable:python_script>>"
-                args = [
-                    '"$WK_PATH"',
-                    "$EAR_ID",
-                ]  # WK_PATH could have a space in it
-                if ifg.script:
-                    script_name = self.get_script_name(ifg.script)
-                    variables = {
-                        "script_name": script_name,
-                        "script_name_no_ext": str(Path(script_name).stem),
-                    }
-                else:
-                    variables = {}
-                act_i = self._app.Action(
-                    commands=[
-                        self._app.Command(
-                            executable=exe, arguments=args, variables=variables
-                        )
-                    ],
-                    input_file_generators=[ifg],
-                    environments=[self.get_input_file_generator_action_env(ifg)],
-                    rules=main_rules + ifg.get_action_rules(),
-                    script_pass_env_spec=ifg.script_pass_env_spec,
-                    abortable=ifg.abortable,
-                    # TODO: add script_data_in etc? and to OFP?
-                )
-                act_i._task_schema = self.task_schema
-                if ifg.input_file not in inp_files:
-                    inp_files.append(ifg.input_file)
-                act_i._from_expand = True
-                inp_acts.append(act_i)
-
-            out_files: list[FileSpec] = []
-            out_acts: list[Action] = []
-            for ofp in self.output_file_parsers:
-                exe = "<<executable:python_script>>"
-                args = [
-                    '"$WK_PATH"',
-                    "$EAR_ID",
-                ]  # WK_PATH could have a space in it
-                if ofp.script:
-                    script_name = self.get_script_name(ofp.script)
-                    variables = {
-                        "script_name": script_name,
-                        "script_name_no_ext": str(Path(script_name).stem),
-                    }
-                else:
-                    variables = {}
-                act_i = self._app.Action(
-                    commands=[
-                        self._app.Command(
-                            executable=exe, arguments=args, variables=variables
-                        )
-                    ],
-                    output_file_parsers=[ofp],
-                    environments=[self.get_output_file_parser_action_env(ofp)],
-                    rules=[*self.rules, *ofp.get_action_rules()],
-                    script_pass_env_spec=ofp.script_pass_env_spec,
-                    abortable=ofp.abortable,
-                )
-                act_i._task_schema = self.task_schema
-                for out_f in ofp.output_files:
-                    if out_f not in out_files:
-                        out_files.append(out_f)
-                act_i._from_expand = True
-                out_acts.append(act_i)
-
-            commands = self.commands
-            if self.script:
-                exe = f"<<executable:{self.script_exe}>>"
-                args = []
-                if self.script:
-                    script_name = self.get_script_name(self.script)
-                    variables = {
-                        "script_name": script_name,
-                        "script_name_no_ext": str(Path(script_name).stem),
-                    }
-                else:
-                    variables = {}
-                if self.script_data_in_has_direct or self.script_data_out_has_direct:
-                    # WK_PATH could have a space in it:
-                    args.extend(["--wk-path", '"$WK_PATH"', "--run-id", "$EAR_ID"])
-
-                fn_args = {"js_idx": "${JS_IDX}", "js_act_idx": "${JS_act_idx}"}
-
-                for fmt in self.script_data_in_grouped:
-                    if fmt == "json":
-                        if self.script_data_files_use_opt:
-                            args.append("--inputs-json")
-                        args.append(str(self.get_param_dump_file_path_JSON(**fn_args)))
-                    elif fmt == "hdf5":
-                        if self.script_data_files_use_opt:
-                            args.append("--inputs-hdf5")
-                        args.append(str(self.get_param_dump_file_path_HDF5(**fn_args)))
-
-                for fmt in self.script_data_out_grouped:
-                    if fmt == "json":
-                        if self.script_data_files_use_opt:
-                            args.append("--outputs-json")
-                        args.append(str(self.get_param_load_file_path_JSON(**fn_args)))
-                    elif fmt == "hdf5":
-                        if self.script_data_files_use_opt:
-                            args.append("--outputs-hdf5")
-                        args.append(str(self.get_param_load_file_path_HDF5(**fn_args)))
-
-                commands.append(
-                    self._app.Command(executable=exe, arguments=args, variables=variables)
-                )
-
-            # TODO: store script_args? and build command with executable syntax?
-            main_act = self._app.Action(
-                commands=commands,
-                script=self.script,
-                script_data_in=self.script_data_in,
-                script_data_out=self.script_data_out,
-                script_exe=self.script_exe,
-                script_pass_env_spec=self.script_pass_env_spec,
-                environments=[self.get_commands_action_env()],
-                abortable=self.abortable,
-                rules=main_rules,
-                input_files=inp_files,
-                output_files=out_files,
-                save_files=self.save_files,
-                clean_up=self.clean_up,
+        args: list[str]
+        inp_files = []
+        inp_acts: list[Action] = []
+        for ifg in self.input_file_generators:
+            exe = "<<executable:python_script>>"
+            args = [
+                '"$WK_PATH"',
+                "$EAR_ID",
+            ]  # WK_PATH could have a space in it
+            if ifg.script:
+                script_name = self.get_script_name(ifg.script)
+                variables = {
+                    "script_name": script_name,
+                    "script_name_no_ext": str(Path(script_name).stem),
+                }
+            else:
+                variables = {}
+            act_i = self._app.Action(
+                commands=[
+                    self._app.Command(
+                        executable=exe, arguments=args, variables=variables
+                    )
+                ],
+                input_file_generators=[ifg],
+                environments=[self.get_input_file_generator_action_env(ifg)],
+                rules=main_rules + ifg.get_action_rules(),
+                script_pass_env_spec=ifg.script_pass_env_spec,
+                abortable=ifg.abortable,
+                # TODO: add script_data_in etc? and to OFP?
             )
-            main_act._task_schema = self.task_schema
-            main_act._from_expand = True
-            main_act.process_script_data_formats()
+            act_i._task_schema = self.task_schema
+            if ifg.input_file not in inp_files:
+                inp_files.append(ifg.input_file)
+            act_i._from_expand = True
+            inp_acts.append(act_i)
 
-            cmd_acts = inp_acts + [main_act] + out_acts
+        out_files: list[FileSpec] = []
+        out_acts: list[Action] = []
+        for ofp in self.output_file_parsers:
+            exe = "<<executable:python_script>>"
+            args = [
+                '"$WK_PATH"',
+                "$EAR_ID",
+            ]  # WK_PATH could have a space in it
+            if ofp.script:
+                script_name = self.get_script_name(ofp.script)
+                variables = {
+                    "script_name": script_name,
+                    "script_name_no_ext": str(Path(script_name).stem),
+                }
+            else:
+                variables = {}
+            act_i = self._app.Action(
+                commands=[
+                    self._app.Command(
+                        executable=exe, arguments=args, variables=variables
+                    )
+                ],
+                output_file_parsers=[ofp],
+                environments=[self.get_output_file_parser_action_env(ofp)],
+                rules=[*self.rules, *ofp.get_action_rules()],
+                script_pass_env_spec=ofp.script_pass_env_spec,
+                abortable=ofp.abortable,
+            )
+            act_i._task_schema = self.task_schema
+            for out_f in ofp.output_files:
+                if out_f not in out_files:
+                    out_files.append(out_f)
+            act_i._from_expand = True
+            out_acts.append(act_i)
 
-            return cmd_acts
+        commands = self.commands
+        if self.script:
+            exe = f"<<executable:{self.script_exe}>>"
+            args = []
+            if self.script:
+                script_name = self.get_script_name(self.script)
+                variables = {
+                    "script_name": script_name,
+                    "script_name_no_ext": str(Path(script_name).stem),
+                }
+            else:
+                variables = {}
+            if self.script_data_in_has_direct or self.script_data_out_has_direct:
+                # WK_PATH could have a space in it:
+                args.extend(["--wk-path", '"$WK_PATH"', "--run-id", "$EAR_ID"])
+
+            fn_args = {"js_idx": "${JS_IDX}", "js_act_idx": "${JS_act_idx}"}
+
+            for fmt in self.script_data_in_grouped:
+                if fmt == "json":
+                    if self.script_data_files_use_opt:
+                        args.append("--inputs-json")
+                    args.append(str(self.get_param_dump_file_path_JSON(**fn_args)))
+                elif fmt == "hdf5":
+                    if self.script_data_files_use_opt:
+                        args.append("--inputs-hdf5")
+                    args.append(str(self.get_param_dump_file_path_HDF5(**fn_args)))
+
+            for fmt in self.script_data_out_grouped:
+                if fmt == "json":
+                    if self.script_data_files_use_opt:
+                        args.append("--outputs-json")
+                    args.append(str(self.get_param_load_file_path_JSON(**fn_args)))
+                elif fmt == "hdf5":
+                    if self.script_data_files_use_opt:
+                        args.append("--outputs-hdf5")
+                    args.append(str(self.get_param_load_file_path_HDF5(**fn_args)))
+
+            commands.append(
+                self._app.Command(executable=exe, arguments=args, variables=variables)
+            )
+
+        # TODO: store script_args? and build command with executable syntax?
+        main_act = self._app.Action(
+            commands=commands,
+            script=self.script,
+            script_data_in=self.script_data_in,
+            script_data_out=self.script_data_out,
+            script_exe=self.script_exe,
+            script_pass_env_spec=self.script_pass_env_spec,
+            environments=[self.get_commands_action_env()],
+            abortable=self.abortable,
+            rules=main_rules,
+            input_files=inp_files,
+            output_files=out_files,
+            save_files=self.save_files,
+            clean_up=self.clean_up,
+        )
+        main_act._task_schema = self.task_schema
+        main_act._from_expand = True
+        main_act.process_script_data_formats()
+
+        cmd_acts = inp_acts + [main_act] + out_acts
+
+        return cmd_acts
 
     # note: we use "parameter" rather than "input", because it could be a schema input
     # or schema output.
@@ -2427,6 +2428,21 @@ class Action(JSONLike):
         else:
             return (scope, self._app.ActionScope.any())
 
+    def _get_possible_scopes_reversed(self) -> Iterator[ActionScope]:
+        """Get the action scopes that are inclusive of this action, ordered by increasing
+        specificity."""
+
+        # Fail early if a failure is possible
+        precise_scope = self.get_precise_scope()
+        yield self._app.ActionScope.any()
+        if self.input_file_generators:
+            yield self._app.ActionScope.processing()
+            yield self._app.ActionScope.input_file_generator()
+        elif self.output_file_parsers:
+            yield self._app.ActionScope.processing()
+            yield self._app.ActionScope.output_file_parser()
+        yield precise_scope
+
     def get_precise_scope(self) -> ActionScope:
         """
         Get the exact scope of this action.
@@ -2484,26 +2500,18 @@ class Action(JSONLike):
     @TimeIt.decorator
     def test_rules(self, element_iter: ElementIteration) -> tuple[bool, list[int]]:
         """Test all rules against the specified element iteration."""
-        action_valid = all(
-            rule.test(element_iteration=element_iter) for rule in self.rules
-        )
-        commands_idx = (
-            [
-                cmd_idx
-                for cmd_idx, cmd in enumerate(self.commands)
-                if all(rule.test(element_iteration=element_iter) for rule in cmd.rules)
-            ]
-            if action_valid
-            else []
-        )
-        return action_valid, commands_idx
+        if any(not rule.test(element_iteration=element_iter) for rule in self.rules):
+            return False, []
+        return True, [
+            cmd_idx
+            for cmd_idx, cmd in enumerate(self.commands)
+            if all(rule.test(element_iteration=element_iter) for rule in cmd.rules)
+        ]
 
-    def get_required_executables(self) -> tuple[str, ...]:
+    def get_required_executables(self) -> Iterator[str]:
         """Return executable labels required by this action."""
-        exec_labs = set()
         for command in self.commands:
-            exec_labs.update(command.get_required_executables())
-        return tuple(exec_labs)
+            yield from command.get_required_executables()
 
     def compose_source(self, snip_path: Path) -> str:
         """Generate the file contents of this source."""

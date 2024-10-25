@@ -11,7 +11,7 @@ import re
 import socket
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from rich.table import Table
 from rich.console import Console
@@ -108,7 +108,7 @@ class RunTimeInfo:
 
         try:
             #: The virtual environment path.
-            self.venv_path: str | list[str] | None = self._set_venv_path()
+            self.venv_path: str | list[str] | None = self.__set_venv_path()
         except ValueError:
             self.venv_path = None
 
@@ -183,7 +183,7 @@ class RunTimeInfo:
         out += ", ".join(f"{k}={v!r}" for k, v in self.to_dict().items())
         return out
 
-    def _set_venv_path(self) -> str | list[str]:
+    def __set_venv_path(self) -> str | list[str]:
         out: list[str] = []
         if self.sys_prefix is not None:
             out.append(self.sys_prefix)
@@ -275,12 +275,15 @@ class RunTimeInfo:
         app, if the app is not frozen."""
         return None if (p := self.script_path) is None else p.resolve()
 
+    # For removing a trailing '.cmd' from a filename
+    __CMD_TRIM: ClassVar[re.Pattern[str]] = re.compile(r"\.cmd$")
+
     @property
     def invocation_command(self) -> tuple[str, ...]:
         """Get the command that was used to invoke this instance of the app."""
         if self.is_frozen:
             # (this also works if we are running tests using the frozen app)
-            command = [str(self.resolved_executable_path)]
+            return (str(self.resolved_executable_path),)
         elif self.from_CLI:
             script = str(self.resolved_script_path)
             if os.name == "nt":
@@ -288,12 +291,10 @@ class RunTimeInfo:
                 # invoked via `hpcflow test`, `resolved_script_path` seems to be the
                 # batch script wrapper (ending in .cmd) rather than the Python entry point
                 # itself, so trim if off:
-                script = re.sub(r"\.cmd$", "", script)  # Work with 3.8 too
+                script = self.__CMD_TRIM.sub("", script)  # Work with 3.8 too
                 # script = script.removesuffix(".cmd")
-            command = [str(self.python_executable_path), script]
+            return (str(self.python_executable_path), script)
         else:
             app_module = import_module(self.package_name)
             CLI_path = Path(*app_module.__path__, "cli.py")
-            command = [str(self.python_executable_path), str(CLI_path)]
-
-        return tuple(command)
+            return (str(self.python_executable_path), str(CLI_path))

@@ -102,7 +102,7 @@ class Command(JSONLike):
 
         return f"{self.__class__.__name__}({', '.join(out)})"
 
-    def _get_initial_command_line(self) -> str:
+    def __get_initial_command_line(self) -> str:
         if self.command:
             return self.command
         else:
@@ -120,7 +120,7 @@ class Command(JSONLike):
         """
 
         self._app.persistence_logger.debug("Command.get_command_line")
-        cmd_str = self._get_initial_command_line()
+        cmd_str = self.__get_initial_command_line()
 
         def _format_sum(iterable: Iterable) -> str:
             return str(sum(iterable))
@@ -154,11 +154,11 @@ class Command(JSONLike):
                     method = "CLI_format"
                 if not hasattr(inp_val, method):
                     raise NoCLIFormatMethodError(method, inp_val)
-                kwargs = self._prepare_kwargs_from_string(args_str=method_kwargs)
+                kwargs = self.__prepare_kwargs_from_string(args_str=method_kwargs)
                 inp_val = getattr(inp_val, method)(**kwargs)
 
             if func:
-                kwargs = self._prepare_kwargs_from_string(
+                kwargs = self.__prepare_kwargs_from_string(
                     args_str=func_kwargs,
                     doubled_quoted_args=["delim"],
                 )
@@ -276,7 +276,7 @@ class Command(JSONLike):
         return out
 
     @staticmethod
-    def _prepare_kwargs_from_string(
+    def __prepare_kwargs_from_string(
         args_str: str | None, doubled_quoted_args: list[str] | None = None
     ) -> dict[str, str]:
         if args_str is None:
@@ -347,6 +347,7 @@ class Command(JSONLike):
         }
         types_pattern = "|".join(parse_types)
 
+        # TODO: use str.removeprefix in 3.9 onwards
         out_name = name.replace("outputs.", "")
         pattern = (
             r"(\<\<(?:({types_pattern})(?:\[(.*)\])?\()?parameter:{name}(?:\.(\w+)"
@@ -363,13 +364,13 @@ class Command(JSONLike):
             return value
         groups = match.groups()
         parse_type, parse_args_str = groups[1:3]
-        parse_args = self._prepare_kwargs_from_string(
+        parse_args = self.__prepare_kwargs_from_string(
             args_str=parse_args_str,
             doubled_quoted_args=["delim"],
         )
         if param._value_class:
             method, method_args_str = groups[3:5]
-            method_args = self._prepare_kwargs_from_string(
+            method_args = self.__prepare_kwargs_from_string(
                 args_str=method_args_str,
                 doubled_quoted_args=["delim"],
             )
@@ -389,6 +390,4 @@ class Command(JSONLike):
     def get_required_executables(self) -> list[str]:
         """Return executable labels required by this command."""
         # an executable label might appear in the `command` or `executable` attribute:
-        cmd_str = self._get_initial_command_line()
-        exe_labels = self._extract_executable_labels(cmd_str)
-        return exe_labels
+        return self._extract_executable_labels(self.__get_initial_command_line())

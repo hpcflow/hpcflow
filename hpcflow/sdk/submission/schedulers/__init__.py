@@ -97,7 +97,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
         return None
 
     @staticmethod
-    def is_num_cores_supported(num_cores: int | None, core_range: list[int]) -> bool:
+    def is_num_cores_supported(num_cores: int | None, core_range: Sequence[int]) -> bool:
         """
         Test whether particular number of cores is supported in given range of cores.
         """
@@ -157,7 +157,7 @@ class QueuedScheduler(Scheduler[str]):
         The delete command, if overridden from default.
     js_cmd: str
         The job script command, if overridden from default.
-    login_nodes_cmd: str
+    login_nodes_cmd: list[str]
         The login nodes command, if overridden from default.
     array_switch: str
         The switch to enable array jobs, if overridden from default.
@@ -186,11 +186,11 @@ class QueuedScheduler(Scheduler[str]):
         self,
         submit_cmd: str | None = None,
         show_cmd: Sequence[str] | None = None,
-        del_cmd=None,
-        js_cmd=None,
-        login_nodes_cmd=None,
-        array_switch=None,
-        array_item_var=None,
+        del_cmd: str | None = None,
+        js_cmd: str | None = None,
+        login_nodes_cmd: Sequence[str] | None = None,
+        array_switch: str | None = None,
+        array_item_var: str | None = None,
         *args,
         **kwargs,
     ) -> None:

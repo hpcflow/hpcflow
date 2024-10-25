@@ -128,13 +128,15 @@ class Submission(JSONLike):
 
     @TimeIt.decorator
     def _set_environments(self) -> None:
-        filterable = ElementResources.get_env_instance_filterable_attributes()
+        filterable = self._app.ElementResources.get_env_instance_filterable_attributes()
 
         # map required environments and executable labels to job script indices:
-        req_envs: dict[tuple, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+        req_envs: dict[tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
         for js_idx, js_i in enumerate(self.jobscripts):
             for run in js_i.all_EARs:
-                env_spec_h = tuple(zip(*run.env_spec.items()))  # hashable
+                # Alas, mypy can't typecheck the next line if the type is right!
+                # So we use Any to get it to shut up...
+                env_spec_h: Any = tuple(zip(*run.env_spec.items()))  # hashable
                 for exec_label_j in run.action.get_required_executables():
                     req_envs[env_spec_h][exec_label_j].add(js_idx)
                 # Ensure overall element is present
@@ -144,15 +146,12 @@ class Submission(JSONLike):
         envs: list[Environment] = []
         for env_spec_h, exec_js in req_envs.items():
             env_spec = dict(zip(*env_spec_h))
-            non_name_spec = {k: v for k, v in env_spec.items() if k != "name"}
-            spec_str = f" with specifiers {non_name_spec!r}" if non_name_spec else ""
-            env_ref = f"{env_spec['name']!r}{spec_str}"
             try:
                 env_i = self._app.envs.get(**env_spec)
             except ObjectListMultipleMatchError:
-                raise MultipleEnvironmentsError(env_ref)
+                raise MultipleEnvironmentsError(env_spec)
             except ValueError:
-                raise MissingEnvironmentError(env_ref) from None
+                raise MissingEnvironmentError(env_spec) from None
             else:
                 if env_i not in envs:
                     envs.append(env_i)
@@ -161,16 +160,15 @@ class Submission(JSONLike):
                 try:
                     exec_i = env_i.executables.get(exec_i_lab)
                 except ValueError:
-                    raise MissingEnvironmentExecutableError(env_ref, exec_i_lab) from None
+                    raise MissingEnvironmentExecutableError(env_spec, exec_i_lab) from None
 
                 # check matching executable instances exist:
                 for js_idx_j in js_idx_set:
-                    js_j = self.jobscripts[js_idx_j]
-                    filter_exec = {j: getattr(js_j.resources, j) for j in filterable}
-                    exec_instances = exec_i.filter_instances(**filter_exec)
-                    if not exec_instances:
+                    js_res = self.jobscripts[js_idx_j].resources
+                    filter_exec = {j: getattr(js_res, j) for j in filterable}
+                    if not exec_i.filter_instances(**filter_exec):
                         raise MissingEnvironmentExecutableInstanceError(
-                            env_ref, exec_i_lab, js_idx_j, filter_exec
+                            env_spec, exec_i_lab, js_idx_j, filter_exec
                         )
 
         # save env definitions to the environments attribute:
