@@ -1790,8 +1790,9 @@ class Action(JSONLike):
             for ifg in self.input_file_generators
         }
         OFPs = {
-            ofp.output.typ if ofp.output else f"OFP_{idx}": [
-                out_file.label for out_file in ofp.output_files]
+            ofp.output.typ
+            if ofp.output
+            else f"OFP_{idx}": [out_file.label for out_file in ofp.output_files]
             for idx, ofp in enumerate(self.output_file_parsers)
         }
 
@@ -2080,9 +2081,7 @@ class Action(JSONLike):
                 variables = {}
             act_i = self._app.Action(
                 commands=[
-                    self._app.Command(
-                        executable=exe, arguments=args, variables=variables
-                    )
+                    self._app.Command(executable=exe, arguments=args, variables=variables)
                 ],
                 input_file_generators=[ifg],
                 environments=[self.get_input_file_generator_action_env(ifg)],
@@ -2115,9 +2114,7 @@ class Action(JSONLike):
                 variables = {}
             act_i = self._app.Action(
                 commands=[
-                    self._app.Command(
-                        executable=exe, arguments=args, variables=variables
-                    )
+                    self._app.Command(executable=exe, arguments=args, variables=variables)
                 ],
                 output_file_parsers=[ofp],
                 environments=[self.get_output_file_parser_action_env(ofp)],

@@ -812,7 +812,9 @@ class MissingEnvironmentExecutableInstanceError(SubmissionEnvironmentError):
     The environment does not have a suitable instance of the requested executable.
     """
 
-    def __init__(self, env_spec: Mapping[str, Any], exec_label: str, js_idx: int, res: dict) -> None:
+    def __init__(
+        self, env_spec: Mapping[str, Any], exec_label: str, js_idx: int, res: dict
+    ) -> None:
         super().__init__(
             f"No matching executable instances found for executable "
             f"{exec_label!r} of environment {_spec_to_ref(env_spec)} for jobscript "
@@ -914,7 +916,9 @@ class MultipleEnvironmentsError(ValueError):
     """
 
     def __init__(self, env_spec: Mapping[str, Any]) -> None:
-        super().__init__(f"Multiple environments {_spec_to_ref(env_spec)} are defined on this machine.")
+        super().__init__(
+            f"Multiple environments {_spec_to_ref(env_spec)} are defined on this machine."
+        )
 
 
 class MissingElementGroup(ValueError):

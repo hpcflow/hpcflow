@@ -1271,7 +1271,7 @@ class ElementIteration(AppAware):
         resources: dict[str, Any] = {}
         for scope in action._get_possible_scopes_reversed():
             # loop from least-specific to most so higher-specificity scopes take precedence:
-            if (scope_res := resource_specs.get(scope.to_string())):
+            if scope_res := resource_specs.get(scope.to_string()):
                 resources.update((k, v) for k, v in scope_res.items() if v is not None)
 
         if set_defaults:

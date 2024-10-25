@@ -131,7 +131,9 @@ class Submission(JSONLike):
         filterable = self._app.ElementResources.get_env_instance_filterable_attributes()
 
         # map required environments and executable labels to job script indices:
-        req_envs: dict[tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+        req_envs: dict[
+            tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]
+        ] = defaultdict(lambda: defaultdict(set))
         for js_idx, js_i in enumerate(self.jobscripts):
             for run in js_i.all_EARs:
                 # Alas, mypy can't typecheck the next line if the type is right!
@@ -160,7 +162,9 @@ class Submission(JSONLike):
                 try:
                     exec_i = env_i.executables.get(exec_i_lab)
                 except ValueError:
-                    raise MissingEnvironmentExecutableError(env_spec, exec_i_lab) from None
+                    raise MissingEnvironmentExecutableError(
+                        env_spec, exec_i_lab
+                    ) from None
 
                 # check matching executable instances exist:
                 for js_idx_j in js_idx_set:

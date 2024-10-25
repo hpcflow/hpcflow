@@ -316,7 +316,10 @@ class WorkflowLoop(AppAware):
         self._pending_parents.append(parent.name)
 
         self._pending_num_added_iterations = {
-            (*k, 0): v for k, v in (self._pending_num_added_iterations or self._num_added_iterations).items()
+            (*k, 0): v
+            for k, v in (
+                self._pending_num_added_iterations or self._num_added_iterations
+            ).items()
         }
 
         self.workflow._store.update_loop_parents(
