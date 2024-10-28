@@ -1316,7 +1316,8 @@ class PersistentStore(
     def _get_num_total_input_files(self) -> int:
         """Get the total number of persistent and pending user-supplied input files."""
         return self._get_num_persistent_input_files() + sum(
-            i["is_input"] for i in self._pending.add_files)
+            i["is_input"] for i in self._pending.add_files
+        )
 
     @abstractmethod
     def _get_num_persistent_added_tasks(self) -> int:
@@ -2138,7 +2139,7 @@ class PersistentStore(
         Whether the element action run with the given ID was skipped.
         """
         self.logger.debug(f"PersistentStore.get_EAR_skipped: EAR_ID={EAR_ID!r}")
-        return self.get_EARs((EAR_ID, ))[0].skip
+        return self.get_EARs((EAR_ID,))[0].skip
 
     @TimeIt.decorator
     def get_parameters(self, ids: Iterable[int], **kwargs) -> list[AnySParameter]:

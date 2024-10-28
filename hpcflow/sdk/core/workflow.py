@@ -2013,7 +2013,7 @@ class Workflow(AppAware):
         dataset_copy: bool
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
-        return self.get_parameters((index, ), **kwargs)[0]
+        return self.get_parameters((index,), **kwargs)[0]
 
     @TimeIt.decorator
     def get_parameter_data(self, index: int, **kwargs) -> Any:
@@ -2031,14 +2031,14 @@ class Workflow(AppAware):
         """
         Get the source of a particular parameter.
         """
-        return self.get_parameter_sources((index, ))[0]
+        return self.get_parameter_sources((index,))[0]
 
     @TimeIt.decorator
     def is_parameter_set(self, index: int) -> bool:
         """
         Test if a particular parameter is set.
         """
-        return self.get_parameter_set_statuses((index, ))[0]
+        return self.get_parameter_set_statuses((index,))[0]
 
     @TimeIt.decorator
     def get_all_parameters(self, **kwargs) -> list[StoreParameter]:
@@ -2079,7 +2079,7 @@ class Workflow(AppAware):
         Check if all the parameters exist.
         """
         if isinstance(id_lst, int):
-            return next(iter(self._store.check_parameters_exist((id_lst, ))))
+            return next(iter(self._store.check_parameters_exist((id_lst,))))
         return all(self._store.check_parameters_exist(id_lst))
 
     def _add_unset_parameter_data(self, source: ParamSource) -> int:

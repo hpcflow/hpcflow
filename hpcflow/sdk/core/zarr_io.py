@@ -118,10 +118,7 @@ def _zarr_encode_NEW(
             else:
                 return list(items)
         elif isinstance(obj, dict):
-            return {
-                key: encode(val, [*path, key])
-                for key, val in obj.items()
-            }
+            return {key: encode(val, [*path, key]) for key, val in obj.items()}
         elif isinstance(obj, PRIMITIVES):
             return obj
         elif isinstance(obj, np.ndarray):

@@ -65,42 +65,60 @@ _MAX_DEPTH = 50
 
 @overload
 def to_json_like(
-    obj: int, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: int,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[int, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: float, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: float,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[float, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: str, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: str,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[str, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: None, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: None,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[None, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: enum.Enum, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: enum.Enum,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[str, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: list[JSONable], shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: list[JSONable],
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
@@ -110,14 +128,17 @@ def to_json_like(
     obj: tuple[JSONable, ...],
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
-    path: list | None =None,
+    path: list | None = None,
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: set[JSONable], shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: set[JSONable],
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
@@ -127,20 +148,26 @@ def to_json_like(
     obj: dict[str, JSONable],
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
-    path: list | None =None,
+    path: list | None = None,
 ) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: BaseJSONLike, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
+    obj: BaseJSONLike,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
     ...
 
 
 def to_json_like(
-    obj: JSONable, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None = None
+    obj: JSONable,
+    shared_data: _JSONDeserState = None,
+    parent_refs: dict | None = None,
+    path: list | None = None,
 ):
     """
     Convert the object to a JSON-like basic value tree.

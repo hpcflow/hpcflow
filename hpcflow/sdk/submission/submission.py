@@ -429,7 +429,7 @@ class Submission(JSONLike):
             Mapping where keys are a sequence of jobscript index descriptors and
             the values are the scheduler to use for that jobscript.
             A jobscript index descriptor is a pair of the submission index and the main
-            jobscript index. 
+            jobscript index.
         """
         js_idx: list[list[tuple[int, int]]] = []
         schedulers: list[Scheduler] = []
@@ -439,7 +439,9 @@ class Submission(JSONLike):
         seen_schedulers: dict[tuple, int] = {}
 
         for js in jobscripts:
-            if (sched_idx := seen_schedulers.get(key := js.scheduler.unique_properties)) is None:
+            if (
+                sched_idx := seen_schedulers.get(key := js.scheduler.unique_properties)
+            ) is None:
                 seen_schedulers[key] = sched_idx = len(seen_schedulers) - 1
                 schedulers.append(js.scheduler)
                 js_idx.append([])
@@ -449,7 +451,9 @@ class Submission(JSONLike):
 
     @property
     @TimeIt.decorator
-    def _unique_schedulers(self) -> Iterable[tuple[tuple[tuple[int, int], ...], Scheduler]]:
+    def _unique_schedulers(
+        self,
+    ) -> Iterable[tuple[tuple[tuple[int, int], ...], Scheduler]]:
         return self.get_unique_schedulers_of_jobscripts(self.jobscripts)
 
     @TimeIt.decorator
@@ -463,7 +467,7 @@ class Submission(JSONLike):
             Mapping where keys are a sequence of jobscript index descriptors and
             the values are the scheduler to use for that jobscript.
             A jobscript index descriptor is a pair of the submission index and the main
-            jobscript index. 
+            jobscript index.
         """
         # This is an absurd type; you never use the key as a key
         return dict(self._unique_schedulers)

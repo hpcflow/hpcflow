@@ -487,8 +487,12 @@ class SubmissionFailure(RuntimeError):
     A job submission failed.
     """
 
-    def __init__(self, sub_idx: int, submitted_js_idx: list[int],
-                 exceptions: Iterable[JobscriptSubmissionFailure]) -> None:
+    def __init__(
+        self,
+        sub_idx: int,
+        submitted_js_idx: list[int],
+        exceptions: Iterable[JobscriptSubmissionFailure],
+    ) -> None:
         msg = f"Some jobscripts in submission index {sub_idx} could not be submitted"
         if submitted_js_idx:
             msg += f" (but jobscripts {submitted_js_idx} were submitted successfully):"

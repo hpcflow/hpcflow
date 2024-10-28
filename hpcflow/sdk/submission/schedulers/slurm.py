@@ -526,7 +526,10 @@ class SlurmPosix(QueuedScheduler):
             stdout, stderr = self.__query_job_states(refs)
             if not stderr:
                 return self.__parse_job_states(stdout)
-            if "Invalid job id specified" not in stderr or count >= self.NUM_STATE_QUERY_TRIES:
+            if (
+                "Invalid job id specified" not in stderr
+                or count >= self.NUM_STATE_QUERY_TRIES
+            ):
                 raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
 
             # the job might have finished; this only seems to happen if a single
