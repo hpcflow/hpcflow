@@ -295,9 +295,35 @@ class WorkflowTemplate(JSONLike):
     @classmethod
     @TimeIt.decorator
     def _from_data(cls, data: Dict) -> app.WorkflowTemplate:
+        def _normalise_task_parametrisation(task_lst):
+            """
+            For each dict in a list of task parametrisations, ensure the `schema` key is
+            a list of values, and ensure `element_sets` are defined.
+
+            This mutates `task_lst`.
+
+            """
+
+            # use element_sets if not already:
+            for task_idx, task_dat in enumerate(task_lst):
+                schema = task_dat.pop("schema")
+                schema = schema if isinstance(schema, list) else [schema]
+                if "element_sets" in task_dat:
+                    # just update the schema to a list:
+                    task_lst[task_idx]["schema"] = schema
+                else:
+                    # add a single element set, and update the schema to a list:
+                    out_labels = task_dat.pop("output_labels", [])
+                    task_lst[task_idx] = {
+                        "schema": schema,
+                        "element_sets": [task_dat],
+                        "output_labels": out_labels,
+                    }
 
         meta_tasks = data.pop("meta_tasks", {})
         if meta_tasks:
+            for i in list(meta_tasks):
+                _normalise_task_parametrisation(meta_tasks[i])
             new_task_dat = []
             reindex = {}
             for task_idx, task_dat in enumerate(data["tasks"]):
@@ -306,7 +332,45 @@ class WorkflowTemplate(JSONLike):
                     reindex[task_idx] = [
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
                     ]
-                    new_task_dat.extend(copy.deepcopy(meta_task_dat))
+
+                    # update any parametrisation provided in the task list:
+                    base_data = copy.deepcopy(meta_task_dat)
+
+                    # any other keys in `task_dat` should be mappings whose keys are
+                    # the schema name (within the meta task) optionally suffixed by
+                    # a period and the element set index to which the updates should be
+                    # copied (no integer suffix indicates the zeroth element set):
+                    for k, v in task_dat.items():
+                        if k == "schema":
+                            continue
+
+                        for elem_set_id, dat in v.items():
+
+                            elem_set_id_split = elem_set_id.split(".")
+                            try:
+                                es_idx = int(elem_set_id_split[-1])
+                                schema_name = ".".join(elem_set_id_split[:-1])
+                            except ValueError:
+                                es_idx = 0
+                                schema_name = ".".join(elem_set_id_split)
+                            schema_name = schema_name.strip(".")
+
+                            # copy `dat` to the correct schema and element set in the
+                            # meta-task:
+                            for s_idx, s in enumerate(base_data):
+                                if s["schema"] == [schema_name]:
+                                    if k == "inputs":
+                                        # special case; merge inputs
+                                        base_data[s_idx]["element_sets"][es_idx][
+                                            k
+                                        ].update(dat)
+                                        print(f"{dat=!r}")
+                                    else:
+                                        # just overwrite
+                                        base_data[s_idx]["element_sets"][es_idx][k] = dat
+
+                    new_task_dat.extend(base_data)
+
                 else:
                     reindex[task_idx] = [len(new_task_dat)]
                     new_task_dat.append(task_dat)
@@ -323,21 +387,7 @@ class WorkflowTemplate(JSONLike):
                     if term_task is not None:
                         loops[loop_idx]["termination_task"] = reindex.get(term_task)[0]
 
-        # use element_sets if not already:
-        for task_idx, task_dat in enumerate(data["tasks"]):
-            schema = task_dat.pop("schema")
-            schema = schema if isinstance(schema, list) else [schema]
-            if "element_sets" in task_dat:
-                # just update the schema to a list:
-                data["tasks"][task_idx]["schema"] = schema
-            else:
-                # add a single element set, and update the schema to a list:
-                out_labels = task_dat.pop("output_labels", [])
-                data["tasks"][task_idx] = {
-                    "schema": schema,
-                    "element_sets": [task_dat],
-                    "output_labels": out_labels,
-                }
+        _normalise_task_parametrisation(data["tasks"])
 
         # extract out any template components:
         tcs = data.pop("template_components", {})

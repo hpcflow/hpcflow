@@ -11,3 +11,4 @@ This help snippets guide you through common quick tasks in |app_name|.
    Workflow Templates <workflow_templates>
    Workflows <workflows>
    Environments <environments>
+   Meta-tasks <meta_tasks>
