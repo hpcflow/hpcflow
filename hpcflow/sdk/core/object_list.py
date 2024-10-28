@@ -3,6 +3,7 @@ General model of a searchable serializable list.
 """
 
 from __future__ import annotations
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 import copy
 from types import SimpleNamespace
@@ -58,8 +59,6 @@ class ObjectList(JSONLike, Generic[T]):
         self._objects = list(objects)
         self._descriptor = descriptor or "object"
         self._object_is_dict: bool = False
-        self._index: dict[str, list[int]]
-
         self._validate()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> Self:
@@ -82,11 +81,11 @@ class ObjectList(JSONLike, Generic[T]):
         return repr(self._objects)
 
     def __str__(self):
-        return str([self._get_item(i) for i in self._objects])
+        return str([self._get_item(obj) for obj in self._objects])
 
     def __iter__(self) -> Iterator[T]:
         if self._object_is_dict:
-            return iter(self._get_item(i) for i in self._objects)
+            return iter(self._get_item(obj) for obj in self._objects)
         else:
             return self._objects.__iter__()
 
@@ -113,10 +112,6 @@ class ObjectList(JSONLike, Generic[T]):
 
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, self.__class__) and self._objects == other._objects
-
-    def list_attrs(self):
-        """Get a tuple of the unique access-attribute values of the constituent objects."""
-        return tuple(self._index)
 
     def _get_item(self, obj: T):
         if self._object_is_dict:
@@ -222,6 +217,18 @@ class ObjectList(JSONLike, Generic[T]):
         return index
 
 
+class DotAccessAttributeError(AttributeError):
+    def __init__(self, name: str, obj: DotAccessObjectList) -> None:
+        msg = f"{obj._descriptor.title()} {name!r} does not exist. "
+        if obj._objects:
+            attr = obj._access_attribute
+            obj_list = (f'"{getattr(i, attr)}"' for i in obj._objects)
+            msg += f"Available {obj._descriptor}s are: {', '.join(obj_list)}."
+        else:
+            msg += "The object list is empty."
+        super().__init__(msg, name=name, obj=obj)
+
+
 class DotAccessObjectList(ObjectList[T], Generic[T]):
     """
     Provide dot-notation access via an access attribute for the case where the access
@@ -255,6 +262,7 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         self, _objects: Iterable[T], access_attribute: str, descriptor: str | None = None
     ):
         self._access_attribute = access_attribute
+        self._index: Mapping[str, Sequence[int]]
         super().__init__(_objects, descriptor=descriptor)
         self._update_index()
 
@@ -282,14 +290,11 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
     def _update_index(self) -> None:
         """For quick look-up by access attribute."""
 
-        _index: dict[str, list[int]] = {}
+        _index: dict[str, list[int]] = defaultdict(list)
         for idx, obj in enumerate(self._objects):
             attr_val: str = getattr(obj, self._access_attribute)
             try:
-                if attr_val in _index:
-                    _index[attr_val].append(idx)
-                else:
-                    _index[attr_val] = [idx]
+                _index[attr_val].append(idx)
             except TypeError:
                 raise TypeError(
                     f"Access attribute values ({self._access_attribute!r}) must be hashable."
@@ -297,31 +302,24 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         self._index = _index
 
     def __getattr__(self, attribute: str):
-        if attribute in self._index:
-            idx = self._index[attribute]
+        if idx := self._index.get(attribute):
             if len(idx) > 1:
                 raise ValueError(
                     f"Multiple objects with access attribute: {attribute!r}."
                 )
             return self._get_item(self._objects[idx[0]])
-
         elif not attribute.startswith("__"):
-            obj_list_fmt = ", ".join(
-                [f'"{getattr(i, self._access_attribute)}"' for i in self._objects]
-            )
-            msg = f"{self._descriptor.title()} {attribute!r} does not exist. "
-            if self._objects:
-                msg += f"Available {self._descriptor}s are: {obj_list_fmt}."
-            else:
-                msg += "The object list is empty."
-
-            raise AttributeError(msg)
+            raise DotAccessAttributeError(attribute, self)
         else:
             raise AttributeError
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
         yield from (getattr(i, self._access_attribute) for i in self._objects)
+
+    def list_attrs(self) -> tuple[str, ...]:
+        """Get a tuple of the unique access-attribute values of the constituent objects."""
+        return tuple(self._index)
 
     def get(self, access_attribute_value: str | None = None, **kwargs) -> T:
         """
@@ -341,15 +339,13 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         Get all objects in this list that match the given criteria.
         """
         # use the index to narrow down the search first:
-        if access_attribute_value:
-            try:
-                all_idx = self._index[access_attribute_value]
-            except KeyError:
+        if access_attribute_value is not None:
+            if (all_idx := self._index.get(access_attribute_value)) is None:
                 raise ValueError(
                     f"Value {access_attribute_value!r} does not match the value of any "
                     f"object's attribute {self._access_attribute!r}. Available attribute "
                     f"values are: {self.list_attrs()!r}."
-                ) from None
+                )
             all_objs: Iterable[T] = (self._objects[i] for i in all_idx)
         else:
             all_objs = self._objects
@@ -857,12 +853,10 @@ class ResourceList(ObjectList["ResourceSpec"]):
             return cls([resources])
         elif isinstance(resources, Sequence):
             return cls(
-                [
-                    cls._app.ResourceSpec.from_json_like(cast(dict, res_i))
-                    if isinstance(res_i, dict)
-                    else cls.__ensure_non_persistent(res_i)
-                    for res_i in resources
-                ]
+                cls._app.ResourceSpec.from_json_like(cast(dict, res_i))
+                if isinstance(res_i, dict)
+                else cls.__ensure_non_persistent(res_i)
+                for res_i in resources
             )
         else:
             return cls([resources])

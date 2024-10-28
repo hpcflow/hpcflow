@@ -117,11 +117,9 @@ def callback_supported_schedulers(
     """
     # validate against supported schedulers according to the OS - this won't validate that
     # a particular scheduler actually exists on this system:
-    available = config._app.get_OS_supported_schedulers()
-    for k in schedulers:
-        if k not in available:
-            raise UnsupportedSchedulerError(scheduler=k, available=available)
-
+    available = set(config._app.get_OS_supported_schedulers())
+    if any((witness := k) not in available for k in schedulers):
+        raise UnsupportedSchedulerError(scheduler=witness, available=available)
     return schedulers
 
 

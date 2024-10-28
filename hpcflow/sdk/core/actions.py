@@ -41,7 +41,7 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Container, Iterator, Sequence
+    from collections.abc import Callable, Container, Iterator, Sequence
     from re import Pattern
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self
@@ -71,12 +71,12 @@ if TYPE_CHECKING:
 
 
 #: Keyword arguments permitted for particular scopes.
-ACTION_SCOPE_ALLOWED_KWARGS = {
-    ActionScopeType.ANY.name: set(),
-    ActionScopeType.MAIN.name: set(),
-    ActionScopeType.PROCESSING.name: set(),
-    ActionScopeType.INPUT_FILE_GENERATOR.name: {"file"},
-    ActionScopeType.OUTPUT_FILE_PARSER.name: {"output"},
+ACTION_SCOPE_ALLOWED_KWARGS: Mapping[str, frozenset[str]] = {
+    ActionScopeType.ANY.name: frozenset(),
+    ActionScopeType.MAIN.name: frozenset(),
+    ActionScopeType.PROCESSING.name: frozenset(),
+    ActionScopeType.INPUT_FILE_GENERATOR.name: frozenset({"file"}),
+    ActionScopeType.OUTPUT_FILE_PARSER.name: frozenset({"output"}),
 }
 
 
@@ -840,7 +840,7 @@ class ElementActionRun(AppAware):
             for k, v in in_vals.items():
                 v.dump_to_HDF5_group(h5file.create_group(k))
 
-    __source_writer_map: ClassVar = {
+    __source_writer_map: ClassVar[dict[str, Callable[..., None]]] = {
         "json": __write_json_inputs,
         "hdf5": __write_hdf5_inputs,
     }
@@ -1220,7 +1220,7 @@ class ActionScope(JSONLike):
             return False
         return self.typ is other.typ and self.kwargs == other.kwargs
 
-    class _customdict(dict):
+    class __customdict(dict):
         pass
 
     @classmethod
@@ -1230,10 +1230,10 @@ class ActionScope(JSONLike):
         typ_str, kwargs_str = match.groups()
         # The types of the above two variables are idiotic, but bug reports to fix it
         # get closed because "it would break existing code that makes dumb assumptions"
-        kwargs: dict[str, str] = cls._customdict({"type": cast(str, typ_str)})
+        kwargs: dict[str, str] = cls.__customdict({"type": cast(str, typ_str)})
         if kwargs_str:
-            for i in kwargs_str.split(","):
-                name, val = i.split("=")
+            for pair_str in kwargs_str.split(","):
+                name, val = pair_str.split("=")
                 kwargs[name.strip()] = val.strip()
         return kwargs
 
@@ -1254,7 +1254,8 @@ class ActionScope(JSONLike):
     ) -> Self:
         if not isinstance(json_like, Mapping):
             raise TypeError("only mappings are supported for becoming an ActionScope")
-        if not isinstance(json_like, cls._customdict):
+        if not isinstance(json_like, cls.__customdict):
+            # Wasn't processed by _parse_from_string() already
             json_like = {"type": json_like["type"], **json_like.get("kwargs", {})}
         return super()._from_json_like(json_like, shared_data)
 
@@ -2143,7 +2144,7 @@ class Action(JSONLike):
                 variables = {}
             if self.script_data_in_has_direct or self.script_data_out_has_direct:
                 # WK_PATH could have a space in it:
-                args.extend(["--wk-path", '"$WK_PATH"', "--run-id", "$EAR_ID"])
+                args.extend(("--wk-path", '"$WK_PATH"', "--run-id", "$EAR_ID"))
 
             fn_args = {"js_idx": "${JS_IDX}", "js_act_idx": "${JS_act_idx}"}
 

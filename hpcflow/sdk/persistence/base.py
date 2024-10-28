@@ -620,6 +620,7 @@ class StoreParameter:
 
     _encoders: ClassVar[dict[type, Callable]] = {}
     _decoders: ClassVar[dict[str, Callable]] = {}
+    _MAX_DEPTH: ClassVar[int] = 50
 
     def encode(self, **kwargs) -> dict[str, Any] | int:
         """Prepare store parameter data for the persistent store."""
@@ -661,7 +662,7 @@ class StoreParameter:
         if type_lookup is None:
             type_lookup = self._init_type_lookup()
 
-        if len(path) > 50:
+        if len(path) > self._MAX_DEPTH:
             raise RuntimeError("I'm in too deep!")
 
         if self.__is_parameter_value(obj):
@@ -678,7 +679,7 @@ class StoreParameter:
             for idx, item in enumerate(obj):
                 encoded = self._encode(
                     obj=item,
-                    path=path + [idx],
+                    path=[*path, idx],
                     type_lookup=type_lookup,
                     **kwargs,
                 )
@@ -698,7 +699,7 @@ class StoreParameter:
             for dct_key, dct_val in obj.items():
                 encoded = self._encode(
                     obj=dct_val,
-                    path=path + [dct_key],
+                    path=[*path, dct_key],
                     type_lookup=type_lookup,
                     **kwargs,
                 )
@@ -1314,8 +1315,8 @@ class PersistentStore(
 
     def _get_num_total_input_files(self) -> int:
         """Get the total number of persistent and pending user-supplied input files."""
-        num_pend_inp_files = len([i for i in self._pending.add_files if i["is_input"]])
-        return self._get_num_persistent_input_files() + num_pend_inp_files
+        return self._get_num_persistent_input_files() + sum(
+            i["is_input"] for i in self._pending.add_files)
 
     @abstractmethod
     def _get_num_persistent_added_tasks(self) -> int:
@@ -1326,7 +1327,7 @@ class PersistentStore(
         return self._get_num_persistent_added_tasks() + len(self._pending.add_tasks)
 
     def _get_num_persistent_input_files(self) -> int:
-        return len(list(self.workflow.input_files_path.glob("*")))
+        return sum(1 for _ in self.workflow.input_files_path.glob("*"))
 
     def save(self) -> None:
         """Commit pending changes to disk, if not in batch-update mode."""
@@ -2137,7 +2138,7 @@ class PersistentStore(
         Whether the element action run with the given ID was skipped.
         """
         self.logger.debug(f"PersistentStore.get_EAR_skipped: EAR_ID={EAR_ID!r}")
-        return self.get_EARs([EAR_ID])[0].skip
+        return self.get_EARs((EAR_ID, ))[0].skip
 
     @TimeIt.decorator
     def get_parameters(self, ids: Iterable[int], **kwargs) -> list[AnySParameter]:

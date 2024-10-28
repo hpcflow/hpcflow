@@ -69,7 +69,7 @@ string_option = click.option(
 workflow_ref_type_opt = click.option(
     "--ref-type",
     "-r",
-    type=click.Choice(["assume-id", "id", "path"]),
+    type=click.Choice(("assume-id", "id", "path")),
     default="assume-id",
     help="How to interpret a reference, as an ID, a path, or to guess.",
 )

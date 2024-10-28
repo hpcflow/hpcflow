@@ -508,10 +508,9 @@ class Config:
         self._set("demo_data_dir", value)
 
     def __getattr__(self, name: str):
-        if not name.startswith("__"):
-            return self._get(name)
-        else:
+        if name.startswith("__"):
             raise AttributeError(f"Attribute not known: {name!r}.")
+        return self._get(name)
 
     def __setattr__(self, name: str, value):
         if (

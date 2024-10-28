@@ -781,7 +781,7 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
 
         if data:
             assert root_path
-            for k in list(data or {}):
+            for k in list(data):
                 # add root path
                 full_k = str(PurePath(root_path) / PurePath(k))
                 stat_dat, inode_key = data[k][:-2], data[k][-2:]

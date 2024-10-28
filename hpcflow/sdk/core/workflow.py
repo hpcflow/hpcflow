@@ -560,12 +560,10 @@ class WorkflowTemplate(JSONLike):
 
         assert self.workflow
         if not loop.name:
-            existing = [i.name for i in self.loops]
+            existing = {i.name for i in self.loops}
             new_idx = len(self.loops)
-            name = f"loop_{new_idx}"
-            while name in existing:
+            while (name := f"loop_{new_idx}") in existing:
                 new_idx += 1
-                name = f"loop_{new_idx}"
             loop._name = name
         elif loop.name in self.workflow.loops.list_attrs():
             raise LoopAlreadyExistsError(loop.name, self.workflow.loops)
@@ -1973,6 +1971,16 @@ class Workflow(AppAware):
     def get_parameters(self, id_lst: Iterable[int], **kwargs) -> Sequence[StoreParameter]:
         """
         Get parameters known to the workflow.
+
+        Parameter
+        ---------
+        id_lst:
+            The indices of the parameters to retrieve.
+
+        Keyword Arguments
+        -----------------
+        dataset_copy: bool
+            For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         return self._store.get_parameters(id_lst, **kwargs)
 
@@ -1994,8 +2002,18 @@ class Workflow(AppAware):
     def get_parameter(self, index: int, **kwargs) -> StoreParameter:
         """
         Get a single parameter.
+
+        Parameter
+        ---------
+        index:
+            The index of the parameter to retrieve.
+
+        Keyword Arguments
+        -----------------
+        dataset_copy: bool
+            For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
-        return self.get_parameters([index], **kwargs)[0]
+        return self.get_parameters((index, ), **kwargs)[0]
 
     @TimeIt.decorator
     def get_parameter_data(self, index: int, **kwargs) -> Any:
@@ -2013,18 +2031,25 @@ class Workflow(AppAware):
         """
         Get the source of a particular parameter.
         """
-        return self.get_parameter_sources([index])[0]
+        return self.get_parameter_sources((index, ))[0]
 
     @TimeIt.decorator
     def is_parameter_set(self, index: int) -> bool:
         """
         Test if a particular parameter is set.
         """
-        return self.get_parameter_set_statuses([index])[0]
+        return self.get_parameter_set_statuses((index, ))[0]
 
     @TimeIt.decorator
     def get_all_parameters(self, **kwargs) -> list[StoreParameter]:
-        """Retrieve all persistent parameters."""
+        """
+        Retrieve all persistent parameters.
+
+        Keyword Arguments
+        -----------------
+        dataset_copy: bool
+            For Zarr stores only. If True, copy arrays as NumPy arrays.
+        """
         num_params = self._store._get_num_total_parameters()
         return self._store.get_parameters(range(num_params), **kwargs)
 
@@ -2036,7 +2061,14 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def get_all_parameter_data(self, **kwargs) -> dict[int, Any]:
-        """Retrieve all workflow parameter data."""
+        """
+        Retrieve all workflow parameter data.
+
+        Keyword Arguments
+        -----------------
+        dataset_copy: bool
+            For Zarr stores only. If True, copy arrays as NumPy arrays.
+        """
         return {
             i.id_: (i.data if i.data is not None else i.file)
             for i in self.get_all_parameters(**kwargs)
@@ -2047,7 +2079,7 @@ class Workflow(AppAware):
         Check if all the parameters exist.
         """
         if isinstance(id_lst, int):
-            return next(iter(self._store.check_parameters_exist([id_lst])))
+            return next(iter(self._store.check_parameters_exist((id_lst, ))))
         return all(self._store.check_parameters_exist(id_lst))
 
     def _add_unset_parameter_data(self, source: ParamSource) -> int:
@@ -2730,7 +2762,7 @@ class Workflow(AppAware):
         """Wait for the passed scheduled jobscripts to finish."""
         schedulers = self._app.Submission.get_unique_schedulers_of_jobscripts(jobscripts)
         threads: list[Thread] = []
-        for js_indices, sched in schedulers.items():
+        for js_indices, sched in schedulers:
             jobscripts_gen = (
                 self.submissions[sub_idx].jobscripts[js_idx]
                 for sub_idx, js_idx in js_indices

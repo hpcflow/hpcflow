@@ -522,10 +522,7 @@ class ElementSet(JSONLike):
         """
         Get the value sequence for the given path, if it exists.
         """
-        for i in self.sequences:
-            if i.path == sequence_path:
-                return i
-        return None
+        return next((i for i in self.sequences if i.path == sequence_path), None)
 
     def get_defined_parameter_types(self) -> list[str]:
         """
@@ -971,8 +968,7 @@ class Task(JSONLike):
     def _validate(self) -> None:
         # TODO: check a nesting order specified for each sequence?
 
-        names = set(i.objective.name for i in self.schemas)
-        if len(names) > 1:
+        if len(names := set(i.objective.name for i in self.schemas)) > 1:
             raise TaskTemplateMultipleSchemaObjectives(names)
 
     def __get_name(self) -> str:
@@ -1387,7 +1383,7 @@ class Task(JSONLike):
         """
         Normalised paths for all schema input types.
         """
-        return {f"inputs.{i}" for i in self.all_schema_input_types}
+        return {f"inputs.{typ}" for typ in self.all_schema_input_types}
 
     @property
     def all_schema_output_types(self) -> set[str]:
@@ -2103,7 +2099,7 @@ class WorkflowTask(AppAware):
                     ):
                         continue
 
-                element_set.input_sources.update({input_type: [source]})
+                element_set.input_sources[input_type] = [source]
                 if not has_root_param:
                     set_root_params.add(input_type)
 
@@ -2271,7 +2267,7 @@ class WorkflowTask(AppAware):
                 for k, v in data_idx.items()
                 if input_data_indices[k][v] != -1
             }
-            elem_i.update({k: v2[i_idx] for k, v2 in output_data_indices.items()})
+            elem_i.update((k, v2[i_idx]) for k, v2 in output_data_indices.items())
             new_elements.append(elem_i)
 
             for k, v3 in data_idx.items():
@@ -3131,8 +3127,7 @@ class WorkflowTask(AppAware):
                         )
                 except ContainerKeyError as err:
                     if path_i in PV_classes:
-                        err_path = ".".join([path_i] + err.path[:-1])
-                        raise MayNeedObjectError(path=err_path)
+                        raise MayNeedObjectError(path=".".join([path_i, *err.path[:-1]]))
                     continue
                 except (IndexError, ValueError) as err:
                     if raise_on_missing:
@@ -3481,20 +3476,20 @@ class Parameters(AppAware):
                 self._app.ElementParameter(
                     task=self.task,
                     path=self.path,
-                    parent=i,
-                    element=i,
+                    parent=elem,
+                    element=elem,
                 )
-                for i in elements
+                for elem in elements
             ]
         else:
             params = [
-                i.get(
+                elem.get(
                     path=self.path,
                     raise_on_missing=self.raise_on_missing,
                     raise_on_unset=self.raise_on_unset,
                     default=self.default,
                 )
-                for i in elements
+                for elem in elements
             ]
 
         if isinstance(selection, int):
@@ -3636,7 +3631,7 @@ class ElementPropagation(AppAware):
             return {}
         propagate_to = copy.deepcopy(propagate_to)
         if isinstance(propagate_to, list):
-            return {i.task.unique_name: i for i in propagate_to}
+            return {prop.task.unique_name: prop for prop in propagate_to}
 
         return {
             k: (

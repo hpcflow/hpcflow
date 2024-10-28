@@ -473,6 +473,8 @@ class ZarrPersistentStore(
     def _get_zarr_store(path: str | Path, fs: AbstractFileSystem) -> zarr.storage.Store:
         return zarr.storage.FSStore(url=str(path), fs=fs)
 
+    _CODEC: ClassVar = MsgPack()
+
     @classmethod
     def write_empty_workflow(
         cls,
@@ -535,7 +537,7 @@ class ZarrPersistentStore(
             name=cls._elem_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,
             compressor=cmp,
         )
@@ -545,7 +547,7 @@ class ZarrPersistentStore(
             name=cls._iter_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,
             compressor=cmp,
         )
@@ -561,18 +563,18 @@ class ZarrPersistentStore(
             name=cls._EAR_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1,  # single-chunk rows for multiprocess writing
             compressor=cmp,
         )
-        EARs_arr.attrs.update({"parameter_paths": []})
+        EARs_arr.attrs["parameter_paths"] = []
 
         parameter_data = root.create_group(name=cls._param_grp_name)
         parameter_data.create_dataset(
             name=cls._param_base_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1,
             compressor=cmp,
             write_empty_chunks=False,
@@ -582,7 +584,7 @@ class ZarrPersistentStore(
             name=cls._param_sources_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,  # TODO: check this is a sensible size with many parameters
             compressor=cmp,
         )
@@ -991,7 +993,7 @@ class ZarrPersistentStore(
             name=cls._elem_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,
         )
         elems_arr.attrs.update({"seq_idx": [], "src_idx": []})
@@ -1000,7 +1002,7 @@ class ZarrPersistentStore(
             name=cls._iter_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,
         )
         elem_iters_arr.attrs.update(
@@ -1015,10 +1017,10 @@ class ZarrPersistentStore(
             name=cls._EAR_arr_name,
             shape=0,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=cls._CODEC,
             chunks=1000,
         )
-        EARs_arr.attrs.update({"parameter_paths": []})
+        EARs_arr.attrs["parameter_paths"] = []
 
         tasks, elems, elem_iters, EARs = super().prepare_test_store_from_spec(spec)
 
@@ -1369,7 +1371,7 @@ class ZarrPersistentStore(
             shape=arr.shape,
             chunks=arr.shape if chunk_size is None else chunk_size,
             dtype=object,
-            object_codec=MsgPack(),
+            object_codec=self._CODEC,
         )
         if status:
             s.update("Copying data...")
@@ -1381,7 +1383,6 @@ class ZarrPersistentStore(
             except RuntimeError:
                 # blosc decompression errors
                 bad_data.append(idx)
-                pass
         arr_rc[:] = data
 
         arr_rc.attrs.put(arr.attrs.asdict())

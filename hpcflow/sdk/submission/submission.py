@@ -287,7 +287,7 @@ class Submission(JSONLike):
     @property
     def outstanding_jobscripts(self) -> tuple[int, ...]:
         """Jobscript indices that have not yet been successfully submitted."""
-        return tuple(set(self.jobscript_indices) - set(self.submitted_jobscripts))
+        return tuple(set(self.jobscript_indices).difference(self.submitted_jobscripts))
 
     @property
     def status(self) -> SubmissionStatus:
@@ -413,8 +413,8 @@ class Submission(JSONLike):
 
     @staticmethod
     def get_unique_schedulers_of_jobscripts(
-        jobscripts: list[Jobscript],
-    ) -> dict[tuple[tuple[int, int], ...], Scheduler]:
+        jobscripts: Iterable[Jobscript],
+    ) -> Iterable[tuple[tuple[tuple[int, int], ...], Scheduler]]:
         """Get unique schedulers and which of the passed jobscripts they correspond to.
 
         Uniqueness is determines only by the `QueuedScheduler.unique_properties` tuple.
@@ -422,32 +422,54 @@ class Submission(JSONLike):
         Parameters
         ----------
         jobscripts: list[~hpcflow.app.Jobscript]
+
+        Returns
+        -------
+        scheduler_mapping
+            Mapping where keys are a sequence of jobscript index descriptors and
+            the values are the scheduler to use for that jobscript.
+            A jobscript index descriptor is a pair of the submission index and the main
+            jobscript index. 
         """
         js_idx: list[list[tuple[int, int]]] = []
         schedulers: list[Scheduler] = []
 
         # list of tuples of scheduler properties we consider to determine "uniqueness",
         # with the first string being the scheduler type (class name):
-        seen_schedulers = []
+        seen_schedulers: dict[tuple, int] = {}
 
         for js in jobscripts:
-            if js.scheduler.unique_properties not in seen_schedulers:
-                seen_schedulers.append(js.scheduler.unique_properties)
+            if (sched_idx := seen_schedulers.get(key := js.scheduler.unique_properties)) is None:
+                seen_schedulers[key] = sched_idx = len(seen_schedulers) - 1
                 schedulers.append(js.scheduler)
                 js_idx.append([])
-            sched_idx = seen_schedulers.index(js.scheduler.unique_properties)
             js_idx[sched_idx].append((js.submission.index, js.index))
 
-        return dict(zip((tuple(i) for i in js_idx), schedulers))
+        return zip(map(tuple, js_idx), schedulers)
 
+    @property
     @TimeIt.decorator
-    def get_unique_schedulers(self) -> dict[tuple[tuple[int, int], ...], Scheduler]:
-        """Get unique schedulers and which of this submission's jobscripts they
-        correspond to."""
+    def _unique_schedulers(self) -> Iterable[tuple[tuple[tuple[int, int], ...], Scheduler]]:
         return self.get_unique_schedulers_of_jobscripts(self.jobscripts)
 
     @TimeIt.decorator
-    def get_unique_shells(self) -> dict[tuple[int, ...], Shell]:
+    def get_unique_schedulers(self) -> Mapping[tuple[tuple[int, int], ...], Scheduler]:
+        """Get unique schedulers and which of this submission's jobscripts they
+        correspond to.
+
+        Returns
+        -------
+        scheduler_mapping
+            Mapping where keys are a sequence of jobscript index descriptors and
+            the values are the scheduler to use for that jobscript.
+            A jobscript index descriptor is a pair of the submission index and the main
+            jobscript index. 
+        """
+        # This is an absurd type; you never use the key as a key
+        return dict(self._unique_schedulers)
+
+    @TimeIt.decorator
+    def get_unique_shells(self) -> Iterable[tuple[tuple[int, ...], Shell]]:
         """Get unique shells and which jobscripts they correspond to."""
         js_idx: list[list[int]] = []
         shells: list[Shell] = []
@@ -459,36 +481,7 @@ class Submission(JSONLike):
             shell_idx = shells.index(js.shell)
             js_idx[shell_idx].append(js.index)
 
-        return dict(zip((tuple(i) for i in js_idx), shells))
-
-    def __raise_failure(
-        self, submitted_js_idx: list[int], exceptions: list[JobscriptSubmissionFailure]
-    ):
-        msg = f"Some jobscripts in submission index {self.index} could not be submitted"
-        if submitted_js_idx:
-            msg += f" (but jobscripts {submitted_js_idx} were submitted successfully):"
-        else:
-            msg += ":"
-
-        msg += "\n"
-        for sub_err in exceptions:
-            msg += (
-                f"Jobscript {sub_err.js_idx} at path: {str(sub_err.js_path)!r}\n"
-                f"Submit command: {sub_err.submit_cmd!r}.\n"
-                f"Reason: {sub_err.message!r}\n"
-            )
-            if sub_err.subprocess_exc is not None:
-                msg += f"Subprocess exception: {sub_err.subprocess_exc}\n"
-            if sub_err.job_ID_parse_exc is not None:
-                msg += f"Subprocess job ID parse exception: {sub_err.job_ID_parse_exc}\n"
-            if sub_err.job_ID_parse_exc is not None:
-                msg += f"Job ID parse exception: {sub_err.job_ID_parse_exc}\n"
-            if sub_err.stdout:
-                msg += f"Submission stdout:\n{indent(sub_err.stdout, '  ')}\n"
-            if sub_err.stderr:
-                msg += f"Submission stderr:\n{indent(sub_err.stderr, '  ')}\n"
-
-        raise SubmissionFailure(message=msg)
+        return zip(map(tuple, js_idx), shells)
 
     def _append_submission_part(self, submit_time: str, submitted_js_idx: list[int]):
         self._submission_parts[submit_time] = submitted_js_idx
@@ -532,7 +525,7 @@ class Submission(JSONLike):
         # get scheduler, shell and OS version information (also an opportunity to fail
         # before trying to submit jobscripts):
         js_vers_info: dict[int, dict[str, str | list[str]]] = {}
-        for js_indices, sched in self.get_unique_schedulers().items():
+        for js_indices, sched in self._unique_schedulers:
             try:
                 vers_info = sched.get_version_info()
             except Exception:
@@ -543,7 +536,7 @@ class Submission(JSONLike):
                 if js_idx in outstanding:
                     js_vers_info.setdefault(js_idx, {}).update(vers_info)
 
-        for js_indices_2, shell in self.get_unique_shells().items():
+        for js_indices_2, shell in self.get_unique_shells():
             try:
                 vers_info = shell.get_version_info()
             except Exception:
@@ -614,7 +607,7 @@ class Submission(JSONLike):
         if errs and not ignore_errors:
             if status:
                 status.stop()
-            self.__raise_failure(submitted_js_idx, errs)
+            raise SubmissionFailure(self.index, submitted_js_idx, errs)
 
         len_js = len(submitted_js_idx)
         print(f"Submitted {len_js} jobscript{'s' if len_js > 1 else ''}.")
@@ -626,10 +619,10 @@ class Submission(JSONLike):
         """
         Cancel the active jobs for this submission's jobscripts.
         """
-        if not (act_js := list(self.get_active_jobscripts())):
+        if not (act_js := self.get_active_jobscripts()):
             print("No active jobscripts to cancel.")
             return
-        for js_indices, sched in self.get_unique_schedulers().items():
+        for js_indices, sched in self._unique_schedulers:
             # filter by active jobscripts:
             if js_idx := [i[1] for i in js_indices if i[1] in act_js]:
                 print(

@@ -60,44 +60,47 @@ def _is_base_json_like(value: JSONable) -> TypeGuard[BaseJSONLike]:
     return value is not None and hasattr(value, "to_json_like")
 
 
+_MAX_DEPTH = 50
+
+
 @overload
 def to_json_like(
-    obj: int, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: int, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[int, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: float, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: float, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[float, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: str, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: str, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[str, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: None, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: None, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[None, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: enum.Enum, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: enum.Enum, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[str, _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: list[JSONable], shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: list[JSONable], shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
@@ -106,15 +109,15 @@ def to_json_like(
 def to_json_like(
     obj: tuple[JSONable, ...],
     shared_data: _JSONDeserState = None,
-    parent_refs=None,
-    path=None,
+    parent_refs: dict | None = None,
+    path: list | None =None,
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: set[JSONable], shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: set[JSONable], shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[Sequence[JSONed], _JSONDeserState]:
     ...
 
@@ -123,21 +126,21 @@ def to_json_like(
 def to_json_like(
     obj: dict[str, JSONable],
     shared_data: _JSONDeserState = None,
-    parent_refs=None,
-    path=None,
+    parent_refs: dict | None = None,
+    path: list | None =None,
 ) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
     ...
 
 
 @overload
 def to_json_like(
-    obj: BaseJSONLike, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: BaseJSONLike, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None =None
 ) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
     ...
 
 
 def to_json_like(
-    obj: JSONable, shared_data: _JSONDeserState = None, parent_refs=None, path=None
+    obj: JSONable, shared_data: _JSONDeserState = None, parent_refs: dict | None = None, path: list | None = None
 ):
     """
     Convert the object to a JSON-like basic value tree.
@@ -145,7 +148,7 @@ def to_json_like(
     """
     path = path or []
 
-    if len(path) > 50:
+    if len(path) > _MAX_DEPTH:
         raise RuntimeError(f"I'm in too deep! Path is: {path}")
 
     if isinstance(obj, (list, tuple, set)):
@@ -155,20 +158,18 @@ def to_json_like(
                 new_item, shared_data = item.to_json_like(
                     shared_data=shared_data,
                     exclude=set((parent_refs or {}).values()),
-                    path=path + [idx],
+                    path=[*path, idx],
                 )
                 out_list.append(new_item)
             else:
                 new_std_item, shared_data = to_json_like(
-                    item, shared_data=shared_data, path=path + [idx]
+                    item, shared_data=shared_data, path=[*path, idx]
                 )
                 out_list.append(new_std_item)
         if isinstance(obj, tuple):
-            out_tuple = tuple(out_list)
-            return out_tuple, shared_data
+            return tuple(out_list), shared_data
         elif isinstance(obj, set):
-            out_set = set(out_list)
-            return out_set, shared_data
+            return set(out_list), shared_data
         else:
             return out_list, shared_data
 
@@ -177,22 +178,20 @@ def to_json_like(
         for dct_key, dct_val in obj.items():
             if _is_base_json_like(dct_val):
                 try:
-                    ser, shared_data = dct_val.to_json_like(
+                    out_map[dct_key], shared_data = dct_val.to_json_like(
                         shared_data=shared_data,
                         exclude={(parent_refs or {}).get(dct_key)},
-                        path=path + [dct_key],
+                        path=[*path, dct_key],
                     )
-                    out_map.update({dct_key: ser})
                 except ToJSONLikeChildReferenceError:
                     continue
             else:
-                std_ser, shared_data = to_json_like(
+                out_map[dct_key], shared_data = to_json_like(
                     dct_val,
                     shared_data=shared_data,
                     parent_refs=parent_refs,
-                    path=path + [dct_key],
+                    path=[*path, dct_key],
                 )
-                out_map.update({dct_key: std_ser})
         return out_map, shared_data
 
     elif isinstance(obj, PRIMITIVES):
@@ -684,7 +683,7 @@ class BaseJSONLike:
         dct: dict[str, JSONable] | None = None,
         shared_data: _JSONDeserState = None,
         exclude: set[str | None] | None = None,
-        path=None,
+        path: list | None = None,
     ) -> tuple[JSONDocument, _JSONDeserState]:
         """
         Serialize this object as an object structure that can be trivially converted
@@ -711,7 +710,7 @@ class BaseJSONLike:
                     dct_value = dct_value[chd.json_like_name]
 
                 if chd.parent_ref:
-                    parent_refs.update({chd.name: chd.parent_ref})
+                    parent_refs[chd.name] = chd.parent_ref
 
         json_like_, shared_data = to_json_like(
             dct_value, shared_data=shared_data, parent_refs=parent_refs, path=path
@@ -743,9 +742,7 @@ class BaseJSONLike:
                     i.pop("_hash_value", None)
                     hash_i = self._get_hash_from_json_like(i)
                     shared_keys.append(f"hash:{hash_i}")
-
-                    if hash_i not in shared_data[chd.shared_data_name]:
-                        shared_data[chd.shared_data_name].update({hash_i: i})
+                    shared_data[chd.shared_data_name].setdefault(hash_i, i)
 
                 if not chd.is_multiple:
                     try:

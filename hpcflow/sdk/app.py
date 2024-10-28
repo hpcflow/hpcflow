@@ -1596,8 +1596,7 @@ class BaseApp(metaclass=Singleton):
                 "environments", []
             )
             for e_path in self.config.environment_sources:
-                envs_i_lst = read_YAML_file(e_path)
-                for env_j in envs_i_lst:
+                for env_j in read_YAML_file(e_path):
                     for b_idx, builtin_env in enumerate(list(builtin_envs)):
                         # overwrite builtin envs with user-supplied:
                         if builtin_env["name"] == env_j["name"]:
@@ -1795,7 +1794,7 @@ class BaseApp(metaclass=Singleton):
             )
         return scheduler_cls(**scheduler_kwargs)
 
-    def get_OS_supported_schedulers(self) -> list[str]:
+    def get_OS_supported_schedulers(self) -> Iterator[str]:
         """
         Retrieve a list of schedulers that are supported in principle by this operating
         system.
@@ -1803,14 +1802,12 @@ class BaseApp(metaclass=Singleton):
         This does not necessarily mean all the returned schedulers are available on this
         system.
         """
-        out: list[str] = []
         for k in self.scheduler_lookup:
             if os.name == "nt" and k == ("direct", "posix"):
                 # this is valid for WSL on Windows
-                out.append("_".join(k))
+                yield "_".join(k)
             elif k[1] == os.name:
-                out.append(k[0])
-        return out
+                yield k[0]
 
     def perm_error_retry(self):
         """
@@ -2105,8 +2102,8 @@ class BaseApp(metaclass=Singleton):
         """Get all builtin demo workflow template file paths."""
         templates = {}
         pkg = f"{self.package_name}.{self.workflows_dir}"
-        for i in resources.files(pkg).iterdir():
-            p = Path(str(i))
+        for file in resources.files(pkg).iterdir():
+            p = Path(str(file))
             if p.exists() and p.suffix in (".yaml", ".yml", ".json", ".jsonc"):
                 templates[p.stem] = p
         return templates
@@ -2337,15 +2334,15 @@ class BaseApp(metaclass=Singleton):
 
         wk_path = str(wk_path)
         all_ids = []
-        for i in known:
-            all_ids.append(i["local_id"])
+        for known_sub in known:
+            all_ids.append(known_sub["local_id"])
             if (
-                wk_path == i["path"]
-                and sub_idx == i["sub_idx"]
-                and sub_time == i["submit_time"]
+                wk_path == known_sub["path"]
+                and sub_idx == known_sub["sub_idx"]
+                and sub_time == known_sub["submit_time"]
             ):
                 # workflow submission part already present
-                return i["local_id"]
+                return known_sub["local_id"]
 
         # get the next available local ID:
         if all_ids:
@@ -2469,8 +2466,7 @@ class BaseApp(metaclass=Singleton):
             )
 
             # sort in reverse so we can remove indices from new_lines:
-            oldest_idx = sorted(ld_srt_idx[:num_remove], reverse=True)
-            for i in oldest_idx:
+            for i in sorted(ld_srt_idx[:num_remove], reverse=True):
                 new_lines.pop(i)
                 removed_IDs.append(line_IDs.pop(i))
 
@@ -3365,10 +3361,10 @@ class BaseApp(metaclass=Singleton):
                 if "status" in columns:
                     if act_js:
                         act_js_states = set(
-                            [j for i in act_js.values() for j in i.values()]
+                            j for i in act_js.values() for j in i.values()
                         )
                         all_cells["status"] = "/".join(
-                            f"[{i.colour}]{i.symbol}[/{i.colour}]" for i in act_js_states
+                            js_state.rich_repr for js_state in act_js_states
                         )
                     else:
                         if deleted:
@@ -3408,9 +3404,9 @@ class BaseApp(metaclass=Singleton):
                             elem_tab_i.add_column()
                             for elem_idx, EARs in elements.items():
                                 elem_status = Text(f"{elem_idx} | ", style=style)
-                                for i in EARs:
+                                for ear in EARs:
                                     elem_status.append(
-                                        i.status.symbol, style=i.status.colour
+                                        ear.status.symbol, style=ear.status.colour
                                     )
                                 elem_tab_i.add_row(elem_status)
                             task_tab.add_row(task.unique_name, elem_tab_i, style=style)
@@ -3500,9 +3496,8 @@ class BaseApp(metaclass=Singleton):
         except FileNotFoundError:
             known_subs = []
 
-        for i in known_subs:
-            if i["local_id"] == local_ID:
-                return Path(i["path"])
+        if any((witness := sub)["local_id"] == local_ID for sub in known_subs):
+            return Path(witness["path"])
         raise ValueError(f"Specified local ID is not valid: {local_ID}.")
 
     def _resolve_workflow_reference(
@@ -3608,12 +3603,12 @@ class BaseApp(metaclass=Singleton):
         new_env = self.Environment(name=name, setup=setup, executables=executables)
         new_env_dat = new_env.to_json_like(exclude={"_hash_value"})[0]
         if env_source.exists():
-            existing_env_dat = read_YAML_file(env_source, typ="rt")
-            if name in [i["name"] for i in existing_env_dat]:
+            existing_env_dat: list[dict] = read_YAML_file(env_source, typ="rt")
+            if any(name == i["name"] for i in existing_env_dat):
                 # TODO: this doesn't check all app envs, just those added with this method
                 raise ValueError(f"Environment {name!r} already exists.")
 
-            all_env_dat = existing_env_dat + [new_env_dat]
+            all_env_dat = [*existing_env_dat, new_env_dat]
 
             # write a new temporary config file
             tmp_file = env_source.with_suffix(env_source.suffix + ".tmp")

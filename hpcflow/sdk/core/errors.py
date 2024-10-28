@@ -5,6 +5,7 @@ Errors from the workflow system.
 from __future__ import annotations
 import os
 from collections.abc import Iterable, Mapping, Sequence
+from textwrap import indent
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -486,9 +487,33 @@ class SubmissionFailure(RuntimeError):
     A job submission failed.
     """
 
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
+    def __init__(self, sub_idx: int, submitted_js_idx: list[int],
+                 exceptions: Iterable[JobscriptSubmissionFailure]) -> None:
+        msg = f"Some jobscripts in submission index {sub_idx} could not be submitted"
+        if submitted_js_idx:
+            msg += f" (but jobscripts {submitted_js_idx} were submitted successfully):"
+        else:
+            msg += ":"
+
+        msg += "\n"
+        for sub_err in exceptions:
+            msg += (
+                f"Jobscript {sub_err.js_idx} at path: {str(sub_err.js_path)!r}\n"
+                f"Submit command: {sub_err.submit_cmd!r}.\n"
+                f"Reason: {sub_err.message!r}\n"
+            )
+            if sub_err.subprocess_exc is not None:
+                msg += f"Subprocess exception: {sub_err.subprocess_exc}\n"
+            if sub_err.job_ID_parse_exc is not None:
+                msg += f"Subprocess job ID parse exception: {sub_err.job_ID_parse_exc}\n"
+            if sub_err.job_ID_parse_exc is not None:
+                msg += f"Job ID parse exception: {sub_err.job_ID_parse_exc}\n"
+            if sub_err.stdout:
+                msg += f"Submission stdout:\n{indent(sub_err.stdout, '  ')}\n"
+            if sub_err.stderr:
+                msg += f"Submission stderr:\n{indent(sub_err.stderr, '  ')}\n"
+        self.message = msg
+        super().__init__(msg)
 
 
 class WorkflowSubmissionFailure(RuntimeError):

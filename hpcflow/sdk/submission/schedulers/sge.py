@@ -258,8 +258,7 @@ class SGEPosix(QueuedScheduler):
 
     def parse_submission_output(self, stdout: str) -> str:
         """Extract scheduler reference for a newly submitted jobscript"""
-        match = self.__SGE_JOB_ID_RE.search(stdout)
-        if not match:
+        if not (match := self.__SGE_JOB_ID_RE.search(stdout)):
             raise RuntimeError(f"Could not parse Job ID from scheduler output {stdout!r}")
         return match.group()
 
