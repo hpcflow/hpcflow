@@ -200,3 +200,7 @@ class MissingEnvironmentFileError(ConfigError):
 
 class ConfigReadOnlyError(ConfigError):
     pass
+
+
+class UnknownMetaTaskConstitutiveSchema(ValueError):
+    pass
