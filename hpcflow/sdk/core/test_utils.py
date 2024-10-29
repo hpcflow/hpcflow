@@ -15,33 +15,32 @@ def make_schemas(ins_outs, ret_list=False):
         else:
             (ins_i, outs_i, obj) = info
 
-        # distribute outputs over stdout, stderr and out file parsers:
-        stdout = None
-        stderr = None
-        out_file_parsers = None
+        # distribute outputs over multiple commands' stdout:
+        cmds_lst = []
+        for out_idx, out_j in enumerate(outs_i):
+            cmd = hf.Command(
+                command=(
+                    "echo $(("
+                    + " + ".join(f"<<parameter:{i}>> + {100 + out_idx}" for i in ins_i)
+                    + "))"
+                ),
+                stdout=f"<<parameter:{out_j}>>",
+            )
+            cmds_lst.append(cmd)
 
-        if outs_i:
-            stdout = f"<<parameter:{outs_i[0]}>>"
-        if len(outs_i) > 1:
-            stderr = f"<<parameter:{outs_i[1]}>>"
-        if len(outs_i) > 2:
-            out_file_parsers = [
-                hf.OutputFileParser(
-                    output=hf.Parameter(out_i),
-                    output_files=[hf.FileSpec(label="file1", name="file1.txt")],
+        if not outs_i:
+            # no outputs
+            cmds_lst = [
+                hf.Command(
+                    command=(
+                        "echo $(("
+                        + " + ".join(f"<<parameter:{i}>> + 100" for i in ins_i)
+                        + "))"
+                    ),
                 )
-                for out_i in outs_i[2:]
             ]
-        cmd = hf.Command(
-            " ".join(f"echo $((<<parameter:{i}>> + 100))" for i in ins_i.keys()),
-            stdout=stdout,
-            stderr=stderr,
-        )
 
-        act_i = hf.Action(
-            commands=[cmd],
-            output_file_parsers=out_file_parsers,
-        )
+        act_i = hf.Action(commands=cmds_lst)
         out.append(
             hf.TaskSchema(
                 objective=obj,
