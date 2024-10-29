@@ -1,6 +1,9 @@
 from textwrap import dedent
 
+import pytest
+
 from hpcflow.app import app as hf
+from hpcflow.sdk.config.errors import UnknownMetaTaskConstitutiveSchema
 
 
 def test_basic_meta_task_workflow(new_null_config, tmp_path):
@@ -269,3 +272,54 @@ def test_meta_task_custom_parametrisation(new_null_config, tmp_path):
         300,
         301,
     ]  # modified
+
+
+def test_meta_task_custom_parametrisation_raises_on_bad_schema_name(
+    new_null_config, tmp_path
+):
+    wk_yaml = dedent(
+        """\
+      name: test_metatask_raise_on_bad_schema_name
+      template_components:
+        task_schemas:
+          - objective: s1
+            inputs: 
+              - parameter: p1
+              - parameter: p2
+            outputs:
+              - parameter: p3
+            actions:
+              - commands:
+                - command: echo "$((<<parameter:p1>> + <<parameter:p2>>))"
+                  stdout: <<int(parameter:p3)>>
+
+        meta_task_schemas:
+          - objective: system_analysis
+            inputs:
+              - parameter: p1
+              - parameter: p2
+            outputs:
+              - parameter: p3
+
+      meta_tasks:
+        system_analysis:
+          - schema: s1
+            element_sets:
+              - inputs:
+                  p1: 100
+                  p2: 200
+              - inputs:
+                  p1: 100
+                sequences:
+                  - path: inputs.p2
+                    values: [200, 201]
+      tasks:
+        - schema: system_analysis
+          resources:
+            BAD_SCHEMA_NAME: # should raise!
+              any:
+                num_cores: 2
+      """
+    )
+    with pytest.raises(UnknownMetaTaskConstitutiveSchema):
+        wk = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path)

@@ -23,7 +23,10 @@ from fsspec.core import url_to_fs
 import rich.console
 
 from hpcflow.sdk import app
-from hpcflow.sdk.config.errors import ConfigNonConfigurableError
+from hpcflow.sdk.config.errors import (
+    ConfigNonConfigurableError,
+    UnknownMetaTaskConstitutiveSchema,
+)
 from hpcflow.sdk.core import (
     ALL_TEMPLATE_FORMATS,
     ABORT_EXIT_CODE,
@@ -333,6 +336,8 @@ class WorkflowTemplate(JSONLike):
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
                     ]
 
+                    all_schema_names = [i["schema"] for i in meta_task_dat]
+
                     # update any parametrisation provided in the task list:
                     base_data = copy.deepcopy(meta_task_dat)
 
@@ -355,6 +360,16 @@ class WorkflowTemplate(JSONLike):
                                 schema_name = ".".join(elem_set_id_split)
                             schema_name = schema_name.strip(".")
 
+                            # check valid schema name:
+                            if schema_name not in all_schema_names:
+                                raise UnknownMetaTaskConstitutiveSchema(
+                                    f"Task schema with objective {schema_name!r} is not "
+                                    f"part of the meta-task with objective "
+                                    f"{task_dat['schema']!r}. The constitutive schemas of"
+                                    f" this meta-task have objectives: "
+                                    f"{all_schema_names!r}."
+                                )
+
                             # copy `dat` to the correct schema and element set in the
                             # meta-task:
                             for s_idx, s in enumerate(base_data):
@@ -364,7 +379,6 @@ class WorkflowTemplate(JSONLike):
                                         base_data[s_idx]["element_sets"][es_idx][
                                             k
                                         ].update(dat)
-                                        print(f"{dat=!r}")
                                     else:
                                         # just overwrite
                                         base_data[s_idx]["element_sets"][es_idx][k] = dat
