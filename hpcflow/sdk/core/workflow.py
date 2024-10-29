@@ -336,7 +336,7 @@ class WorkflowTemplate(JSONLike):
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
                     ]
 
-                    all_schema_names = [i["schema"] for i in meta_task_dat]
+                    all_schema_names = [j for i in meta_task_dat for j in i["schema"]]
 
                     # update any parametrisation provided in the task list:
                     base_data = copy.deepcopy(meta_task_dat)
