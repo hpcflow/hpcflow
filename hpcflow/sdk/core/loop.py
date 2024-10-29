@@ -229,7 +229,8 @@ class WorkflowLoop:
         workflow: app.Workflow,
         template: app.Loop,
         num_added_iterations: Dict[Tuple[int], int],
-        iterable_parameters: Dict[int : List[int, List[int]]],
+        iterable_parameters: Dict[str : Dict[str, Union[int, List[int]]]],
+        output_parameters: List[str],
         parents: List[str],
     ):
         self._index = index
@@ -237,6 +238,7 @@ class WorkflowLoop:
         self._template = template
         self._num_added_iterations = num_added_iterations
         self._iterable_parameters = iterable_parameters
+        self._output_parameters = output_parameters
         self._parents = parents
 
         # appended to on adding a empty loop to the workflow that's a parent of this loop,
@@ -262,11 +264,11 @@ class WorkflowLoop:
             )
 
         for task in self.downstream_tasks:
-            for param in self.iterable_parameters:
+            for param in self.output_parameters:
                 if param in task.template.all_schema_input_types:
                     raise NotImplementedError(
                         f"Downstream task {task.unique_name!r} of loop {self.name!r} "
-                        f"has as one of its input parameters this loop's iterable "
+                        f"has as one of its input parameters this loop's output "
                         f"parameter {param!r}. This parameter cannot be sourced "
                         f"correctly."
                     )
@@ -367,6 +369,10 @@ class WorkflowLoop:
         return self._iterable_parameters
 
     @property
+    def output_parameters(self):
+        return self._output_parameters
+
+    @property
     def num_iterations(self):
         return self.template.num_iterations
 
@@ -382,7 +388,7 @@ class WorkflowLoop:
 
     @staticmethod
     @TimeIt.decorator
-    def _find_iterable_parameters(loop_template: app.Loop):
+    def _find_iterable_and_output_parameters(loop_template: app.Loop):
         all_inputs_first_idx = {}
         all_outputs_idx = {}
         for task in loop_template.task_objects:
@@ -394,6 +400,7 @@ class WorkflowLoop:
                     all_outputs_idx[typ] = []
                 all_outputs_idx[typ].append(task.insert_ID)
 
+        # find input parameters that are also output parameters at a later/same task:
         iterable_params = {}
         for typ, first_idx in all_inputs_first_idx.items():
             if typ in all_outputs_idx and first_idx <= all_outputs_idx[typ][0]:
@@ -406,7 +413,7 @@ class WorkflowLoop:
             if non_iter in iterable_params:
                 del iterable_params[non_iter]
 
-        return iterable_params
+        return iterable_params, tuple(all_outputs_idx.keys())
 
     @classmethod
     @TimeIt.decorator
@@ -423,12 +430,14 @@ class WorkflowLoop:
         for i in iter_loop_idx:
             num_added_iters[tuple([i[j] for j in parent_names])] = 1
 
+        iter_params, out_params = cls._find_iterable_and_output_parameters(template)
         obj = cls(
             index=index,
             workflow=workflow,
             template=template,
             num_added_iterations=num_added_iters,
-            iterable_parameters=cls._find_iterable_parameters(template),
+            iterable_parameters=iter_params,
+            output_parameters=out_params,
             parents=parent_names,
         )
         return obj
