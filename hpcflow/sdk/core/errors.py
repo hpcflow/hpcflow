@@ -110,7 +110,7 @@ class UnrequiredInputSources(ValueError):
 
     def __init__(self, unrequired_sources: Iterable[str]) -> None:
         self.unrequired_sources = frozenset(unrequired_sources)
-        message=(
+        message = (
             f"The following input sources are not required but have been specified: "
             f'{", ".join(map(repr, sorted(self.unrequired_sources)))}.'
         )
@@ -138,7 +138,8 @@ class ExtraInputs(Exception):
         self.extra_inputs = frozenset(extra_inputs)
         super().__init__(
             f"The following inputs are not required, but have been passed: "
-            f'{", ".join(f"{typ!r}" for typ in extra_inputs)}.')
+            f'{", ".join(f"{typ!r}" for typ in extra_inputs)}.'
+        )
 
 
 class UnavailableInputSource(ValueError):

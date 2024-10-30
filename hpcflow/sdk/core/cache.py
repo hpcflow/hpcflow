@@ -86,9 +86,8 @@ class DependencyCache:
             run_i_sources = set(
                 run_k
                 for idx in chain.from_iterable(dict_i.values())
-                if (
-                    run_k := all_param_sources[idx].get("EAR_ID")
-                ) is not None and run_k != idx
+                if (run_k := all_param_sources[idx].get("EAR_ID")) is not None
+                and run_k != idx
             )
             run_dependencies[idx] = run_i_sources
             for m in run_i_sources:

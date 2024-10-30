@@ -3196,10 +3196,12 @@ class BaseApp(metaclass=Singleton):
             out = [item for item in out if item["local_id"] not in removed_IDs]
 
         out_active, out_inactive = self.__partition(
-            out, lambda item: item["active_jobscripts"])
+            out, lambda item: item["active_jobscripts"]
+        )
         # sort inactive by most-recently finished, then deleted:
         out_no_access, out_access = self.__partition(
-            out_inactive, lambda item: item["deleted"] or item["unloadable"])
+            out_inactive, lambda item: item["deleted"] or item["unloadable"]
+        )
 
         # sort loadable inactive by end time or start time or submit time:
         DEF_TIMESTAMP = datetime(0, 0, 0)
@@ -3225,7 +3227,9 @@ class BaseApp(metaclass=Singleton):
         return out
 
     @staticmethod
-    def __partition(lst: Iterable[T], cond: Callable[[T], Any]) -> tuple[list[T], list[T]]:
+    def __partition(
+        lst: Iterable[T], cond: Callable[[T], Any]
+    ) -> tuple[list[T], list[T]]:
         """
         Split a list into two by whether the condition holds for each item.
 
@@ -3234,7 +3238,7 @@ class BaseApp(metaclass=Singleton):
         true_items
             List of items for which the condition is true (or at least truthy).
         false_items
-            List of items for which the condition is false. 
+            List of items for which the condition is false.
         """
         lists: tuple[list[T], list[T]] = [], []
         for item in lst:
@@ -3377,7 +3381,9 @@ class BaseApp(metaclass=Singleton):
                 if "status" in columns:
                     if act_js:
                         act_js_states = set(
-                            js_state for jsinf in act_js.values() for js_state in jsinf.values()
+                            js_state
+                            for jsinf in act_js.values()
+                            for js_state in jsinf.values()
                         )
                         all_cells["status"] = "/".join(
                             js_state.rich_repr for js_state in act_js_states
@@ -3834,7 +3840,10 @@ class BaseApp(metaclass=Singleton):
         """
         Get the name of all cached demo data file.
         """
-        return [self.get_demo_data_file_path(filename) for filename in self.list_demo_data_files()]
+        return [
+            self.get_demo_data_file_path(filename)
+            for filename in self.list_demo_data_files()
+        ]
 
     def copy_demo_data(
         self, file_name: str, dst: PathLike | None = None, doc: bool = True

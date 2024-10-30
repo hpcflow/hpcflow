@@ -572,7 +572,9 @@ class BaseJSONLike:
                         raise TypeError(
                             "Shared data reference must be a str or a dict."
                         )  # TODO: test raise
-                    out.append(shared_data[child_spec.shared_data_name].get(**sd_lookup_kwargs))
+                    out.append(
+                        shared_data[child_spec.shared_data_name].get(**sd_lookup_kwargs)
+                    )
             else:
                 chd_cls = cls.__get_child_class(child_spec)
                 assert chd_cls is not None
@@ -593,13 +595,9 @@ class BaseJSONLike:
 
             if child_spec.is_dict_values:
                 if child_spec.is_dict_values_ensure_list:
-                    return {
-                        k: [out[i] for i in v] for k, v in is_dict_values_idx.items()
-                    }
+                    return {k: [out[i] for i in v] for k, v in is_dict_values_idx.items()}
                 else:
-                    return {
-                        k: out[v[0]] for k, v in is_dict_values_idx.items()
-                    }
+                    return {k: out[v[0]] for k, v in is_dict_values_idx.items()}
 
             elif not child_spec.is_multiple:
                 return out[0]
@@ -627,8 +625,12 @@ class BaseJSONLike:
             assert isinstance(json_like_copy, Mapping)
             if child_spec.json_like_name and child_spec.json_like_name in json_like_copy:
                 json_like_copy = dict(json_like_copy)
-                json_like_copy[child_spec.name] = cast("JSONed", from_json_like_item(
-                    child_spec, json_like_copy.pop(child_spec.json_like_name)))
+                json_like_copy[child_spec.name] = cast(
+                    "JSONed",
+                    from_json_like_item(
+                        child_spec, json_like_copy.pop(child_spec.json_like_name)
+                    ),
+                )
 
         assert isinstance(json_like_copy, Mapping)
 
@@ -714,9 +716,7 @@ class BaseJSONLike:
         it just requires a different final serialization step.
         """
         if dct is None:
-            dct_value = {
-                k: v for k, v in self.to_dict().items() if k not in exclude
-            }
+            dct_value = {k: v for k, v in self.to_dict().items() if k not in exclude}
         else:
             dct_value = dct
 

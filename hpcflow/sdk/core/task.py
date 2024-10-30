@@ -1985,7 +1985,7 @@ class WorkflowTask(AppAware):
             source_tasks=self.workflow.tasks[: self.index],
         )
 
-        if (unreq := set(element_set.input_sources).difference(available_sources)):
+        if unreq := set(element_set.input_sources).difference(available_sources):
             raise UnrequiredInputSources(unreq)
 
         # TODO: get available input sources from workflow imports
@@ -2122,12 +2122,16 @@ class WorkflowTask(AppAware):
                 es_indices = [
                     all_elem_iters_by_ID[id_].element.element_set_idx for id_ in inp_iters
                 ]
-                es_idx_by_task[task_ref][inp_type] = _ESIdx(es_indices, frozenset(es_indices))
+                es_idx_by_task[task_ref][inp_type] = _ESIdx(
+                    es_indices, frozenset(es_indices)
+                )
             for root_param in {k for k in task_iters if "." not in k}:
                 rp_nesting = element_set.nesting_order.get(f"inputs.{root_param}", None)
                 rp_elem_sets, rp_elem_sets_uniq = es_idx_by_task[task_ref][root_param]
 
-                for sub_param_j in {k for k in task_iters if k.startswith(f"{root_param}.")}:
+                for sub_param_j in {
+                    k for k in task_iters if k.startswith(f"{root_param}.")
+                }:
                     sub_param_nesting = element_set.nesting_order.get(
                         f"inputs.{sub_param_j}", None
                     )
@@ -2144,7 +2148,9 @@ class WorkflowTask(AppAware):
                             # sets, and keep track of the extra indices so they can be
                             # ignored later:
                             sp_iters_new: list[int | None] = []
-                            for idx, (it_id, es_idx) in enumerate(zip(iters, rp_elem_sets)):
+                            for idx, (it_id, es_idx) in enumerate(
+                                zip(iters, rp_elem_sets)
+                            ):
                                 if es_idx in sp_elem_sets_uniq:
                                     sp_iters_new.append(None)
                                 else:
@@ -2155,7 +2161,9 @@ class WorkflowTask(AppAware):
                             for src in element_set.input_sources[sub_param_j]:
                                 if src.source_type is InputSourceType.TASK:
                                     # fill in sub-param elem_iters in their specified order
-                                    sub_iters_it = iter(elem_iter_by_task[task_ref][sub_param_j])
+                                    sub_iters_it = iter(
+                                        elem_iter_by_task[task_ref][sub_param_j]
+                                    )
                                     src.element_iters = [
                                         it_id if it_id is not None else next(sub_iters_it)
                                         for it_id in sp_iters_new
@@ -2834,8 +2842,7 @@ class WorkflowTask(AppAware):
         deps_set: set[int] = set()
         for task in self.downstream_tasks:
             if task.insert_ID not in deps_set and any(
-                src.source_type is InputSourceType.TASK
-                and src.task_ref == self.insert_ID
+                src.source_type is InputSourceType.TASK and src.task_ref == self.insert_ID
                 for element_set in task.template.element_sets
                 for sources in element_set.input_sources.values()
                 for src in sources
@@ -3035,9 +3042,7 @@ class WorkflowTask(AppAware):
                 if not dat_info["is_set"] and (not path or path in key):
                     # remove sub-paths, as they cannot be merged with this parent
                     prefix = f"{key}."
-                    to_remove.update(
-                        k for k in relevant_data if k.startswith(prefix)
-                    )
+                    to_remove.update(k for k in relevant_data if k.startswith(prefix))
             for key in to_remove:
                 relevant_data.pop(key, None)
 

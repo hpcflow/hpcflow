@@ -2294,7 +2294,9 @@ class Workflow(AppAware):
         Get the elements of a task.
         """
         return [
-            self._app.Element(task=task, **{k: v for k, v in te.items() if k != "task_ID"})
+            self._app.Element(
+                task=task, **{k: v for k, v in te.items() if k != "task_ID"}
+            )
             for te in self._store.get_task_elements(task.insert_ID, idx_lst)
         ]
 

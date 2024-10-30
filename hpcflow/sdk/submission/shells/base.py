@@ -98,7 +98,7 @@ class Shell(ABC):
         if not deps:
             return ""
         return (
-            f'{workflow_app_alias} workflow $WK_PATH_ARG wait --jobscripts '
+            f"{workflow_app_alias} workflow $WK_PATH_ARG wait --jobscripts "
             f'"{sub_idx}:{",".join(str(i) for i in deps)}"'
         )
 

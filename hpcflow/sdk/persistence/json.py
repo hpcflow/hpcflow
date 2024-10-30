@@ -585,7 +585,9 @@ class JSONPersistentStore(
         path_ = Path(path).resolve()
         tasks = [JsonStoreTask(**task_info).encode() for task_info in tasks_]
         elements_ = [JsonStoreElement(**elem_info).encode(None) for elem_info in elems]
-        elem_iters_ = [JsonStoreElementIter(**it_info).encode(None) for it_info in elem_iters]
+        elem_iters_ = [
+            JsonStoreElementIter(**it_info).encode(None) for it_info in elem_iters
+        ]
         EARs_ = [JsonStoreEAR(**ear_info).encode(ts_fmt, None) for ear_info in EARs]
 
         persistent_data = {

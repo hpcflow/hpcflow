@@ -477,8 +477,7 @@ class WorkflowLoop(AppAware):
             if loop.name
         ]
         num_added_iters = {
-            tuple(l_idx[nm] for nm in parent_names): 1
-            for l_idx in iter_loop_idx
+            tuple(l_idx[nm] for nm in parent_names): 1 for l_idx in iter_loop_idx
         }
 
         return cls(
@@ -562,11 +561,13 @@ class WorkflowLoop(AppAware):
         assert cache is not None
         parent_loops = self.get_parent_loops()
         child_loops = self.get_child_loops()
-        parent_loop_indices_ = parent_loop_indices or {loop.name: 0 for loop in parent_loops}
+        parent_loop_indices_ = parent_loop_indices or {
+            loop.name: 0 for loop in parent_loops
+        }
 
         iters_key = tuple(parent_loop_indices_[p_nm] for p_nm in self.parents)
         cur_loop_idx = self.num_added_iterations[iters_key] - 1
-        
+
         # keys are (task.insert_ID and element.index)
         all_new_data_idx: dict[tuple[int, int], DataIndex] = {}
 

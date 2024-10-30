@@ -815,7 +815,9 @@ class ResourceList(ObjectList["ResourceSpec"]):
         """Convert JSON doc to a dict keyed by action scope (like as can be
         specified in the input YAML) instead of list."""
         return {
-            self._app.ActionScope.from_json_like(res_spec_js.pop("scope")).to_string(): res_spec_js
+            self._app.ActionScope.from_json_like(
+                res_spec_js.pop("scope")
+            ).to_string(): res_spec_js
             for res_spec_js in json_like
         }
 

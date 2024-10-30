@@ -332,7 +332,9 @@ def search_dir_files_by_regex(
     file paths, relative to the given directory."""
     dir_ = Path(directory)
     return [
-        str(entry.relative_to(dir_)) for entry in dir_.rglob("*") if re.search(pattern, entry.name)
+        str(entry.relative_to(dir_))
+        for entry in dir_.rglob("*")
+        if re.search(pattern, entry.name)
     ]
 
 

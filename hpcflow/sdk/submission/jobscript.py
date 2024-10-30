@@ -585,7 +585,9 @@ class Jobscript(JSONLike):
         """The first known start time of any EAR in this jobscript."""
         if not self.is_submitted:
             return None
-        return min((ear.start_time for ear in self.all_EARs if ear.start_time), default=None)
+        return min(
+            (ear.start_time for ear in self.all_EARs if ear.start_time), default=None
+        )
 
     @property
     @TimeIt.decorator

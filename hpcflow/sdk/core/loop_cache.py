@@ -76,7 +76,9 @@ class LoopCache:
     @TimeIt.decorator
     def get_iter_IDs(self, loop: Loop) -> list[int]:
         """Retrieve a list of iteration IDs belonging to a given loop."""
-        return [i_id for t_id in loop.task_insert_IDs for i_id in self.task_iterations[t_id]]
+        return [
+            i_id for t_id in loop.task_insert_IDs for i_id in self.task_iterations[t_id]
+        ]
 
     @TimeIt.decorator
     def get_iter_loop_indices(self, iter_IDs: list[int]) -> list[dict[str, int]]:
@@ -157,7 +159,8 @@ class LoopCache:
                 elem_deps[element.id_] = {
                     de_id: {
                         "group_names": tuple(
-                            grp.name for grp in deps_cache.elements[de_id].element_set.groups
+                            grp.name
+                            for grp in deps_cache.elements[de_id].element_set.groups
                         ),
                     }
                     for de_id in deps_cache.elem_elem_dependents_rec[element.id_]

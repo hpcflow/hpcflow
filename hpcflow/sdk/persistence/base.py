@@ -2181,7 +2181,9 @@ class PersistentStore(
         # separate pending and persistent IDs:
         ids, id_pers, id_pend = self.__split_pending(ids, self._pending.add_parameters)
         set_status = self._get_persistent_parameter_set_status(id_pers) if id_pers else {}
-        set_status.update((id_, self._pending.add_parameters[id_].is_set) for id_ in id_pend)
+        set_status.update(
+            (id_, self._pending.add_parameters[id_].is_set) for id_ in id_pend
+        )
 
         # order as requested:
         return [set_status[id_] for id_ in ids]
@@ -2241,7 +2243,9 @@ class PersistentStore(
         store_elements = self.get_elements(
             all_elem_IDs if idx_lst is None else (all_elem_IDs[idx] for idx in idx_lst)
         )
-        iter_IDs_flat, iter_IDs_lens = flatten([el.iteration_IDs for el in store_elements])
+        iter_IDs_flat, iter_IDs_lens = flatten(
+            [el.iteration_IDs for el in store_elements]
+        )
         store_iters = self.get_element_iterations(iter_IDs_flat)
 
         # retrieve EARs:
@@ -2275,7 +2279,7 @@ class PersistentStore(
         For each parameter ID, return True if it exists, else False.
         """
         id_miss = set()
-        if (id_not_pend := set(ids).difference(self._pending.add_parameters)):
+        if id_not_pend := set(ids).difference(self._pending.add_parameters):
             id_miss = id_not_pend.difference(self._get_persistent_parameter_IDs())
         return (id_ not in id_miss for id_ in ids)
 
