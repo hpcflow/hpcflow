@@ -126,7 +126,7 @@ class Command(JSONLike):
             return str(sum(iterable))
 
         def _join(iterable: Iterable, delim: str) -> str:
-            return delim.join(str(i) for i in iterable)
+            return delim.join(map(str, iterable))
 
         parse_types: dict[str, Callable[..., str]] = {
             "sum": _format_sum,
@@ -138,7 +138,7 @@ class Command(JSONLike):
             if typ == "executable":
                 executable = env.executables.get(val)
                 filterable = ElementResources.get_env_instance_filterable_attributes()
-                filter_exec = {j: EAR.get_resources().get(j) for j in filterable}
+                filter_exec = {attr: EAR.get_resources().get(attr) for attr in filterable}
                 exec_cmd = executable.filter_instances(**filter_exec)[0].command
                 return exec_cmd.replace("<<num_cores>>", str(EAR.resources.num_cores))
             elif typ == "script":
@@ -292,8 +292,8 @@ class Command(JSONLike):
                 kwargs[quote_arg] = quote_contents
 
         if args_str := args_str.strip().strip(","):
-            for i in args_str.split(","):
-                name_i, value_i = map(str.strip, i.split("="))
+            for arg_part in args_str.split(","):
+                name_i, value_i = map(str.strip, arg_part.split("="))
                 kwargs[name_i] = value_i
         return kwargs
 

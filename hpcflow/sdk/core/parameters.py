@@ -500,12 +500,11 @@ class SchemaInput(SchemaParameter):
                 dct["labels"][k]["parameter_propagation_mode"] = prop_mode.name
         return dct
 
-    def to_json_like(self, dct=None, shared_data=None, exclude=None, path=None):
-        out, shared = super().to_json_like(dct, shared_data, exclude, path)
-        for k, v in out["labels"].items():
+    def _postprocess_to_json(self, json_like):
+        for v in json_like["labels"].values():
             if "default_value" in v:
-                out["labels"][k]["default_value_is_input_value"] = True
-        return out, shared
+                v["default_value_is_input_value"] = True
+        return json_like
 
     @classmethod
     def from_json_like(cls, json_like, shared_data=None):
@@ -526,8 +525,7 @@ class SchemaInput(SchemaParameter):
                     shared_data=shared_data,
                 )
 
-        obj = super().from_json_like(json_like, shared_data)
-        return obj
+        return super().from_json_like(json_like, shared_data)
 
     def __deepcopy__(self, memo: dict[int, Any]):
         kwargs = copy.deepcopy(
@@ -940,11 +938,11 @@ class ValueSequence(JSONLike):
             )
         path_l = path.lower()
         path_split = path_l.split(".")
-        allowed_path_start = ("inputs", "resources", "environments", "env_preset")
-        if not path_split[0] in allowed_path_start:
+        ALLOWED_PATH_START = ("inputs", "resources", "environments", "env_preset")
+        if not path_split[0] in ALLOWED_PATH_START:
             raise MalformedParameterPathError(
                 f"`path` must start with one of: "
-                f'{", ".join(f"{i!r}" for i in allowed_path_start)}, but given path '
+                f'{", ".join(f"{pfx!r}" for pfx in ALLOWED_PATH_START)}, but given path '
                 f"is: {path!r}."
             )
 
@@ -1885,17 +1883,13 @@ class ResourceSpec(JSONLike):
 
     def __repr__(self):
         param_strs = ""
-        for i in self.ALLOWED_PARAMETERS:
-            i_str = ""
+        for param in self.ALLOWED_PARAMETERS:
             try:
-                i_val = getattr(self, i)
+                i_val = getattr(self, param)
             except WorkflowParameterMissingError:
-                pass
-            else:
-                if i_val is not None:
-                    i_str = f", {i}={i_val!r}"
-
-            param_strs += i_str
+                continue
+            if i_val is not None:
+                param_strs += f", {param}={i_val!r}"
 
         return f"{self.__class__.__name__}(scope={self.scope}{param_strs})"
 
@@ -2394,11 +2388,12 @@ class InputSource(JSONLike):
         out = [self.source_type.name.lower()]
         if self.source_type is InputSourceType.TASK:
             assert self.task_source_type
-            out += [str(self.task_ref), self.task_source_type.name.lower()]
+            out.append(str(self.task_ref))
+            out.append(self.task_source_type.name.lower())
             if self.element_iters is not None:
-                out += ["[" + ",".join(f"{i}" for i in self.element_iters) + "]"]
+                out.append(f'[{",".join(map(str, self.element_iters))}]')
         elif self.source_type is InputSourceType.IMPORT:
-            out += [str(self.import_ref)]
+            out.append(str(self.import_ref))
         return ".".join(out)
 
     @classmethod

@@ -123,9 +123,7 @@ class ObjectList(JSONLike, Generic[T]):
         """Overriding this function allows control over how the `get` functions behave."""
         return getattr(obj, attr)
 
-    def _get_all_from_objs(self, objs: Iterable[T], **kwargs):
-        # narrow down according to kwargs:
-        specified_objs: list[T] = []
+    def __specified_objs(self, objs: Iterable[T], kwargs: dict[str, Any]) -> Iterator[T]:
         for obj in objs:
             for k, v in kwargs.items():
                 try:
@@ -134,9 +132,11 @@ class ObjectList(JSONLike, Generic[T]):
                 except (AttributeError, KeyError):
                     break
             else:
-                specified_objs.append(obj)
+                yield obj
 
-        return [self._get_item(i) for i in specified_objs]
+    def _get_all_from_objs(self, objs: Iterable[T], **kwargs):
+        # narrow down according to kwargs:
+        return [self._get_item(obj) for obj in self.__specified_objs(objs, kwargs)]
 
     def get_all(self, **kwargs):
         """Get one or more objects from the object list, by specifying the value of the
@@ -222,7 +222,7 @@ class DotAccessAttributeError(AttributeError):
         msg = f"{obj._descriptor.title()} {name!r} does not exist. "
         if obj._objects:
             attr = obj._access_attribute
-            obj_list = (f'"{getattr(i, attr)}"' for i in obj._objects)
+            obj_list = (f'"{getattr(obj, attr)}"' for obj in obj._objects)
             msg += f"Available {obj._descriptor}s are: {', '.join(obj_list)}."
         else:
             msg += "The object list is empty."
@@ -315,7 +315,7 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
-        yield from (getattr(i, self._access_attribute) for i in self._objects)
+        yield from (getattr(obj, self._access_attribute) for obj in self._objects)
 
     def list_attrs(self) -> tuple[str, ...]:
         """Get a tuple of the unique access-attribute values of the constituent objects."""
@@ -346,7 +346,7 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
                     f"object's attribute {self._access_attribute!r}. Available attribute "
                     f"values are: {self.list_attrs()!r}."
                 )
-            all_objs: Iterable[T] = (self._objects[i] for i in all_idx)
+            all_objs: Iterable[T] = (self._objects[idx] for idx in all_idx)
         else:
             all_objs = self._objects
 
@@ -811,16 +811,13 @@ class ResourceList(ObjectList["ResourceSpec"]):
         """
         return self._workflow_template
 
-    def to_json_like(self, dct=None, shared_data=None, exclude=None, path=None):
-        """Overridden to write out as a dict keyed by action scope (like as can be
+    def _postprocess_to_json(self, json_like):
+        """Convert JSON doc to a dict keyed by action scope (like as can be
         specified in the input YAML) instead of list."""
-
-        out, shared_data = super().to_json_like(dct, shared_data, exclude, path)
-        as_dict = {}
-        for res_spec_js in out:
-            scope = self._app.ActionScope.from_json_like(res_spec_js.pop("scope"))
-            as_dict[scope.to_string()] = res_spec_js
-        return as_dict, shared_data
+        return {
+            self._app.ActionScope.from_json_like(res_spec_js.pop("scope")).to_string(): res_spec_js
+            for res_spec_js in json_like
+        }
 
     @staticmethod
     def __ensure_non_persistent(resource_spec: ResourceSpec) -> ResourceSpec:

@@ -95,14 +95,12 @@ class Shell(ABC):
         """
         Get the command to wait for a workflow.
         """
-        if deps:
-            return (
-                f'{workflow_app_alias} workflow $WK_PATH_ARG wait --jobscripts "{sub_idx}:'
-                + ",".join(str(i) for i in deps)
-                + '"'
-            )
-        else:
+        if not deps:
             return ""
+        return (
+            f'{workflow_app_alias} workflow $WK_PATH_ARG wait --jobscripts '
+            f'"{sub_idx}:{",".join(str(i) for i in deps)}"'
+        )
 
     @staticmethod
     def process_app_invoc_executable(app_invoc_exe: str) -> str:
@@ -135,7 +133,7 @@ class Shell(ABC):
         """
         Prepare the element run directory names for use.
         """
-        return [[str(j) for j in i] for i in run_dirs]
+        return [[str(path) for path in i] for i in run_dirs]
 
     @abstractmethod
     def format_save_parameter(

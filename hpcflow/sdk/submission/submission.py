@@ -277,12 +277,12 @@ class Submission(JSONLike):
     @property
     def jobscript_indices(self) -> tuple[int, ...]:
         """All associated jobscript indices."""
-        return tuple(i.index for i in self.jobscripts)
+        return tuple(js.index for js in self.jobscripts)
 
     @property
     def submitted_jobscripts(self) -> tuple[int, ...]:
         """Jobscript indices that have been successfully submitted."""
-        return tuple(j for i in self.submission_parts for j in i["jobscripts"])
+        return tuple(j for sp in self.submission_parts for j in sp["jobscripts"])
 
     @property
     def outstanding_jobscripts(self) -> tuple[int, ...]:
@@ -330,7 +330,7 @@ class Submission(JSONLike):
         """
         All EARs in this this submission.
         """
-        return (i for js in self.jobscripts for i in js.all_EARs)
+        return (ear for js in self.jobscripts for ear in js.all_EARs)
 
     @property
     @TimeIt.decorator
@@ -341,8 +341,8 @@ class Submission(JSONLike):
         task_elem_EARs: dict[int, dict[int, list[ElementActionRun]]] = defaultdict(
             lambda: defaultdict(list)
         )
-        for i in self.all_EARs:
-            task_elem_EARs[i.task.index][i.element.index].append(i)
+        for ear in self.all_EARs:
+            task_elem_EARs[ear.task.index][ear.element.index].append(ear)
         return task_elem_EARs
 
     @property
@@ -403,7 +403,7 @@ class Submission(JSONLike):
         tmp = self.abort_EARs_file_path.with_suffix(tmp_suffix)
         self._app.submission_logger.debug(f"Creating temporary run abort file: {tmp!r}.")
         with tmp.open(mode="wt", newline="\n") as fp:
-            fp.write("\n".join(i for i in lines) + "\n")
+            fp.write("\n".join(lines) + "\n")
 
         # atomic rename, overwriting original:
         self._app.submission_logger.debug(
@@ -634,7 +634,7 @@ class Submission(JSONLike):
                     f"workflow {self.workflow.name!r}."
                 )
                 jobscripts = [self.jobscripts[i] for i in js_idx]
-                sched_refs = [i.scheduler_js_ref for i in jobscripts]
+                sched_refs = [js.scheduler_js_ref for js in jobscripts]
                 sched.cancel_jobs(js_refs=sched_refs, jobscripts=jobscripts)
             else:
                 print("No active jobscripts to cancel.")

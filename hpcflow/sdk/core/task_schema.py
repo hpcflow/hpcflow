@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import copy
 from dataclasses import dataclass
 from importlib import import_module
+from itertools import chain
 from typing import TYPE_CHECKING
 from html import escape
 
@@ -710,14 +711,13 @@ class TaskSchema(JSONLike):
             act_ins_lst = [act.get_input_types() for act in self.actions]
             act_outs_lst = [act.get_output_types() for act in self.actions]
 
-            schema_ins = set(self.input_types)
             schema_outs = set(self.output_types)
 
-            all_act_ins = set(j for ins in act_ins_lst for j in ins)
-            all_act_outs = set(j for outs in act_outs_lst for j in outs)
+            all_act_ins = set(chain.from_iterable(act_ins_lst))
+            all_act_outs = set(chain.from_iterable(act_outs_lst))
 
-            non_schema_act_ins = all_act_ins - schema_ins
-            non_schema_act_outs = set(all_act_outs - schema_outs)
+            non_schema_act_ins = all_act_ins.difference(self.input_types)
+            non_schema_act_outs = all_act_outs.difference(schema_outs)
 
             extra_act_outs = non_schema_act_outs
             seen_act_outs: set[str] = set()
@@ -768,7 +768,7 @@ class TaskSchema(JSONLike):
     def __expand_actions(self) -> list[Action]:
         """Create new actions for input file generators and output parsers in existing
         actions."""
-        return [j for act in self.actions for j in act.expand()]
+        return [new_act for act in self.actions for new_act in act.expand()]
 
     def __update_parameter_value_classes(self):
         # ensure any referenced parameter_class_modules are imported:

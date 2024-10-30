@@ -346,8 +346,8 @@ class JSONPersistentStore(
     def _append_tasks(self, tasks: Iterable[StoreTask]):
         with self.using_resource("metadata", action="update") as md:
             assert "tasks" in md and "template" in md and "num_added_tasks" in md
-            for i in tasks:
-                idx, wk_task_i, task_i = i.encode()
+            for task in tasks:
+                idx, wk_task_i, task_i = task.encode()
                 md["tasks"].insert(idx, cast(TaskMeta, wk_task_i))
                 md["template"]["tasks"].insert(idx, task_i)
                 md["num_added_tasks"] += 1
@@ -377,7 +377,7 @@ class JSONPersistentStore(
     def _append_elements(self, elems: Sequence[JsonStoreElement]):
         with self.using_resource("metadata", action="update") as md:
             assert "elements" in md
-            md["elements"].extend(i.encode(None) for i in elems)
+            md["elements"].extend(elem.encode(None) for elem in elems)
 
     def _append_element_sets(self, task_id: int, es_js: Sequence[Mapping]):
         task_idx = self._get_task_id_to_idx_map()[task_id]
@@ -393,7 +393,7 @@ class JSONPersistentStore(
     def _append_elem_iters(self, iters: Sequence[JsonStoreElementIter]):
         with self.using_resource("metadata", action="update") as md:
             assert "iters" in md
-            md["iters"].extend(i.encode(None) for i in iters)
+            md["iters"].extend(it.encode(None) for it in iters)
 
     def _append_elem_iter_EAR_IDs(
         self, iter_ID: int, act_idx: int, EAR_IDs: Sequence[int]
@@ -435,7 +435,7 @@ class JSONPersistentStore(
     def _append_EARs(self, EARs: Sequence[JsonStoreEAR]):
         with self.using_resource("metadata", action="update") as md:
             assert "runs" in md
-            md["runs"].extend(i.encode(self.ts_fmt, None) for i in EARs)
+            md["runs"].extend(ear.encode(self.ts_fmt, None) for ear in EARs)
 
     def _update_EAR_submission_indices(self, sub_indices: Mapping[int, int]):
         with self.using_resource("metadata", action="update") as md:
@@ -583,10 +583,10 @@ class JSONPersistentStore(
         tasks_, elems, elem_iters, EARs = super().prepare_test_store_from_spec(spec)
 
         path_ = Path(path).resolve()
-        tasks = [JsonStoreTask(**i).encode() for i in tasks_]
-        elements_ = [JsonStoreElement(**i).encode(None) for i in elems]
-        elem_iters_ = [JsonStoreElementIter(**i).encode(None) for i in elem_iters]
-        EARs_ = [JsonStoreEAR(**i).encode(ts_fmt, None) for i in EARs]
+        tasks = [JsonStoreTask(**task_info).encode() for task_info in tasks_]
+        elements_ = [JsonStoreElement(**elem_info).encode(None) for elem_info in elems]
+        elem_iters_ = [JsonStoreElementIter(**it_info).encode(None) for it_info in elem_iters]
+        EARs_ = [JsonStoreEAR(**ear_info).encode(ts_fmt, None) for ear_info in EARs]
 
         persistent_data = {
             "tasks": tasks,
@@ -667,7 +667,7 @@ class JSONPersistentStore(
                 try:
                     if "elements" not in md:
                         raise KeyError
-                    elem_dat = {i: md["elements"][i] for i in id_lst_}
+                    elem_dat = {id_: md["elements"][id_] for id_ in id_lst_}
                 except KeyError:
                     raise MissingStoreElementError(id_lst_)
                 new_elems = {
@@ -686,7 +686,7 @@ class JSONPersistentStore(
                 try:
                     if "iters" not in md:
                         raise KeyError
-                    iter_dat = {i: md["iters"][i] for i in id_lst_}
+                    iter_dat = {id_: md["iters"][id_] for id_ in id_lst_}
                 except KeyError:
                     raise MissingStoreElementIterationError(id_lst_)
                 new_iters = {
@@ -703,7 +703,7 @@ class JSONPersistentStore(
                 try:
                     if "runs" not in md:
                         raise KeyError
-                    EAR_dat = {i: md["runs"][i] for i in id_lst_}
+                    EAR_dat = {id_: md["runs"][id_] for id_ in id_lst_}
                 except KeyError:
                     raise MissingStoreEARError(id_lst_)
                 new_runs = {
@@ -721,8 +721,8 @@ class JSONPersistentStore(
         if id_lst_:
             with self.using_resource("parameters", "read") as params_:
                 try:
-                    param_dat = {i: params_["data"][str(i)] for i in id_lst_}
-                    src_dat = {i: params_["sources"][str(i)] for i in id_lst_}
+                    param_dat = {id_: params_["data"][str(id_)] for id_ in id_lst_}
+                    src_dat = {id_: params_["sources"][str(id_)] for id_ in id_lst_}
                 except KeyError:
                     raise MissingParameterData(id_lst_)
 
@@ -741,7 +741,7 @@ class JSONPersistentStore(
         if id_lst_:
             with self.using_resource("parameters", "read") as params:
                 try:
-                    new_sources = {i: params["sources"][str(i)] for i in id_lst_}
+                    new_sources = {id_: params["sources"][str(id_)] for id_ in id_lst_}
                 except KeyError:
                     raise MissingParameterData(id_lst_)
             self.param_sources_cache.update(new_sources)
@@ -753,7 +753,7 @@ class JSONPersistentStore(
     ) -> dict[int, bool]:
         with self.using_resource("parameters", "read") as params:
             try:
-                param_dat = {i: params["data"][str(i)] for i in id_lst}
+                param_dat = {id_: params["data"][str(id_)] for id_ in id_lst}
             except KeyError:
                 raise MissingParameterData(id_lst)
         return {k: v is not None for k, v in param_dat.items()}

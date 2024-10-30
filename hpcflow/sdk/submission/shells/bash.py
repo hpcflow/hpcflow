@@ -369,7 +369,7 @@ class WSLBash(Bash):
         return self._convert_to_wsl_path(js_path)
 
     def prepare_element_run_dirs(self, run_dirs: list[list[Path]]) -> list[list[str]]:
-        return [["/".join(str(j).split("\\")) for j in i] for i in run_dirs]
+        return [["/".join(str(path).split("\\")) for path in i] for i in run_dirs]
 
     @override
     def get_version_info(self, exclude_os: bool = False) -> VersionInfo:

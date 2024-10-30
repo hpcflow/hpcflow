@@ -5,7 +5,7 @@ graph of objects and either JSON or YAML.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence, Mapping
+from collections.abc import Container, Sequence, Mapping
 import copy
 from dataclasses import dataclass
 import enum
@@ -184,7 +184,7 @@ def to_json_like(
             if _is_base_json_like(item):
                 new_item, shared_data = item.to_json_like(
                     shared_data=shared_data,
-                    exclude=set((parent_refs or {}).values()),
+                    exclude=frozenset((parent_refs or {}).values()),
                     path=[*path, idx],
                 )
                 out_list.append(new_item)
@@ -252,7 +252,7 @@ class ChildObjectSpec:
     json_like_name: str | None = None
     #: If true, the attribute is really a list of instances,
     #: or a dictionary if :attr:`dict_key_attr` is set.
-    is_multiple: bool | None = False
+    is_multiple: bool = False
     #: If set, the name of an attribute of the object to use as a dictionary key.
     #: Requires that :attr:`is_multiple` be set as well.
     dict_key_attr: str | None = None
@@ -265,15 +265,15 @@ class ChildObjectSpec:
     # TODO: do parent refs make sense when from shared? Prob not.
     #: If true, enables special handling where there can be only one child descriptor
     #: for a containing class.
-    is_single_attribute: bool | None = False
+    is_single_attribute: bool = False
     #: If true, the object is an enum member and should use special serialization rules.
-    is_enum: bool | None = False
+    is_enum: bool = False
     #: If true, the child object is a dict, whose values are of the specified class.
     #: The dict structure will remain.
-    is_dict_values: bool | None = False
+    is_dict_values: bool = False
     #: If true, values that are not lists are cast to lists and multiple child objects
     #: are instantiated for each dict value.
-    is_dict_values_ensure_list: bool | None = False
+    is_dict_values_ensure_list: bool = False
     #: What key to look values up under in the shared data cache.
     #: If unspecified, the shared data cache is ignored.
     shared_data_name: str | None = None
@@ -283,16 +283,15 @@ class ChildObjectSpec:
     shared_data_primary_key: str | None = None
     # shared_data_secondary_keys: tuple[str, ...] | None = None # TODO: what's the point?
 
-    def __post_init__(self):
-        if self.class_name is not None and self.class_obj is not None:
+    def __post_init__(self) -> None:
+        if self.class_name and self.class_obj:
             raise ValueError("Specify at most one of `class_name` and `class_obj`.")
 
-        if self.dict_key_attr:
-            if not isinstance(self.dict_key_attr, str):
-                raise TypeError(
-                    "`dict_key_attr` must be of type `str`, but has type "
-                    f"{type(self.dict_key_attr)} with value {self.dict_key_attr}."
-                )  # TODO: test raise
+        if self.dict_key_attr and not isinstance(self.dict_key_attr, str):
+            raise TypeError(
+                "`dict_key_attr` must be of type `str`, but has type "
+                f"{type(self.dict_key_attr)} with value {self.dict_key_attr}."
+            )  # TODO: test raise
         if self.dict_val_attr:
             if not self.dict_key_attr:
                 raise ValueError(
@@ -316,12 +315,11 @@ class ChildObjectSpec:
                 "If `is_dict_values_ensure_list` is specified, `is_dict_values` must be "
                 "set to True."
             )
-        if self.parent_ref:
-            if not isinstance(self.parent_ref, str):
-                raise TypeError(
-                    "`parent_ref` must be of type `str`, but has type "
-                    f"{type(self.parent_ref)} with value {self.parent_ref}."
-                )  # TODO: test raise
+        if self.parent_ref and not isinstance(self.parent_ref, str):
+            raise TypeError(
+                "`parent_ref` must be of type `str`, but has type "
+                f"{type(self.parent_ref)} with value {self.parent_ref}."
+            )  # TODO: test raise
 
         self.json_like_name = self.json_like_name or self.name
 
@@ -344,7 +342,7 @@ class BaseJSONLike:
         in child objects.
     """
 
-    _child_objects: ClassVar[Sequence[ChildObjectSpec] | None] = None
+    _child_objects: ClassVar[Sequence[ChildObjectSpec]] = ()
     _validation_schema: ClassVar[str | None] = None
 
     __class_namespace: ClassVar[dict[str, Any] | SimpleNamespace | BaseApp | None] = None
@@ -375,15 +373,15 @@ class BaseJSONLike:
         return ns
 
     @classmethod
-    def _get_child_class(cls, child_obj_spec: ChildObjectSpec) -> _ChildType | None:
-        if child_obj_spec.class_obj:
-            return cast(_ChildType, child_obj_spec.class_obj)
-        elif child_obj_spec.class_name:
+    def __get_child_class(cls, child_spec: ChildObjectSpec) -> _ChildType | None:
+        if child_spec.class_obj:
+            return cast(_ChildType, child_spec.class_obj)
+        elif child_spec.class_name:
             ns = cls._class_namespace()
             if isinstance(ns, dict):
-                return ns[child_obj_spec.class_name]
+                return ns[child_spec.class_name]
             else:
-                return getattr(ns, child_obj_spec.class_name)
+                return getattr(ns, child_spec.class_name)
         else:
             return None
 
@@ -450,6 +448,12 @@ class BaseJSONLike:
     def _parse_from_string(cls, string: str) -> dict[str, str] | None:
         raise TypeError(f"unparseable {cls}: '{string}'")
 
+    @staticmethod
+    def __listify(v: JSONed, spec: ChildObjectSpec) -> list[JSONed]:
+        if spec.is_dict_values_ensure_list and isinstance(v, list):
+            return v
+        return [v]
+
     @classmethod
     def __remap_child_seq(
         cls, spec: ChildObjectSpec, json_like: JSONed
@@ -473,15 +477,9 @@ class BaseJSONLike:
 
             # keep as a dict
             for k, v in json_like.items():
-                if spec.is_dict_values_ensure_list:
-                    if not isinstance(v, list):
-                        v = [v]
-                else:
-                    v = [v]
-
-                for i in v:
+                for item in cls.__listify(v, spec):
                     is_dict_values_idx[k].append(len(multi_chd_objs))
-                    multi_chd_objs.append(i)
+                    multi_chd_objs.append(item)
             return multi_chd_objs, is_dict_values_idx
 
         # want to cast to a list
@@ -512,20 +510,20 @@ class BaseJSONLike:
     @classmethod
     def __inflate_enum(cls, chd_cls: type[enum.Enum], multi_chd_objs: list[JSONed]):
         out: list[JSONable] = []
-        for i in multi_chd_objs:
-            if i is None:
+        for item in multi_chd_objs:
+            if item is None:
                 out.append(None)
-            elif not isinstance(i, str):
+            elif not isinstance(item, str):
                 raise ValueError(
-                    f"Enumeration {chd_cls!r} has no name {i!r}. Available"
+                    f"Enumeration {chd_cls!r} has no name {item!r}. Available"
                     f" names are: {chd_cls._member_names_!r}."
                 )
             else:
                 try:
-                    out.append(getattr(chd_cls, i.upper()))
+                    out.append(getattr(chd_cls, item.upper()))
                 except AttributeError:
                     raise ValueError(
-                        f"Enumeration {chd_cls!r} has no name {i!r}. Available"
+                        f"Enumeration {chd_cls!r} has no name {item!r}. Available"
                         f" names are: {chd_cls._member_names_!r}."
                     )
         return out
@@ -537,13 +535,13 @@ class BaseJSONLike:
         shared_data: Mapping[str, ObjectList[JSONable]],
     ) -> Self:
         def from_json_like_item(
-            child_obj_spec: ChildObjectSpec, json_like_i: JSONed
+            child_spec: ChildObjectSpec, json_like_i: JSONed
         ) -> JSONable:
             if not (
-                child_obj_spec.class_name
-                or child_obj_spec.class_obj
-                or child_obj_spec.is_multiple
-                or child_obj_spec.shared_data_name
+                child_spec.class_name
+                or child_spec.class_obj
+                or child_spec.is_multiple
+                or child_spec.shared_data_name
             ):
                 # Nothing to process:
                 return cast("JSONable", json_like_i)
@@ -551,11 +549,11 @@ class BaseJSONLike:
             # (if is_dict_values) indices into multi_chd_objs that enable reconstruction
             # of the source dict:
             multi_chd_objs, is_dict_values_idx = cls.__remap_child_seq(
-                child_obj_spec, json_like_i
+                child_spec, json_like_i
             )
 
             out: list[JSONable] = []
-            if chd.shared_data_name:
+            if child_spec.shared_data_name:
                 for i in multi_chd_objs:
                     if i is None:
                         out.append(i)
@@ -566,17 +564,17 @@ class BaseJSONLike:
                         if i.startswith("hash:"):
                             sd_lookup_kwargs = {"_hash_value": i.split("hash:")[1]}
                         else:
-                            assert chd.shared_data_primary_key
-                            sd_lookup_kwargs = {chd.shared_data_primary_key: i}
+                            assert child_spec.shared_data_primary_key
+                            sd_lookup_kwargs = {child_spec.shared_data_primary_key: i}
                     elif isinstance(i, dict):
                         sd_lookup_kwargs = i
                     else:
                         raise TypeError(
                             "Shared data reference must be a str or a dict."
                         )  # TODO: test raise
-                    out.append(shared_data[chd.shared_data_name].get(**sd_lookup_kwargs))
+                    out.append(shared_data[child_spec.shared_data_name].get(**sd_lookup_kwargs))
             else:
-                chd_cls = cls._get_child_class(child_obj_spec)
+                chd_cls = cls.__get_child_class(child_spec)
                 assert chd_cls is not None
                 if issubclass(chd_cls, enum.Enum):
                     out = cls.__inflate_enum(chd_cls, multi_chd_objs)
@@ -584,27 +582,26 @@ class BaseJSONLike:
                     out.extend(
                         (
                             None
-                            if i is None
+                            if item is None
                             else chd_cls.from_json_like(
-                                cast("Any", i),  # FIXME: This is "Trust me, bro!" hack
+                                cast("Any", item),  # FIXME: This is "Trust me, bro!" hack
                                 shared_data,
                             )
                         )
-                        for i in multi_chd_objs
+                        for item in multi_chd_objs
                     )
 
-            if child_obj_spec.is_dict_values:
-                if child_obj_spec.is_dict_values_ensure_list:
+            if child_spec.is_dict_values:
+                if child_spec.is_dict_values_ensure_list:
                     return {
-                        k: [out[i] for i in v2] for k, v2 in is_dict_values_idx.items()
+                        k: [out[i] for i in v] for k, v in is_dict_values_idx.items()
                     }
                 else:
                     return {
-                        k: next(out[i] for i in v2)
-                        for k, v2 in is_dict_values_idx.items()
+                        k: out[v[0]] for k, v in is_dict_values_idx.items()
                     }
 
-            elif not child_obj_spec.is_multiple:
+            elif not child_spec.is_multiple:
                 return out[0]
 
             return out
@@ -617,23 +614,21 @@ class BaseJSONLike:
 
         json_like_copy = copy.deepcopy(json_like)
 
-        if cls._child_objects:
-            for chd in cls._child_objects:
-                if chd.is_single_attribute:
-                    if len(cls._child_objects) > 1:
-                        raise TypeError(
-                            f"If ChildObjectSpec has `is_single_attribute=True`, only one "
-                            f"ChildObjectSpec may be specified on the class. Specified child "
-                            f"objects specs are: {cls._child_objects!r}."
-                        )
-                    json_like_copy = {chd.name: json_like_copy}
+        for child_spec in cls._child_objects:
+            if child_spec.is_single_attribute:
+                if len(cls._child_objects) > 1:
+                    raise TypeError(
+                        f"If ChildObjectSpec has `is_single_attribute=True`, only one "
+                        f"ChildObjectSpec may be specified on the class. Specified child "
+                        f"objects specs are: {cls._child_objects!r}."
+                    )
+                json_like_copy = {child_spec.name: json_like_copy}
 
-                assert isinstance(json_like_copy, Mapping)
-                if chd.json_like_name and chd.json_like_name in json_like_copy:
-                    jlc = dict(json_like_copy)
-                    json_like_i = jlc.pop(chd.json_like_name)
-                    jlc[chd.name] = cast("JSONed", from_json_like_item(chd, json_like_i))
-                    json_like_copy = jlc
+            assert isinstance(json_like_copy, Mapping)
+            if child_spec.json_like_name and child_spec.json_like_name in json_like_copy:
+                json_like_copy = dict(json_like_copy)
+                json_like_copy[child_spec.name] = cast("JSONed", from_json_like_item(
+                    child_spec, json_like_copy.pop(child_spec.json_like_name)))
 
         assert isinstance(json_like_copy, Mapping)
 
@@ -652,24 +647,25 @@ class BaseJSONLike:
 
         if need_hash:
             obj._set_hash()
-
         return obj
+
+    def __set_parent_ref(self, chd_obj: Any, child_spec: ChildObjectSpec):
+        if chd_obj is not None:
+            assert child_spec.parent_ref
+            setattr(chd_obj, child_spec.parent_ref, self)
 
     def _set_parent_refs(self, child_name_attrs: Mapping[str, str] | None = None):
         """Assign references to self on child objects that declare a parent ref
         attribute."""
-
-        for chd in self._child_objects or ():
-            if chd.parent_ref:
-                chd_name = (child_name_attrs or {}).get(chd.name, chd.name)
-                if chd.is_multiple:
+        child_name_attrs = child_name_attrs or {}
+        for child_spec in self._child_objects:
+            if child_spec.parent_ref:
+                chd_name = child_name_attrs.get(child_spec.name, child_spec.name)
+                if child_spec.is_multiple:
                     for chd_obj in getattr(self, chd_name):
-                        if chd_obj:
-                            setattr(chd_obj, chd.parent_ref, self)
+                        self.__set_parent_ref(chd_obj, child_spec)
                 else:
-                    chd_obj = getattr(self, chd_name)
-                    if chd_obj:
-                        setattr(chd_obj, chd.parent_ref, self)
+                    self.__set_parent_ref(getattr(self, chd_name), child_spec)
 
     def _get_hash(self) -> str:
         json_like = self.to_json_like()[0]
@@ -694,7 +690,7 @@ class BaseJSONLike:
             return self._postprocess_to_dict(dict(self.__dict__))
         elif hasattr(self, "__slots__"):
             return self._postprocess_to_dict(
-                {k: getattr(self, k) for k in self.__slots__}
+                {var_name: getattr(self, var_name) for var_name in self.__slots__}
             )
         else:
             return self._postprocess_to_dict({})
@@ -709,7 +705,7 @@ class BaseJSONLike:
         self,
         dct: dict[str, JSONable] | None = None,
         shared_data: _JSONDeserState = None,
-        exclude: set[str | None] | None = None,
+        exclude: Container[str | None] = (),
         path: list | None = None,
     ) -> tuple[JSONDocument, _JSONDeserState]:
         """
@@ -719,25 +715,25 @@ class BaseJSONLike:
         """
         if dct is None:
             dct_value = {
-                k: v for k, v in self.to_dict().items() if k not in (exclude or ())
+                k: v for k, v in self.to_dict().items() if k not in exclude
             }
         else:
             dct_value = dct
 
         parent_refs: dict[str, str] = {}
         if self._child_objects:
-            for chd in self._child_objects:
-                if chd.is_single_attribute:
+            for child_spec in self._child_objects:
+                if child_spec.is_single_attribute:
                     if len(self._child_objects) > 1:
                         raise TypeError(
                             "If ChildObjectSpec has `is_single_attribute=True`, only one "
                             "ChildObjectSpec may be specified on the class."
                         )
-                    assert chd.json_like_name is not None
-                    dct_value = dct_value[chd.json_like_name]
+                    assert child_spec.json_like_name is not None
+                    dct_value = dct_value[child_spec.json_like_name]
 
-                if chd.parent_ref:
-                    parent_refs[chd.name] = chd.parent_ref
+                if child_spec.parent_ref:
+                    parent_refs[child_spec.name] = child_spec.parent_ref
 
         json_like_, shared_data = to_json_like(
             dct_value, shared_data=shared_data, parent_refs=parent_refs, path=path
@@ -745,20 +741,20 @@ class BaseJSONLike:
         json_like: dict[str, JSONed] | list[JSONed] = cast("Any", json_like_)
         shared_data = shared_data or {}
 
-        for chd in self._child_objects or ():
-            assert chd.json_like_name is not None
-            if chd.name in json_like:
+        for child_spec in self._child_objects:
+            assert child_spec.json_like_name is not None
+            if child_spec.name in json_like:
                 assert isinstance(json_like, dict)
-                json_like[chd.json_like_name] = json_like.pop(chd.name)
+                json_like[child_spec.json_like_name] = json_like.pop(child_spec.name)
 
-            if chd.shared_data_name:
+            if child_spec.shared_data_name:
                 assert isinstance(json_like, dict)
-                if chd.shared_data_name not in shared_data:
-                    shared_data[chd.shared_data_name] = {}
+                if child_spec.shared_data_name not in shared_data:
+                    shared_data[child_spec.shared_data_name] = {}
 
-                chd_obj_js = json_like.pop(chd.json_like_name)
+                chd_obj_js = json_like.pop(child_spec.json_like_name)
 
-                if not chd.is_multiple:
+                if not child_spec.is_multiple:
                     chd_obj_js = [chd_obj_js]
 
                 shared_keys: list[JSONed] = []
@@ -769,17 +765,20 @@ class BaseJSONLike:
                     i.pop("_hash_value", None)
                     hash_i = self._get_hash_from_json_like(i)
                     shared_keys.append(f"hash:{hash_i}")
-                    shared_data[chd.shared_data_name].setdefault(hash_i, i)
+                    shared_data[child_spec.shared_data_name].setdefault(hash_i, i)
 
-                if not chd.is_multiple:
+                if not child_spec.is_multiple:
                     try:
-                        json_like[chd.json_like_name] = shared_keys[0]
+                        json_like[child_spec.json_like_name] = shared_keys[0]
                     except IndexError:
-                        json_like[chd.json_like_name] = None
+                        json_like[child_spec.json_like_name] = None
                 else:
-                    json_like[chd.json_like_name] = shared_keys
+                    json_like[child_spec.json_like_name] = shared_keys
 
-        return json_like, shared_data
+        return self._postprocess_to_json(json_like), shared_data
+
+    def _postprocess_to_json(self, json_like: JSONDocument) -> JSONDocument:
+        return json_like
 
 
 @hydrate
@@ -810,15 +809,15 @@ class JSONLike(BaseJSONLike, AppAware):
 
         # remove parent references:
         for cls in self.__get_classes():
-            for chd in cls._child_objects or ():
-                if chd.parent_ref:
+            for child_spec in cls._child_objects:
+                if child_spec.parent_ref:
                     # _SDK_logger.debug(
                     #     f"removing parent reference {chd.parent_ref!r} from child "
                     #     f"object {chd!r}."
                     # )
                     if (
-                        self.__class__.__name__ == chd.class_name
-                        or self.__class__ is chd.class_obj
+                        self.__class__.__name__ == child_spec.class_name
+                        or self.__class__ is child_spec.class_obj
                     ):
-                        out.pop(chd.parent_ref, None)
+                        out.pop(child_spec.parent_ref, None)
         return out

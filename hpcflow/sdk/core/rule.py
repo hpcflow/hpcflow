@@ -50,7 +50,7 @@ class Rule(JSONLike):
         cast: str | None = None,
         doc: str | None = None,
     ):
-        if sum(i is not None for i in (check_exists, check_missing, condition)) != 1:
+        if sum(arg is not None for arg in (check_exists, check_missing, condition)) != 1:
             raise ValueError(
                 "Specify either one of `check_exists`, `check_missing` or a `condition` "
                 "(and optional `path`)"

@@ -60,7 +60,7 @@ from hpcflow.sdk.submission.shells.os_version import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
     from types import ModuleType
     from typing import ClassVar, Literal
     from rich.status import Status
@@ -3193,37 +3193,53 @@ class BaseApp(metaclass=Singleton):
             )
             # remove these from the output, to avoid confusion (if kept, they would not
             # appear in the next invocation of this method):
-            out = [i for i in out if i["local_id"] not in removed_IDs]
+            out = [item for item in out if item["local_id"] not in removed_IDs]
 
+        out_active, out_inactive = self.__partition(
+            out, lambda item: item["active_jobscripts"])
         # sort inactive by most-recently finished, then deleted:
-        out_inactive = [i for i in out if not i["active_jobscripts"]]
-        out_no_access = [i for i in out_inactive if (i["deleted"] or i["unloadable"])]
-        out_access = [i for i in out_inactive if not (i["deleted"] or i["unloadable"])]
+        out_no_access, out_access = self.__partition(
+            out_inactive, lambda item: item["deleted"] or item["unloadable"])
 
         # sort loadable inactive by end time or start time or submit time:
-        def_timestamp = datetime(0, 0, 0)
+        DEF_TIMESTAMP = datetime(0, 0, 0)
         out_access = sorted(
             out_access,
             key=lambda i: (
                 i["end_time_obj"]
                 or i["start_time_obj"]
                 or i.get("submit_time_obj")
-                or def_timestamp
+                or DEF_TIMESTAMP
             ),
             reverse=True,
         )
         out_inactive = (out_access + out_no_access)[:max_recent]
 
-        out_active = [i for i in out if i["active_jobscripts"]]
-
         # show active submissions first:
         out = out_active + out_inactive
 
         if as_json:
-            for idx, _ in enumerate(out):
-                out[idx].pop("submission", None)
-                out[idx].pop("submit_time_obj")
+            for item in out:
+                item.pop("submission", None)
+                item.pop("submit_time_obj")
         return out
+
+    @staticmethod
+    def __partition(lst: Iterable[T], cond: Callable[[T], Any]) -> tuple[list[T], list[T]]:
+        """
+        Split a list into two by whether the condition holds for each item.
+
+        Returns
+        -------
+        true_items
+            List of items for which the condition is true (or at least truthy).
+        false_items
+            List of items for which the condition is false. 
+        """
+        lists: tuple[list[T], list[T]] = [], []
+        for item in lst:
+            lists[not cond(item)].append(item)
+        return lists
 
     def _show_legend(self) -> None:
         """
@@ -3361,7 +3377,7 @@ class BaseApp(metaclass=Singleton):
                 if "status" in columns:
                     if act_js:
                         act_js_states = set(
-                            j for i in act_js.values() for j in i.values()
+                            js_state for jsinf in act_js.values() for js_state in jsinf.values()
                         )
                         all_cells["status"] = "/".join(
                             js_state.rich_repr for js_state in act_js_states
@@ -3485,7 +3501,7 @@ class BaseApp(metaclass=Singleton):
 
                     all_cells["times"] = Padding(times_tab, (0, 0, row_pad, 0))
 
-                table.add_row(*[all_cells[i] for i in columns])
+                table.add_row(*(all_cells[col_name] for col_name in columns))
 
         if table.row_count:
             console.print(table)
@@ -3818,7 +3834,7 @@ class BaseApp(metaclass=Singleton):
         """
         Get the name of all cached demo data file.
         """
-        return [self.get_demo_data_file_path(i) for i in self.list_demo_data_files()]
+        return [self.get_demo_data_file_path(filename) for filename in self.list_demo_data_files()]
 
     def copy_demo_data(
         self, file_name: str, dst: PathLike | None = None, doc: bool = True

@@ -73,18 +73,18 @@ class DirectScheduler(Scheduler[DirectRef]):
         on_terminate: Callable[[psutil.Process], object] | None = None,
     ):
         all_procs: list[psutil.Process] = []
-        for i in procs:
-            all_procs.append(i)
-            all_procs.extend(i.children(recursive=True))
+        for process in procs:
+            all_procs.append(process)
+            all_procs.extend(process.children(recursive=True))
 
-        for i in all_procs:
+        for process in all_procs:
             try:
-                i.send_signal(sig)
+                process.send_signal(sig)
             except psutil.NoSuchProcess:
                 pass
         _, alive = psutil.wait_procs(all_procs, timeout=timeout, callback=on_terminate)
-        for p in alive:
-            p.kill()
+        for process in alive:
+            process.kill()
 
     @staticmethod
     def __get_jobscript_processes(js_refs: list[DirectRef]) -> list[psutil.Process]:

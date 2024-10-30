@@ -332,7 +332,7 @@ def search_dir_files_by_regex(
     file paths, relative to the given directory."""
     dir_ = Path(directory)
     return [
-        str(i.relative_to(dir_)) for i in dir_.rglob("*") if re.search(pattern, i.name)
+        str(entry.relative_to(dir_)) for entry in dir_.rglob("*") if re.search(pattern, entry.name)
     ]
 
 
@@ -587,7 +587,7 @@ def ensure_in(item: T, lst: list[T]) -> int:
 
 
 def list_to_dict(
-    lst: list[dict[T, T2]], exclude: Iterable[T] | None = None
+    lst: Sequence[Mapping[T, T2]], exclude: Iterable[T] | None = None
 ) -> dict[T, list[T2]]:
     """
     Convert a list of dicts to a dict of lists.
@@ -662,12 +662,12 @@ def flatten(
         lst: list[int] | list[list[int]] | list[list[list[int]]], depth=0
     ) -> list[int]:
         out: list[int] = []
-        for i in lst:
-            if isinstance(i, list):
-                out.extend(_flatten(i, depth + 1))
-                all_lens[depth].append(len(i))
+        for item in lst:
+            if isinstance(item, list):
+                out.extend(_flatten(item, depth + 1))
+                all_lens[depth].append(len(item))
             else:
-                out.append(i)
+                out.append(item)
         return out
 
     def _get_max_depth(lst: list[int] | list[list[int]] | list[list[list[int]]]) -> int:
@@ -781,12 +781,12 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
 
         if data:
             assert root_path
-            for k in list(data):
+            for name, item in data.items():
                 # add root path
-                full_k = str(PurePath(root_path) / PurePath(k))
-                stat_dat, inode_key = data[k][:-2], data[k][-2:]
-                self._stat_info[full_k] = os.stat_result(stat_dat)
-                self._inode_to_path[tuple(inode_key)] = full_k
+                full_name = str(PurePath(root_path) / PurePath(name))
+                stat_dat, inode_key = item[:-2], item[-2:]
+                self._stat_info[full_name] = os.stat_result(stat_dat)
+                self._inode_to_path[tuple(inode_key)] = full_name
 
     def take(self, *args, **kwargs) -> None:
         """Take the snapshot."""

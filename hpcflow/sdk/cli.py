@@ -931,19 +931,19 @@ def _make_open_CLI(app: BaseApp):
         if not name:
             file_paths = [sources[0]]
         else:
-            file_paths = [i for i in sources if i.name == name]
+            file_paths = [pth for pth in sources if pth.name == name]
         if not file_paths:
             raise ValueError(
                 f"No environment source named {name!r} could be found; available "
-                f"environment source files have names: {[i.name for i in sources]!r}"
+                f"environment source files have names: {[pth.name for pth in sources]!r}"
             )
 
         assert len(file_paths) < 5  # don't open a stupid number of files
-        for i in file_paths:
+        for pth in file_paths:
             if path:
-                click.echo(i)
+                click.echo(pth)
             else:
-                utils.open_file(i)
+                utils.open_file(pth)
 
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)

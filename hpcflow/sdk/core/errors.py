@@ -86,17 +86,16 @@ class MissingInputs(Exception):
 
     Parameters
     ----------
-    message:
-        The message of the exception.
     missing_inputs:
         The missing inputs.
     """
 
     # TODO: add links to doc pages for common user-exceptions?
 
-    def __init__(self, message: str, missing_inputs: Iterable[str]) -> None:
+    def __init__(self, missing_inputs: Iterable[str]) -> None:
         self.missing_inputs = tuple(missing_inputs)
-        super().__init__(message)
+        missing_str = ", ".join(map(repr, missing_inputs))
+        super().__init__(f"The following inputs have no sources: {missing_str}.")
 
 
 class UnrequiredInputSources(ValueError):
@@ -105,23 +104,23 @@ class UnrequiredInputSources(ValueError):
 
     Parameters
     ----------
-    message:
-        The message of the exception.
     unrequired_sources:
         The input sources that were not required.
     """
 
-    def __init__(self, message: str, unrequired_sources: Iterable[str]) -> None:
+    def __init__(self, unrequired_sources: Iterable[str]) -> None:
         self.unrequired_sources = frozenset(unrequired_sources)
-        for src in unrequired_sources:
-            if src.startswith("inputs."):
-                # reminder about how to specify input sources:
-                message += (
-                    f" Note that input source keys should not be specified with the "
-                    f"'inputs.' prefix. Did you mean to specify {src[len('inputs.'):]!r} "
-                    f"instead of {src!r}?"
-                )
-                break
+        message=(
+            f"The following input sources are not required but have been specified: "
+            f'{", ".join(map(repr, sorted(self.unrequired_sources)))}.'
+        )
+        if any((bad := src).startswith("inputs.") for src in self.unrequired_sources):
+            # reminder about how to specify input sources:
+            message += (
+                f" Note that input source keys should not be specified with the "
+                f"'inputs.' prefix. Did you mean to specify {bad[len('inputs.'):]!r} "
+                f"instead of {bad!r}?"
+            )
         super().__init__(message)
 
 
@@ -131,15 +130,15 @@ class ExtraInputs(Exception):
 
     Parameters
     ----------
-    message:
-        The message of the exception.
     extra_inputs:
         The extra inputs.
     """
 
-    def __init__(self, message: str, extra_inputs: set[str]) -> None:
+    def __init__(self, extra_inputs: set[str]) -> None:
         self.extra_inputs = frozenset(extra_inputs)
-        super().__init__(message)
+        super().__init__(
+            f"The following inputs are not required, but have been passed: "
+            f'{", ".join(f"{typ!r}" for typ in extra_inputs)}.')
 
 
 class UnavailableInputSource(ValueError):
@@ -151,7 +150,7 @@ class UnavailableInputSource(ValueError):
         super().__init__(
             f"The input source {source.to_string()!r} is not "
             f"available for input path {path!r}. Available "
-            f"input sources are: {[i.to_string() for i in avail]}."
+            f"input sources are: {[src.to_string() for src in avail]}."
         )
 
 
@@ -526,7 +525,7 @@ class WorkflowSubmissionFailure(RuntimeError):
     """
 
     def __init__(self, exceptions: Sequence[SubmissionFailure]) -> None:
-        super().__init__("\n" + "\n\n".join(i.message for i in exceptions))
+        super().__init__("\n" + "\n\n".join(exn.message for exn in exceptions))
 
 
 class ResourceValidationError(ValueError):
@@ -923,7 +922,7 @@ class EnvironmentPresetUnknownEnvironmentError(ValueError):
         super().__init__(
             f"Task schema {name} has environment presets that refer to one "
             f"or more environments that are not referenced in any of the task "
-            f"schema's actions: {', '.join(f'{i!r}' for i in sorted(bad_envs))}."
+            f"schema's actions: {', '.join(f'{env!r}' for env in sorted(bad_envs))}."
         )
 
 

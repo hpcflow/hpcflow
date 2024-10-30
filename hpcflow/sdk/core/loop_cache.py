@@ -76,7 +76,7 @@ class LoopCache:
     @TimeIt.decorator
     def get_iter_IDs(self, loop: Loop) -> list[int]:
         """Retrieve a list of iteration IDs belonging to a given loop."""
-        return [j for i in loop.task_insert_IDs for j in self.task_iterations[i]]
+        return [i_id for t_id in loop.task_insert_IDs for i_id in self.task_iterations[t_id]]
 
     @TimeIt.decorator
     def get_iter_loop_indices(self, iter_IDs: list[int]) -> list[dict[str, int]]:
@@ -84,8 +84,8 @@ class LoopCache:
         Retrieve the mapping from element to loop index for each given iteration.
         """
         iter_loop_idx: list[dict[str, int]] = []
-        for i in iter_IDs:
-            elem_id, idx = self.iterations[i]
+        for id_ in iter_IDs:
+            elem_id, idx = self.iterations[id_]
             iter_loop_idx.append(dict(nth_key(self.data_idx[elem_id], idx)))
         return iter_loop_idx
 
@@ -94,14 +94,14 @@ class LoopCache:
         """
         Set the loop indices for a named loop to the given list of iteration IDs.
         """
-        elem_ids = {v[0] for k, v in self.iterations.items() if k in iter_IDs}
-        for i in elem_ids:
+        elem_ids = {e_ids[0] for k, e_ids in self.iterations.items() if k in iter_IDs}
+        for id_ in elem_ids:
             new_item: dict[tuple[tuple[str, int], ...], DataIndex] = {}
-            for k, v in self.data_idx[i].items():
+            for k, v in self.data_idx[id_].items():
                 new_k = dict(k)
                 new_k[new_loop_name] = 0
                 new_item[tuple(sorted(new_k.items()))] = v
-            self.data_idx[i] = new_item
+            self.data_idx[id_] = new_item
 
     @TimeIt.decorator
     def add_iteration(
@@ -126,9 +126,9 @@ class LoopCache:
         deps_cache = DependencyCache.build(workflow)
 
         loops = [*workflow.template.loops, *(loops or ())]
-        task_iIDs = {j for i in loops for j in i.task_insert_IDs}
+        task_iIDs = {t_id for loop in loops for t_id in loop.task_insert_IDs}
         tasks: list[WorkflowTask] = [
-            workflow.tasks.get(insert_ID=i) for i in sorted(task_iIDs)
+            workflow.tasks.get(insert_ID=t_id) for t_id in sorted(task_iIDs)
         ]
         elem_deps: dict[int, dict[int, DependentDescriptor]] = {}
 
@@ -155,12 +155,12 @@ class LoopCache:
                     "task_insert_ID": task.insert_ID,
                 }
                 elem_deps[element.id_] = {
-                    i: {
+                    de_id: {
                         "group_names": tuple(
-                            j.name for j in deps_cache.elements[i].element_set.groups
+                            grp.name for grp in deps_cache.elements[de_id].element_set.groups
                         ),
                     }
-                    for i in deps_cache.elem_elem_dependents_rec[element.id_]
+                    for de_id in deps_cache.elem_elem_dependents_rec[element.id_]
                 }
                 elem_iters: dict[tuple[tuple[str, int], ...], DataIndex] = {}
                 for idx, iter_i in enumerate(element.iterations):

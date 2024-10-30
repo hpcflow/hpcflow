@@ -171,7 +171,7 @@ class Loop(JSONLike):
             raise RuntimeError(
                 "Workflow template must be assigned to retrieve task objects of the loop."
             )
-        return tuple(wf.tasks.get(insert_ID=i) for i in self.task_insert_IDs)
+        return tuple(wf.tasks.get(insert_ID=t_id) for t_id in self.task_insert_IDs)
 
     def __validate_against_template(self) -> None:
         """Validate the loop parameters against the associated workflow."""
@@ -369,7 +369,7 @@ class WorkflowLoop(AppAware):
         """
         The list of task indices that define the extent of the loop.
         """
-        return tuple(i.index for i in self.task_objects)
+        return tuple(task.index for task in self.task_objects)
 
     @property
     def workflow(self) -> Workflow:
@@ -471,9 +471,15 @@ class WorkflowLoop(AppAware):
         iter_loop_idx: list[dict]
             Iteration information from parent loops.
         """
-        parent_loops = cls._get_parent_loops(index, workflow, template)
-        parent_names = [i.name for i in parent_loops if i.name]
-        num_added_iters = {tuple(i[j] for j in parent_names): 1 for i in iter_loop_idx}
+        parent_names = [
+            loop.name
+            for loop in cls._get_parent_loops(index, workflow, template)
+            if loop.name
+        ]
+        num_added_iters = {
+            tuple(l_idx[nm] for nm in parent_names): 1
+            for l_idx in iter_loop_idx
+        }
 
         return cls(
             index=index,
@@ -556,13 +562,13 @@ class WorkflowLoop(AppAware):
         assert cache is not None
         parent_loops = self.get_parent_loops()
         child_loops = self.get_child_loops()
-        parent_loop_indices_ = parent_loop_indices or {i.name: 0 for i in parent_loops}
+        parent_loop_indices_ = parent_loop_indices or {loop.name: 0 for loop in parent_loops}
 
-        iters_key = tuple(parent_loop_indices_[k] for k in self.parents)
+        iters_key = tuple(parent_loop_indices_[p_nm] for p_nm in self.parents)
         cur_loop_idx = self.num_added_iterations[iters_key] - 1
-        all_new_data_idx: dict[
-            tuple[int, int], DataIndex
-        ] = {}  # keys are (task.insert_ID and element.index)
+        
+        # keys are (task.insert_ID and element.index)
+        all_new_data_idx: dict[tuple[int, int], DataIndex] = {}
 
         # initialise a new `num_added_iterations` key on each child loop:
         for child in child_loops:
@@ -660,9 +666,8 @@ class WorkflowLoop(AppAware):
 
                 # add any locally defined sub-parameters:
                 inp_statuses = cache.elements[elem_ID]["input_statuses"]
-                inp_status_inps = set(f"inputs.{i}" for i in inp_statuses)
-                sub_params = inp_status_inps.difference(new_data_idx)
-                for sub_param_i in sub_params:
+                inp_status_inps = set(f"inputs.{inp}" for inp in inp_statuses)
+                for sub_param_i in inp_status_inps.difference(new_data_idx):
                     sub_param_data_idx_iter_0 = zi_data_idx
                     try:
                         sub_param_data_idx = sub_param_data_idx_iter_0[sub_param_i]
@@ -702,7 +707,7 @@ class WorkflowLoop(AppAware):
 
             task.initialise_EARs(iter_IDs=added_iter_IDs)
 
-        added_iters_key = tuple(parent_loop_indices_[k] for k in self.parents)
+        added_iters_key = tuple(parent_loop_indices_[p_nm] for p_nm in self.parents)
         self._increment_pending_added_iters(added_iters_key)
         self.workflow._store.update_loop_num_iters(
             index=self.index,
@@ -713,15 +718,11 @@ class WorkflowLoop(AppAware):
         for child in child_loops[::-1]:
             if child.num_iterations is not None:
                 for _ in range(child.num_iterations - 1):
-                    par_idx = {k: 0 for k in child.parents}
-                    child.add_iteration(
-                        parent_loop_indices={
-                            **par_idx,
-                            **parent_loop_indices_,
-                            self.name: cur_loop_idx + 1,
-                        },
-                        cache=cache,
-                    )
+                    par_idx = {parent_name: 0 for parent_name in child.parents}
+                    if parent_loop_indices:
+                        par_idx.update(parent_loop_indices)
+                    par_idx[self.name] = cur_loop_idx + 1
+                    child.add_iteration(parent_loop_indices=par_idx, cache=cache)
 
     def __get_src_ID_and_groups(
         self, elem_ID: int, iter_dat: IterableParam, inp: SchemaInput, cache: LoopCache
@@ -738,7 +739,7 @@ class WorkflowLoop(AppAware):
         grouped_elems = [
             src_elem_j_ID
             for src_elem_j_ID, src_elem_j_dat in src_elem_IDs.items()
-            if any(k == inp_group_name for k in src_elem_j_dat["group_names"])
+            if any(nm == inp_group_name for nm in src_elem_j_dat["group_names"])
         ]
 
         if not grouped_elems and len(src_elem_IDs) > 1:
@@ -789,19 +790,19 @@ class WorkflowLoop(AppAware):
 
         child_loop_max_iters: dict[str, int] = {}
         parent_loop_same_iters = {
-            i.name: parent_loop_indices[i.name] for i in parent_loops
+            loop.name: parent_loop_indices[loop.name] for loop in parent_loops
         }
         child_iter_parents = {
             **parent_loop_same_iters,
             self.name: cur_loop_idx,
         }
-        for i in child_loops:
-            i_num_iters = i.num_added_iterations[
-                tuple(child_iter_parents[j] for j in i.parents)
+        for loop in child_loops:
+            i_num_iters = loop.num_added_iterations[
+                tuple(child_iter_parents[j] for j in loop.parents)
             ]
             i_max = i_num_iters - 1
-            child_iter_parents[i.name] = i_max
-            child_loop_max_iters[i.name] = i_max
+            child_iter_parents[loop.name] = i_max
+            child_loop_max_iters[loop.name] = i_max
 
         source_iter_loop_idx = {
             **child_loop_max_iters,
@@ -886,8 +887,8 @@ class WorkflowLoop(AppAware):
             # Convert into simple list of indices
             return list(
                 chain.from_iterable(
-                    self.__as_sequence(all_new_data_idx[i][prev_dat_idx_key])
-                    for i in new_sources
+                    self.__as_sequence(all_new_data_idx[src][prev_dat_idx_key])
+                    for src in new_sources
                 )
             )
         else:

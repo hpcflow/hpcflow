@@ -41,7 +41,7 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Container, Iterator, Sequence
+    from collections.abc import Callable, Container, Iterable, Iterator, Sequence
     from re import Pattern
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self
@@ -733,7 +733,7 @@ class ElementActionRun(AppAware):
                 "Cannot get input file generator inputs from this EAR because the "
                 "associated action is not expanded, meaning multiple IFGs might exists."
             )
-        input_types = {i.typ for i in self.action.input_file_generators[0].inputs}
+        input_types = {param.typ for param in self.action.input_file_generators[0].inputs}
         inputs: dict[str, Any] = {}
         for inp in self.inputs:
             assert not isinstance(inp, dict)
@@ -1378,8 +1378,8 @@ class ActionRule(JSONLike):
                 doc=doc,
             )
         elif any(
-            i is not None
-            for i in (check_exists, check_missing, path, condition, cast, doc)
+            arg is not None
+            for arg in (check_exists, check_missing, path, condition, cast, doc)
         ):
             raise TypeError(
                 f"{self.__class__.__name__} `rule` specified in addition to rule "
@@ -1433,6 +1433,9 @@ class ActionRule(JSONLike):
             The path to the attribute to check for.
         """
         return cls(rule=cls._app.Rule(check_missing=check_missing))
+
+
+_ALL_OTHER_SYM = "*"
 
 
 class Action(JSONLike):
@@ -1615,7 +1618,7 @@ class Action(JSONLike):
         )
 
     def __process_script_data_str(
-        self, data_fmt: str, param_names: list[str]
+        self, data_fmt: str, param_names: Iterable[str]
     ) -> dict[str, ScriptData]:
         # include all input parameters, using specified data format
         data_fmt = data_fmt.lower()
@@ -1625,11 +1628,10 @@ class Action(JSONLike):
         self,
         data_fmt: Mapping[str, str | ScriptData],
         prefix: str,
-        param_names: list[str],
+        param_names: Iterable[str],
     ) -> dict[str, ScriptData]:
-        _all_other_sym = "*"
         all_params: dict[str, ScriptData] = {}
-        for k, v in data_fmt.items():
+        for nm, v in data_fmt.items():
             # values might be strings, or dicts with "format" and potentially other
             # kwargs:
             if isinstance(v, dict):
@@ -1637,20 +1639,20 @@ class Action(JSONLike):
                 v2: ScriptData = {
                     "format": v["format"],
                 }
-                all_params[k] = v2
+                all_params[nm] = v2
                 v2.update(v)
             else:
-                all_params[k] = {"format": v.lower()}
+                all_params[nm] = {"format": v.lower()}
 
         if prefix == "inputs":
             # expand unlabelled-multiple inputs to multiple labelled inputs:
             multi_types = set(self.task_schema.multi_input_types)
             multis: dict[str, ScriptData] = {}
-            for k in tuple(all_params):
-                if k in multi_types:
-                    k_fmt = all_params.pop(k)
+            for nm in tuple(all_params):
+                if nm in multi_types:
+                    k_fmt = all_params.pop(nm)
                     for name in param_names:
-                        if name.startswith(k):
+                        if name.startswith(nm):
                             multis[name] = copy.deepcopy(k_fmt)
             if multis:
                 all_params = {
@@ -1658,10 +1660,10 @@ class Action(JSONLike):
                     **all_params,
                 }
 
-        if _all_other_sym in all_params:
+        if _ALL_OTHER_SYM in all_params:
             # replace catch-all with all other input/output names:
-            other_fmt = all_params[_all_other_sym]
-            all_params = {k: v for k, v in all_params.items() if k != _all_other_sym}
+            other_fmt = all_params[_ALL_OTHER_SYM]
+            all_params = {k: v for k, v in all_params.items() if k != _ALL_OTHER_SYM}
             for name in set(param_names).difference(all_params):
                 all_params[name] = copy.deepcopy(other_fmt)
         return all_params
@@ -1787,7 +1789,7 @@ class Action(JSONLike):
 
     def __repr__(self) -> str:
         IFGs = {
-            ifg.input_file.label: [j.typ for j in ifg.inputs]
+            ifg.input_file.label: [inp.typ for inp in ifg.inputs]
             for ifg in self.input_file_generators
         }
         OFPs = {
@@ -2317,16 +2319,15 @@ class Action(JSONLike):
         data index is passed.
 
         This mutates `all_data_idx`.
-
         """
 
         # output keys must be processed first for this to work, since when processing an
         # output key, we may need to update the index of an output in a previous action's
         # data index, which could affect the data index in an input of this action.
-        keys = [f"outputs.{i}" for i in self.get_output_types()]
-        keys.extend(f"inputs.{i}" for i in self.get_input_types())
-        keys.extend(f"input_files.{i.label}" for i in self.input_files)
-        keys.extend(f"output_files.{i.label}" for i in self.output_files)
+        keys = [f"outputs.{typ}" for typ in self.get_output_types()]
+        keys.extend(f"inputs.{typ}" for typ in self.get_input_types())
+        keys.extend(f"input_files.{file.label}" for file in self.input_files)
+        keys.extend(f"output_files.{file.label}" for file in self.output_files)
 
         # these are consumed by the OFP, so should not be considered to generate new data:
         OFP_outs = {j for ofp in self.output_file_parsers for j in ofp.outputs or ()}

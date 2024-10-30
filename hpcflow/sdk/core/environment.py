@@ -225,7 +225,7 @@ class Environment(JSONLike):
         if not setup:
             self.setup = None
         elif isinstance(setup, str):
-            self.setup = tuple(i.strip() for i in setup.strip().split("\n"))
+            self.setup = tuple(cmd.strip() for cmd in setup.strip().split("\n"))
         else:
             self.setup = tuple(setup)
         self._set_parent_refs()
@@ -243,5 +243,5 @@ class Environment(JSONLike):
         return f"{self.__class__.__name__}({self.name!r})"
 
     def _validate(self):
-        if dup_labels := get_duplicate_items(i.label for i in self.executables):
+        if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)

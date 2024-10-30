@@ -273,7 +273,7 @@ class ZarrStoreElementIter(StoreElementIter[ListAny, ZarrAttrs]):
             self.id_,
             self.element_ID,
             int(self.EARs_initialised),
-            [[k, v] for k, v in self.EAR_IDs.items()] if self.EAR_IDs else None,
+            [[ek, ev] for ek, ev in self.EAR_IDs.items()] if self.EAR_IDs else None,
             [
                 [ensure_in(dk, attrs["parameter_paths"]), dv]
                 for dk, dv in self.data_idx.items()
@@ -650,7 +650,7 @@ class ZarrPersistentStore(
         arr = self._get_elements_arr(mode="r+")
         with self.__mutate_attrs(arr) as attrs:
             arr_add = np.empty((len(elems)), dtype=object)
-            arr_add[:] = [i.encode(attrs) for i in elems]
+            arr_add[:] = [elem.encode(attrs) for elem in elems]
             arr.append(arr_add)
 
     def _append_element_sets(self, task_id: int, es_js: Sequence[Mapping]):
@@ -721,7 +721,7 @@ class ZarrPersistentStore(
         arr = self._get_EARs_arr(mode="r+")
         with self.__mutate_attrs(arr) as attrs:
             arr_add = np.empty((len(EARs)), dtype=object)
-            arr_add[:] = [i.encode(self.ts_fmt, attrs) for i in EARs]
+            arr_add[:] = [ear.encode(self.ts_fmt, attrs) for ear in EARs]
             arr.append(arr_add)
 
     @TimeIt.decorator
@@ -1022,7 +1022,7 @@ class ZarrPersistentStore(
         )
         EARs_arr.attrs["parameter_paths"] = []
 
-        tasks, elems, elem_iters, EARs = super().prepare_test_store_from_spec(spec)
+        tasks, elems, elem_iters, EARs_ = super().prepare_test_store_from_spec(spec)
 
         path = Path(path).resolve()
         tasks = [ZarrStoreTask(**i).encode() for i in tasks]
@@ -1031,21 +1031,13 @@ class ZarrPersistentStore(
             ZarrStoreElementIter(**i).encode(elem_iters_arr.attrs.asdict())
             for i in elem_iters
         ]
-        EARs = [ZarrStoreEAR(**i).encode(ts_fmt, EARs_arr.attrs.asdict()) for i in EARs]
+        EARs = [ZarrStoreEAR(**i).encode(ts_fmt, EARs_arr.attrs.asdict()) for i in EARs_]
 
         append_items_to_ragged_array(tasks_arr, tasks)
 
-        elem_arr_add = np.empty((len(elements)), dtype=object)
-        elem_arr_add[:] = elements
-        elems_arr.append(elem_arr_add)
-
-        iter_arr_add = np.empty((len(elem_iters)), dtype=object)
-        iter_arr_add[:] = elem_iters
-        elem_iters_arr.append(iter_arr_add)
-
-        EAR_arr_add = np.empty((len(EARs)), dtype=object)
-        EAR_arr_add[:] = EARs
-        EARs_arr.append(EAR_arr_add)
+        elems_arr.append(np.fromiter(elements, dtype=object))
+        elem_iters_arr.append(np.fromiter(elem_iters, dtype=object))
+        EARs_arr.append(np.fromiter(EARs, dtype=object))
 
         return cls(path)
 

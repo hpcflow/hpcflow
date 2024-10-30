@@ -48,7 +48,7 @@ def callback_file_paths(config: Config, file_path: PathLike | list[PathLike]):
     Callback that resolves file paths.
     """
     if isinstance(file_path, list):
-        return [config._resolve_path(i) for i in file_path]
+        return [config._resolve_path(path) for path in file_path]
     else:
         return config._resolve_path(file_path)
 
@@ -89,7 +89,7 @@ def callback_lowercase(
     Callback that forces a string to lower case.
     """
     if isinstance(value, list):
-        return [i.lower() for i in value]
+        return [item.lower() for item in value]
     elif isinstance(value, dict):
         return {k.lower(): v for k, v in value.items()}
     else:

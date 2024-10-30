@@ -5,6 +5,7 @@ Elements are components of tasks.
 from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
+from itertools import chain
 import os
 from typing import cast, overload, TYPE_CHECKING
 
@@ -134,13 +135,13 @@ class _ElementPrefixedParameter(AppAware):
 
     def __get_prefixed_names_unlabelled(self) -> dict[str, list[str]]:
         all_names: dict[str, list[str]] = {}
-        for i in self._get_prefixed_names():
-            if "[" in i:
-                unlab_i, label_i = split_param_label(i)
+        for name in self._get_prefixed_names():
+            if "[" in name:
+                unlab_i, label_i = split_param_label(name)
                 if unlab_i is not None and label_i is not None:
                     all_names.setdefault(unlab_i, []).append(label_i)
             else:
-                all_names[i] = []
+                all_names[name] = []
         return all_names
 
     def __iter__(self) -> Iterator[ElementParameter | dict[str, ElementParameter]]:
@@ -642,7 +643,7 @@ class ElementIteration(AppAware):
         """
         The EAR IDs.
         """
-        return [j for i in self.EAR_IDs.values() for j in i]
+        return list(chain.from_iterable(self.EAR_IDs.values()))
 
     @property
     def actions(self) -> dict[int, ElementAction]:
@@ -650,11 +651,10 @@ class ElementIteration(AppAware):
         The actions of this iteration.
         """
         if self._action_objs is None:
-            self._action_objs = ao = {
+            self._action_objs = {
                 act_idx: self._app.ElementAction(self, act_idx, runs)
                 for act_idx, runs in (self._EARs or {}).items()
             }
-            return ao
         return self._action_objs
 
     @property
@@ -663,7 +663,7 @@ class ElementIteration(AppAware):
         A list of element action runs, where only the final run is taken for each
         element action.
         """
-        return [i.runs[-1] for i in self.actions.values()]
+        return [act.runs[-1] for act in self.actions.values()]
 
     @property
     def inputs(self) -> ElementInputs:
@@ -671,8 +671,7 @@ class ElementIteration(AppAware):
         The inputs to this element.
         """
         if not self._inputs:
-            self._inputs = ins = self._app.ElementInputs(element_iteration=self)
-            return ins
+            self._inputs = self._app.ElementInputs(element_iteration=self)
         return self._inputs
 
     @property
@@ -1067,12 +1066,12 @@ class ElementIteration(AppAware):
                 self.get_element_dependencies(as_objects=False)
             )
         )
-        for i in self.get_input_dependencies().values():
-            out_set.add(i["task_insert_ID"])
+        for p_src in self.get_input_dependencies().values():
+            out_set.add(p_src["task_insert_ID"])
 
         out = sorted(out_set)
         if as_objects:
-            return [self.workflow.tasks.get(insert_ID=i) for i in out]
+            return [self.workflow.tasks.get(insert_ID=id_) for id_ in out]
         return out
 
     @overload
@@ -1210,8 +1209,7 @@ class ElementIteration(AppAware):
                             deps.append(task.insert_ID)
         deps = sorted(deps)
         if as_objects:
-            return [self.workflow.tasks.get(insert_ID=i) for i in deps]
-
+            return [self.workflow.tasks.get(insert_ID=id_) for id_ in deps]
         return deps
 
     def get_template_resources(self) -> dict[str, Any]:

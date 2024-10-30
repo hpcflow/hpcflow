@@ -585,7 +585,7 @@ class Jobscript(JSONLike):
         """The first known start time of any EAR in this jobscript."""
         if not self.is_submitted:
             return None
-        return min((i.start_time for i in self.all_EARs if i.start_time), default=None)
+        return min((ear.start_time for ear in self.all_EARs if ear.start_time), default=None)
 
     @property
     @TimeIt.decorator
@@ -593,7 +593,7 @@ class Jobscript(JSONLike):
         """The last known end time of any EAR in this jobscript."""
         if not self.is_submitted:
             return None
-        return max((i.end_time for i in self.all_EARs if i.end_time), default=None)
+        return max((ear.end_time for ear in self.all_EARs if ear.end_time), default=None)
 
     @property
     def submit_time(self) -> datetime | None:
@@ -1396,17 +1396,16 @@ class Jobscript(JSONLike):
         """If this jobscript is active on this machine, return the state information from
         the scheduler."""
 
-        if not self.is_submitted:
-            out: dict[int, JobscriptElementState] = {}
+        out: dict[int, JobscriptElementState] = {}
 
-        else:
+        if self.is_submitted:
             self._app.submission_logger.debug(
                 "checking if the jobscript is running according to EAR submission "
                 "states."
             )
 
             not_run_states = EARStatus.get_non_running_submitted_states()
-            all_EAR_states = set(i.status for i in self.all_EARs)
+            all_EAR_states = set(ear.status for ear in self.all_EARs)
             self._app.submission_logger.debug(
                 f"Unique EAR states are: {all_EAR_states!r}"
             )
@@ -1414,7 +1413,6 @@ class Jobscript(JSONLike):
                 self._app.submission_logger.debug(
                     "All jobscript EARs are in a non-running state"
                 )
-                out = {}
 
             elif self._app.config.get("machine") == self.submit_machine:
                 self._app.submission_logger.debug(
@@ -1427,16 +1425,16 @@ class Jobscript(JSONLike):
                     # if value is single-length dict with `None` key, then transform
                     # to one key for each jobscript element:
                     if tuple(out_i) == (None,):
-                        out = {i: out_i[None] for i in range(self.num_elements)}
-                else:
-                    out = {}
+                        out = {idx: out_i[None] for idx in range(self.num_elements)}
+                    else:
+                        out = cast("Any", out_i)
 
             else:
                 raise NotSubmitMachineError()
 
         self._app.submission_logger.info(f"Jobscript is {'in' if not out else ''}active.")
         if as_json:
-            return {k: v.name for k, v in out.items()}
+            return {idx: state.name for idx, state in out.items()}
         return out
 
     def cancel(self) -> None:

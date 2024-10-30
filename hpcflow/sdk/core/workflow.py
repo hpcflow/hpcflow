@@ -328,20 +328,18 @@ class WorkflowTemplate(JSONLike):
                             )
                             es.environments = app_env_specs_i
 
-                    elif self.env_presets:
-                        assert schema_presets is not None
+                    elif self.env_presets and schema_presets:
                         # take only the first applicable preset:
-                        app_presets_i = [
-                            k for k in self.env_presets if k in schema_presets
-                        ]
-                        if app_presets_i:
-                            app_env_specs_i = schema_presets[app_presets_i[0]]
-                            self._app.logger.info(
-                                f"(task {task.name!r}, element set {es.index}): using "
-                                f"template-level requested {app_presets_i[0]!r} "
-                                f"`env_preset`: {app_env_specs_i!r}."
-                            )
-                            es.env_preset = app_presets_i[0]
+                        for app_preset in self.env_presets:
+                            if app_preset in schema_presets:
+                                es.env_preset = app_preset
+                                app_env_specs_i = schema_presets[app_preset]
+                                self._app.logger.info(
+                                    f"(task {task.name!r}, element set {es.index}): using "
+                                    f"template-level requested {app_preset!r} "
+                                    f"`env_preset`: {app_env_specs_i!r}."
+                                )
+                                break
 
                     else:
                         # no env/preset applicable here (and no env/preset at task level),
@@ -560,7 +558,7 @@ class WorkflowTemplate(JSONLike):
 
         assert self.workflow
         if not loop.name:
-            existing = {i.name for i in self.loops}
+            existing = {loop.name for loop in self.loops}
             new_idx = len(self.loops)
             while (name := f"loop_{new_idx}") in existing:
                 new_idx += 1
@@ -1416,11 +1414,11 @@ class Workflow(AppAware):
                 self._tasks = self._app.WorkflowTaskList(
                     self._app.WorkflowTask(
                         workflow=self,
-                        template=self.template.tasks[i.index],
-                        index=i.index,
-                        element_IDs=i.element_IDs,
+                        template=self.template.tasks[task.index],
+                        index=task.index,
+                        element_IDs=task.element_IDs,
                     )
-                    for i in all_tasks
+                    for task in all_tasks
                 )
 
         return self._tasks
@@ -1520,43 +1518,39 @@ class Workflow(AppAware):
         """
         Get the element iteration IDs of EARs.
         """
-        return [i.elem_iter_ID for i in self.get_store_EARs(id_lst)]
+        return [ear.elem_iter_ID for ear in self.get_store_EARs(id_lst)]
 
     def get_element_IDs_from_EAR_IDs(self, id_lst: Iterable[int]) -> list[int]:
         """
         Get the element IDs of EARs.
         """
         iter_IDs = self.get_element_iteration_IDs_from_EAR_IDs(id_lst)
-        return [i.element_ID for i in self.get_store_element_iterations(iter_IDs)]
+        return [itr.element_ID for itr in self.get_store_element_iterations(iter_IDs)]
 
     def get_task_IDs_from_element_IDs(self, id_lst: Iterable[int]) -> list[int]:
         """
         Get the task IDs of elements.
         """
-        return [i.task_ID for i in self.get_store_elements(id_lst)]
+        return [elem.task_ID for elem in self.get_store_elements(id_lst)]
 
     def get_EAR_IDs_of_tasks(self, id_lst: Iterable[int]) -> list[int]:
         """Get EAR IDs belonging to multiple tasks."""
-        return [i.id_ for i in self.get_EARs_of_tasks(id_lst)]
+        return [ear.id_ for ear in self.get_EARs_of_tasks(id_lst)]
 
-    def get_EARs_of_tasks(self, id_lst: Iterable[int]) -> list[ElementActionRun]:
+    def get_EARs_of_tasks(self, id_lst: Iterable[int]) -> Iterator[ElementActionRun]:
         """Get EARs belonging to multiple tasks."""
-        EARs: list[ElementActionRun] = []
-        for i in id_lst:
-            for elem in self.tasks.get(insert_ID=i).elements[:]:
+        for id_ in id_lst:
+            for elem in self.tasks.get(insert_ID=id_).elements[:]:
                 for iter_ in elem.iterations:
-                    EARs.extend(iter_.action_runs)
-        return EARs
+                    yield from iter_.action_runs
 
     def get_element_iterations_of_tasks(
         self, id_lst: Iterable[int]
-    ) -> list[ElementIteration]:
+    ) -> Iterator[ElementIteration]:
         """Get element iterations belonging to multiple tasks."""
-        iters: list[ElementIteration] = []
-        for i in id_lst:
-            for elem in self.tasks.get(insert_ID=i).elements[:]:
-                iters.extend(elem.iterations)
-        return iters
+        for id_ in id_lst:
+            for elem in self.tasks.get(insert_ID=id_).elements[:]:
+                yield from elem.iterations
 
     @dataclass
     class _IndexPath1:
@@ -1568,7 +1562,7 @@ class Workflow(AppAware):
         """Return element objects from a list of IDs."""
 
         store_elems = self.get_store_elements(id_lst)
-        store_tasks = self.get_store_tasks(i.task_ID for i in store_elems)
+        store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
 
         element_idx_by_task: dict[int, set[int]] = defaultdict(set)
         index_paths: list[Workflow._IndexPath1] = []
@@ -1600,8 +1594,8 @@ class Workflow(AppAware):
         """Return element iteration objects from a list of IDs."""
 
         store_iters = self.get_store_element_iterations(id_lst)
-        store_elems = self.get_store_elements(i.element_ID for i in store_iters)
-        store_tasks = self.get_store_tasks(i.task_ID for i in store_elems)
+        store_elems = self.get_store_elements(it.element_ID for it in store_iters)
+        store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
 
         element_idx_by_task: dict[int, set[int]] = defaultdict(set)
 
@@ -1650,10 +1644,10 @@ class Workflow(AppAware):
 
         store_EARs = self.get_store_EARs(id_lst)
         store_iters = self.get_store_element_iterations(
-            i.elem_iter_ID for i in store_EARs
+            ear.elem_iter_ID for ear in store_EARs
         )
-        store_elems = self.get_store_elements(i.element_ID for i in store_iters)
-        store_tasks = self.get_store_tasks(i.task_ID for i in store_elems)
+        store_elems = self.get_store_elements(it.element_ID for it in store_iters)
+        store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
 
         # to allow for bulk retrieval of elements/iterations
         element_idx_by_task: dict[int, set[int]] = defaultdict(set)
@@ -1731,7 +1725,7 @@ class Workflow(AppAware):
                 self._in_batch_mode = True
                 yield
 
-            except Exception as err:
+            except Exception:
                 self._app.persistence_logger.error("batch update exception!")
                 self._in_batch_mode = False
                 self._store._pending.reset()
@@ -1751,7 +1745,7 @@ class Workflow(AppAware):
                     self._store.delete_no_confirm()
                     self._store.reinstate_replaced_dir()
 
-                raise err
+                raise
 
             else:
                 if self._store._pending:
@@ -1816,8 +1810,8 @@ class Workflow(AppAware):
 
         _temp_rename(path, fs)
 
-        for i in all_replaced[:-1]:
-            _remove_path(i, fs)
+        for path in all_replaced[:-1]:
+            _remove_path(path, fs)
 
         return all_replaced[-1]
 
@@ -1839,10 +1833,11 @@ class Workflow(AppAware):
         """
         Parameters
         ----------
+        template
+            The workflow description to instantiate.
         path
             The directory in which the workflow will be generated. The current directory
             if not specified.
-
         """
         ts = datetime.now()
 
@@ -1919,6 +1914,7 @@ class Workflow(AppAware):
     def zip(
         self,
         path: str = ".",
+        *,
         log: str | None = None,
         overwrite: bool = False,
         include_execute: bool = False,
@@ -1942,7 +1938,7 @@ class Workflow(AppAware):
             include_rechunk_backups=include_rechunk_backups,
         )
 
-    def unzip(self, path: str = ".", log: str | None = None) -> str:
+    def unzip(self, path: str = ".", *, log: str | None = None) -> str:
         """
         Convert the workflow to an unzipped form.
 
@@ -2070,8 +2066,8 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         return {
-            i.id_: (i.data if i.data is not None else i.file)
-            for i in self.get_all_parameters(**kwargs)
+            param.id_: (param.data if param.data is not None else param.file)
+            for param in self.get_all_parameters(**kwargs)
         }
 
     def check_parameters_exist(self, id_lst: int | list[int]) -> bool:
@@ -2152,8 +2148,7 @@ class Workflow(AppAware):
         """
         names = self._app.Task.get_task_unique_names(self.template.tasks)
         if map_to_insert_ID:
-            insert_IDs = (i.insert_ID for i in self.template.tasks)
-            return dict(zip(names, insert_IDs))
+            return dict(zip(names, (task.insert_ID for task in self.template.tasks)))
         else:
             return names
 
@@ -2299,8 +2294,8 @@ class Workflow(AppAware):
         Get the elements of a task.
         """
         return [
-            self._app.Element(task=task, **{k: v for k, v in i.items() if k != "task_ID"})
-            for i in self._store.get_task_elements(task.insert_ID, idx_lst)
+            self._app.Element(task=task, **{k: v for k, v in te.items() if k != "task_ID"})
+            for te in self._store.get_task_elements(task.insert_ID, idx_lst)
         ]
 
     def set_EAR_submission_index(self, EAR_ID: int, sub_idx: int) -> None:
@@ -2518,9 +2513,9 @@ class Workflow(AppAware):
                 )
 
             iIDs = to_add.task_insert_IDs
-            relevant_idx = [
+            relevant_idx = (
                 idx for idx, path_i in enumerate(pathway) if path_i.id_ in iIDs
-            ]
+            )
 
             for num_add_k, num_add in to_add.num_added_iterations.items():
                 parent_loop_idx = list(zip(to_add.parents, num_add_k))
@@ -2544,7 +2539,7 @@ class Workflow(AppAware):
 
             added_loop_names.add(to_add.name)
 
-        if added_loop_names != set(i.name for i in self.loops):
+        if added_loop_names != set(loop.name for loop in self.loops):
             raise RuntimeError(
                 "Not all loops have been considered in the iteration task pathway."
             )
@@ -2552,17 +2547,18 @@ class Workflow(AppAware):
         if ret_iter_IDs or ret_data_idx:
             all_iters = self.get_all_element_iterations()
             for path_i in pathway:
-                i_iters: list[ElementIteration] = []
-                for iter_j in all_iters:
+                i_iters = [
+                    iter_j
+                    for iter_j in all_iters
                     if (
                         iter_j.task.insert_ID == path_i.id_
                         and iter_j.loop_idx == path_i.names
-                    ):
-                        i_iters.append(iter_j)
+                    )
+                ]
                 if ret_iter_IDs:
-                    path_i.iter_ids.extend(j.id_ for j in i_iters)
+                    path_i.iter_ids.extend(elit.id_ for elit in i_iters)
                 if ret_data_idx:
-                    path_i.data_idx.extend(j.get_data_idx() for j in i_iters)
+                    path_i.data_idx.extend(elit.get_data_idx() for elit in i_iters)
 
         if ret_iter_IDs:
             if ret_data_idx:
@@ -2591,7 +2587,7 @@ class Workflow(AppAware):
         """Submit outstanding EARs for execution."""
 
         # generate a new submission if there are no pending submissions:
-        if not (pending := [i for i in self.submissions if i.needs_submit]):
+        if not (pending := [sub for sub in self.submissions if sub.needs_submit]):
             if status:
                 status.update("Adding new submission...")
             if not (new_sub := self._add_submission(tasks, JS_parallelism)):
@@ -2768,17 +2764,17 @@ class Workflow(AppAware):
                 for sub_idx, js_idx in js_indices
             )
             job_IDs = [
-                i.scheduler_job_ID
-                for i in jobscripts_gen
-                if i.scheduler_job_ID is not None
+                js.scheduler_job_ID
+                for js in jobscripts_gen
+                if js.scheduler_job_ID is not None
             ]
             threads.append(Thread(target=sched.wait_for_jobscripts, args=(job_IDs,)))
 
-        for i in threads:
-            i.start()
+        for thr in threads:
+            thr.start()
 
-        for i in threads:
-            i.join()
+        for thr in threads:
+            thr.join()
 
     def wait(self, sub_js: dict[int, list[int]] | None = None):
         """Wait for the completion of specified/all submitted jobscripts."""
@@ -2938,7 +2934,7 @@ class Workflow(AppAware):
 
         elif len(running) > 1:
             if element_idx is None:
-                elem_idx = tuple(i.element.index for i in running)
+                elem_idx = tuple(ear.element.index for ear in running)
                 raise ValueError(
                     f"Multiple elements are running (indices: {elem_idx!r}). Specify "
                     "which element index you want to abort."
@@ -2989,8 +2985,8 @@ class Workflow(AppAware):
             return None
 
         with self._store.cached_load(), self.batch_update():
-            for i in all_EAR_ID:
-                self._store.set_EAR_submission_index(EAR_ID=i, sub_idx=new_idx)
+            for id_ in all_EAR_ID:
+                self._store.set_EAR_submission_index(EAR_ID=id_, sub_idx=new_idx)
 
         sub_obj_js, _ = sub_obj.to_json_like()
         assert self._submissions is not None
@@ -3014,7 +3010,7 @@ class Workflow(AppAware):
                 js[js_idx]["dependencies"] = js_deps[js_idx]
 
         js = merge_jobscripts_across_tasks(js)
-        js_objs = [self._app.Jobscript(**i) for i in jobscripts_to_list(js)]
+        js_objs = [self._app.Jobscript(**jsca) for jsca in jobscripts_to_list(js)]
 
         return js_objs
 
@@ -3271,17 +3267,16 @@ class Workflow(AppAware):
             if input_source.task_ref == new_task_name:
                 if input_source.task_source_type is self._app.TaskSourceType.OUTPUT:
                     raise InvalidInputSourceTaskReference(input_source)
-                else:
-                    warn(
-                        f"Changing input source {input_source.to_string()!r} to a local "
-                        f"type, since the input source task reference refers to its own "
-                        f"task."
-                    )
-                    # TODO: add an InputSource source_type setter to reset
-                    # task_ref/source_type?
-                    input_source.source_type = self._app.InputSourceType.LOCAL
-                    input_source.task_ref = None
-                    input_source.task_source_type = None
+                warn(
+                    f"Changing input source {input_source.to_string()!r} to a local "
+                    f"type, since the input source task reference refers to its own "
+                    f"task."
+                )
+                # TODO: add an InputSource source_type setter to reset
+                # task_ref/source_type?
+                input_source.source_type = self._app.InputSourceType.LOCAL
+                input_source.task_ref = None
+                input_source.task_source_type = None
             else:
                 try:
                     uniq_names_cur = self.get_task_unique_names(map_to_insert_ID=True)
@@ -3305,14 +3300,13 @@ class Workflow(AppAware):
         loop = self.loops.get(loop_name)
         elem_iter = self.get_EARs_from_IDs(run_ID).element_iteration
         if loop.test_termination(elem_iter):
-            to_skip: list[
-                int
-            ] = []  # run IDs of downstream iterations that can be skipped
+            # run IDs of downstream iterations that can be skipped
+            to_skip: set[int] = set()
             elem_id = elem_iter.element.id_
             loop_map = self.get_loop_map()  # over all jobscripts
             for iter_idx, iter_dat in loop_map[loop_name][elem_id].items():
                 if iter_idx > elem_iter.index:
-                    to_skip.extend(i.id_ for i in iter_dat)
+                    to_skip.update(itr_d.id_ for itr_d in iter_dat)
             self._app.logger.info(
                 f"Loop {loop_name!r} termination condition met for run_ID {run_ID!r}."
             )
@@ -3321,7 +3315,7 @@ class Workflow(AppAware):
 
     def get_loop_map(
         self, id_lst: Iterable[int] | None = None
-    ) -> Mapping[str, Mapping[int, Mapping[int, list[_IterationData]]]]:
+    ) -> Mapping[str, Mapping[int, Mapping[int, Sequence[_IterationData]]]]:
         """
         Get a description of what is going on with looping.
         """
@@ -3343,13 +3337,12 @@ class Workflow(AppAware):
     def get_iteration_final_run_IDs(
         self,
         id_lst: Iterable[int] | None = None,
-    ) -> dict[str, list[int]]:
+    ) -> Mapping[str, Sequence[int]]:
         """Retrieve the run IDs of those runs that correspond to the final action within
         a named loop iteration.
 
         These runs represent the final action of a given element-iteration; this is used to
         identify which commands file to append a loop-termination check to.
-
         """
         self._app.persistence_logger.debug("Workflow.get_iteration_final_run_IDs")
 
@@ -3361,7 +3354,7 @@ class Workflow(AppAware):
             for elem_dat in dat.values():
                 for iter_dat in elem_dat.values():
                     final_runs[loop_name].append(max(iter_dat, key=lambda x: x.idx).id_)
-        return dict(final_runs)
+        return final_runs
 
     def rechunk_runs(
         self,
