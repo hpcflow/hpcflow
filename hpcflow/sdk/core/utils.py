@@ -18,7 +18,7 @@ import re
 import socket
 import string
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import sys
 from typing import cast, overload, TypeVar, TYPE_CHECKING
 import fsspec  # type: ignore
@@ -846,7 +846,7 @@ def get_enum_by_name_or_val(
         return enum_cls(int(key))  # retrieve by value
     elif isinstance(key, str):
         try:
-            return cast(E, getattr(enum_cls, key.upper()))  # retrieve by name
+            return cast("E", getattr(enum_cls, key.upper()))  # retrieve by name
         except AttributeError:
             pass
     raise ValueError(f"Unknown enum key or value {key!r} for class {enum_cls!r}")
@@ -869,22 +869,22 @@ def process_string_nodes(data: T, str_processor: Callable[[str], str]) -> T:
 
     if isinstance(data, dict):
         return cast(
-            T, {k: process_string_nodes(v, str_processor) for k, v in data.items()}
+            "T", {k: process_string_nodes(v, str_processor) for k, v in data.items()}
         )
 
     elif isinstance(data, (list, tuple, set, frozenset)):
         _data = (process_string_nodes(i, str_processor) for i in data)
         if isinstance(data, tuple):
-            return cast(T, tuple(_data))
+            return cast("T", tuple(_data))
         elif isinstance(data, set):
-            return cast(T, set(_data))
+            return cast("T", set(_data))
         elif isinstance(data, frozenset):
-            return cast(T, frozenset(_data))
+            return cast("T", frozenset(_data))
         else:
-            return cast(T, list(_data))
+            return cast("T", list(_data))
 
     elif isinstance(data, str):
-        return cast(T, str_processor(data))
+        return cast("T", str_processor(data))
 
     return data
 
@@ -973,7 +973,7 @@ def dict_values_process_flat(
             flat.extend(cast("list[T2]", i))
             is_multi.append((True, len(i)))
         else:
-            flat.append(cast(T2, i))
+            flat.append(cast("T2", i))
             is_multi.append((False, 1))
 
     processed = callable(flat)
@@ -1007,19 +1007,23 @@ def nth_value(dct: dict[Any, T], n: int) -> T:
     return dct[nth_key(dct, n)]
 
 
+def normalise_timestamp(timestamp: datetime) -> datetime:
+    """
+    Force a timestamp to have UTC as its timezone,
+    then convert to use the local timezone.
+    """
+    return timestamp.replace(tzinfo=timezone.utc).astimezone()
+
+
 def parse_timestamp(timestamp: str | datetime, ts_fmt: str) -> datetime:
     """
     Standard timestamp parsing.
     Ensures that timestamps are internally all UTC.
     """
-    return (
-        (
-            timestamp
-            if isinstance(timestamp, datetime)
-            else datetime.strptime(timestamp, ts_fmt)
-        )
-        .replace(tzinfo=timezone.utc)
-        .astimezone()
+    return normalise_timestamp(
+        timestamp
+        if isinstance(timestamp, datetime)
+        else datetime.strptime(timestamp, ts_fmt)
     )
 
 
@@ -1028,6 +1032,31 @@ def current_timestamp() -> datetime:
     Get a UTC timestamp for the current time
     """
     return datetime.now(timezone.utc)
+
+
+def timedelta_format(td: timedelta) -> str:
+    """
+    Convert time delta to string in standard form.
+    """
+    days, seconds = td.days, td.seconds
+    hours = seconds // (60 * 60)
+    seconds -= hours * (60 * 60)
+    minutes = seconds // 60
+    seconds -= minutes * 60
+    return f"{days}-{hours:02}:{minutes:02}:{seconds:02}"
+
+
+_TD_RE = re.compile(r"(\d+)-(\d+):(\d+):(\d+)")
+
+
+def timedelta_parse(td_str: str) -> timedelta:
+    """
+    Parse a string in standard form as a time delta.
+    """
+    if not (m := _TD_RE.fullmatch(td_str)):
+        raise ValueError("not a supported timedelta form")
+    days, hours, mins, secs = map(int, m.groups())
+    return timedelta(days=days, hours=hours, minutes=mins, seconds=secs)
 
 
 def open_text_resource(package: ModuleType | str, resource: str) -> IO[str]:

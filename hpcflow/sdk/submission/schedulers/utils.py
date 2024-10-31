@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    import logging
+    from logging import Logger
 
 
 def run_cmd(
-    cmd: str | Sequence[str], logger: logging.Logger | None = None
+    cmd: str | Sequence[str], logger: Logger | None = None
 ) -> tuple[str, str]:
     """Execute a command and return stdout, stderr as strings."""
     if logger:

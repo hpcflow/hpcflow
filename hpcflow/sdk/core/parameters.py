@@ -11,13 +11,12 @@ import enum
 from pathlib import Path
 import re
 from typing import TypeVar, cast, TYPE_CHECKING
-from typing_extensions import override
+from typing_extensions import override, TypeIs
 
 import numpy as np
 from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
-from hpcflow.sdk.core.element import ElementFilter
 from hpcflow.sdk.core.enums import (
     InputSourceType,
     ParallelMode,
@@ -36,8 +35,8 @@ from hpcflow.sdk.core.utils import (
     linspace_rect,
     process_string_nodes,
     split_param_label,
+    timedelta_format
 )
-from hpcflow.sdk.submission.submission import timedelta_format
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -47,6 +46,7 @@ if TYPE_CHECKING:
     from ..app import BaseApp
     from ..typing import ParamSource
     from .actions import ActionScope
+    from .element import ElementFilter
     from .object_list import ResourceList
     from .rule import Rule
     from .task import ElementSet, TaskSchema, TaskTemplate, WorkflowTask
@@ -1691,7 +1691,7 @@ class InputValue(AbstractInputValue):
     @property
     def value(self) -> Any:
         if self._value_group_idx is not None and self.workflow:
-            val = self.workflow.get_parameter_data(cast(int, self._value_group_idx))
+            val = self.workflow.get_parameter_data(cast('int', self._value_group_idx))
             if self._value_is_obj and self.parameter._value_class:
                 return self.parameter._value_class(**val)
             return val
@@ -1809,7 +1809,7 @@ class ResourceSpec(JSONLike):
         elif val is None:
             return typ.any()
         else:
-            return typ.from_json_like(cast(str, val))
+            return typ.from_json_like(cast('str', val))
 
     def __init__(
         self,
@@ -2005,7 +2005,7 @@ class ResourceSpec(JSONLike):
 
     def _get_value(self, value_name: str | None = None):
         if self._value_group_idx is not None and self.workflow:
-            val = self.workflow.get_parameter_data(cast(int, self._value_group_idx))
+            val = self.workflow.get_parameter_data(cast('int', self._value_group_idx))
         else:
             val = self._get_members()
         if value_name is not None and val is not None:
@@ -2269,6 +2269,14 @@ class InputSource(JSONLike):
         ),
     )
 
+    @classmethod
+    def __is_ElementFilter(cls, value) -> TypeIs[ElementFilter]:
+        return isinstance(value, cls._app.ElementFilter)
+
+    @classmethod
+    def __is_Rule(cls, value) -> TypeIs[Rule]:
+        return isinstance(value, cls._app.Rule)
+
     def __init__(
         self,
         source_type: InputSourceType | str,
@@ -2279,16 +2287,13 @@ class InputSource(JSONLike):
         path: str | None = None,
         where: Where | None = None,
     ):
-        if where is None or isinstance(where, ElementFilter):
+        if where is None or self.__is_ElementFilter(where):
             #: Filtering rules.
             self.where: ElementFilter | None = where
         else:
-            rule_cls = self._app.Rule
             self.where = self._app.ElementFilter(
                 rules=[
-                    rule
-                    if isinstance(rule, rule_cls)
-                    else rule_cls(**cast("RuleArgs", rule))
+                    rule if self.__is_Rule(rule) else self._app.Rule(**rule)
                     for rule in (where if isinstance(where, Sequence) else [where])
                 ]
             )

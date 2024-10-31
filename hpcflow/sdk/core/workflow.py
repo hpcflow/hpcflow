@@ -7,7 +7,6 @@ from collections import defaultdict
 from contextlib import contextmanager, nullcontext
 import copy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 from pathlib import Path
 import random
@@ -24,10 +23,7 @@ from fsspec.core import url_to_fs  # type: ignore
 import rich.console
 
 from hpcflow.sdk.typing import hydrate
-from hpcflow.sdk.core import (
-    ALL_TEMPLATE_FORMATS,
-    ABORT_EXIT_CODE,
-)
+from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS, ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.loop_cache import LoopCache
@@ -45,14 +41,15 @@ from hpcflow.sdk.submission.jobscript import (
 )
 from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
-from hpcflow.sdk.typing import PathLike
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
-from .utils import (
+from hpcflow.sdk.core.utils import (
     read_JSON_file,
     read_JSON_string,
     read_YAML_str,
     read_YAML_file,
     replace_items,
+    current_timestamp,
+    normalise_timestamp,
     parse_timestamp,
 )
 from hpcflow.sdk.core.errors import (
@@ -72,8 +69,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     import psutil
     from rich.status import Status
-    from ..typing import TemplateComponents
-    from ..typing import DataIndex, ParamSource
+    from ..typing import DataIndex, ParamSource, PathLike, TemplateComponents
     from .actions import ElementActionRun
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
@@ -1396,7 +1392,7 @@ class Workflow(AppAware):
                     task.pop("id_", None)
 
                 template = self._app.WorkflowTemplate.from_json_like(
-                    temp_js, cast(dict, self.template_components)
+                    temp_js, cast('dict', self.template_components)
                 )
                 template.workflow = self
             self._template = template
@@ -1440,7 +1436,7 @@ class Workflow(AppAware):
             for item in num_added_iterations:
                 # Convert the outside to a tuple and narrow the inner types
                 key_vec, count = item
-                yield tuple(cast(list[int], key_vec)), cast(int, count)
+                yield tuple(cast('list[int]', key_vec)), cast('int', count)
 
         if self._loops is None:
             with self._store.cached_load():
@@ -1470,7 +1466,7 @@ class Workflow(AppAware):
                 subs: list[Submission] = []
                 for idx, sub_dat in self._store.get_submissions().items():
                     sub = self._app.Submission.from_json_like(
-                        {"index": idx, **cast(dict, sub_dat)}
+                        {"index": idx, **cast('dict', sub_dat)}
                     )
                     sub.workflow = self
                     subs.append(sub)
@@ -1839,10 +1835,10 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. The current directory
             if not specified.
         """
-        ts = datetime.now()
 
         # store all times in UTC, since NumPy doesn't support time zone info:
-        ts_utc = ts.astimezone(tz=timezone.utc)
+        ts_utc = current_timestamp()
+        ts = normalise_timestamp(ts_utc)
 
         ts_name_fmt = ts_name_fmt or cls._default_ts_name_fmt
         ts_fmt = ts_fmt or cls._default_ts_fmt
@@ -1866,7 +1862,7 @@ class Workflow(AppAware):
                 )
 
         # make template-level inputs/resources think they are persistent:
-        wk_dummy = cast(Workflow, _DummyPersistentWorkflow())
+        wk_dummy = cast('Workflow', _DummyPersistentWorkflow())
         param_src: ParamSource = {"type": "workflow_resources"}
         for res_i in template._get_resources_copy():
             res_i.make_persistent(wk_dummy, param_src)
@@ -1902,7 +1898,7 @@ class Workflow(AppAware):
         wk = cls(fs_path, store_fmt=store, fs_kwargs=fs_kwargs)
 
         # actually make template inputs/resources persistent, now the workflow exists:
-        cast(_DummyPersistentWorkflow, wk_dummy).make_persistent(wk)
+        cast('_DummyPersistentWorkflow', wk_dummy).make_persistent(wk)
 
         if template.source_file:
             wk.artifacts_path.mkdir(exist_ok=False)
@@ -2115,7 +2111,7 @@ class Workflow(AppAware):
         clean_up: bool = False,
     ) -> None:
         self._store.set_file(
-            param_id=cast(int, param_id),
+            param_id=cast('int', param_id),
             store_contents=store_contents,
             is_input=is_input,
             path=path,
@@ -2439,7 +2435,7 @@ class Workflow(AppAware):
         Set the value of a parameter.
         """
         with self._store.cached_load(), self.batch_update():
-            self._store.set_parameter_value(cast(int, param_id), value)
+            self._store.set_parameter_value(cast('int', param_id), value)
 
         if commit:
             # force commit now:

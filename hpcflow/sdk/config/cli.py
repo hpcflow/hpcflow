@@ -13,14 +13,14 @@ import click
 from colorama import init as colorama_init
 from termcolor import colored  # type: ignore
 
-from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.utils import open_file
 
-from .errors import ConfigError
-from .config import Config
+from hpcflow.sdk.config.errors import ConfigError
+from hpcflow.sdk.config.config import Config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from hpcflow.sdk.app import BaseApp
+    from ..app import BaseApp
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +367,7 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         if path:
             click.echo(file_path)
         else:
-            utils.open_file(file_path)
+            open_file(file_path)
 
     @config.command()
     @click.argument("known_name")

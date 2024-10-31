@@ -14,6 +14,7 @@ from hpcflow.sdk.log import TimeIt
 
 if TYPE_CHECKING:
     from typing import Any
+    from typing_extensions import TypeIs
     from .actions import Action, ElementActionRun
     from .element import ElementIteration
 
@@ -101,6 +102,10 @@ class Rule(JSONLike):
             and self.doc == other.doc
         )
 
+    @classmethod
+    def __is_ElementIteration(cls, value) -> TypeIs[ElementIteration]:
+        return isinstance(value, cls._app.ElementIteration)
+
     @TimeIt.decorator
     def test(
         self,
@@ -130,14 +135,12 @@ class Rule(JSONLike):
                     return self.check_missing not in schema_data_idx
         else:
             if self.path and self.path.startswith("resources."):
-                if isinstance(element_like, self._app.ElementIteration):
+                if self.__is_ElementIteration(element_like):
                     assert action is not None
                     elem_res = element_like.get_resources(
                         action=action, set_defaults=True
                     )
                 else:
-                    # must be an `ElementActionRun`
-                    assert isinstance(element_like, self._app.ElementActionRun)
                     elem_res = element_like.get_resources()
 
                 res_path = self.path.split(".")[1:]

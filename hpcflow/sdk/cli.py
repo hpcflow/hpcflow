@@ -56,7 +56,7 @@ from hpcflow.sdk.submission.schedulers.sge import SGEPosix
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Literal
-    from hpcflow.sdk.app import BaseApp
+    from .app import BaseApp
 
 #: Standard option
 string_option = click.option(

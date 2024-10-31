@@ -7,8 +7,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from textwrap import dedent
-
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike

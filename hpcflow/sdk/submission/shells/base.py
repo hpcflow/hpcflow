@@ -4,12 +4,12 @@ Base model of a shell.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import TYPE_CHECKING
 from hpcflow.sdk.typing import hydrate
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from pathlib import Path
     from typing import Any, ClassVar
     from ..types import JobscriptHeaderArgs, VersionInfo
 

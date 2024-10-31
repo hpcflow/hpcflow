@@ -7,9 +7,7 @@ from __future__ import annotations
 from collections import defaultdict
 import contextlib
 from dataclasses import dataclass, field, fields
-from datetime import datetime
 
-from logging import Logger
 from typing import Any, Generic, TYPE_CHECKING
 
 from hpcflow.sdk.log import TimeIt
@@ -23,6 +21,8 @@ from hpcflow.sdk.persistence.types import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import datetime
+    from logging import Logger
     from .base import PersistentStore, FileDescriptor, LoopDescriptor
     from ..app import BaseApp
     from ..typing import ParamSource

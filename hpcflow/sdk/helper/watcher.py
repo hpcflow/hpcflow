@@ -38,12 +38,12 @@ class MonitorController:
     """
 
     def __init__(
-        self, workflow_dirs_file_path: str | Path, watch_interval, logger: Logger
+        self, workflow_dirs_file_path: str | Path, watch_interval: float | timedelta, logger: Logger
     ):
         if isinstance(watch_interval, timedelta):
-            watch_interval = watch_interval.total_seconds()
-
-        self.watch_interval = int(watch_interval)
+            self.watch_interval = int(watch_interval.total_seconds())
+        else:
+            self.watch_interval = int(watch_interval)
         self.workflow_dirs_file_path = Path(workflow_dirs_file_path).absolute()
         self.logger = logger
 
@@ -140,11 +140,12 @@ class WorkflowMonitor:
         logger: Logger,
     ):
         if isinstance(watch_interval, timedelta):
-            watch_interval = watch_interval.total_seconds()
+            self.watch_interval = int(watch_interval.total_seconds())
+        else:
+            self.watch_interval = int(watch_interval)
 
         self.event_handler = _FSEHDelegate(self.on_modified)
         self.workflow_paths = workflow_paths
-        self.watch_interval = int(watch_interval)
         self.logger = logger
 
         self._monitor_workflow_paths()

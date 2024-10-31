@@ -10,17 +10,18 @@ from types import SimpleNamespace
 from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
-from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike, JSONable, JSONed
+from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
     from typing import Any, ClassVar, Literal
-    from typing_extensions import Self
+    from typing_extensions import Self, TypeIs
     from zarr import Group  # type: ignore
     from .actions import ActionScope
     from .command_files import FileSpec
     from .environment import Environment, Executable
     from .loop import WorkflowLoop
+    from .json_like import JSONable, JSONed
     from .parameters import Parameter, ResourceSpec
     from .task import Task, TaskTemplate, TaskSchema, WorkflowTask, ElementSet
     from .types import Resources
@@ -210,7 +211,7 @@ class ObjectList(JSONLike, Generic[T]):
             index += len(self) + 1
 
         if self._object_is_dict:
-            obj = cast(T, SimpleNamespace(**cast(dict, obj)))
+            obj = cast('T', SimpleNamespace(**cast('dict', obj)))
 
         self._objects = self._objects[:index] + [obj] + self._objects[index:]
         self._validate()
@@ -469,7 +470,7 @@ class AppDataList(DotAccessObjectList[T], Generic[T]):
             assert isinstance(json_like, Mapping)
             return super().from_json_like(
                 [
-                    {**cast(Mapping, obj_js), "_hash_value": hash_val}
+                    {**cast('Mapping', obj_js), "_hash_value": hash_val}
                     for hash_val, obj_js in json_like.items()
                 ],
                 shared_data=shared_data,
@@ -838,6 +839,10 @@ class ResourceList(ObjectList["ResourceSpec"]):
         return resource_spec
 
     @classmethod
+    def __is_ResourceSpec(cls, value) -> TypeIs[ResourceSpec]:
+        return isinstance(value, cls._app.ResourceSpec)
+
+    @classmethod
     def normalise(cls, resources: Resources) -> Self:
         """Generate from resource-specs specified in potentially several ways."""
 
@@ -847,18 +852,16 @@ class ResourceList(ObjectList["ResourceSpec"]):
             # Already a ResourceList
             return cast("Self", resources)
         elif isinstance(resources, dict):
-            return cls.from_json_like(cast(dict, resources))
-        elif isinstance(resources, cls._app.ResourceSpec):
+            return cls.from_json_like(cast('dict', resources))
+        elif cls.__is_ResourceSpec(resources):
             return cls([resources])
-        elif isinstance(resources, Sequence):
+        else:
             return cls(
-                cls._app.ResourceSpec.from_json_like(cast(dict, res_i))
+                cls._app.ResourceSpec.from_json_like(cast('dict', res_i))
                 if isinstance(res_i, dict)
                 else cls.__ensure_non_persistent(res_i)
                 for res_i in resources
             )
-        else:
-            return cls([resources])
 
     def get_scopes(self) -> tuple[ActionScope, ...]:
         """

@@ -23,7 +23,7 @@ from hpcflow.sdk.log import TimeIt
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Any, ClassVar
-    from typing_extensions import Self
+    from typing_extensions import Self, TypeIs
     from ..typing import DataIndex, ParamSource
     from .parameters import SchemaInput, InputSource
     from .rule import Rule
@@ -68,6 +68,10 @@ class Loop(JSONLike):
         ChildObjectSpec(name="termination", class_name="Rule"),
     )
 
+    @classmethod
+    def __is_WorkflowTask(cls, value) -> TypeIs[WorkflowTask]:
+        return isinstance(value, cls._app.WorkflowTask)
+
     def __init__(
         self,
         tasks: Iterable[int | WorkflowTask],
@@ -78,7 +82,7 @@ class Loop(JSONLike):
     ) -> None:
         _task_insert_IDs: list[int] = []
         for task in tasks:
-            if isinstance(task, self._app.WorkflowTask):
+            if self.__is_WorkflowTask(task):
                 _task_insert_IDs.append(task.insert_ID)
             elif isinstance(task, int):
                 _task_insert_IDs.append(task)

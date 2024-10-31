@@ -18,7 +18,7 @@ from ruamel.yaml import YAML
 
 from hpcflow.sdk.core.validation import Schema, get_schema
 
-from .errors import (
+from hpcflow.sdk.config.errors import (
     ConfigChangeFileUpdateError,
     ConfigDefaultValidationError,
     ConfigFileInvocationIncompatibleError,
@@ -195,8 +195,8 @@ class ConfigFile:
             new_data_rt_config.update(config._modified_keys)
 
             for k in config._unset_keys:
-                del cast(dict, new_data_config)[k]
-                del cast(dict, new_data_rt_config)[k]
+                del cast('dict', new_data_config)[k]
+                del cast('dict', new_data_rt_config)[k]
 
         try:
             new_contents = self._dump(new_data_rt)

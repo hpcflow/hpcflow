@@ -31,7 +31,7 @@ from hpcflow.sdk.core.validation import get_schema, Schema
 from hpcflow.sdk.submission.shells import DEFAULT_SHELL_NAMES
 from hpcflow.sdk.typing import PathLike
 
-from .callbacks import (
+from hpcflow.sdk.config.callbacks import (
     callback_bool,
     callback_lowercase,
     callback_scheduler_set_up,
@@ -45,8 +45,8 @@ from .callbacks import (
     check_load_data_files,
     set_scheduler_invocation_match,
 )
-from .config_file import ConfigFile
-from .errors import (
+from hpcflow.sdk.config.config_file import ConfigFile
+from hpcflow.sdk.config.errors import (
     ConfigChangeInvalidJSONError,
     ConfigChangePopIndexError,
     ConfigChangeTypeInvalidError,
@@ -741,7 +741,7 @@ class Config:
             raise ConfigUnknownItemError(name=name)
 
         elif name in self._meta_data:
-            val = cast(dict, self._meta_data)[name]
+            val = cast('dict', self._meta_data)[name]
 
         elif include_overrides and name in self._overrides:
             val = self._overrides[name]
@@ -754,7 +754,7 @@ class Config:
                 val = default_value
 
         elif name in self._modified_keys:
-            val = cast(dict, self._modified_keys)[name]
+            val = cast('dict', self._modified_keys)[name]
 
         elif name in self._configurable_keys:
             val = self._file.get_config_item(
@@ -808,7 +808,7 @@ class Config:
         if name not in self._configurable_keys:
             raise ConfigNonConfigurableError(name=name)
         if is_json:
-            value = self._parse_JSON(name, cast(str, value))
+            value = self._parse_JSON(name, cast('str', value))
         current_val = self._get(name)
         callback_val = self._get_callback_value(name, value)
         file_val = self._get_callback_value(
@@ -820,7 +820,7 @@ class Config:
             was_in_unset = False
             prev_modified_val = None
             modified_updated = False
-            mk = cast(dict, self._modified_keys)
+            mk = cast('dict', self._modified_keys)
 
             if name in self._modified_keys:
                 was_in_modified = True

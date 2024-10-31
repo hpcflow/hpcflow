@@ -2,14 +2,16 @@
 Utilities for discovering what persistence store implementation to use.
 """
 from __future__ import annotations
-from collections.abc import Mapping as _Mapping
-from hpcflow.sdk.persistence.base import PersistentStore
+from typing import TYPE_CHECKING
 from hpcflow.sdk.persistence.json import JSONPersistentStore
 from hpcflow.sdk.persistence.zarr import ZarrPersistentStore, ZarrZipPersistentStore
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from .base import PersistentStore
 
 # Because of python/mypy#4717, we need to disable an error here:
 # mypy: disable-error-code="type-abstract"
-_ALL_STORE_CLS: _Mapping[str, type[PersistentStore]] = {
+_ALL_STORE_CLS: Mapping[str, type[PersistentStore]] = {
     "zarr": ZarrPersistentStore,
     "zip": ZarrZipPersistentStore,
     "json": JSONPersistentStore,

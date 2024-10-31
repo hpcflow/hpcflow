@@ -4,7 +4,6 @@ Job scheduler models.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
 import sys
 import time
 from typing import Generic, TypeVar, TYPE_CHECKING
@@ -13,6 +12,7 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from typing import Any, ClassVar
     from ..shells import Shell
     from ..jobscript import Jobscript

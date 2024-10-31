@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .workflow import Workflow
     from ..persistence.base import StoreEAR, StoreElement, StoreElementIter
-    from ..typing import ParamSource
 
 
 @dataclass

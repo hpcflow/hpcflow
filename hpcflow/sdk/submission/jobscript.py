@@ -4,9 +4,7 @@ Model of information submitted to a scheduler.
 
 from __future__ import annotations
 
-from datetime import datetime
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
@@ -27,10 +25,12 @@ from hpcflow.sdk.core.utils import parse_timestamp, current_timestamp
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
-from hpcflow.sdk.submission.shells import get_shell
+from hpcflow.sdk.submission.shells import get_shell, DEFAULT_SHELL_NAMES
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from datetime import datetime
+    from pathlib import Path
     from typing import Any, ClassVar, Literal
     from numpy.typing import NDArray, ArrayLike
     from ..core.actions import ElementActionRun
@@ -739,19 +739,17 @@ class Jobscript(JSONLike):
 
     def _get_shell(
         self,
-        os_name: str | None,
+        os_name: str,
         shell_name: str | None,
         os_args: dict[str, Any] | None = None,
         shell_args: dict[str, Any] | None = None,
     ) -> Shell:
         """Get an arbitrary shell, not necessarily associated with submission."""
-        os_args = os_args or {}
-        shell_args = shell_args or {}
         return get_shell(
             shell_name=shell_name,
             os_name=os_name,
-            os_args=os_args,
-            **shell_args,
+            os_args=os_args or {},
+            **(shell_args or {}),
         )
 
     @property

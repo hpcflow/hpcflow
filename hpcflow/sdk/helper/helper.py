@@ -15,11 +15,11 @@ import time
 from typing import Any, TYPE_CHECKING
 import psutil
 
-from .watcher import MonitorController
+from hpcflow.sdk.helper.watcher import MonitorController
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from hpcflow.sdk.app import BaseApp
+    from ..app import BaseApp
 
 
 DEFAULT_TIMEOUT = 3600  # seconds

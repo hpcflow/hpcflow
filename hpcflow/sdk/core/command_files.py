@@ -57,7 +57,7 @@ class FileSpec(JSONLike):
         """
         The path to a file, optionally resolved with respect to a particular directory.
         """
-        return cast(str, self.name.value(directory))
+        return cast('str', self.name.value(directory))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

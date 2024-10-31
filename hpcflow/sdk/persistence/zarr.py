@@ -7,7 +7,6 @@ from __future__ import annotations
 import copy
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import override
@@ -17,10 +16,8 @@ import time
 import numpy as np
 from numpy.ma.core import MaskedArray
 import zarr  # type: ignore
-import zarr.attrs  # type: ignore
-import zarr.convenience  # type: ignore
-import zarr.errors  # type: ignore
-import zarr.storage  # type: ignore
+from zarr.errors import BoundsCheckError  # type: ignore
+from zarr.storage import DirectoryStore, FSStore  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from rich.console import Console
 from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd  # type: ignore
@@ -59,12 +56,15 @@ from hpcflow.sdk.log import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from datetime import datetime
     from fsspec import AbstractFileSystem  # type: ignore
     from logging import Logger
     from typing import ClassVar
     from typing_extensions import Self, TypeAlias
     from numpy.typing import NDArray
     from zarr import Array, Group  # type: ignore
+    from zarr.attrs import Attributes  # type: ignore
+    from zarr.storage import Store  # type: ignore
     from .types import TypeLookup
     from ..app import BaseApp
     from ..core.json_like import JSONed, JSONDocument
@@ -470,8 +470,8 @@ class ZarrPersistentStore(
                 )
 
     @staticmethod
-    def _get_zarr_store(path: str | Path, fs: AbstractFileSystem) -> zarr.storage.Store:
-        return zarr.storage.FSStore(url=str(path), fs=fs)
+    def _get_zarr_store(path: str | Path, fs: AbstractFileSystem) -> Store:
+        return FSStore(url=str(path), fs=fs)
 
     _CODEC: ClassVar = MsgPack()
 
@@ -632,11 +632,11 @@ class ZarrPersistentStore(
         arr[task_ID] = elem_IDs_new
 
     @staticmethod
-    def __as_dict(attrs: zarr.attrs.Attributes) -> ZarrAttrs:
+    def __as_dict(attrs: Attributes) -> ZarrAttrs:
         """
         Type thunk to work around incomplete typing in zarr.
         """
-        return cast(ZarrAttrs, attrs.asdict())
+        return cast('ZarrAttrs', attrs.asdict())
 
     @contextmanager
     def __mutate_attrs(self, arr: Array) -> Iterator[ZarrAttrs]:
@@ -661,7 +661,7 @@ class ZarrPersistentStore(
     def _append_elem_iter_IDs(self, elem_ID: int, iter_IDs: Iterable[int]):
         arr = self._get_elements_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        elem_dat: list = cast(list, arr[elem_ID])
+        elem_dat = cast('list', arr[elem_ID])
         store_elem = ZarrStoreElement.decode(elem_dat, attrs)
         store_elem = store_elem.append_iteration_IDs(iter_IDs)
         arr[elem_ID] = store_elem.encode(attrs)
@@ -679,7 +679,7 @@ class ZarrPersistentStore(
     ):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast(list, arr[iter_ID])
+        iter_dat = cast('list', arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.append_EAR_IDs(pend_IDs={act_idx: EAR_IDs})
         arr[iter_ID] = store_iter.encode(attrs)
@@ -688,7 +688,7 @@ class ZarrPersistentStore(
     def _update_elem_iter_EARs_initialised(self, iter_ID: int):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast(list, arr[iter_ID])
+        iter_dat = cast('list', arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.set_EARs_initialised()
         arr[iter_ID] = store_iter.encode(attrs)
@@ -697,14 +697,14 @@ class ZarrPersistentStore(
     def _append_submission_parts(self, sub_parts: dict[int, dict[str, list[int]]]):
         with self.using_resource("attrs", action="update") as attrs:
             for sub_idx, sub_i_parts in sub_parts.items():
-                sub = cast(dict, attrs["submissions"][sub_idx])
+                sub = cast('dict', attrs["submissions"][sub_idx])
                 for dt_str, parts_j in sub_i_parts.items():
                     sub["submission_parts"][dt_str] = parts_j
 
     def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast(list, arr[iter_ID])
+        iter_dat = cast('list', arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.update_loop_idx(loop_idx)
         arr[iter_ID] = store_iter.encode(attrs)
@@ -900,7 +900,7 @@ class ZarrPersistentStore(
             return attrs["num_added_tasks"]
 
     @property
-    def zarr_store(self) -> zarr.storage.Store:
+    def zarr_store(self) -> Store:
         """
         The underlying store object.
         """
@@ -978,8 +978,7 @@ class ZarrPersistentStore(
         ts_fmt = "FIXME"
 
         path = Path(dir or "", path)
-        store = zarr.DirectoryStore(path)
-        root = zarr.group(store=store, overwrite=overwrite)
+        root = zarr.group(store=DirectoryStore(path), overwrite=overwrite)
         md = root.create_group("metadata")
 
         tasks_arr = md.create_dataset(
@@ -1067,7 +1066,7 @@ class ZarrPersistentStore(
                     elem_IDs_arr_dat = self._get_tasks_arr().get_coordinate_selection(
                         elem_IDs
                     )
-                except zarr.errors.BoundsCheckError:
+                except BoundsCheckError:
                     raise MissingStoreTaskError(
                         elem_IDs
                     ) from None  # TODO: not an ID list
@@ -1086,7 +1085,7 @@ class ZarrPersistentStore(
     ) -> dict[int, LoopDescriptor]:
         with self.using_resource("attrs", "read") as attrs:
             return {
-                idx: cast(LoopDescriptor, i)
+                idx: cast('LoopDescriptor', i)
                 for idx, i in enumerate(attrs["loops"])
                 if id_lst is None or idx in id_lst
             }
@@ -1105,7 +1104,7 @@ class ZarrPersistentStore(
             )
             # cast jobscript submit-times and jobscript `task_elements` keys:
             for sub in subs_dat.values():
-                for js in cast(_JS, sub)["jobscripts"]:
+                for js in cast('_JS', sub)["jobscripts"]:
                     task_elements = js["task_elements"]
                     for key in list(task_elements):
                         task_elements[int(key)] = task_elements.pop(key)
@@ -1122,7 +1121,7 @@ class ZarrPersistentStore(
             attrs = arr.attrs.asdict()
             try:
                 elem_arr_dat = arr.get_coordinate_selection(id_lst)
-            except zarr.errors.BoundsCheckError:
+            except BoundsCheckError:
                 raise MissingStoreElementError(id_lst) from None
             elem_dat = dict(zip(id_lst, elem_arr_dat))
             new_elems = {
@@ -1142,7 +1141,7 @@ class ZarrPersistentStore(
             attrs = arr.attrs.asdict()
             try:
                 iter_arr_dat = arr.get_coordinate_selection(id_lst)
-            except zarr.errors.BoundsCheckError:
+            except BoundsCheckError:
                 raise MissingStoreElementIterationError(id_lst) from None
             iter_dat = dict(zip(id_lst, iter_arr_dat))
             new_iters = {
@@ -1161,7 +1160,7 @@ class ZarrPersistentStore(
             try:
                 self.logger.debug(f"_get_persistent_EARs: {id_lst=}")
                 EAR_arr_dat = _zarr_get_coord_selection(arr, id_lst, self.logger)
-            except zarr.errors.BoundsCheckError:
+            except BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
             EAR_dat = dict(zip(id_lst, EAR_arr_dat))
             new_runs = {
@@ -1185,7 +1184,7 @@ class ZarrPersistentStore(
             try:
                 param_arr_dat = base_arr.get_coordinate_selection(list(id_lst))
                 src_arr_dat = src_arr.get_coordinate_selection(list(id_lst))
-            except zarr.errors.BoundsCheckError:
+            except BoundsCheckError:
                 raise MissingParameterData(id_lst) from None
 
             param_dat = dict(zip(id_lst, param_arr_dat))
@@ -1215,7 +1214,7 @@ class ZarrPersistentStore(
             src_arr = self._get_parameter_sources_array(mode="r")
             try:
                 src_arr_dat = src_arr.get_coordinate_selection(list(id_lst))
-            except zarr.errors.BoundsCheckError:
+            except BoundsCheckError:
                 raise MissingParameterData(id_lst) from None
             new_sources = dict(zip(id_lst, src_arr_dat))
             self.param_sources_cache.update(new_sources)
@@ -1228,7 +1227,7 @@ class ZarrPersistentStore(
         base_arr = self._get_parameter_base_array(mode="r")
         try:
             param_arr_dat = base_arr.get_coordinate_selection(list(id_lst))
-        except zarr.errors.BoundsCheckError:
+        except BoundsCheckError:
             raise MissingParameterData(id_lst) from None
 
         return dict(zip(id_lst, [i is not None for i in param_arr_dat]))
@@ -1306,7 +1305,7 @@ class ZarrPersistentStore(
                 target_options={},
                 add_pw_to="target_options",
             )
-            dst_zarr_store = zarr.storage.FSStore(url="", fs=zfs)
+            dst_zarr_store = FSStore(url="", fs=zfs)
             excludes = []
             if not include_execute:
                 excludes.append("execute")
@@ -1314,7 +1313,7 @@ class ZarrPersistentStore(
                 excludes.append("runs.bak")
                 excludes.append("base.bak")
 
-            zarr.convenience.copy_store(
+            zarr.copy_store(
                 src_zarr_store,
                 dst_zarr_store,
                 excludes=excludes or None,
@@ -1484,8 +1483,8 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
             dst_path_s = str(dst_path)
 
             src_zarr_store = self.zarr_store
-            dst_zarr_store = zarr.storage.FSStore(url=dst_path_s)
-            zarr.convenience.copy_store(src_zarr_store, dst_zarr_store, log=log)
+            dst_zarr_store = FSStore(url=dst_path_s)
+            zarr.copy_store(src_zarr_store, dst_zarr_store, log=log)
             return dst_path_s
 
     def copy(self, path: PathLike = None) -> Path:

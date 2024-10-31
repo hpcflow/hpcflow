@@ -10,8 +10,8 @@ from hpcflow.sdk.core.errors import (
     MissingEnvironmentExecutableError,
     MissingEnvironmentExecutableInstanceError,
 )
+from hpcflow.sdk.core.utils import timedelta_format, timedelta_parse
 from hpcflow.sdk.submission.jobscript import group_resource_map_into_jobscripts
-from hpcflow.sdk.submission.submission import timedelta_format, timedelta_parse
 
 
 @pytest.fixture

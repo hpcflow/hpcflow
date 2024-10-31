@@ -2,12 +2,11 @@
 Common Click command line options related to the helper.
 """
 from __future__ import annotations
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import click
 
-from .helper import (
+from hpcflow.sdk.helper.helper import (
     DEFAULT_TIMEOUT,
     DEFAULT_TIMEOUT_CHECK,
     DEFAULT_WATCH_INTERVAL,
@@ -22,7 +21,7 @@ from .helper import (
     get_helper_PID,
     get_helper_uptime,
 )
-from ..cli_common import _add_doc_from_help
+from hpcflow.sdk.cli_common import _add_doc_from_help
 
 if TYPE_CHECKING:
     from ..app import BaseApp

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from contextlib import AbstractContextManager, nullcontext
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 import json
 import shutil
 from functools import wraps
 from importlib import resources, import_module
-from logging import Logger
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -61,10 +60,12 @@ from hpcflow.sdk.submission.shells.os_version import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
+    from logging import Logger
     from types import ModuleType
     from typing import ClassVar, Literal
+    from typing_extensions import Final
     from rich.status import Status
-    from hpcflow.sdk.typing import (
+    from .typing import (
         BasicTemplateComponents,
         KnownSubmission,
         KnownSubmissionItem,
@@ -220,9 +221,9 @@ def get_app_attribute(name: str):
     """
     app_obj: BaseApp
     try:
-        app_obj = cast(App, App.get_instance())
+        app_obj = cast('App', App.get_instance())
     except RuntimeError:
-        app_obj = cast(BaseApp, BaseApp.get_instance())
+        app_obj = cast('BaseApp', BaseApp.get_instance())
     try:
         return getattr(app_obj, name)
     except AttributeError:
@@ -3204,14 +3205,13 @@ class BaseApp(metaclass=Singleton):
         )
 
         # sort loadable inactive by end time or start time or submit time:
-        DEF_TIMESTAMP = datetime(0, 0, 0)
         out_access = sorted(
             out_access,
             key=lambda i: (
                 i["end_time_obj"]
                 or i["start_time_obj"]
                 or i.get("submit_time_obj")
-                or DEF_TIMESTAMP
+                or self.__DEF_TIMESTAMP
             ),
             reverse=True,
         )
@@ -3225,6 +3225,8 @@ class BaseApp(metaclass=Singleton):
                 item.pop("submission", None)
                 item.pop("submit_time_obj")
         return out
+
+    __DEF_TIMESTAMP: Final[datetime] = datetime.fromtimestamp(0, tz=timezone.utc)
 
     @staticmethod
     def __partition(
@@ -3407,8 +3409,8 @@ class BaseApp(metaclass=Singleton):
 
                 start_time, end_time = None, None
                 if not no_access:
-                    start_time = cast(datetime, dat_i["start_time_obj"])
-                    end_time = cast(datetime, dat_i["end_time_obj"])
+                    start_time = cast('datetime', dat_i["start_time_obj"])
+                    end_time = cast('datetime', dat_i["end_time_obj"])
 
                 if "actions" in columns:
                     task_tab: str | Table

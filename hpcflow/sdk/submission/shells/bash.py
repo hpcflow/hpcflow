@@ -3,7 +3,6 @@ Shell models based on the GNU Bourne-Again Shell.
 """
 
 from __future__ import annotations
-from collections.abc import Mapping
 from pathlib import Path
 import subprocess
 from textwrap import dedent, indent
@@ -18,6 +17,7 @@ from hpcflow.sdk.submission.shells.os_version import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from typing import Any, ClassVar
     from .base import VersionInfo, JobscriptHeaderArgs
 

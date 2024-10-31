@@ -158,7 +158,7 @@ class SGEPosix(QueuedScheduler):
         """Return a list of hostnames of login/administrative nodes as reported by the
         scheduler."""
         get_login = self.login_nodes_cmd
-        assert isinstance(get_login, Sequence) and len(get_login) >= 1
+        assert get_login is not None and len(get_login) >= 1
         stdout, stderr = run_cmd(get_login)
         if stderr:
             print(stderr)

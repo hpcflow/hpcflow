@@ -4,15 +4,12 @@ A collection of submissions to a scheduler, generated from a workflow.
 
 from __future__ import annotations
 from collections import defaultdict
-from datetime import datetime, timedelta
 import os
 from pathlib import Path
-from textwrap import indent
 from typing import Any, overload, TYPE_CHECKING
 from typing_extensions import override
 
 from hpcflow.sdk.typing import hydrate
-from hpcflow.sdk.core.element import ElementResources
 from hpcflow.sdk.core.errors import (
     JobscriptSubmissionFailure,
     MissingEnvironmentError,
@@ -29,6 +26,7 @@ from hpcflow.sdk.log import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
+    from datetime import datetime
     from typing import ClassVar, Literal
     from rich.status import Status
     from .jobscript import Jobscript
@@ -40,28 +38,6 @@ if TYPE_CHECKING:
     from ..core.environment import Environment
     from ..core.object_list import EnvironmentsList
     from ..core.workflow import Workflow
-
-
-def timedelta_format(td: timedelta) -> str:
-    """
-    Convert time delta to string in standard form.
-    """
-    days, seconds = td.days, td.seconds
-    hours = seconds // (60 * 60)
-    seconds -= hours * (60 * 60)
-    minutes = seconds // 60
-    seconds -= minutes * 60
-    return f"{days}-{hours:02}:{minutes:02}:{seconds:02}"
-
-
-def timedelta_parse(td_str: str) -> timedelta:
-    """
-    Parse a string in standard form as a time delta.
-    """
-    days, other = td_str.split("-")
-    days_i = int(days)
-    hours, mins, secs = [int(i) for i in other.split(":")]
-    return timedelta(days=days_i, hours=hours, minutes=mins, seconds=secs)
 
 
 @hydrate

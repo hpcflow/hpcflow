@@ -6,7 +6,6 @@ import re
 import fsspec  # type: ignore
 from typing import overload, TYPE_CHECKING
 from hpcflow.sdk.core.errors import UnsupportedSchedulerError, UnsupportedShellError
-
 from hpcflow.sdk.submission.shells import get_supported_shells
 
 if TYPE_CHECKING:

@@ -6,14 +6,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import copy
 import json
-from logging import Logger
-from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
 
 from hpcflow.sdk.core.utils import get_md5_hash
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from logging import Logger
+    from pathlib import Path
     import zarr  # type: ignore
     from fsspec import AbstractFileSystem  # type: ignore
     from ..app import BaseApp

@@ -4,9 +4,8 @@ from hpcflow.sdk import sdk_classes
 
 
 # most of the modules in `sdk_classes` are imported on-demand via the app object:
-hiddenimports = list(sdk_classes.values())
-
-hiddenimports += [
+hiddenimports = [
+    *sdk_classes.values(),
     "hpcflow.sdk.data",
     "hpcflow.data.demo_data_manifest",
     "hpcflow.data.scripts",

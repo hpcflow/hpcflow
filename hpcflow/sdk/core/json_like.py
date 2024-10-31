@@ -16,13 +16,13 @@ from typing_extensions import final, override
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk import app, get_SDK_logger
-from .utils import get_md5_hash
-from .validation import get_schema
-from .errors import ToJSONLikeChildReferenceError
+from hpcflow.sdk.core.utils import get_md5_hash
+from hpcflow.sdk.core.validation import get_schema
+from hpcflow.sdk.core.errors import ToJSONLikeChildReferenceError
 
 if TYPE_CHECKING:
     from typing import Any, ClassVar, Literal
-    from typing_extensions import Self, TypeAlias, TypeGuard
+    from typing_extensions import Self, TypeAlias, TypeIs
     from ..app import BaseApp
     from .object_list import ObjectList
 
@@ -35,6 +35,7 @@ JSONable: TypeAlias = "_WriteStructure | enum.Enum | BaseJSONLike | _BasicJsonTy
 JSONed: TypeAlias = "JSONDocument | _BasicJsonTypes"
 
 if TYPE_CHECKING:
+    _ChildType: TypeAlias = "type[enum.Enum | JSONLike]"
     _JSONDeserState: TypeAlias = "dict[str, dict[str, JSONed]] | None"
 
 
@@ -56,7 +57,7 @@ class _AltConstructFromJson(Protocol):
         pass
 
 
-def _is_base_json_like(value: JSONable) -> TypeGuard[BaseJSONLike]:
+def _is_base_json_like(value: JSONable) -> TypeIs[BaseJSONLike]:
     return value is not None and hasattr(value, "to_json_like")
 
 
@@ -324,9 +325,6 @@ class ChildObjectSpec:
         self.json_like_name = self.json_like_name or self.name
 
 
-_ChildType: TypeAlias = "type[enum.Enum | JSONLike]"
-
-
 @hydrate
 class BaseJSONLike:
     """
@@ -375,7 +373,7 @@ class BaseJSONLike:
     @classmethod
     def __get_child_class(cls, child_spec: ChildObjectSpec) -> _ChildType | None:
         if child_spec.class_obj:
-            return cast(_ChildType, child_spec.class_obj)
+            return cast('_ChildType', child_spec.class_obj)
         elif child_spec.class_name:
             ns = cls._class_namespace()
             if isinstance(ns, dict):

@@ -5,11 +5,9 @@ Store* classes represent the element-metadata in the store, in a store-agnostic 
 """
 from __future__ import annotations
 from abc import ABC, abstractmethod
-
 import contextlib
 import copy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import enum
 from logging import Logger
 import os
@@ -26,6 +24,7 @@ from hpcflow.sdk.core.utils import (
     remap,
     reshape,
     set_in_container,
+    normalise_timestamp,
     parse_timestamp,
     current_timestamp,
 )
@@ -38,26 +37,29 @@ from hpcflow.sdk.persistence.types import (
     AnySElementIter,
     AnySEAR,
     AnySParameter,
-    ParameterTypes,
-    EncodedStoreParameter,
-    File,
-    FileDescriptor,
-    LoopDescriptor,
-    Metadata,
-    PersistenceCache,
-    StoreCreationInfo,
-    TemplateMeta,
-    TypeLookup,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
+    from datetime import datetime
     from typing import Any, ClassVar, Final, Literal
-    from typing_extensions import Self, TypeGuard
+    from typing_extensions import Self, TypeIs
     from fsspec import AbstractFileSystem  # type: ignore
     from .pending import CommitResourceMap
     from .store_resource import StoreResource
+    from .types import (
+        EncodedStoreParameter,
+        File,
+        FileDescriptor,
+        LoopDescriptor,
+        Metadata,
+        ParameterTypes,
+        PersistenceCache,
+        StoreCreationInfo,
+        TemplateMeta,
+        TypeLookup,
+    )
     from .zarr import ZarrAttrsDict
     from ..app import BaseApp
     from ..typing import DataIndex, PathLike, ParamSource
@@ -517,7 +519,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         def _process_datetime(dt: datetime | None) -> datetime | None:
             """We store datetime objects implicitly in UTC, so we need to first make
             that explicit, and then convert to the local time zone."""
-            return dt.replace(tzinfo=timezone.utc).astimezone() if dt else None
+            return normalise_timestamp(dt) if dt else None
 
         return {
             "id_": self.id_,
@@ -628,12 +630,12 @@ class StoreParameter:
             if self.file:
                 return {"file": self.file}
             else:
-                return cast(dict, self._encode(obj=self.data, **kwargs))
+                return cast('dict', self._encode(obj=self.data, **kwargs))
         else:
             return PARAM_DATA_NOT_SET
 
     @staticmethod
-    def __is_parameter_value(value) -> TypeGuard[ParameterValue]:
+    def __is_ParameterValue(value) -> TypeIs[ParameterValue]:
         # avoid circular import of `ParameterValue` until needed...
         from ..core.parameters import ParameterValue as PV
 
@@ -641,7 +643,7 @@ class StoreParameter:
 
     def _init_type_lookup(self) -> TypeLookup:
         return cast(
-            TypeLookup,
+            'TypeLookup',
             {
                 "tuples": [],
                 "sets": [],
@@ -665,7 +667,7 @@ class StoreParameter:
         if len(path) > self._MAX_DEPTH:
             raise RuntimeError("I'm in too deep!")
 
-        if self.__is_parameter_value(obj):
+        if self.__is_ParameterValue(obj):
             encoded = self._encode(
                 obj=obj.to_dict(),
                 path=path,
@@ -745,7 +747,7 @@ class StoreParameter:
             return cls(
                 id_=id_,
                 data=None,
-                file=cast(File, data["file"]),
+                file=cast('File', data["file"]),
                 is_set=True,
                 source=source,
                 is_pending=False,
@@ -761,7 +763,7 @@ class StoreParameter:
                 is_pending=False,
             )
 
-        data_ = cast(EncodedStoreParameter, data)
+        data_ = cast('EncodedStoreParameter', data)
         path = path or []
 
         obj = get_in_container(data_["data"], path)

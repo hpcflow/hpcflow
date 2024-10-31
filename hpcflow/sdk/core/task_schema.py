@@ -27,10 +27,10 @@ from hpcflow.sdk.core.utils import check_valid_py_identifier
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
     from typing import Any, ClassVar
-    from typing_extensions import Self
+    from typing_extensions import Self, TypeIs
     from .actions import Action
     from .object_list import ParametersList, TaskSchemasList
-    from .parameters import SchemaInput, SchemaOutput, SchemaParameter
+    from .parameters import InputValue, SchemaInput, SchemaOutput, SchemaParameter
     from .task import TaskTemplate
     from .types import ActParameterDependence
     from .workflow import Workflow
@@ -117,6 +117,18 @@ class TaskSchema(JSONLike):
             parent_ref="_task_schema",
         ),
     )
+
+    @classmethod
+    def __is_InputValue(cls, value) -> TypeIs[InputValue]:
+        return isinstance(value, cls._app.InputValue)
+
+    @classmethod
+    def __is_Parameter(cls, value) -> TypeIs[Parameter]:
+        return isinstance(value, cls._app.Parameter)
+
+    @classmethod
+    def __is_SchemaOutput(cls, value) -> TypeIs[SchemaOutput]:
+        return isinstance(value, cls._app.SchemaOutput)
 
     def __init__(
         self,
@@ -259,7 +271,7 @@ class TaskSchema(JSONLike):
             for inp_idx, inp in enumerate(self.inputs):
                 def_str = "-"
                 if not inp.multiple:
-                    if isinstance(inp.default_value, self._app.InputValue):
+                    if self.__is_InputValue(inp.default_value):
                         if inp.default_value.value is None:
                             def_str = "None"
                         else:
@@ -415,7 +427,7 @@ class TaskSchema(JSONLike):
         for inp in self.inputs:
             def_str = "-"
             if not inp.multiple:
-                if isinstance(inp.default_value, self._app.InputValue):
+                if self.__is_InputValue(inp.default_value):
                     if inp.default_value.value is None:
                         def_str = "None"
                     else:
@@ -664,7 +676,7 @@ class TaskSchema(JSONLike):
 
     @classmethod
     def __coerce_one_input(cls, inp: Parameter | SchemaInput) -> SchemaInput:
-        return cls._app.SchemaInput(inp) if isinstance(inp, Parameter) else inp
+        return cls._app.SchemaInput(inp) if cls.__is_Parameter(inp) else inp
 
     @classmethod
     def __coerce_inputs(
@@ -677,9 +689,9 @@ class TaskSchema(JSONLike):
     def __coerce_one_output(cls, out: Parameter | SchemaParameter) -> SchemaOutput:
         return (
             out
-            if isinstance(out, cls._app.SchemaOutput)
+            if cls.__is_SchemaOutput(out)
             else cls._app.SchemaOutput(
-                out if isinstance(out, Parameter) else out.parameter
+                out if cls.__is_Parameter(out) else out.parameter
             )
         )
 
