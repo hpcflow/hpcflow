@@ -756,7 +756,7 @@ class ElementActionRun(AppAware):
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
         return {
-            file_spec.label: Path(cast('str', file_spec.name.value()))
+            file_spec.label: Path(cast("str", file_spec.name.value()))
             for file_spec in self.action.output_file_parsers[0].output_files
         }
 
@@ -845,7 +845,7 @@ class ElementActionRun(AppAware):
     }
 
     def __output_index(self, param_name: str) -> int:
-        return cast('int', self.data_idx[f"outputs.{param_name}"])
+        return cast("int", self.data_idx[f"outputs.{param_name}"])
 
     def _param_save(self, js_idx: int, js_act_idx: int):
         """Save script-generated parameters that are stored within the supported script
@@ -1229,7 +1229,7 @@ class ActionScope(JSONLike):
         typ_str, kwargs_str = match.groups()
         # The types of the above two variables are idiotic, but bug reports to fix it
         # get closed because "it would break existing code that makes dumb assumptions"
-        kwargs: dict[str, str] = cls.__customdict({"type": cast('str', typ_str)})
+        kwargs: dict[str, str] = cls.__customdict({"type": cast("str", typ_str)})
         if kwargs_str:
             for pair_str in kwargs_str.split(","):
                 name, val = pair_str.split("=")
@@ -1702,7 +1702,7 @@ class Action(JSONLike):
             self.process_script_data_formats()
             assert self.script_data_in is not None
         return swap_nested_dict_keys(
-            dct=cast('dict', self.script_data_in), inner_key="format"
+            dct=cast("dict", self.script_data_in), inner_key="format"
         )
 
     @property
@@ -1712,7 +1712,7 @@ class Action(JSONLike):
             self.process_script_data_formats()
             assert self.script_data_out is not None
         return swap_nested_dict_keys(
-            dct=cast('dict', self.script_data_out), inner_key="format"
+            dct=cast("dict", self.script_data_out), inner_key="format"
         )
 
     @property

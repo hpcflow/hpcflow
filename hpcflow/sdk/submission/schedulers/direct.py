@@ -245,5 +245,5 @@ class DirectWindows(DirectScheduler):
         # `Start-Process` (see `Jobscript._launch_direct_js_win`) seems to resolve the
         # executable, which means the process's `cmdline` might look different to what we
         # record; so let's resolve it ourselves:
-        cmd[0] = cast('str', shutil.which(cmd[0]))
+        cmd[0] = cast("str", shutil.which(cmd[0]))
         return cmd

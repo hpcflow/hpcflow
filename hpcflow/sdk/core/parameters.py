@@ -35,7 +35,7 @@ from hpcflow.sdk.core.utils import (
     linspace_rect,
     process_string_nodes,
     split_param_label,
-    timedelta_format
+    timedelta_format,
 )
 
 if TYPE_CHECKING:
@@ -1691,7 +1691,7 @@ class InputValue(AbstractInputValue):
     @property
     def value(self) -> Any:
         if self._value_group_idx is not None and self.workflow:
-            val = self.workflow.get_parameter_data(cast('int', self._value_group_idx))
+            val = self.workflow.get_parameter_data(cast("int", self._value_group_idx))
             if self._value_is_obj and self.parameter._value_class:
                 return self.parameter._value_class(**val)
             return val
@@ -1809,7 +1809,7 @@ class ResourceSpec(JSONLike):
         elif val is None:
             return typ.any()
         else:
-            return typ.from_json_like(cast('str', val))
+            return typ.from_json_like(cast("str", val))
 
     def __init__(
         self,
@@ -2005,7 +2005,7 @@ class ResourceSpec(JSONLike):
 
     def _get_value(self, value_name: str | None = None):
         if self._value_group_idx is not None and self.workflow:
-            val = self.workflow.get_parameter_data(cast('int', self._value_group_idx))
+            val = self.workflow.get_parameter_data(cast("int", self._value_group_idx))
         else:
             val = self._get_members()
         if value_name is not None and val is not None:

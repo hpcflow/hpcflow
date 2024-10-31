@@ -211,7 +211,7 @@ class ObjectList(JSONLike, Generic[T]):
             index += len(self) + 1
 
         if self._object_is_dict:
-            obj = cast('T', SimpleNamespace(**cast('dict', obj)))
+            obj = cast("T", SimpleNamespace(**cast("dict", obj)))
 
         self._objects = self._objects[:index] + [obj] + self._objects[index:]
         self._validate()
@@ -470,7 +470,7 @@ class AppDataList(DotAccessObjectList[T], Generic[T]):
             assert isinstance(json_like, Mapping)
             return super().from_json_like(
                 [
-                    {**cast('Mapping', obj_js), "_hash_value": hash_val}
+                    {**cast("Mapping", obj_js), "_hash_value": hash_val}
                     for hash_val, obj_js in json_like.items()
                 ],
                 shared_data=shared_data,
@@ -852,12 +852,12 @@ class ResourceList(ObjectList["ResourceSpec"]):
             # Already a ResourceList
             return cast("Self", resources)
         elif isinstance(resources, dict):
-            return cls.from_json_like(cast('dict', resources))
+            return cls.from_json_like(cast("dict", resources))
         elif cls.__is_ResourceSpec(resources):
             return cls([resources])
         else:
             return cls(
-                cls._app.ResourceSpec.from_json_like(cast('dict', res_i))
+                cls._app.ResourceSpec.from_json_like(cast("dict", res_i))
                 if isinstance(res_i, dict)
                 else cls.__ensure_non_persistent(res_i)
                 for res_i in resources

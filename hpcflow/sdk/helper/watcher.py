@@ -38,7 +38,10 @@ class MonitorController:
     """
 
     def __init__(
-        self, workflow_dirs_file_path: str | Path, watch_interval: float | timedelta, logger: Logger
+        self,
+        workflow_dirs_file_path: str | Path,
+        watch_interval: float | timedelta,
+        logger: Logger,
     ):
         if isinstance(watch_interval, timedelta):
             self.watch_interval = int(watch_interval.total_seconds())

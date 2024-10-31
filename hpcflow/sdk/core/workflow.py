@@ -1392,7 +1392,7 @@ class Workflow(AppAware):
                     task.pop("id_", None)
 
                 template = self._app.WorkflowTemplate.from_json_like(
-                    temp_js, cast('dict', self.template_components)
+                    temp_js, cast("dict", self.template_components)
                 )
                 template.workflow = self
             self._template = template
@@ -1436,7 +1436,7 @@ class Workflow(AppAware):
             for item in num_added_iterations:
                 # Convert the outside to a tuple and narrow the inner types
                 key_vec, count = item
-                yield tuple(cast('list[int]', key_vec)), cast('int', count)
+                yield tuple(cast("list[int]", key_vec)), cast("int", count)
 
         if self._loops is None:
             with self._store.cached_load():
@@ -1466,7 +1466,7 @@ class Workflow(AppAware):
                 subs: list[Submission] = []
                 for idx, sub_dat in self._store.get_submissions().items():
                     sub = self._app.Submission.from_json_like(
-                        {"index": idx, **cast('dict', sub_dat)}
+                        {"index": idx, **cast("dict", sub_dat)}
                     )
                     sub.workflow = self
                     subs.append(sub)
@@ -1862,7 +1862,7 @@ class Workflow(AppAware):
                 )
 
         # make template-level inputs/resources think they are persistent:
-        wk_dummy = cast('Workflow', _DummyPersistentWorkflow())
+        wk_dummy = cast("Workflow", _DummyPersistentWorkflow())
         param_src: ParamSource = {"type": "workflow_resources"}
         for res_i in template._get_resources_copy():
             res_i.make_persistent(wk_dummy, param_src)
@@ -1898,7 +1898,7 @@ class Workflow(AppAware):
         wk = cls(fs_path, store_fmt=store, fs_kwargs=fs_kwargs)
 
         # actually make template inputs/resources persistent, now the workflow exists:
-        cast('_DummyPersistentWorkflow', wk_dummy).make_persistent(wk)
+        cast("_DummyPersistentWorkflow", wk_dummy).make_persistent(wk)
 
         if template.source_file:
             wk.artifacts_path.mkdir(exist_ok=False)
@@ -2111,7 +2111,7 @@ class Workflow(AppAware):
         clean_up: bool = False,
     ) -> None:
         self._store.set_file(
-            param_id=cast('int', param_id),
+            param_id=cast("int", param_id),
             store_contents=store_contents,
             is_input=is_input,
             path=path,
@@ -2435,7 +2435,7 @@ class Workflow(AppAware):
         Set the value of a parameter.
         """
         with self._store.cached_load(), self.batch_update():
-            self._store.set_parameter_value(cast('int', param_id), value)
+            self._store.set_parameter_value(cast("int", param_id), value)
 
         if commit:
             # force commit now:

@@ -40,7 +40,9 @@ def get_shell(shell_name: str | None, os_name: str | None = None, **kwargs) -> S
     # TODO: apply config default shell args?
 
     os_name = os_name or os.name
-    shell_name = DEFAULT_SHELL_NAMES[os_name] if shell_name is None else shell_name.lower()
+    shell_name = (
+        DEFAULT_SHELL_NAMES[os_name] if shell_name is None else shell_name.lower()
+    )
 
     supported = get_supported_shells(os_name.lower())
     if not (shell_cls := supported.get(shell_name)):

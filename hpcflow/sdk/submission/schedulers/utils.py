@@ -10,9 +10,7 @@ if TYPE_CHECKING:
     from logging import Logger
 
 
-def run_cmd(
-    cmd: str | Sequence[str], logger: Logger | None = None
-) -> tuple[str, str]:
+def run_cmd(cmd: str | Sequence[str], logger: Logger | None = None) -> tuple[str, str]:
     """Execute a command and return stdout, stderr as strings."""
     if logger:
         logger.debug(f"running shell command: {cmd}")

@@ -221,9 +221,9 @@ def get_app_attribute(name: str):
     """
     app_obj: BaseApp
     try:
-        app_obj = cast('App', App.get_instance())
+        app_obj = cast("App", App.get_instance())
     except RuntimeError:
-        app_obj = cast('BaseApp', BaseApp.get_instance())
+        app_obj = cast("BaseApp", BaseApp.get_instance())
     try:
         return getattr(app_obj, name)
     except AttributeError:
@@ -3409,8 +3409,8 @@ class BaseApp(metaclass=Singleton):
 
                 start_time, end_time = None, None
                 if not no_access:
-                    start_time = cast('datetime', dat_i["start_time_obj"])
-                    end_time = cast('datetime', dat_i["end_time_obj"])
+                    start_time = cast("datetime", dat_i["start_time_obj"])
+                    end_time = cast("datetime", dat_i["end_time_obj"])
 
                 if "actions" in columns:
                     task_tab: str | Table

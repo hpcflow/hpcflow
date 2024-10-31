@@ -392,7 +392,7 @@ class ElementSet(JSONLike):
             )
 
         inp_seq_paths = [
-            cast('str', seq.normalised_inputs_path)
+            cast("str", seq.normalised_inputs_path)
             for seq in self.sequences
             if seq.input_type
         ]
@@ -1174,7 +1174,7 @@ class Task(JSONLike):
 
     @staticmethod
     def __filtered_iters(wk_task: WorkflowTask, where: Rule) -> list[int]:
-        param_path = cast('str', where.path)
+        param_path = cast("str", where.path)
         param_path_split: list[str] = param_path.split(".")
         src_elem_iters: list[int] = []
 
@@ -1842,7 +1842,7 @@ class WorkflowTask(AppAware):
         if not group_dat_idx:
             raise MissingElementGroup(self.unique_name, inp_group_name, labelled_path_i)
 
-        return [cast('int', group_dat_idx)]  # TODO: generalise to multiple groups
+        return [cast("int", group_dat_idx)]  # TODO: generalise to multiple groups
 
     def __make_new_elements_persistent(
         self,
@@ -2426,7 +2426,7 @@ class WorkflowTask(AppAware):
                 # with EARs initialised, we can update the pre-allocated schema-level
                 # parameters with the correct EAR reference:
                 for i in psrc_update:
-                    param_src_updates[cast('int', i)] = {"EAR_ID": EAR_ID}
+                    param_src_updates[cast("int", i)] = {"EAR_ID": EAR_ID}
                 run_0 = {
                     "elem_iter_ID": element_iter.id_,
                     "action_idx": act_idx,
@@ -3174,7 +3174,7 @@ class WorkflowTask(AppAware):
                         if not (relevant_par := relevant_data.get(parent_path_i)):
                             continue
                         if not (par_is_set := relevant_par["is_set"]) or not all(
-                            cast('list', par_is_set)
+                            cast("list", par_is_set)
                         ):
                             val_cls_method = relevant_par["value_class_method"]
                             path_is_multi = relevant_par["is_multi"]

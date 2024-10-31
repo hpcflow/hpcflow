@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from hpcflow.sdk.persistence.json import JSONPersistentStore
 from hpcflow.sdk.persistence.zarr import ZarrPersistentStore, ZarrZipPersistentStore
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from .base import PersistentStore

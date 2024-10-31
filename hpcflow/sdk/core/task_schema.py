@@ -690,9 +690,7 @@ class TaskSchema(JSONLike):
         return (
             out
             if cls.__is_SchemaOutput(out)
-            else cls._app.SchemaOutput(
-                out if cls.__is_Parameter(out) else out.parameter
-            )
+            else cls._app.SchemaOutput(out if cls.__is_Parameter(out) else out.parameter)
         )
 
     @classmethod

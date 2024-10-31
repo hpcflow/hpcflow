@@ -373,7 +373,7 @@ class BaseJSONLike:
     @classmethod
     def __get_child_class(cls, child_spec: ChildObjectSpec) -> _ChildType | None:
         if child_spec.class_obj:
-            return cast('_ChildType', child_spec.class_obj)
+            return cast("_ChildType", child_spec.class_obj)
         elif child_spec.class_name:
             ns = cls._class_namespace()
             if isinstance(ns, dict):

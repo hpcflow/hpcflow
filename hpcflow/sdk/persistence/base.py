@@ -630,7 +630,7 @@ class StoreParameter:
             if self.file:
                 return {"file": self.file}
             else:
-                return cast('dict', self._encode(obj=self.data, **kwargs))
+                return cast("dict", self._encode(obj=self.data, **kwargs))
         else:
             return PARAM_DATA_NOT_SET
 
@@ -643,7 +643,7 @@ class StoreParameter:
 
     def _init_type_lookup(self) -> TypeLookup:
         return cast(
-            'TypeLookup',
+            "TypeLookup",
             {
                 "tuples": [],
                 "sets": [],
@@ -747,7 +747,7 @@ class StoreParameter:
             return cls(
                 id_=id_,
                 data=None,
-                file=cast('File', data["file"]),
+                file=cast("File", data["file"]),
                 is_set=True,
                 source=source,
                 is_pending=False,
@@ -763,7 +763,7 @@ class StoreParameter:
                 is_pending=False,
             )
 
-        data_ = cast('EncodedStoreParameter', data)
+        data_ = cast("EncodedStoreParameter", data)
         path = path or []
 
         obj = get_in_container(data_["data"], path)

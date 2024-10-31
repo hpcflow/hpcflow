@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     )
 
 
-class JsonStoreTask(StoreTask['TaskMeta']):
+class JsonStoreTask(StoreTask["TaskMeta"]):
     """
     Persisted task that is serialized using JSON.
     """
@@ -81,7 +81,7 @@ class JsonStoreTask(StoreTask['TaskMeta']):
         return cls(is_pending=False, **task_dat)
 
 
-class JsonStoreElement(StoreElement['ElemMeta', None]):
+class JsonStoreElement(StoreElement["ElemMeta", None]):
     """
     Persisted element that is serialized using JSON.
     """
@@ -91,7 +91,7 @@ class JsonStoreElement(StoreElement['ElemMeta', None]):
         """Prepare store element data for the persistent store."""
         dct = self.__dict__
         del dct["is_pending"]
-        return cast('ElemMeta', dct)
+        return cast("ElemMeta", dct)
 
     @override
     @classmethod
@@ -100,7 +100,7 @@ class JsonStoreElement(StoreElement['ElemMeta', None]):
         return cls(is_pending=False, **elem_dat)
 
 
-class JsonStoreElementIter(StoreElementIter['IterMeta', None]):
+class JsonStoreElementIter(StoreElementIter["IterMeta", None]):
     """
     Persisted element iteration that is serialized using JSON.
     """
@@ -110,7 +110,7 @@ class JsonStoreElementIter(StoreElementIter['IterMeta', None]):
         """Prepare store element iteration data for the persistent store."""
         dct = self.__dict__
         del dct["is_pending"]
-        return cast('IterMeta', dct)
+        return cast("IterMeta", dct)
 
     @override
     @classmethod
@@ -124,10 +124,10 @@ class JsonStoreElementIter(StoreElementIter['IterMeta', None]):
             for act_idx in list(EAR_IDs):
                 EAR_IDs[int(act_idx)] = EAR_IDs.pop(act_idx)
 
-        return cls(is_pending=False, **cast('dict', iter_dat))
+        return cls(is_pending=False, **cast("dict", iter_dat))
 
 
-class JsonStoreEAR(StoreEAR['RunMeta', None]):
+class JsonStoreEAR(StoreEAR["RunMeta", None]):
     """
     Persisted element action run that is serialized using JSON.
     """
@@ -163,7 +163,7 @@ class JsonStoreEAR(StoreEAR['RunMeta', None]):
         end_time = cls._decode_datetime(EAR_dat.pop("end_time"), ts_fmt)
         return cls(
             is_pending=False,
-            **cast('dict', EAR_dat),
+            **cast("dict", EAR_dat),
             start_time=start_time,
             end_time=end_time,
         )
@@ -348,7 +348,7 @@ class JSONPersistentStore(
             assert "tasks" in md and "template" in md and "num_added_tasks" in md
             for task in tasks:
                 idx, wk_task_i, task_i = task.encode()
-                md["tasks"].insert(idx, cast('TaskMeta', wk_task_i))
+                md["tasks"].insert(idx, cast("TaskMeta", wk_task_i))
                 md["template"]["tasks"].insert(idx, task_i)
                 md["num_added_tasks"] += 1
 
@@ -633,7 +633,7 @@ class JSONPersistentStore(
         with self.using_resource("metadata", "read") as md:
             assert "loops" in md
             return {
-                idx: cast('LoopDescriptor', i)
+                idx: cast("LoopDescriptor", i)
                 for idx, i in enumerate(md["loops"])
                 if id_lst is None or idx in id_lst
             }

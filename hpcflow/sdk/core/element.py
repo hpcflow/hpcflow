@@ -1538,7 +1538,7 @@ class Element(AppAware):
             if k_s[0] == "inputs":
                 inp_val = self._app.InputValue(
                     parameter=k_s[1],
-                    path=cast('str', k_s[2:]) or None,  # FIXME: suspicious cast!
+                    path=cast("str", k_s[2:]) or None,  # FIXME: suspicious cast!
                     value=None,
                 )
                 inp_val._value_group_idx = v
@@ -1913,7 +1913,7 @@ class ElementParameter:
         The associated data indices for which this is set.
         """
         return {
-            k: self.task.workflow.is_parameter_set(cast('int', v))
+            k: self.task.workflow.is_parameter_set(cast("int", v))
             for k, v in self.data_idx.items()
         }
 

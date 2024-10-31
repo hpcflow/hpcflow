@@ -636,7 +636,7 @@ class ZarrPersistentStore(
         """
         Type thunk to work around incomplete typing in zarr.
         """
-        return cast('ZarrAttrs', attrs.asdict())
+        return cast("ZarrAttrs", attrs.asdict())
 
     @contextmanager
     def __mutate_attrs(self, arr: Array) -> Iterator[ZarrAttrs]:
@@ -661,7 +661,7 @@ class ZarrPersistentStore(
     def _append_elem_iter_IDs(self, elem_ID: int, iter_IDs: Iterable[int]):
         arr = self._get_elements_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        elem_dat = cast('list', arr[elem_ID])
+        elem_dat = cast("list", arr[elem_ID])
         store_elem = ZarrStoreElement.decode(elem_dat, attrs)
         store_elem = store_elem.append_iteration_IDs(iter_IDs)
         arr[elem_ID] = store_elem.encode(attrs)
@@ -679,7 +679,7 @@ class ZarrPersistentStore(
     ):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast('list', arr[iter_ID])
+        iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.append_EAR_IDs(pend_IDs={act_idx: EAR_IDs})
         arr[iter_ID] = store_iter.encode(attrs)
@@ -688,7 +688,7 @@ class ZarrPersistentStore(
     def _update_elem_iter_EARs_initialised(self, iter_ID: int):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast('list', arr[iter_ID])
+        iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.set_EARs_initialised()
         arr[iter_ID] = store_iter.encode(attrs)
@@ -697,14 +697,14 @@ class ZarrPersistentStore(
     def _append_submission_parts(self, sub_parts: dict[int, dict[str, list[int]]]):
         with self.using_resource("attrs", action="update") as attrs:
             for sub_idx, sub_i_parts in sub_parts.items():
-                sub = cast('dict', attrs["submissions"][sub_idx])
+                sub = cast("dict", attrs["submissions"][sub_idx])
                 for dt_str, parts_j in sub_i_parts.items():
                     sub["submission_parts"][dt_str] = parts_j
 
     def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast('list', arr[iter_ID])
+        iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.update_loop_idx(loop_idx)
         arr[iter_ID] = store_iter.encode(attrs)
@@ -1085,7 +1085,7 @@ class ZarrPersistentStore(
     ) -> dict[int, LoopDescriptor]:
         with self.using_resource("attrs", "read") as attrs:
             return {
-                idx: cast('LoopDescriptor', i)
+                idx: cast("LoopDescriptor", i)
                 for idx, i in enumerate(attrs["loops"])
                 if id_lst is None or idx in id_lst
             }
@@ -1104,7 +1104,7 @@ class ZarrPersistentStore(
             )
             # cast jobscript submit-times and jobscript `task_elements` keys:
             for sub in subs_dat.values():
-                for js in cast('_JS', sub)["jobscripts"]:
+                for js in cast("_JS", sub)["jobscripts"]:
                     task_elements = js["task_elements"]
                     for key in list(task_elements):
                         task_elements[int(key)] = task_elements.pop(key)
