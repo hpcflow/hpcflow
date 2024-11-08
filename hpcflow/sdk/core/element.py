@@ -1693,8 +1693,8 @@ class Element(AppAware):
 
     @overload
     def get_element_iteration_dependencies(
-        self, as_objects: bool = False
-    ) -> list[int] | list[ElementIteration]:
+        self, as_objects: Literal[False] = False
+    ) -> list[int]:
         ...
 
     def get_element_iteration_dependencies(
