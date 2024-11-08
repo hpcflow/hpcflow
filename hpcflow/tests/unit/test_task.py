@@ -807,7 +807,7 @@ def test_task_element_dependencies(tmp_path: Path):
         nesting_orders={1: {"inputs.p2": 0}},
         path=tmp_path,
     )
-    assert wk.tasks.t2.get_element_dependencies() == [0, 1]
+    assert wk.tasks.t2.get_element_dependencies() == {0, 1}
 
 
 def test_task_dependent_elements(tmp_path: Path):
@@ -820,7 +820,7 @@ def test_task_dependent_elements(tmp_path: Path):
         nesting_orders={1: {"inputs.p2": 0}},
         path=tmp_path,
     )
-    assert wk.tasks.t1.get_dependent_elements() == [2, 3]
+    assert wk.tasks.t1.get_dependent_elements() == {2, 3}
 
 
 def test_task_add_elements_without_propagation_expected_workflow_num_elements(

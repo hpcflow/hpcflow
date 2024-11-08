@@ -2403,7 +2403,7 @@ class Workflow(AppAware):
                             )
 
                 if not success:
-                    for EAR_dep_ID in EAR.get_dependent_EARs(as_objects=False):
+                    for EAR_dep_ID in EAR.get_dependent_EARs():
                         # TODO: this needs to be recursive?
                         self._app.logger.debug(
                             f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"

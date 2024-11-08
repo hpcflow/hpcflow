@@ -499,7 +499,7 @@ class ElementActionRun(AppAware):
         )
 
     @overload
-    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> list[int]:
+    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
     @overload
@@ -509,19 +509,18 @@ class ElementActionRun(AppAware):
     @TimeIt.decorator
     def get_EAR_dependencies(
         self, as_objects=False
-    ) -> list[ElementActionRun] | list[int]:
+    ) -> list[ElementActionRun] | set[int]:
         """Get EARs that this EAR depends on, or just their IDs."""
-        out: list[int] = []
+        out: set[int] = set()
         for src in self.get_parameter_sources(typ="EAR_output").values():
             for src_i in src if isinstance(src, list) else [src]:
                 EAR_ID_i: int = src_i["EAR_ID"]
                 if EAR_ID_i != self.id_:
                     # don't record a self dependency!
-                    out.append(EAR_ID_i)
+                    out.add(EAR_ID_i)
 
-        out = sorted(out)
         if as_objects:
-            return self.workflow.get_EARs_from_IDs(out)
+            return self.workflow.get_EARs_from_IDs(sorted(out))
         return out
 
     def get_input_dependencies(self) -> dict[str, dict[str, Any]]:
@@ -542,7 +541,7 @@ class ElementActionRun(AppAware):
         }
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> list[int]:
+    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
     @overload
@@ -551,9 +550,9 @@ class ElementActionRun(AppAware):
 
     def get_dependent_EARs(
         self, as_objects: bool = False
-    ) -> list[ElementActionRun] | list[int]:
+    ) -> list[ElementActionRun] | set[int]:
         """Get downstream EARs that depend on this EAR."""
-        deps = sorted(
+        deps = {
             run.id_
             for task in self.workflow.tasks[self.task.index :]
             for elem in task.elements[:]
@@ -561,9 +560,9 @@ class ElementActionRun(AppAware):
             for run in iter_.action_runs
             # does EAR dependency belong to self?
             if self._id in run.get_EAR_dependencies()
-        )
+        }
         if as_objects:
-            return self.workflow.get_EARs_from_IDs(deps)
+            return self.workflow.get_EARs_from_IDs(sorted(deps))
         return deps
 
     @property

@@ -45,21 +45,13 @@ def test_element_dependent_tasks(workflow_w1: Workflow):
 
 
 def test_element_element_dependencies(workflow_w1: Workflow):
-    assert all(
-        (
-            workflow_w1.tasks.t2.elements[0].get_element_dependencies() == [0],
-            workflow_w1.tasks.t2.elements[1].get_element_dependencies() == [1],
-        )
-    )
+    assert workflow_w1.tasks.t2.elements[0].get_element_dependencies() == {0}
+    assert workflow_w1.tasks.t2.elements[1].get_element_dependencies() == {1}
 
 
 def test_element_dependent_elements(workflow_w1: Workflow):
-    assert all(
-        (
-            workflow_w1.tasks.t1.elements[0].get_dependent_elements() == [2],
-            workflow_w1.tasks.t1.elements[1].get_dependent_elements() == [3],
-        )
-    )
+    assert workflow_w1.tasks.t1.elements[0].get_dependent_elements() == {2}
+    assert workflow_w1.tasks.t1.elements[1].get_dependent_elements() == {3}
 
 
 def test_equivalence_single_labelled_schema_input_element_get_label_and_non_label(
@@ -119,9 +111,9 @@ def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path: Path
         path=tmp_path,
         template_name="wk0",
     )
-    assert wk.tasks.t1.elements[0].get_dependent_elements() == [1]
-    assert wk.tasks.t2.elements[0].get_element_dependencies() == [0]
-    assert wk.tasks.t2.elements[0].get_EAR_dependencies() == [0]
+    assert wk.tasks.t1.elements[0].get_dependent_elements() == {1}
+    assert wk.tasks.t2.elements[0].get_element_dependencies() == {0}
+    assert wk.tasks.t2.elements[0].get_EAR_dependencies() == {0}
 
 
 def test_element_get_empty_path_single_labelled_input(null_config, tmp_path: Path):

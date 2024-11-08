@@ -607,7 +607,7 @@ class ElementSet(JSONLike):
         return [it.id_ for it in self.element_iterations]
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> list[int]:
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
     @overload
@@ -616,14 +616,13 @@ class ElementSet(JSONLike):
 
     def get_task_dependencies(
         self, as_objects: bool = False
-    ) -> list[WorkflowTask] | list[int]:
+    ) -> list[WorkflowTask] | set[int]:
         """Get upstream tasks that this element set depends on."""
-        deps_set: set[int] = set()
+        deps: set[int] = set()
         for element in self.elements:
-            deps_set.update(element.get_task_dependencies(as_objects=False))
-        deps = sorted(deps_set)
+            deps.update(element.get_task_dependencies())
         if as_objects:
-            return [self.task.workflow.tasks.get(insert_ID=id_) for id_ in deps]
+            return [self.task.workflow.tasks.get(insert_ID=id_) for id_ in sorted(deps)]
         return deps
 
     def is_input_type_provided(self, labelled_path: str) -> bool:
@@ -2724,7 +2723,7 @@ class WorkflowTask(AppAware):
     def get_element_dependencies(
         self,
         as_objects: Literal[False] = False,
-    ) -> list[int]:
+    ) -> set[int]:
         ...
 
     @overload
@@ -2737,25 +2736,24 @@ class WorkflowTask(AppAware):
     def get_element_dependencies(
         self,
         as_objects: bool = False,
-    ) -> list[int] | list[Element]:
+    ) -> set[int] | list[Element]:
         """Get elements from upstream tasks that this task depends on."""
 
-        deps_set: set[int] = set()
+        deps: set[int] = set()
         for element in self.elements:
             for iter_i in element.iterations:
-                deps_set.update(
+                deps.update(
                     dep_elem_i.id_
                     for dep_elem_i in iter_i.get_element_dependencies(as_objects=True)
                     if dep_elem_i.task.insert_ID != self.insert_ID
                 )
 
-        deps = sorted(deps_set)
         if as_objects:
-            return self.workflow.get_elements_from_IDs(deps)
+            return self.workflow.get_elements_from_IDs(sorted(deps))
         return deps
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> list[int]:
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
     @overload
@@ -2765,7 +2763,7 @@ class WorkflowTask(AppAware):
     def get_task_dependencies(
         self,
         as_objects: bool = False,
-    ) -> list[int] | list[WorkflowTask]:
+    ) -> set[int] | list[WorkflowTask]:
         """Get tasks (insert ID or WorkflowTask objects) that this task depends on.
 
         Dependencies may come from either elements from upstream tasks, or from locally
@@ -2775,10 +2773,10 @@ class WorkflowTask(AppAware):
         # new "task_iteration" input source type, which may take precedence over any
         # other input source types.
 
-        deps_set: set[int] = set()
+        deps: set[int] = set()
         for element_set in self.template.element_sets:
             for sources in element_set.input_sources.values():
-                deps_set.update(
+                deps.update(
                     src.task_ref
                     for src in sources
                     if (
@@ -2787,16 +2785,15 @@ class WorkflowTask(AppAware):
                     )
                 )
 
-        deps = sorted(deps_set)
         if as_objects:
-            return [self.workflow.tasks.get(insert_ID=id_) for id_ in deps]
+            return [self.workflow.tasks.get(insert_ID=id_) for id_ in sorted(deps)]
         return deps
 
     @overload
     def get_dependent_elements(
         self,
         as_objects: Literal[False] = False,
-    ) -> list[int]:
+    ) -> set[int]:
         ...
 
     @overload
@@ -2806,11 +2803,11 @@ class WorkflowTask(AppAware):
     def get_dependent_elements(
         self,
         as_objects: bool = False,
-    ) -> list[int] | list[Element]:
+    ) -> set[int] | list[Element]:
         """Get elements from downstream tasks that depend on this task."""
-        deps_set: set[int] = set()
+        deps: set[int] = set()
         for task in self.downstream_tasks:
-            deps_set.update(
+            deps.update(
                 element.id_
                 for element in task.elements
                 if any(
@@ -2819,13 +2816,12 @@ class WorkflowTask(AppAware):
                 )
             )
 
-        deps = sorted(deps_set)
         if as_objects:
-            return self.workflow.get_elements_from_IDs(deps)
+            return self.workflow.get_elements_from_IDs(sorted(deps))
         return deps
 
     @overload
-    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> list[int]:
+    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
     @overload
@@ -2836,25 +2832,24 @@ class WorkflowTask(AppAware):
     def get_dependent_tasks(
         self,
         as_objects: bool = False,
-    ) -> list[int] | list[WorkflowTask]:
+    ) -> set[int] | list[WorkflowTask]:
         """Get tasks (insert ID or WorkflowTask objects) that depends on this task."""
 
         # TODO: this method might become insufficient if/when we start considering a
         # new "task_iteration" input source type, which may take precedence over any
         # other input source types.
 
-        deps_set: set[int] = set()
+        deps: set[int] = set()
         for task in self.downstream_tasks:
-            if task.insert_ID not in deps_set and any(
+            if task.insert_ID not in deps and any(
                 src.source_type is InputSourceType.TASK and src.task_ref == self.insert_ID
                 for element_set in task.template.element_sets
                 for sources in element_set.input_sources.values()
                 for src in sources
             ):
-                deps_set.add(task.insert_ID)
-        deps = sorted(deps_set)
+                deps.add(task.insert_ID)
         if as_objects:
-            return [self.workflow.tasks.get(insert_ID=id_) for id_ in deps]
+            return [self.workflow.tasks.get(insert_ID=id_) for id_ in sorted(deps)]
         return deps
 
     @property
