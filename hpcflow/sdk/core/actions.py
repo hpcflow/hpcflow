@@ -507,9 +507,7 @@ class ElementActionRun(AppAware):
         ...
 
     @TimeIt.decorator
-    def get_EAR_dependencies(
-        self, as_objects=False
-    ) -> list[ElementActionRun] | set[int]:
+    def get_EAR_dependencies(self, as_objects=False) -> list[ElementActionRun] | set[int]:
         """Get EARs that this EAR depends on, or just their IDs."""
         out: set[int] = set()
         for src in self.get_parameter_sources(typ="EAR_output").values():

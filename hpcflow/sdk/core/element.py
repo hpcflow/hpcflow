@@ -1057,9 +1057,7 @@ class ElementIteration(AppAware):
         defined inputs/sequences/defaults from upstream tasks."""
 
         out = set(
-            self.workflow.get_task_IDs_from_element_IDs(
-                self.get_element_dependencies()
-            )
+            self.workflow.get_task_IDs_from_element_IDs(self.get_element_dependencies())
         )
         for p_src in self.get_input_dependencies().values():
             out.add(p_src["task_insert_ID"])
@@ -1819,9 +1817,7 @@ class Element(AppAware):
         def get_deps(element: Element) -> set[int]:
             deps = element.iterations[0].get_dependent_elements()
             deps_objs = self.workflow.get_elements_from_IDs(deps)
-            return deps.union(
-                dep_j for deps_i in deps_objs for dep_j in get_deps(deps_i)
-            )
+            return deps.union(dep_j for deps_i in deps_objs for dep_j in get_deps(deps_i))
 
         all_deps = get_deps(self)
         if task_insert_ID is not None:
