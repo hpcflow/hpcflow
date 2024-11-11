@@ -294,6 +294,28 @@ class StoreElementIter:
             EARs_initialised=True,
         )
 
+    @TimeIt.decorator
+    def update_data_idx(
+        self: AnySElementIter, data_idx: Dict[str, int]
+    ) -> AnySElementIter:
+        """Return a copy with an updated `data_idx`.
+
+        The existing data index is updated, not overwritten.
+
+        """
+        new_data_idx = copy.deepcopy(self.data_idx)
+        new_data_idx.update(data_idx)
+        return self.__class__(
+            id_=self.id_,
+            is_pending=self.is_pending,
+            element_ID=self.element_ID,
+            EAR_IDs=self.EAR_IDs,
+            data_idx=new_data_idx,
+            schema_parameters=self.schema_parameters,
+            loop_idx=self.loop_idx,
+            EARs_initialised=self.EARs_initialised,
+        )
+
 
 @dataclass
 class StoreEAR:
@@ -409,6 +431,7 @@ class StoreEAR:
         exit_code: Optional[int] = None,
         run_hostname: Optional[str] = None,
         port_number: Optional[int] = None,
+        data_idx: Optional[Dict[str, int]] = None,
     ) -> AnySEAR:
         """Return a shallow copy, with specified data updated."""
 
@@ -425,6 +448,12 @@ class StoreEAR:
         cmd_file = (
             commands_file_ID if commands_file_ID is not None else self.commands_file_ID
         )
+        if data_idx is not None:
+            new_data_idx = copy.deepcopy(self.data_idx)
+            new_data_idx.update(data_idx)
+            data_idx = new_data_idx
+        else:
+            data_idx = self.data_idx
 
         return self.__class__(
             id_=self.id_,
@@ -432,7 +461,7 @@ class StoreEAR:
             elem_iter_ID=self.elem_iter_ID,
             action_idx=self.action_idx,
             commands_idx=self.commands_idx,
-            data_idx=self.data_idx,
+            data_idx=data_idx,
             metadata=self.metadata,
             submission_idx=sub_idx,
             commands_file_ID=cmd_file,
@@ -961,6 +990,7 @@ class PersistentStore(ABC):
         self,
         loop_template: Dict,
         iterable_parameters,
+        output_parameters,
         parents: List[str],
         num_added_iterations: Dict[Tuple[int], int],
         iter_IDs: List[int],
@@ -973,6 +1003,7 @@ class PersistentStore(ABC):
         self._pending.add_loops[new_idx] = {
             "loop_template": loop_template,
             "iterable_parameters": iterable_parameters,
+            "output_parameters": output_parameters,
             "parents": parents,
             "num_added_iterations": added_iters,
         }
@@ -1418,6 +1449,16 @@ class PersistentStore(ABC):
         self._pending.update_loop_parents[index] = parents
         if save:
             self.save()
+
+    def update_iter_data_indices(self, data_indices: Dict[int, Dict[str, int]]):
+        """Update data indices of one or more iterations."""
+        for k, v in data_indices.items():
+            self._pending.update_iter_data_idx[k].update(v)
+
+    def update_run_data_indices(self, data_indices: Dict[int, Dict[str, int]]):
+        """Update data indices of one or more runs."""
+        for k, v in data_indices.items():
+            self._pending.update_run_data_idx[k].update(v)
 
     def get_template_components(self) -> Dict:
         """Get all template components, including pending."""

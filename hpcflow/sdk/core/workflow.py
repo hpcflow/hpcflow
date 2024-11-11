@@ -1332,6 +1332,7 @@ class Workflow:
         self._store.add_loop(
             loop_template=loop_js,
             iterable_parameters=wk_loop.iterable_parameters,
+            output_parameters=wk_loop.output_parameters,
             parents=wk_loop.parents,
             num_added_iterations=wk_loop.num_added_iterations,
             iter_IDs=iter_IDs,
@@ -1456,6 +1457,7 @@ class Workflow:
                         parents=loop_dat["parents"],
                         num_added_iterations=num_add_iters,
                         iterable_parameters=loop_dat["iterable_parameters"],
+                        output_parameters=loop_dat["output_parameters"],
                     )
                     wk_loops.append(wk_loop)
                 self._loops = self.app.WorkflowLoopList(wk_loops)

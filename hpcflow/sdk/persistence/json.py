@@ -173,6 +173,7 @@ class JSONPersistentStore(PersistentStore):
                     {
                         "num_added_iterations": loop["num_added_iterations"],
                         "iterable_parameters": loop["iterable_parameters"],
+                        "output_parameters": loop["output_parameters"],
                         "parents": loop["parents"],
                     }
                 )
@@ -233,6 +234,16 @@ class JSONPersistentStore(PersistentStore):
     def _update_loop_parents(self, index: int, parents: List[str]):
         with self.using_resource("metadata", action="update") as md:
             md["loops"][index]["parents"] = parents
+
+    def _update_iter_data_indices(self, iter_data_indices: Dict[int, Dict[str, int]]):
+        with self.using_resource("metadata", action="update") as md:
+            for iter_ID, dat_idx in iter_data_indices.items():
+                md["iters"][iter_ID]["data_idx"].update(dat_idx)
+
+    def _update_run_data_indices(self, run_data_indices: Dict[int, Dict[str, int]]):
+        with self.using_resource("metadata", action="update") as md:
+            for run_ID, dat_idx in run_data_indices.items():
+                md["runs"][run_ID]["data_idx"].update(dat_idx)
 
     def _append_EARs(self, EARs: List[StoreEAR]):
         with self.using_resource("metadata", action="update") as md:

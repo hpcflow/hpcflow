@@ -515,6 +515,7 @@ class ZarrPersistentStore(PersistentStore):
                     {
                         "num_added_iterations": loop["num_added_iterations"],
                         "iterable_parameters": loop["iterable_parameters"],
+                        "output_parameters": loop["output_parameters"],
                         "parents": loop["parents"],
                     }
                 )
@@ -609,6 +610,34 @@ class ZarrPersistentStore(PersistentStore):
     def _update_loop_parents(self, index: int, parents: List[str]):
         with self.using_resource("attrs", action="update") as attrs:
             attrs["loops"][index]["parents"] = parents
+
+    def _update_iter_data_indices(self, iter_data_indices: Dict[int, Dict[str, int]]):
+
+        arr = self._get_iters_arr(mode="r+")
+        attrs = arr.attrs.asdict()
+        iter_IDs = list(iter_data_indices.keys())
+        iter_dat = arr.get_coordinate_selection(iter_IDs)
+        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
+
+        for idx, iter_ID_i in enumerate(iter_IDs):
+            new_iter_i = store_iters[idx].update_data_idx(iter_data_indices[iter_ID_i])
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[iter_ID_i] = new_iter_i.encode(attrs)
+
+    def _update_run_data_indices(self, run_data_indices: Dict[int, Dict[str, int]]):
+
+        arr = self._get_EARs_arr(mode="r+")
+        attrs = arr.attrs.asdict()
+        run_IDs = list(run_data_indices.keys())
+        run_dat = arr.get_coordinate_selection(run_IDs)
+        store_runs = [ZarrStoreEAR.decode(i, attrs, ts_fmt=self.ts_fmt) for i in run_dat]
+
+        for idx, run_ID_i in enumerate(run_IDs):
+            new_run_i = store_runs[idx].update(data_idx=run_data_indices[run_ID_i])
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[run_ID_i] = new_run_i.encode(attrs, ts_fmt=self.ts_fmt)
 
     def _append_EARs(self, EARs: List[ZarrStoreEAR]):
         arr = self._get_EARs_arr(mode="r+")

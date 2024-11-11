@@ -6,7 +6,7 @@ from valida.conditions import Value
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import LoopAlreadyExistsError, LoopTaskSubsetError
 from hpcflow.sdk.core.skip_reason import SkipReason
-from hpcflow.sdk.core.test_utils import P1_parameter_cls, make_workflow
+from hpcflow.sdk.core.test_utils import P1_parameter_cls, make_schemas, make_workflow
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
@@ -987,35 +987,327 @@ def test_raise_loop_task_subset_error(null_config, tmp_path):
         )
 
 
-def test_raise_downstream_task_with_iterable_parameter(null_config, tmp_path):
-    ts1 = hf.TaskSchema(
-        objective="t1",
-        inputs=[hf.SchemaInput("p1")],
-        outputs=[hf.SchemaOutput("p1")],
+def test_add_iteration_updates_downstream_data_idx_loop_output_param(
+    new_null_config, tmp_path
+):
+    # loop output (but not iterable) parameter sourced in task downstream of loop:
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [
+                {"p2": None},
+                (
+                    "p2",
+                    "p3",
+                ),
+                "t2",
+            ],
+            [{"p3": None}, ("p4",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    t1_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+    t3_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    # final task should get its input from the final iteration of the second task
+    assert t2_i0_di["inputs.p2"] == t1_di["outputs.p2"]
+    assert t2_i1_di["inputs.p2"] == t2_i0_di["outputs.p2"]
+    assert t2_i2_di["inputs.p2"] == t2_i1_di["outputs.p2"]
+    assert t3_di["inputs.p3"] == t2_i2_di["outputs.p3"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_element(
+    new_null_config, tmp_path
+):
+    # loop output (but not iterable) parameter sourced in task downstream of loop - multi
+    # element
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [
+                {"p2": None},
+                (
+                    "p2",
+                    "p3",
+                ),
+                "t2",
+            ],
+            [{"p3": None}, ("p4",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    assert wk.tasks.t1.num_elements == 2
+    assert wk.tasks.t2.num_elements == 2
+    assert wk.tasks.t3.num_elements == 2
+
+    t1_e0_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_e0_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_e0_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_e0_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+    t3_e0_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    t1_e1_di = wk.tasks.t1.elements[1].get_data_idx()
+    t2_e1_i0_di = wk.tasks.t2.elements[1].iterations[0].get_data_idx()
+    t2_e1_i1_di = wk.tasks.t2.elements[1].iterations[1].get_data_idx()
+    t2_e1_i2_di = wk.tasks.t2.elements[1].iterations[2].get_data_idx()
+    t3_e1_di = wk.tasks.t3.elements[1].get_data_idx()
+
+    assert t2_e0_i0_di["inputs.p2"] == t1_e0_di["outputs.p2"]
+    assert t2_e0_i1_di["inputs.p2"] == t2_e0_i0_di["outputs.p2"]
+    assert t2_e0_i2_di["inputs.p2"] == t2_e0_i1_di["outputs.p2"]
+    assert t3_e0_di["inputs.p3"] == t2_e0_i2_di["outputs.p3"]
+
+    assert t2_e1_i0_di["inputs.p2"] == t1_e1_di["outputs.p2"]
+    assert t2_e1_i1_di["inputs.p2"] == t2_e1_i0_di["outputs.p2"]
+    assert t2_e1_i2_di["inputs.p2"] == t2_e1_i1_di["outputs.p2"]
+    assert t3_e1_di["inputs.p3"] == t2_e1_i2_di["outputs.p3"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_element_to_group(
+    new_null_config, tmp_path
+):
+    # loop output (but not iterable) parameter sourced in task downstream of loop - multi
+    # element group
+    s1, s2 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [
+                {"p2": None},
+                (
+                    "p2",
+                    "p3",
+                ),
+                "t2",
+            ],
+        ],
+    )
+    s3 = hf.TaskSchema(
+        objective="t3",
+        inputs=[hf.SchemaInput("p3", group="all")],
+        outputs=[hf.SchemaOutput("p4")],
         actions=[
             hf.Action(
                 commands=[
                     hf.Command(
-                        "Write-Output (<<parameter:p1>> + 100)",
-                        stdout="<<int(parameter:p1)>>",
+                        command="echo $((<<sum(parameter:p3)>>))",
+                        stdout="<<parameter:p4>>",
                     )
                 ],
-            ),
+            )
         ],
     )
-    with pytest.raises(NotImplementedError):
-        hf.Workflow.from_template_data(
-            template_name="test_loop",
-            path=tmp_path,
-            tasks=[
-                hf.Task(schema=ts1, inputs={"p1": 101}),
-                hf.Task(schema=ts1),
-                hf.Task(schema=ts1),
-            ],
-            loops=[
-                hf.Loop(name="my_loop", tasks=[1], num_iterations=2),
-            ],
-        )
+    tasks = [
+        hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
+        hf.Task(s2, groups=[hf.ElementGroup(name="all")]),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    assert wk.tasks.t1.num_elements == 2
+    assert wk.tasks.t2.num_elements == 2
+    assert wk.tasks.t3.num_elements == 1
+
+    t1_e0_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_e0_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_e0_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_e0_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+
+    t1_e1_di = wk.tasks.t1.elements[1].get_data_idx()
+    t2_e1_i0_di = wk.tasks.t2.elements[1].iterations[0].get_data_idx()
+    t2_e1_i1_di = wk.tasks.t2.elements[1].iterations[1].get_data_idx()
+    t2_e1_i2_di = wk.tasks.t2.elements[1].iterations[2].get_data_idx()
+
+    t3_e0_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    assert t2_e0_i0_di["inputs.p2"] == t1_e0_di["outputs.p2"]
+    assert t2_e0_i1_di["inputs.p2"] == t2_e0_i0_di["outputs.p2"]
+    assert t2_e0_i2_di["inputs.p2"] == t2_e0_i1_di["outputs.p2"]
+
+    assert t2_e1_i0_di["inputs.p2"] == t1_e1_di["outputs.p2"]
+    assert t2_e1_i1_di["inputs.p2"] == t2_e1_i0_di["outputs.p2"]
+    assert t2_e1_i2_di["inputs.p2"] == t2_e1_i1_di["outputs.p2"]
+
+    assert t3_e0_di["inputs.p3"] == [t2_e0_i2_di["outputs.p3"], t2_e1_i2_di["outputs.p3"]]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_iterable_param(
+    new_null_config, tmp_path
+):
+    # loop iterable parameter sourced in task downstream of loop:
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p3",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    t1_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+    t3_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    # final task should get its input from the final iteration of the second task
+    assert t2_i0_di["inputs.p2"] == t1_di["outputs.p2"]
+    assert t2_i1_di["inputs.p2"] == t2_i0_di["outputs.p2"]
+    assert t2_i2_di["inputs.p2"] == t2_i1_di["outputs.p2"]
+    assert t3_di["inputs.p2"] == t2_i2_di["outputs.p2"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_element(
+    new_null_config, tmp_path
+):
+    # loop iterable parameter sourced in task downstream of loop - multi element:
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p3",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    t1_e0_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_e0_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_e0_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_e0_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+    t3_e0_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    t1_e1_di = wk.tasks.t1.elements[1].get_data_idx()
+    t2_e1_i0_di = wk.tasks.t2.elements[1].iterations[0].get_data_idx()
+    t2_e1_i1_di = wk.tasks.t2.elements[1].iterations[1].get_data_idx()
+    t2_e1_i2_di = wk.tasks.t2.elements[1].iterations[2].get_data_idx()
+    t3_e1_di = wk.tasks.t3.elements[1].get_data_idx()
+
+    # final task should get its input from the final iteration of the second task
+    assert t2_e0_i0_di["inputs.p2"] == t1_e0_di["outputs.p2"]
+    assert t2_e0_i1_di["inputs.p2"] == t2_e0_i0_di["outputs.p2"]
+    assert t2_e0_i2_di["inputs.p2"] == t2_e0_i1_di["outputs.p2"]
+    assert t3_e0_di["inputs.p2"] == t2_e0_i2_di["outputs.p2"]
+
+    assert t2_e1_i0_di["inputs.p2"] == t1_e1_di["outputs.p2"]
+    assert t2_e1_i1_di["inputs.p2"] == t2_e1_i0_di["outputs.p2"]
+    assert t2_e1_i2_di["inputs.p2"] == t2_e1_i1_di["outputs.p2"]
+    assert t3_e1_di["inputs.p2"] == t2_e1_i2_di["outputs.p2"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_element_to_group(
+    new_null_config, tmp_path
+):
+    # loop iterable parameter sourced in task downstream of loop - multi element:
+    s1, s2 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+        ],
+    )
+
+    s3 = hf.TaskSchema(
+        objective="t3",
+        inputs=[hf.SchemaInput("p2", group="all")],
+        outputs=[hf.SchemaOutput("p3")],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        command="echo $((<<sum(parameter:p2)>>))",
+                        stdout="<<parameter:p3>>",
+                    )
+                ],
+            )
+        ],
+    )
+    tasks = [
+        hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
+        hf.Task(s2, groups=[hf.ElementGroup(name="all")]),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[1], num_iterations=3)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    assert wk.tasks.t1.num_elements == 2
+    assert wk.tasks.t2.num_elements == 2
+    assert wk.tasks.t3.num_elements == 1
+
+    t1_e0_di = wk.tasks.t1.elements[0].get_data_idx()
+    t2_e0_i0_di = wk.tasks.t2.elements[0].iterations[0].get_data_idx()
+    t2_e0_i1_di = wk.tasks.t2.elements[0].iterations[1].get_data_idx()
+    t2_e0_i2_di = wk.tasks.t2.elements[0].iterations[2].get_data_idx()
+
+    t1_e1_di = wk.tasks.t1.elements[1].get_data_idx()
+    t2_e1_i0_di = wk.tasks.t2.elements[1].iterations[0].get_data_idx()
+    t2_e1_i1_di = wk.tasks.t2.elements[1].iterations[1].get_data_idx()
+    t2_e1_i2_di = wk.tasks.t2.elements[1].iterations[2].get_data_idx()
+
+    t3_e0_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    assert t2_e0_i0_di["inputs.p2"] == t1_e0_di["outputs.p2"]
+    assert t2_e0_i1_di["inputs.p2"] == t2_e0_i0_di["outputs.p2"]
+    assert t2_e0_i2_di["inputs.p2"] == t2_e0_i1_di["outputs.p2"]
+
+    assert t2_e1_i0_di["inputs.p2"] == t1_e1_di["outputs.p2"]
+    assert t2_e1_i1_di["inputs.p2"] == t2_e1_i0_di["outputs.p2"]
+    assert t2_e1_i2_di["inputs.p2"] == t2_e1_i1_di["outputs.p2"]
+
+    assert t3_e0_di["inputs.p2"] == [t2_e0_i2_di["outputs.p2"], t2_e1_i2_di["outputs.p2"]]
 
 
 def test_adjacent_loops_iteration_pathway(null_config, tmp_path):

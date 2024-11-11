@@ -73,6 +73,8 @@ class PendingChanges:
         self.update_loop_indices: Dict[int, Dict[str, int]] = None
         self.update_loop_num_iters: Dict[int, int] = None
         self.update_loop_parents: Dict[int, List[str]] = None
+        self.update_iter_data_idx: Dict[int, Dict[str, int]] = None
+        self.update_run_data_idx: Dict[int, Dict[str, int]] = None
 
         self.reset(is_init=True)  # set up initial data structures
 
@@ -105,6 +107,8 @@ class PendingChanges:
             or bool(self.update_loop_indices)
             or bool(self.update_loop_num_iters)
             or bool(self.update_loop_parents)
+            or bool(self.update_iter_data_idx)
+            or bool(self.update_run_data_idx)
         )
 
     def where_pending(self) -> List[str]:
@@ -446,6 +450,18 @@ class PendingChanges:
             self.store._update_loop_parents(index, parents)
         self.clear_update_loop_parents()
 
+    @TimeIt.decorator
+    def commit_iter_data_idx(self) -> None:
+        if self.update_iter_data_idx:
+            self.store._update_iter_data_indices(self.update_iter_data_idx)
+            self.clear_update_iter_data_idx()
+
+    @TimeIt.decorator
+    def commit_run_data_idx(self) -> None:
+        if self.update_run_data_idx:
+            self.store._update_run_data_indices(self.update_run_data_idx)
+            self.clear_update_run_data_idx()
+
     def clear_add_tasks(self):
         self.add_tasks = {}
 
@@ -524,6 +540,12 @@ class PendingChanges:
     def clear_update_loop_parents(self):
         self.update_loop_parents = {}
 
+    def clear_update_iter_data_idx(self):
+        self.update_iter_data_idx = defaultdict(dict)
+
+    def clear_update_run_data_idx(self):
+        self.update_run_data_idx = defaultdict(dict)
+
     def reset(self, is_init=False) -> None:
         """Clear all pending data and prepare to accept new pending data."""
 
@@ -565,6 +587,8 @@ class PendingChanges:
         self.clear_update_loop_indices()
         self.clear_update_loop_num_iters()
         self.clear_update_loop_parents()
+        self.clear_update_iter_data_idx()
+        self.clear_update_run_data_idx()
 
 
 @dataclass
@@ -602,6 +626,8 @@ class CommitResourceMap:
     commit_loop_num_iters: Optional[Tuple[str]] = tuple()
     commit_loop_parents: Optional[Tuple[str]] = tuple()
     commit_set_run_dirs: Optional[Tuple[str]] = tuple()
+    commit_iter_data_idx: Optional[Tuple[str]] = tuple()
+    commit_run_data_idx: Optional[Tuple[str]] = tuple()
 
     def __post_init__(self):
         self.groups = self.group_by_resource()
