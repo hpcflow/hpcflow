@@ -842,86 +842,86 @@ class WorkflowLoop:
                             elem_src.source_type is InputSourceType.TASK
                             and elem_src.task_ref == param_out_task_iID
                         ):
+                            for iter_i in elem.iterations:
 
-                            # TODO: consider other loops on this downstream task
-                            if len(elem.iterations) > 1:
-                                raise NotImplementedError(
-                                    "Cannot update the data index of a loop's downstream task "
-                                    f"for and element with multiple iterations (loop: "
-                                    f"{self.name!r}, parameter: {param_typ!r})."
+                                # update the iteration data index and any pending runs:
+                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+
+                                is_group = True
+                                if not isinstance(iter_old_di, list):
+                                    is_group = False
+                                    iter_old_di = [iter_old_di]
+
+                                iter_old_run_source = [
+                                    param_sources[i]["EAR_ID"] for i in iter_old_di
+                                ]
+                                iter_old_run_objs = self.workflow.get_EARs_from_IDs(
+                                    iter_old_run_source
+                                )  # TODO: use cache
+
+                                # need to check the run source is actually from the loop
+                                # output task (it could be from a previous iteration of a
+                                # separate loop in this task):
+                                if any(
+                                    i.task.insert_ID != param_out_task_iID
+                                    for i in iter_old_run_objs
+                                ):
+                                    continue
+
+                                iter_new_iters = [
+                                    i.element.iterations[-1] for i in iter_old_run_objs
+                                ]
+
+                                iter_new_dis = [
+                                    i.get_data_idx()[f"outputs.{param_typ}"]
+                                    for i in iter_new_iters
+                                ]
+
+                                iter_new_data_idx[iter_i.id_][f"inputs.{param_typ}"] = (
+                                    iter_new_dis if is_group else iter_new_dis[0]
                                 )
 
-                            iter_i = elem.iterations[0]
+                                for run_j in iter_i.action_runs:
+                                    if run_j.status is EARStatus.pending:
+                                        try:
+                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
+                                        except KeyError:
+                                            # not all actions will include this input
+                                            continue
 
-                            # update the iteration data index and any pending runs:
-                            iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+                                        is_group = True
+                                        if not isinstance(old_di, list):
+                                            is_group = False
+                                            old_di = [old_di]
 
-                            is_group = True
-                            if not isinstance(iter_old_di, list):
-                                is_group = False
-                                iter_old_di = [iter_old_di]
+                                        old_run_source = [
+                                            param_sources[i]["EAR_ID"] for i in old_di
+                                        ]
+                                        old_run_objs = self.workflow.get_EARs_from_IDs(
+                                            old_run_source
+                                        )  # TODO: use cache
 
-                            iter_old_run_source = [
-                                param_sources[i]["EAR_ID"] for i in iter_old_di
-                            ]
-                            iter_old_run_objs = self.workflow.get_EARs_from_IDs(
-                                iter_old_run_source
-                            )  # TODO: use cache
+                                        # need to check the run source is actually from the loop
+                                        # output task (it could be from a previous action in this
+                                        # element-iteration):
+                                        if any(
+                                            i.task.insert_ID != param_out_task_iID
+                                            for i in old_run_objs
+                                        ):
+                                            continue
 
-                            iter_new_iters = [
-                                i.element.iterations[-1] for i in iter_old_run_objs
-                            ]
+                                        new_iters = [
+                                            i.element.iterations[-1] for i in old_run_objs
+                                        ]
 
-                            iter_new_dis = [
-                                i.get_data_idx()[f"outputs.{param_typ}"]
-                                for i in iter_new_iters
-                            ]
+                                        new_dis = [
+                                            i.get_data_idx()[f"outputs.{param_typ}"]
+                                            for i in new_iters
+                                        ]
 
-                            iter_new_data_idx[iter_i.id_][f"inputs.{param_typ}"] = (
-                                iter_new_dis if is_group else iter_new_dis[0]
-                            )
-
-                            for run_j in iter_i.action_runs:
-                                if run_j.status is EARStatus.pending:
-                                    try:
-                                        old_di = run_j.data_idx[f"inputs.{param_typ}"]
-                                    except KeyError:
-                                        # not all actions will include this input
-                                        continue
-
-                                    is_group = True
-                                    if not isinstance(old_di, list):
-                                        is_group = False
-                                        old_di = [old_di]
-
-                                    old_run_source = [
-                                        param_sources[i]["EAR_ID"] for i in old_di
-                                    ]
-                                    old_run_objs = self.workflow.get_EARs_from_IDs(
-                                        old_run_source
-                                    )  # TODO: use cache
-
-                                    # need to check the run source is actually from the loop
-                                    # output task (it could be from a previous action in this
-                                    # element-iteration):
-                                    if any(
-                                        i.task.insert_ID != param_out_task_iID
-                                        for i in old_run_objs
-                                    ):
-                                        continue
-
-                                    new_iters = [
-                                        i.element.iterations[-1] for i in old_run_objs
-                                    ]
-
-                                    new_dis = [
-                                        i.get_data_idx()[f"outputs.{param_typ}"]
-                                        for i in new_iters
-                                    ]
-
-                                    run_new_data_idx[run_j.id_][f"inputs.{param_typ}"] = (
-                                        new_dis if is_group else new_dis[0]
-                                    )
+                                        run_new_data_idx[run_j.id_][
+                                            f"inputs.{param_typ}"
+                                        ] = (new_dis if is_group else new_dis[0])
 
         # now update data indices (TODO: including in cache!)
         if iter_new_data_idx:
