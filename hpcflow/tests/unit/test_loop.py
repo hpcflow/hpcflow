@@ -1480,6 +1480,219 @@ def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_mul
     assert t4_i1_iter_di["inputs.p2"] == t3_i1_iter_di["outputs.p2"]
 
 
+def test_nested_loops_with_downstream_updates_iteration_pathway(null_config, tmp_path):
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p1",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[1], num_iterations=2),
+        hf.Loop(name="outer", tasks=[0, 1, 2], num_iterations=2),
+    ]
+
+    # when adding the inner loop iterations, the data index of the downstream task t3
+    # must be updated to use the newly-added output. This should happen once before the
+    # outer loop is added, and once again when adding the inner loop iteration as part of
+    # adding the outer loop's second iteration!
+
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_nested",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    pathway = wk.get_iteration_task_pathway(ret_data_idx=True)
+
+    # task insert IDs:
+    assert [i[0] for i in pathway] == [0, 1, 1, 2, 0, 1, 1, 2]
+
+    # loop indices:
+    assert [i[1] for i in pathway] == [
+        {"outer": 0},
+        {"outer": 0, "inner": 0},
+        {"outer": 0, "inner": 1},
+        {"outer": 0},
+        {"outer": 1},
+        {"outer": 1, "inner": 0},
+        {"outer": 1, "inner": 1},
+        {"outer": 1},
+    ]
+
+    # flow of parameter p1/p2 (element zero):
+    assert pathway[0][2][0]["outputs.p2"] == pathway[1][2][0]["inputs.p2"]
+    assert pathway[1][2][0]["outputs.p2"] == pathway[2][2][0]["inputs.p2"]
+    assert pathway[2][2][0]["outputs.p2"] == pathway[3][2][0]["inputs.p2"]
+    assert pathway[3][2][0]["outputs.p1"] == pathway[4][2][0]["inputs.p1"]
+    assert pathway[4][2][0]["outputs.p2"] == pathway[5][2][0]["inputs.p2"]
+    assert pathway[5][2][0]["outputs.p2"] == pathway[6][2][0]["inputs.p2"]
+    assert pathway[6][2][0]["outputs.p2"] == pathway[7][2][0]["inputs.p2"]
+
+
+def test_multi_task_loop_with_downstream_updates_iteration_pathway(null_config, tmp_path):
+    s1, s2, s3, s4 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+            [{"p2": None}, ("p3",), "t4"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+        hf.Task(s4),
+    ]
+
+    loops = [
+        hf.Loop(tasks=[1, 2], num_iterations=2),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    pathway = wk.get_iteration_task_pathway(ret_data_idx=True)
+
+    # task insert IDs:
+    assert [i[0] for i in pathway] == [0, 1, 2, 1, 2, 3]
+
+    # loop indices:
+    assert [i[1] for i in pathway] == [
+        {},
+        {"loop_0": 0},
+        {"loop_0": 0},
+        {"loop_0": 1},
+        {"loop_0": 1},
+        {},
+    ]
+
+    # flow of parameter p2 (element zero):
+    assert pathway[0][2][0]["outputs.p2"] == pathway[1][2][0]["inputs.p2"]
+    assert pathway[1][2][0]["outputs.p2"] == pathway[2][2][0]["inputs.p2"]
+    assert pathway[2][2][0]["outputs.p2"] == pathway[3][2][0]["inputs.p2"]
+    assert pathway[3][2][0]["outputs.p2"] == pathway[4][2][0]["inputs.p2"]
+    assert pathway[4][2][0]["outputs.p2"] == pathway[5][2][0]["inputs.p2"]
+
+
+def test_multi_nested_loops_with_downstream_updates_iteration_pathway(
+    null_config, tmp_path
+):
+
+    s1, s2, s3, s4, s5, s6 = make_schemas(
+        [
+            [{"p1": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+            [{"p2": None}, ("p2",), "t4"],
+            [{"p2": None}, ("p1",), "t5"],
+            [{"p1": None}, ("p3",), "t6"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+        hf.Task(s4),
+        hf.Task(s5),
+        hf.Task(s6),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[1], num_iterations=2),
+        hf.Loop(name="middle", tasks=[1, 2], num_iterations=2),
+        hf.Loop(name="outer", tasks=[0, 1, 2, 3, 4], num_iterations=2),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_nested",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    pathway = wk.get_iteration_task_pathway(ret_data_idx=True)
+
+    # task insert IDs:
+    assert [i[0] for i in pathway] == [
+        0,
+        1,
+        1,
+        2,
+        1,
+        1,
+        2,
+        3,
+        4,
+        0,
+        1,
+        1,
+        2,
+        1,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+
+    # loop indices:
+    assert [i[1] for i in pathway] == [
+        {"outer": 0},
+        {"outer": 0, "middle": 0, "inner": 0},
+        {"outer": 0, "middle": 0, "inner": 1},
+        {"outer": 0, "middle": 0},
+        {"outer": 0, "middle": 1, "inner": 0},
+        {"outer": 0, "middle": 1, "inner": 1},
+        {"outer": 0, "middle": 1},
+        {"outer": 0},
+        {"outer": 0},
+        {"outer": 1},
+        {"outer": 1, "middle": 0, "inner": 0},
+        {"outer": 1, "middle": 0, "inner": 1},
+        {"outer": 1, "middle": 0},
+        {"outer": 1, "middle": 1, "inner": 0},
+        {"outer": 1, "middle": 1, "inner": 1},
+        {"outer": 1, "middle": 1},
+        {"outer": 1},
+        {"outer": 1},
+        {},
+    ]
+
+    # flow of parameter p1/p2 (element zero):
+    assert pathway[0][2][0]["outputs.p2"] == pathway[1][2][0]["inputs.p2"]
+    assert pathway[1][2][0]["outputs.p2"] == pathway[2][2][0]["inputs.p2"]
+    assert pathway[2][2][0]["outputs.p2"] == pathway[3][2][0]["inputs.p2"]
+    assert pathway[3][2][0]["outputs.p2"] == pathway[4][2][0]["inputs.p2"]
+    assert pathway[4][2][0]["outputs.p2"] == pathway[5][2][0]["inputs.p2"]
+    assert pathway[5][2][0]["outputs.p2"] == pathway[6][2][0]["inputs.p2"]
+    assert pathway[6][2][0]["outputs.p2"] == pathway[7][2][0]["inputs.p2"]
+    assert pathway[7][2][0]["outputs.p2"] == pathway[8][2][0]["inputs.p2"]
+    assert pathway[8][2][0]["outputs.p1"] == pathway[9][2][0]["inputs.p1"]
+    assert pathway[9][2][0]["outputs.p2"] == pathway[10][2][0]["inputs.p2"]
+    assert pathway[10][2][0]["outputs.p2"] == pathway[11][2][0]["inputs.p2"]
+    assert pathway[11][2][0]["outputs.p2"] == pathway[12][2][0]["inputs.p2"]
+    assert pathway[12][2][0]["outputs.p2"] == pathway[13][2][0]["inputs.p2"]
+    assert pathway[13][2][0]["outputs.p2"] == pathway[14][2][0]["inputs.p2"]
+    assert pathway[14][2][0]["outputs.p2"] == pathway[15][2][0]["inputs.p2"]
+    assert pathway[15][2][0]["outputs.p2"] == pathway[16][2][0]["inputs.p2"]
+    assert pathway[16][2][0]["outputs.p2"] == pathway[17][2][0]["inputs.p2"]
+    assert pathway[17][2][0]["outputs.p1"] == pathway[18][2][0]["inputs.p1"]
+
+
 def test_adjacent_loops_iteration_pathway(null_config, tmp_path):
     ts1 = hf.TaskSchema(
         objective="t1",

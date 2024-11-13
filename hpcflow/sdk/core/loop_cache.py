@@ -104,8 +104,8 @@ class LoopCache:
         zeroth_iters = {}
         task_iterations = defaultdict(list)
         for task in tasks:
-            for elem_idx in task.element_IDs:
-                element = deps_cache.elements[elem_idx]
+            for elem_id in task.element_IDs:
+                element = deps_cache.elements[elem_id]
                 inp_statuses = task.template.get_input_statuses(element.element_set)
                 elements[element.id_] = {
                     "input_statuses": inp_statuses,

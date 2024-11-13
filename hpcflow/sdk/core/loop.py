@@ -556,16 +556,25 @@ class WorkflowLoop:
                         # identify element(s) from which this iterable input should be
                         # parametrised:
                         if task.insert_ID == iter_dat["output_tasks"][-1]:
+                            # single-task loop
                             src_elem_ID = elem_ID
                             grouped_elems = None
                         else:
+                            # multi-task loop
                             src_elem_IDs_all = cache.element_dependents[elem_ID]
-                            src_elem_IDs = {
-                                k: v
-                                for k, v in src_elem_IDs_all.items()
-                                if cache.elements[k]["task_insert_ID"]
-                                == iter_dat["output_tasks"][-1]
-                            }
+                            # `cache.elements` contains only elements that are part of the
+                            # loop, so indexing a dependent element may raise:
+                            src_elem_IDs = {}
+                            for k, v in src_elem_IDs_all.items():
+                                try:
+                                    if (
+                                        cache.elements[k]["task_insert_ID"]
+                                        == iter_dat["output_tasks"][-1]
+                                    ):
+                                        src_elem_IDs[k] = v
+                                except KeyError:
+                                    continue
+
                             # consider groups
                             inp_group_name = inp.single_labelled_data.get("group")
                             grouped_elems = []
@@ -713,12 +722,19 @@ class WorkflowLoop:
                                         src_elem_IDs_all = cache.element_dependents[
                                             elem_i_ID
                                         ]
-                                        src_elem_IDs_i = {
-                                            k: v
-                                            for k, v in src_elem_IDs_all.items()
-                                            if cache.elements[k]["task_insert_ID"]
-                                            == task.insert_ID
-                                        }
+                                        # `cache.elements` contains only elements that are
+                                        # part of the loop, so indexing a dependent
+                                        # element may raise:
+                                        src_elem_IDs_i = {}
+                                        for k, v in src_elem_IDs_all.items():
+                                            try:
+                                                if (
+                                                    cache.elements[k]["task_insert_ID"]
+                                                    == task.insert_ID
+                                                ):
+                                                    src_elem_IDs_i[k] = v
+                                            except KeyError:
+                                                continue
 
                                         # filter src_elem_IDs_i for matching element IDs:
                                         src_elem_IDs_i = [
@@ -843,6 +859,17 @@ class WorkflowLoop:
                             and elem_src.task_ref == param_out_task_iID
                         ):
                             for iter_i in elem.iterations:
+
+                                # do not modify element-iterations of previous iterations
+                                # of the current loop:
+                                skip_iter = False
+                                for k, v in parent_loop_indices.items():
+                                    if iter_i.loop_idx.get(k) != v:
+                                        skip_iter = True
+                                        break
+
+                                if skip_iter:
+                                    continue
 
                                 # update the iteration data index and any pending runs:
                                 iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
