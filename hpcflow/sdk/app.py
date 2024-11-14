@@ -59,10 +59,10 @@ from hpcflow.sdk.submission.shells.os_version import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from logging import Logger
     from types import ModuleType
-    from typing import ClassVar, Literal
+    from typing import ClassVar, Literal, Protocol
     from typing_extensions import Final
     from rich.status import Status
     from .typing import (
@@ -157,6 +157,135 @@ if TYPE_CHECKING:
     from .submission.schedulers.sge import SGEPosix
     from .submission.schedulers.slurm import SlurmPosix
     from .submission.shells.base import VersionInfo
+
+    # Complex types for SDK functions
+    class _MakeWorkflow(Protocol):
+        """Type of :py:meth:`BaseApp.make_workflow`"""
+        def __call__(
+            self,
+            template_file_or_str: PathLike | str,
+            is_string: bool = False,
+            template_format: Literal["json", "yaml"] | None = None,
+            path: PathLike = None,
+            name: str | None = None,
+            overwrite: bool = False,
+            store: str = DEFAULT_STORE_FORMAT,
+            ts_fmt: str | None = None,
+            ts_name_fmt: str | None = None,
+            store_kwargs: dict[str, Any] | None = None,
+            variables: dict[str, str] | None = None,
+            status: bool = True,
+        ) -> _Workflow: ...
+
+    class _MakeDemoWorkflow(Protocol):
+        """Type of :py:meth:`BaseApp.make_demo_workflow`"""
+        def __call__(
+            self,
+            workflow_name: str,
+            template_format: Literal["json", "yaml"] | None = None,
+            path: PathLike | None = None,
+            name: str | None = None,
+            overwrite: bool = False,
+            store: str = DEFAULT_STORE_FORMAT,
+            ts_fmt: str | None = None,
+            ts_name_fmt: str | None = None,
+            store_kwargs: dict[str, Any] | None = None,
+            variables: dict[str, str] | None = None,
+            status: bool = True,
+        ) -> _Workflow: ...
+
+    class _MakeAndSubmitWorkflow(Protocol):
+        """Type of :py:meth:`BaseApp.make_and_submit_workflow`"""
+        # Should be overloaded on return_idx, but not bothering
+        def __call__(
+            self,
+            template_file_or_str: PathLike | str,
+            is_string: bool = False,
+            template_format: Literal["json", "yaml"] | None = None,
+            path: PathLike | None = None,
+            name: str | None = None,
+            overwrite: bool = False,
+            store: str = DEFAULT_STORE_FORMAT,
+            ts_fmt: str | None = None,
+            ts_name_fmt: str | None = None,
+            store_kwargs: dict[str, Any] | None = None,
+            variables: dict[str, str] | None = None,
+            JS_parallelism: bool | None = None,
+            wait: bool = False,
+            add_to_known: bool = True,
+            return_idx: bool = False,
+            tasks: list[int] | None = None,
+            cancel: bool = False,
+            status: bool = True,
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+
+    class _MakeAndSubmitDemoWorkflow(Protocol):
+        """Type of :py:meth:`BaseApp.make_and_submit_demo_workflow`"""
+        # Should be overloaded on return_idx, but not bothering
+        def __call__(
+            self,
+            workflow_name: str,
+            template_format: Literal["json", "yaml"] | None = None,
+            path: PathLike | None = None,
+            name: str | None = None,
+            overwrite: bool = False,
+            store: str = DEFAULT_STORE_FORMAT,
+            ts_fmt: str | None = None,
+            ts_name_fmt: str | None = None,
+            store_kwargs: dict[str, Any] | None = None,
+            variables: dict[str, str] | None = None,
+            JS_parallelism: bool | None = None,
+            wait: bool = False,
+            add_to_known: bool = True,
+            return_idx: bool = False,
+            tasks: list[int] | None = None,
+            cancel: bool = False,
+            status: bool = True,
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+
+    class _SubmitWorkflow(Protocol):
+        """Type of :py:meth:`BaseApp.submit_workflow`"""
+        # Should be overloaded on return_idx, but not bothering
+        def __call__(
+            self,
+            workflow_path: PathLike,
+            JS_parallelism: bool | None = None,
+            wait: bool = False,
+            return_idx: bool = False,
+            tasks: list[int] | None = None,
+        ) -> Mapping[int, Sequence[int]] | None: ...
+
+    class _GetKnownSubmissions(Protocol):
+        """Type of :py:meth:`BaseApp.get_known_submissions`"""
+        # Should be overloaded on as_json, but not bothering
+        def __call__(
+            self,
+            max_recent: int = 3,
+            no_update: bool = False,
+            as_json: bool = False,
+            status: Status | None = None,
+        ) -> Sequence[KnownSubmissionItem]: ...
+
+    class _Show(Protocol):
+        """Type of :py:meth:`BaseApp.show`"""
+        def __call__(
+            self,
+            max_recent: int = 3,
+            full: bool = False,
+            no_update: bool = False,
+        ) -> None: ...
+
+    class _Cancel(Protocol):
+        """Type of :py:meth:`BaseApp.cancel`"""
+        def __call__(
+            self,
+            workflow_ref: int | str | Path,
+            ref_is_path: str | None = None,
+        ) -> None: ...
+
+    class _RunTests(Protocol):
+        """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
+        def __call__(self, *args: str) -> int: ...
 
 SDK_logger = get_SDK_logger(__name__)
 DEMO_WK_FORMATS = {".yaml": "yaml", ".yml": "yaml", ".json": "json", ".jsonc": "json"}
@@ -1075,12 +1204,10 @@ class BaseApp(metaclass=Singleton):
 
         :meta private:
         """
-        from .submission.schedulers import QueuedScheduler as QS
-
-        return QS
+        return self._get_app_core_class("QueuedScheduler")
 
     @property
-    def make_workflow(self) -> Callable[..., _Workflow]:
+    def make_workflow(self) -> _MakeWorkflow:
         """
         Generate a new workflow from a file or string containing a workflow
         template parametrisation.
@@ -1128,7 +1255,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("make_workflow")
 
     @property
-    def make_demo_workflow(self) -> Callable[..., _Workflow]:
+    def make_demo_workflow(self) -> _MakeDemoWorkflow:
         """
         Generate a new workflow from a builtin demo workflow template.
 
@@ -1173,9 +1300,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("make_demo_workflow")
 
     @property
-    def make_and_submit_workflow(
-        self,
-    ) -> Callable[..., _Workflow | tuple[_Workflow, dict[int, list[int]]]]:
+    def make_and_submit_workflow(self) -> _MakeAndSubmitWorkflow:
         """
         Generate and submit a new workflow from a file or string containing a
         workflow template parametrisation.
@@ -1244,9 +1369,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("make_and_submit_workflow")
 
     @property
-    def make_and_submit_demo_workflow(
-        self,
-    ) -> Callable[..., _Workflow | tuple[_Workflow, dict[int, list[int]]]]:
+    def make_and_submit_demo_workflow(self) -> _MakeAndSubmitDemoWorkflow:
         """
         Generate and submit a new demo workflow from a file or string containing a
         workflow template parametrisation.
@@ -1311,7 +1434,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("make_and_submit_demo_workflow")
 
     @property
-    def submit_workflow(self) -> Callable[..., dict[int, list[int]] | None]:
+    def submit_workflow(self) -> _SubmitWorkflow:
         """
         Submit an existing workflow.
 
@@ -1335,17 +1458,17 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("submit_workflow")
 
     @property
-    def run_hpcflow_tests(self) -> Callable[..., int]:
+    def run_hpcflow_tests(self) -> _RunTests:
         """Run hpcflow test suite. This function is only available from derived apps."""
         return self.__get_app_func("run_hpcflow_tests")
 
     @property
-    def run_tests(self) -> Callable[..., int]:
+    def run_tests(self) -> _RunTests:
         """Run the test suite."""
         return self.__get_app_func("run_tests")
 
     @property
-    def get_OS_info(self) -> Callable[..., Mapping[str, str]]:
+    def get_OS_info(self) -> Callable[[], Mapping[str, str]]:
         """
         Get information about the operating system.
 
@@ -1376,7 +1499,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("get_shell_info")
 
     @property
-    def get_known_submissions(self) -> Callable[..., list[KnownSubmissionItem]]:
+    def get_known_submissions(self) -> _GetKnownSubmissions:
         """
         Retrieve information about active and recently inactive finished workflows.
 
@@ -1402,7 +1525,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("get_known_submissions")
 
     @property
-    def show(self) -> Callable[..., None]:
+    def show(self) -> _Show:
         """
         Show information about running workflows.
 
@@ -1428,7 +1551,7 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("show_legend")
 
     @property
-    def cancel(self) -> Callable[..., None]:
+    def cancel(self) -> _Cancel:
         """
         Cancel the execution of a workflow submission.
 
@@ -2631,7 +2754,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ):
+    ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
         workflow template parametrisation.
@@ -2824,7 +2947,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ) -> tuple[_Workflow, dict[int, list[int]]] | _Workflow:
+    ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
         workflow template parametrisation.
@@ -2921,7 +3044,7 @@ class BaseApp(metaclass=Singleton):
         wait: bool = False,
         return_idx: bool = False,
         tasks: list[int] | None = None,
-    ) -> dict[int, list[int]] | None:
+    ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
 
@@ -2959,13 +3082,13 @@ class BaseApp(metaclass=Singleton):
         wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
         return None
 
-    def _run_hpcflow_tests(self, *args):
+    def _run_hpcflow_tests(self, *args: str) -> int:
         """Run hpcflow test suite. This function is only available from derived apps."""
         from hpcflow import app as hf
 
         return hf.app.run_tests(*args)
 
-    def _run_tests(self, *args: str):
+    def _run_tests(self, *args: str) -> int:
         """Run {app_name} test suite."""
         try:
             import pytest
@@ -2976,7 +3099,7 @@ class BaseApp(metaclass=Singleton):
         with get_file_context(self.package_name, "tests") as test_dir:
             return pytest.main([str(test_dir), *(self.pytest_args or ()), *args])
 
-    def _get_OS_info(self) -> dict[str, str]:
+    def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""
         os_name = os.name
         if os_name == "posix":
@@ -3015,8 +3138,8 @@ class BaseApp(metaclass=Singleton):
         max_recent: int = 3,
         no_update: bool = False,
         as_json: bool = False,
-        status: Any | None = None,
-    ) -> list[KnownSubmissionItem]:
+        status: Status | None = None,
+    ) -> Sequence[KnownSubmissionItem]:
         """
         Retrieve information about active and recently inactive finished {app_name}
         workflows.
@@ -3051,7 +3174,7 @@ class BaseApp(metaclass=Singleton):
 
         # keys are (workflow path, submission index)
         active_jobscripts: dict[
-            tuple[str, int], dict[int, dict[int, JobscriptElementState]]
+            tuple[str, int], Mapping[int, Mapping[int, JobscriptElementState]]
         ] = {}
         loaded_workflows: dict[str, _Workflow] = {}  # keys are workflow path
 
@@ -3153,7 +3276,7 @@ class BaseApp(metaclass=Singleton):
                     if file_dat_i["is_active"]:
                         # check it really is active:
                         run_key = (file_dat_i["path"], file_dat_i["sub_idx"])
-                        act_i_js: dict[int, dict[int, JobscriptElementState]]
+                        act_i_js: Mapping[int, Mapping[int, JobscriptElementState]]
                         if run_key in active_jobscripts:
                             act_i_js = active_jobscripts[run_key]
                         else:
@@ -3297,7 +3420,7 @@ class BaseApp(metaclass=Singleton):
         max_recent: int = 3,
         full: bool = False,
         no_update: bool = False,
-    ):
+    ) -> None:
         """
         Show information about running {app_name} workflows.
 
@@ -3568,7 +3691,7 @@ class BaseApp(metaclass=Singleton):
                 )
         return path.resolve()
 
-    def _cancel(self, workflow_ref: int | str | Path, ref_is_path: str | None = None):
+    def _cancel(self, workflow_ref: int | str | Path, ref_is_path: str | None = None) -> None:
         """
         Cancel the execution of a workflow submission.
 
@@ -3772,7 +3895,7 @@ class BaseApp(metaclass=Singleton):
                     # example data not included (e.g. frozen, or installed via
                     # PyPI/conda), so set a default value for `config.demo_data_dir`
                     # (point to the package GitHub repo for the current tag):
-                    path_ = "/".join(package.split("."))
+                    path_ = package.replace(".", "/")
                     url = self._get_github_url(sha=f"v{self.version}", path=path_)
                     self.logger.info(
                         f"path {path_!r} does not exist as a package resource (example data "

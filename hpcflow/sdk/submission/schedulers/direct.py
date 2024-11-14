@@ -14,7 +14,7 @@ from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers import Scheduler
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
     from typing import Any, ClassVar
     from ...config.types import SchedulerConfigDescriptor
     from ..jobscript import Jobscript
@@ -133,7 +133,7 @@ class DirectScheduler(Scheduler[DirectRef]):
     def get_job_state_info(
         self,
         *,
-        js_refs: list[DirectRef] | None = None,
+        js_refs: Sequence[DirectRef] | None = None,
         num_js_elements: int = 0,
     ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
@@ -142,7 +142,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         Jobs that are not in the scheduler's status output will not appear in the output
         of this method."""
         info: dict[str, Mapping[int | None, JobscriptElementState]] = {}
-        for p_id, p_cmdline in js_refs or {}:
+        for p_id, p_cmdline in js_refs or ():
             if self.is_jobscript_active(p_id, p_cmdline):
                 # as far as the "scheduler" is concerned, all elements are running:
                 info[str(p_id)] = {

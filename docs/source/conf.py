@@ -68,7 +68,7 @@ def generate_download_links_table() -> str:
     # Get just-released binaries:
     yaml = YAML()
     with Path("released_binaries.yml") as fh:
-        bins_dat = yaml.load(fh)
+        bins_dat: dict[str, str] = yaml.load(fh)
 
     return (
         '<table class="binary-downloads-table">'

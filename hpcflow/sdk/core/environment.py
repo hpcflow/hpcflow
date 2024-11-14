@@ -14,7 +14,7 @@ from hpcflow.sdk.core.object_list import ExecutablesList
 from hpcflow.sdk.core.utils import check_valid_py_identifier, get_duplicate_items
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from typing import Any, ClassVar
 
 
@@ -202,7 +202,7 @@ class Environment(JSONLike):
         self,
         name: str,
         setup: Sequence[str] | None = None,
-        specifiers: dict | None = None,
+        specifiers: Mapping[str, str] | None = None,
         executables: ExecutablesList | Sequence[Executable] | None = None,
         _hash_value: str | None = None,
     ):
@@ -210,7 +210,7 @@ class Environment(JSONLike):
         self.name = name
         #: Dictionary of attributes that may be used to supply addional key/value pairs
         #: to look up an environment by.
-        self.specifiers = specifiers or {}
+        self.specifiers: Mapping[str, str] = specifiers or {}
         #: List of abstract executables in the environment.
         self.executables = (
             executables

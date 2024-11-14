@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from ..core.json_like import JSONed, JSONDocument
     from ..core.parameters import ParameterValue
     from ..core.workflow import Workflow
+    from ..submission.types import VersionInfo
 
 T = TypeVar("T")
 #: Type of the serialized form.
@@ -339,7 +340,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
     #: List of parameters defined by the associated task schema.
     schema_parameters: list[str]
     #: What loops are being handled here and where they're up to.
-    loop_idx: dict[str, int] = field(default_factory=dict)
+    loop_idx: Mapping[str, int] = field(default_factory=dict)
 
     @abstractmethod
     def encode(self, context: ContextT) -> SerFormT:
@@ -361,7 +362,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
             "schema_parameters": self.schema_parameters,
             "EARs": EARs,
             "EARs_initialised": self.EARs_initialised,
-            "loop_idx": self.loop_idx,
+            "loop_idx": dict(self.loop_idx),
         }
 
     @TimeIt.decorator
@@ -384,9 +385,9 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         )
 
     @TimeIt.decorator
-    def update_loop_idx(self, loop_idx: dict[str, int]) -> Self:
+    def update_loop_idx(self, loop_idx: Mapping[str, int]) -> Self:
         """Return a copy, with the loop index updated."""
-        loop_idx_new = copy.deepcopy(self.loop_idx)
+        loop_idx_new = dict(self.loop_idx)
         loop_idx_new.update(loop_idx)
         return self.__class__(
             id_=self.id_,
@@ -1374,9 +1375,9 @@ class PersistentStore(
         self,
         loop_template: Mapping[str, Any],
         iterable_parameters,
-        parents: list[str],
-        num_added_iterations: dict[tuple[int, ...], int],
-        iter_IDs: list[int],
+        parents: Sequence[str],
+        num_added_iterations: Mapping[tuple[int, ...], int],
+        iter_IDs: Iterable[int],
         save: bool = True,
     ):
         """Add a new loop to the workflow."""
@@ -1388,7 +1389,7 @@ class PersistentStore(
         self._pending.add_loops[new_idx] = {
             "loop_template": dict(loop_template),
             "iterable_parameters": iterable_parameters,
-            "parents": parents,
+            "parents": list(parents),
             "num_added_iterations": added_iters,
         }
 
@@ -1446,7 +1447,7 @@ class PersistentStore(
         element_ID: int,
         data_idx: DataIndex,
         schema_parameters: list[str],
-        loop_idx: dict[str, int] | None = None,
+        loop_idx: Mapping[str, int] | None = None,
         save: bool = True,
     ) -> int:
         """Add a new iteration to an element."""
@@ -1561,7 +1562,7 @@ class PersistentStore(
         self,
         sub_idx: int,
         js_idx: int,
-        version_info: dict[str, str | list[str]] | None = None,
+        version_info: VersionInfo | None = None,
         submit_time: str | None = None,
         submit_hostname: str | None = None,
         submit_machine: str | None = None,
@@ -1816,7 +1817,7 @@ class PersistentStore(
         self,
         index: int,
         num_added_iters: Mapping[tuple[int, ...], int],
-        parents: list[str],
+        parents: Sequence[str],
         save: bool = True,
     ) -> None:
         """
@@ -1829,7 +1830,7 @@ class PersistentStore(
         self._pending.update_loop_num_iters[index] = [
             [list(k), v] for k, v in num_added_iters.items()
         ]
-        self._pending.update_loop_parents[index] = parents
+        self._pending.update_loop_parents[index] = list(parents)
         if save:
             self.save()
 
@@ -2234,7 +2235,7 @@ class PersistentStore(
         self,
         task_id: int,
         idx_lst: Iterable[int] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> Iterator[Mapping[str, Any]]:
         """
         Get element data by an indices within a given task.
 
@@ -2268,9 +2269,8 @@ class PersistentStore(
         iters_rs = reshape(iters, iter_IDs_lens)
 
         # add iterations to elements:
-        return [
-            element.to_dict(iters_rs[idx]) for idx, element in enumerate(store_elements)
-        ]
+        for idx, element in enumerate(store_elements):
+            yield element.to_dict(iters_rs[idx])
 
     @abstractmethod
     def _get_persistent_parameter_IDs(self) -> Iterable[int]:

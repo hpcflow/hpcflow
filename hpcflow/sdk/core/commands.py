@@ -18,7 +18,7 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import ParameterValue
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from re import Pattern
     from .actions import ActionRule
     from .element import ElementActionRun
@@ -258,7 +258,7 @@ class Command(JSONLike):
         r"(?:\.(?:\w+)\((?:.*?)\))?\)?\>\>?)"
     )
 
-    def get_output_types(self) -> dict[str, str | None]:
+    def get_output_types(self) -> Mapping[str, str | None]:
         """
         Get whether stdout and stderr are workflow parameters.
         """
@@ -384,10 +384,10 @@ class Command(JSONLike):
     __EXE_RE: ClassVar[Pattern] = re.compile(r"\<\<(?:executable):(.*?)\>\>")
 
     @classmethod
-    def _extract_executable_labels(cls, cmd_str: str) -> list[str]:
+    def _extract_executable_labels(cls, cmd_str: str) -> Sequence[str]:
         return cls.__EXE_RE.findall(cmd_str)
 
-    def get_required_executables(self) -> list[str]:
+    def get_required_executables(self) -> Sequence[str]:
         """Return executable labels required by this command."""
         # an executable label might appear in the `command` or `executable` attribute:
         return self._extract_executable_labels(self.__get_initial_command_line())

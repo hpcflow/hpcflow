@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from ...config.types import SchedulerConfigDescriptor, SLURMPartitionsDescriptor
     from ...core.element import ElementResources
     from ..jobscript import Jobscript
+    from ..types import VersionInfo
     from ..shells.base import Shell
 
 
@@ -379,7 +380,7 @@ class SlurmPosix(QueuedScheduler):
 
     @override
     @TimeIt.decorator
-    def get_version_info(self):
+    def get_version_info(self) -> VersionInfo:
         vers_cmd = [self.submit_cmd, "--version"]
         proc = subprocess.run(
             args=vers_cmd,
@@ -434,12 +435,20 @@ class SlurmPosix(QueuedScheduler):
 
     @staticmethod
     def _parse_job_IDs(job_ID_str: str) -> tuple[str, None | list[int]]:
-        """Parse the job ID column from the `squeue` command (the `%i` format option)."""
-        parts = job_ID_str.split("_")
-        base_job_ID, arr_idx = parts if len(parts) == 2 else (parts[0], None)
-        assert base_job_ID is not None
-        if arr_idx is None:
+        """
+        Parse the job ID column from the `squeue` command (the `%i` format option).
+        
+        Returns
+        -------
+        job_id
+            The job identifier.
+        array_indices
+            The indices into the job array.
+        """
+        base_job_ID, *arr_idx_data = job_ID_str.split("_")
+        if not arr_idx_data:
             return base_job_ID, None
+        arr_idx = arr_idx_data[0]
         try:
             return base_job_ID, [int(arr_idx) - 1]  # zero-index
         except ValueError:
@@ -448,12 +457,11 @@ class SlurmPosix(QueuedScheduler):
         _arr_idx: list[int] = []
         for i_range_str in arr_idx.strip("[]").split(","):
             if "-" in i_range_str:
-                range_parts = i_range_str.split("-")
-                if "%" in range_parts[1]:
+                _from, _to = i_range_str.split("-")
+                if "%" in _to:
                     # indicates max concurrent array items; not needed
-                    range_parts[1] = range_parts[1].split("%")[0]
-                i_args = [int(j) - 1 for j in range_parts]
-                _arr_idx.extend(range(i_args[0], i_args[1] + 1))
+                    _to = _to.split("%")[0]
+                _arr_idx.extend(range(int(_from) - 1, int(_to)))
             else:
                 _arr_idx.append(int(i_range_str) - 1)
         return base_job_ID, _arr_idx
@@ -466,9 +474,9 @@ class SlurmPosix(QueuedScheduler):
         for ln in stdout.split("\n"):
             if not ln:
                 continue
-            ln_s = [i.strip() for i in ln.split()]
-            base_job_ID, arr_idx = self._parse_job_IDs(ln_s[0])
-            state = self.state_lookup.get(ln_s[1], JobscriptElementState.errored)
+            job_id, job_state, *_ = ln.split()
+            base_job_ID, arr_idx = self._parse_job_IDs(job_id)
+            state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
             entry = info.setdefault(base_job_ID, {})
             for arr_idx_i in arr_idx or ():
@@ -507,14 +515,13 @@ class SlurmPosix(QueuedScheduler):
 
     @override
     def get_job_state_info(
-        self, *, js_refs: list[str] | None = None, num_js_elements: int = 0
+        self, *, js_refs: Sequence[str] | None = None, num_js_elements: int = 0
     ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.
 
         Jobs that are not in the scheduler's status output will not appear in the output
         of this method.
-
         """
 
         # if job_IDs are passed, then assume they are existant, otherwise retrieve valid

@@ -338,7 +338,7 @@ class Submission(JSONLike):
     @overload
     def get_active_jobscripts(
         self, as_json: Literal[False] = False
-    ) -> dict[int, dict[int, JobscriptElementState]]:
+    ) -> Mapping[int, Mapping[int, JobscriptElementState]]:
         ...
 
     @overload
@@ -348,7 +348,7 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def get_active_jobscripts(
         self, as_json: bool = False
-    ) -> dict[int, dict[int, JobscriptElementState]] | dict[int, dict[int, str]]:
+    ) -> Mapping[int, Mapping[int, JobscriptElementState]] | dict[int, dict[int, str]]:
         """Get jobscripts that are active on this machine, and their active states."""
         # this returns: {JS_IDX: {JS_ELEMENT_IDX: STATE}}
         # TODO: query the scheduler once for all jobscripts?

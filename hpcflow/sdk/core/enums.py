@@ -2,6 +2,7 @@
 Core enumeration types.
 """
 from __future__ import annotations
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -184,7 +185,7 @@ class TaskSourceType(Enum):
     ANY = 2
 
     @classmethod
-    def names(cls) -> list[str]:
+    def names(cls) -> Sequence[str]:
         """
         Get the names of the task source types.
         """

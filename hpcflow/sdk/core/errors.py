@@ -118,8 +118,8 @@ class UnrequiredInputSources(ValueError):
             # reminder about how to specify input sources:
             message += (
                 f" Note that input source keys should not be specified with the "
-                f"'inputs.' prefix. Did you mean to specify {bad[len('inputs.'):]!r} "
-                f"instead of {bad!r}?"
+                f"'inputs.' prefix. Did you mean to specify "
+                f"{bad.removeprefix('inputs.')!r} instead of {bad!r}?"
             )
         super().__init__(message)
 
@@ -147,7 +147,7 @@ class UnavailableInputSource(ValueError):
     An input source was not available.
     """
 
-    def __init__(self, source: InputSource, path: str, avail: list[InputSource]) -> None:
+    def __init__(self, source: InputSource, path: str, avail: Sequence[InputSource]) -> None:
         super().__init__(
             f"The input source {source.to_string()!r} is not "
             f"available for input path {path!r}. Available "
@@ -159,7 +159,7 @@ class InapplicableInputSourceElementIters(ValueError):
     """
     An input source element iteration was inapplicable."""
 
-    def __init__(self, source: InputSource, elem_iters_IDs: list[int] | None) -> None:
+    def __init__(self, source: InputSource, elem_iters_IDs: Sequence[int] | None) -> None:
         super().__init__(
             f"The specified `element_iters` for input source "
             f"{source.to_string()!r} are not all applicable. "
@@ -279,7 +279,7 @@ class ActionEnvironmentMissingNameError(Exception):
     An action environment was missing its name.
     """
 
-    def __init__(self, environment: dict[str, Any]) -> None:
+    def __init__(self, environment: Mapping[str, Any]) -> None:
         super().__init__(
             "The action-environment environment specification must include a string "
             "`name` key, or be specified as string that is that name. Provided "
@@ -490,7 +490,7 @@ class SubmissionFailure(RuntimeError):
     def __init__(
         self,
         sub_idx: int,
-        submitted_js_idx: list[int],
+        submitted_js_idx: Sequence[int],
         exceptions: Iterable[JobscriptSubmissionFailure],
     ) -> None:
         msg = f"Some jobscripts in submission index {sub_idx} could not be submitted"

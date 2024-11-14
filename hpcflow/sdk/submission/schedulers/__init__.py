@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ..shells import Shell
     from ..jobscript import Jobscript
     from ..enums import JobscriptElementState
+    from ..types import VersionInfo
     from ...config.types import SchedulerConfigDescriptor
     from ...core.element import ElementResources
 
@@ -84,7 +85,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
         This mutates `resources`.
         """
 
-    def get_version_info(self) -> dict[str, str | list[str]]:
+    def get_version_info(self) -> VersionInfo:
         """
         Get the version of the scheduler.
         """
@@ -118,7 +119,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
 
     @abstractmethod
     def get_job_state_info(
-        self, *, js_refs: list[JSRefType] | None = None, num_js_elements: int = 0
+        self, *, js_refs: Sequence[JSRefType] | None = None, num_js_elements: int = 0
     ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """
         Get the state of one or more jobscripts.

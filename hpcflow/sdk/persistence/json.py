@@ -355,7 +355,7 @@ class JSONPersistentStore(
     def _append_loops(self, loops: dict[int, LoopDescriptor]):
         with self.using_resource("metadata", action="update") as md:
             assert "loops" in md and "template" in md
-            for loop_idx, loop in loops.items():
+            for _, loop in loops.items():
                 md["loops"].append(
                     {
                         "num_added_iterations": loop["num_added_iterations"],
@@ -417,7 +417,7 @@ class JSONPersistentStore(
                 for dt_str, parts_j in sub_i_parts.items():
                     sub["submission_parts"][dt_str] = parts_j
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]):
+    def _update_loop_index(self, iter_ID: int, loop_idx: Mapping[str, int]):
         with self.using_resource("metadata", action="update") as md:
             assert "iters" in md
             md["iters"][iter_ID]["loop_idx"].update(loop_idx)

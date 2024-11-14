@@ -148,7 +148,7 @@ class WindowsPowerShell(Shell):
 
     def get_direct_submit_command(self, js_path: str) -> list[str]:
         """Get the command for submitting a non-scheduled jobscript."""
-        return self.executable + ["-File", js_path]
+        return [*self.executable, "-File", js_path]
 
     @override
     def get_version_info(self, exclude_os: bool = False) -> VersionInfo:

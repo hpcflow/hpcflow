@@ -15,13 +15,13 @@ from typing_extensions import override
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.errors import LoopTaskSubsetError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
-from hpcflow.sdk.core.loop_cache import LoopCache
+from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.enums import InputSourceType
 from hpcflow.sdk.core.utils import check_valid_py_identifier, nth_key, nth_value
 from hpcflow.sdk.log import TimeIt
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
     from typing import Any, ClassVar
     from typing_extensions import Self, TypeIs
     from ..typing import DataIndex, ParamSource
@@ -136,7 +136,7 @@ class Loop(JSONLike):
         return self._num_iterations
 
     @property
-    def non_iterable_parameters(self) -> list[str]:
+    def non_iterable_parameters(self) -> Sequence[str]:
         """
         Which parameters are not iterable.
         """
@@ -290,7 +290,7 @@ class WorkflowLoop(AppAware):
         )
 
     @property
-    def num_added_iterations(self) -> dict[tuple[int, ...], int]:
+    def num_added_iterations(self) -> Mapping[tuple[int, ...], int]:
         """
         The number of added iterations.
         """
@@ -302,18 +302,17 @@ class WorkflowLoop(AppAware):
     @property
     def __pending(self) -> dict[tuple[int, ...], int]:
         if not self._pending_num_added_iterations:
-            self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
+            self._pending_num_added_iterations = dict(self._num_added_iterations)
         return self._pending_num_added_iterations
 
-    def _initialise_pending_added_iters(self, added_iters_key: tuple[int, ...]):
+    def _initialise_pending_added_iters(self, added_iters: Iterable[int]):
         if not self._pending_num_added_iterations:
-            self._pending_num_added_iterations = copy.deepcopy(self._num_added_iterations)
-
-        if added_iters_key not in (pending := self.__pending):
+            self._pending_num_added_iterations = dict(self._num_added_iterations)
+        if (added_iters_key := tuple(added_iters)) not in (pending := self.__pending):
             pending[added_iters_key] = 1
 
-    def _increment_pending_added_iters(self, added_iters_key: tuple[int, ...]):
-        self.__pending[added_iters_key] += 1
+    def _increment_pending_added_iters(self, added_iters_key: Iterable[int]):
+        self.__pending[tuple(added_iters_key)] += 1
 
     def _update_parents(self, parent: WorkflowLoop):
         assert parent.name
@@ -337,7 +336,7 @@ class WorkflowLoop(AppAware):
 
     def _accept_pending_num_added_iters(self) -> None:
         if self._pending_num_added_iterations:
-            self._num_added_iterations = copy.deepcopy(self._pending_num_added_iterations)
+            self._num_added_iterations = dict(self._pending_num_added_iterations)
             self._reset_pending_num_added_iters()
 
     def _reset_pending_parents(self) -> None:
@@ -390,7 +389,7 @@ class WorkflowLoop(AppAware):
         return self._template
 
     @property
-    def parents(self) -> list[str]:
+    def parents(self) -> Sequence[str]:
         """
         The parents of this loop.
         """
@@ -405,7 +404,7 @@ class WorkflowLoop(AppAware):
         return self.template.name
 
     @property
-    def iterable_parameters(self) -> dict[str, IterableParam]:
+    def iterable_parameters(self) -> Mapping[str, IterableParam]:
         """
         The parameters that are being iterated over.
         """
@@ -419,14 +418,18 @@ class WorkflowLoop(AppAware):
         return self.template.num_iterations
 
     @property
-    def downstream_tasks(self) -> list[WorkflowTask]:
+    def downstream_tasks(self) -> Iterator[WorkflowTask]:
         """Tasks that are not part of the loop, and downstream from this loop."""
-        return self.workflow.tasks[self.task_objects[-1].index + 1 :]
+        tasks = self.workflow.tasks
+        for idx in range(self.task_objects[-1].index + 1, len(tasks)):
+            yield tasks[idx]
 
     @property
-    def upstream_tasks(self) -> list[WorkflowTask]:
+    def upstream_tasks(self) -> Iterator[WorkflowTask]:
         """Tasks that are not part of the loop, and upstream from this loop."""
-        return self.workflow.tasks[: self.task_objects[0].index]
+        tasks = self.workflow.tasks
+        for idx in range(0, self.task_objects[0].index):
+            yield tasks[idx]
 
     @staticmethod
     @TimeIt.decorator
@@ -459,7 +462,7 @@ class WorkflowLoop(AppAware):
         index: int,
         workflow: Workflow,
         template: Loop,
-        iter_loop_idx: list[dict[str, int]],
+        iter_loop_idx: Sequence[Mapping[str, int]],
     ) -> WorkflowLoop:
         """
         Make a new empty loop.
@@ -546,7 +549,7 @@ class WorkflowLoop(AppAware):
     @TimeIt.decorator
     def add_iteration(
         self,
-        parent_loop_indices: dict[str, int] | None = None,
+        parent_loop_indices: Mapping[str, int] | None = None,
         cache: LoopCache | None = None,
     ) -> None:
         """
@@ -576,23 +579,18 @@ class WorkflowLoop(AppAware):
         all_new_data_idx: dict[tuple[int, int], DataIndex] = {}
 
         # initialise a new `num_added_iterations` key on each child loop:
+        iters_key_dct = {
+            **parent_loop_indices_,
+            self.name: cur_loop_idx + 1,
+        }
         for child in child_loops:
-            iters_key_dct = {
-                **parent_loop_indices_,
-                self.name: cur_loop_idx + 1,
-            }
-            added_iters_key_chd = tuple(iters_key_dct.get(j, 0) for j in child.parents)
-            child._initialise_pending_added_iters(added_iters_key_chd)
+            child._initialise_pending_added_iters(iters_key_dct.get(j, 0) for j in child.parents)
 
         for task in self.task_objects:
-            new_loop_idx = {
-                **parent_loop_indices_,
-                self.name: cur_loop_idx + 1,
-                **{
-                    child.name: 0
-                    for child in child_loops
-                    if task.insert_ID in child.task_insert_IDs
-                },
+            new_loop_idx = LoopIndex(iters_key_dct) + {
+                child.name: 0
+                for child in child_loops
+                if task.insert_ID in child.task_insert_IDs
             }
             added_iter_IDs: list[int] = []
             for elem_idx in range(task.num_elements):
@@ -712,8 +710,7 @@ class WorkflowLoop(AppAware):
 
             task.initialise_EARs(iter_IDs=added_iter_IDs)
 
-        added_iters_key = tuple(parent_loop_indices_[p_nm] for p_nm in self.parents)
-        self._increment_pending_added_iters(added_iters_key)
+        self._increment_pending_added_iters(parent_loop_indices_[p_nm] for p_nm in self.parents)
         self.workflow._store.update_loop_num_iters(
             index=self.index,
             num_added_iters=self.num_added_iterations,
@@ -731,7 +728,7 @@ class WorkflowLoop(AppAware):
 
     def __get_src_ID_and_groups(
         self, elem_ID: int, iter_dat: IterableParam, inp: SchemaInput, cache: LoopCache
-    ) -> tuple[int, list[int]]:
+    ) -> tuple[int, Sequence[int]]:
         src_elem_IDs = {
             k: v
             for k, v in cache.element_dependents[elem_ID].items()
@@ -775,7 +772,7 @@ class WorkflowLoop(AppAware):
         iter_dat: IterableParam,
         inp: SchemaInput,
         parent_loops: list[WorkflowLoop],
-        parent_loop_indices: dict[str, int],
+        parent_loop_indices: Mapping[str, int],
         child_loops: list[WorkflowLoop],
         cur_loop_idx: int,
     ):
@@ -787,7 +784,7 @@ class WorkflowLoop(AppAware):
         # parametrised:
         if task.insert_ID == iter_dat["output_tasks"][-1]:
             src_elem_ID = elem_ID
-            grouped_elems: list[int] = []
+            grouped_elems: Sequence[int] = []
         else:
             src_elem_ID, grouped_elems = self.__get_src_ID_and_groups(
                 elem_ID, iter_dat, inp, cache
@@ -809,15 +806,12 @@ class WorkflowLoop(AppAware):
             child_iter_parents[loop.name] = i_max
             child_loop_max_iters[loop.name] = i_max
 
-        source_iter_loop_idx = {
-            **child_loop_max_iters,
-            **parent_loop_same_iters,
-            self.name: cur_loop_idx,
-        }
+        loop_idx_key = LoopIndex(child_loop_max_iters)
+        loop_idx_key.update(parent_loop_same_iters)
+        loop_idx_key[self.name] = cur_loop_idx
 
         # identify the ElementIteration from which this input should be
         # parametrised:
-        loop_idx_key = tuple(sorted(source_iter_loop_idx.items()))
         if grouped_elems:
             src_data_idx = [
                 cache.data_idx[src_elem_ID][loop_idx_key] for src_elem_ID in grouped_elems
@@ -825,7 +819,7 @@ class WorkflowLoop(AppAware):
             if not src_data_idx:
                 raise RuntimeError(
                     f"Could not find a source iteration with loop_idx: "
-                    f"{source_iter_loop_idx!r}."
+                    f"{loop_idx_key!r}."
                 )
             return [i[f"outputs.{inp.typ}"] for i in src_data_idx]
         else:
@@ -839,24 +833,23 @@ class WorkflowLoop(AppAware):
         elem_ID: int,
         inp: SchemaInput,
         inp_key: str,
-        parent_loop_indices: dict[str, int],
-        all_new_data_idx: dict[tuple[int, int], DataIndex],
+        parent_loop_indices: Mapping[str, int],
+        all_new_data_idx: Mapping[tuple[int, int], DataIndex],
     ) -> int | list[int]:
         if orig_inp_src.task_ref not in self.task_insert_IDs:
             # source the data_idx from the iteration with same parent
             # loop indices as the new iteration to add:
-            # src_iters = []
-            src_data_idx: list[DataIndex] = []
-            for li_k, di_k in cache.data_idx[elem_ID].items():
-                li_k_dct = dict(li_k)
+            src_data_idx = next(
+                di_k
+                for li_k, di_k in cache.data_idx[elem_ID].items()
                 if all(
-                    li_k_dct.get(p_k) == p_v for p_k, p_v in parent_loop_indices.items()
-                ):
-                    src_data_idx.append(di_k)
+                    li_k.get(p_k) == p_v for p_k, p_v in parent_loop_indices.items()
+                )
+            )
 
             # could be multiple, but they should all have the same
             # data index for this parameter:
-            return src_data_idx[0][inp_key]
+            return src_data_idx[inp_key]
 
         is_group = (
             inp.single_labelled_data is not None

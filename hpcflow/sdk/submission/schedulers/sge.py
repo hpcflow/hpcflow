@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ...config.types import SchedulerConfigDescriptor
     from ...core.element import ElementResources
     from ..jobscript import Jobscript
+    from ..types import VersionInfo
     from ..shells.base import Shell
 
 
@@ -207,13 +208,12 @@ class SGEPosix(QueuedScheduler):
 
     @override
     @TimeIt.decorator
-    def get_version_info(self):
-        vers_cmd = self.show_cmd + ["-help"]
-        stdout, stderr = run_cmd(vers_cmd)
+    def get_version_info(self) -> VersionInfo:
+        stdout, stderr = run_cmd([*self.show_cmd, "-help"])
         if stderr:
             print(stderr)
-        version_str = stdout.split("\n")[0].strip()
-        name, version = version_str.split()
+        first_line, *_ = stdout.split("\n")
+        name, version, *_ = first_line.strip().split()
         return {
             "scheduler_name": name,
             "scheduler_version": version,
@@ -262,7 +262,7 @@ class SGEPosix(QueuedScheduler):
             raise RuntimeError(f"Could not parse Job ID from scheduler output {stdout!r}")
         return match.group()
 
-    def get_job_statuses(self) -> dict[str, dict[int | None, JobscriptElementState]]:
+    def get_job_statuses(self) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Get information about all of this user's jobscripts that currently listed by
         the scheduler."""
         cmd = [*self.show_cmd, "-u", "$USER", "-g", "d"]  # "-g d": separate arrays items
@@ -285,8 +285,7 @@ class SGEPosix(QueuedScheduler):
         for ln in lines[2:]:
             if not ln:
                 continue
-            ln_s = ln.split()
-            base_job_ID = ln_s[0]
+            base_job_ID, *_ = ln.split()
 
             # states can be one or two chars (for our limited purposes):
             state_str = ln[state_idx : state_idx + 2].strip()
@@ -304,7 +303,7 @@ class SGEPosix(QueuedScheduler):
 
     @override
     def get_job_state_info(
-        self, *, js_refs: list[str] | None = None, num_js_elements: int = 0
+        self, *, js_refs: Sequence[str] | None = None, num_js_elements: int = 0
     ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.

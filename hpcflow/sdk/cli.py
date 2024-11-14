@@ -222,7 +222,7 @@ def _make_API_CLI(app: BaseApp):
     @click.command(context_settings={"ignore_unknown_options": True})
     @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test(ctx: click.Context, py_test_args: list):
+    def test(ctx: click.Context, py_test_args: list[str]):
         """Run {app_name} test suite.
 
         PY_TEST_ARGS are arguments passed on to Pytest.
@@ -233,7 +233,7 @@ def _make_API_CLI(app: BaseApp):
     @click.command(context_settings={"ignore_unknown_options": True})
     @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test_hpcflow(ctx: click.Context, py_test_args: list):
+    def test_hpcflow(ctx: click.Context, py_test_args: list[str]):
         """Run hpcFlow test suite.
 
         PY_TEST_ARGS are arguments passed on to Pytest.

@@ -958,8 +958,8 @@ def test_loop_downstream_tasks(null_config, tmp_path: Path):
             hf.Loop(name="my_loop", tasks=[1, 2], num_iterations=2),
         ],
     )
-    assert wk.loops.my_loop.downstream_tasks == [wk.tasks[3]]
-    assert wk.loops.my_loop.upstream_tasks == [wk.tasks[0]]
+    assert list(wk.loops.my_loop.downstream_tasks) == [wk.tasks[3]]
+    assert list(wk.loops.my_loop.upstream_tasks) == [wk.tasks[0]]
 
 
 def test_raise_loop_task_subset_error(null_config, tmp_path: Path):

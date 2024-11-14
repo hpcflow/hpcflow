@@ -122,6 +122,10 @@ def callback_supported_schedulers(
     return schedulers
 
 
+def _hostname_in_invocation(config: Config) -> bool:
+    return "hostname" in config._file.get_invocation(config._config_key)["match"]
+
+
 def set_scheduler_invocation_match(config: Config, scheduler: str) -> None:
     """Invoked on set of `default_scheduler`.
 
@@ -131,14 +135,13 @@ def set_scheduler_invocation_match(config: Config, scheduler: str) -> None:
     that on clusters the hostname match is explicitly set.
 
     """
-    default_args = config.get(f"schedulers.{scheduler}").get("defaults", {})
     sched = config._app.get_scheduler(
         scheduler_name=scheduler,
         os_name=os.name,
-        scheduler_args=default_args,
+        scheduler_args=config.get(f"schedulers.{scheduler}").get("defaults", {}),
     )
     if isinstance(sched, config._app.QueuedScheduler):
-        if "hostname" not in config._file.get_invocation(config._config_key)["match"]:
+        if not _hostname_in_invocation(config):
             config._file.update_invocation(
                 config_key=config._config_key,
                 match={"hostname": sched.DEFAULT_LOGIN_NODE_MATCH},
@@ -151,7 +154,6 @@ def callback_scheduler_set_up(
     """Invoked on set of `schedulers`.
 
     Runs scheduler-specific config initialisation.
-
     """
     for k, v in schedulers.items():
         sched = config._app.get_scheduler(
@@ -163,11 +165,10 @@ def callback_scheduler_set_up(
         if isinstance(sched, config._app.SGEPosix):
             # some `QueuedScheduler` classes have a `get_login_nodes` method which can be used
             # to populate the names of login nodes explicitly, if not already set:
-            if "hostname" not in config._file.get_invocation(config._config_key)["match"]:
-                login_nodes = sched.get_login_nodes()
+            if not _hostname_in_invocation(config):
                 config._file.update_invocation(
                     config_key=config._config_key,
-                    match={"hostname": login_nodes},
+                    match={"hostname": sched.get_login_nodes()},
                 )
     return schedulers
 

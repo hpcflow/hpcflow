@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime
     from .core.object_list import (
         CommandFilesList,
@@ -101,7 +102,7 @@ class KnownSubmissionItem(TypedDict):
     #: Jobscripts in submission.
     jobscripts: list[int]
     #: Active jobscript state.
-    active_jobscripts: dict[int, dict[int, JobscriptElementState]]
+    active_jobscripts: Mapping[int, Mapping[int, JobscriptElementState]]
     #: Whether this is deleted.
     deleted: bool
     #: Whether this is unloadable.

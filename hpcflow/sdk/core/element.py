@@ -12,6 +12,7 @@ from typing import cast, overload, TYPE_CHECKING
 from hpcflow.sdk.core.enums import ParallelMode
 from hpcflow.sdk.core.errors import UnsupportedOSError, UnsupportedSchedulerError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.core.loop_cache import LoopIndex
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.utils import (
@@ -24,12 +25,11 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.shells import get_shell
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
     from typing import Any, ClassVar, Literal
     from ..app import BaseApp
     from ..typing import DataIndex, ParamSource
     from .actions import Action, ElementAction, ElementActionRun
-    from .object_list import ResourceList
     from .parameters import InputSource, ParameterPath, InputValue, ResourceSpec
     from .rule import Rule
     from .task import WorkflowTask, ElementSet
@@ -49,11 +49,10 @@ class _ElementPrefixedParameter(AppAware):
         self._element_action = element_action
         self._element_action_run = element_action_run
 
-        self._prefixed_names_unlabelled: dict[
-            str, list[str]
-        ] | None = None  # assigned on first access
+        # assigned on first access
+        self._prefixed_names_unlabelled: Mapping[str, Sequence[str]] | None = None
 
-    def __getattr__(self, name: str) -> ElementParameter | dict[str, ElementParameter]:
+    def __getattr__(self, name: str) -> ElementParameter | Mapping[str, ElementParameter]:
         if name not in self.prefixed_names_unlabelled:
             raise ValueError(
                 f"No {self._prefix} named {name!r}. Available {self._prefix} are: "
@@ -63,22 +62,12 @@ class _ElementPrefixedParameter(AppAware):
         if labels := self.prefixed_names_unlabelled.get(name):
             # is multiple; return a dict of `ElementParameter`s
             return {
-                label_i: self._app.ElementParameter(
-                    path=f"{self._prefix}.{name}[{label_i}]",
-                    task=self._task,
-                    parent=self.__parent,
-                    element=self.__element_iteration_obj,
-                )
+                label_i: self.__parameter(f"{self._prefix}.{name}[{label_i}]")
                 for label_i in labels
             }
         else:
             # could be labelled still, but with `multiple=False`
-            return self._app.ElementParameter(
-                path=f"{self._prefix}.{name}",
-                task=self._task,
-                parent=self.__parent,
-                element=self.__element_iteration_obj,
-            )
+            return self.__parameter(f"{self._prefix}.{name}")
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
@@ -90,19 +79,22 @@ class _ElementPrefixedParameter(AppAware):
         assert p is not None
         return p
 
-    @property
-    def __element_iteration_obj(self) -> ElementIteration:
+    def __parameter(self, name: str) -> ElementParameter:
+        """Manufacture an ElementParameter with the given name."""
         p = self.__parent
-        if isinstance(p, ElementIteration):
-            return p
-        return p.element_iteration
+        return self._app.ElementParameter(
+            path=name,
+            task=self._task,
+            parent=p,
+            element=p if isinstance(p, ElementIteration) else p.element_iteration,
+        )
 
     @property
     def _task(self) -> WorkflowTask:
         return self.__parent.task
 
     @property
-    def prefixed_names_unlabelled(self) -> dict[str, list[str]]:
+    def prefixed_names_unlabelled(self) -> Mapping[str, Sequence[str]]:
         """
         A mapping between input types and associated labels.
 
@@ -133,7 +125,7 @@ class _ElementPrefixedParameter(AppAware):
     def _get_prefixed_names(self) -> list[str]:
         return sorted(self.__parent.get_parameter_names(self._prefix))
 
-    def __get_prefixed_names_unlabelled(self) -> dict[str, list[str]]:
+    def __get_prefixed_names_unlabelled(self) -> Mapping[str, Sequence[str]]:
         all_names: dict[str, list[str]] = {}
         for name in self._get_prefixed_names():
             if "[" in name:
@@ -144,7 +136,7 @@ class _ElementPrefixedParameter(AppAware):
                 all_names[name] = []
         return all_names
 
-    def __iter__(self) -> Iterator[ElementParameter | dict[str, ElementParameter]]:
+    def __iter__(self) -> Iterator[ElementParameter | Mapping[str, ElementParameter]]:
         for name in self.prefixed_names_unlabelled:
             yield getattr(self, name)
 
@@ -537,14 +529,14 @@ class ElementIteration(AppAware):
         EAR_IDs: dict[int, list[int]],
         EARs: dict[int, dict[Mapping[str, Any], Any]] | None,
         schema_parameters: list[str],
-        loop_idx: dict[str, int],
+        loop_idx: Mapping[str, int],
     ):
         self._id = id_
         self._is_pending = is_pending
         self._index = index
         self._element = element
         self._data_idx = data_idx
-        self._loop_idx = loop_idx
+        self._loop_idx = LoopIndex(loop_idx)
         self._schema_parameters = schema_parameters
         self._EARs_initialised = EARs_initialised
         self._EARs = EARs
@@ -618,21 +610,21 @@ class ElementIteration(AppAware):
         return self.element.workflow
 
     @property
-    def loop_idx(self) -> dict[str, int]:
+    def loop_idx(self) -> LoopIndex[str, int]:
         """
         Indexing information from the loop.
         """
         return self._loop_idx
 
     @property
-    def schema_parameters(self) -> list[str]:
+    def schema_parameters(self) -> Sequence[str]:
         """
         Parameters from the schema.
         """
         return self._schema_parameters
 
     @property
-    def EAR_IDs(self) -> dict[int, list[int]]:
+    def EAR_IDs(self) -> Mapping[int, Sequence[int]]:
         """
         Mapping from iteration number to EAR ID, where known.
         """
@@ -646,7 +638,7 @@ class ElementIteration(AppAware):
         return chain.from_iterable(self.EAR_IDs.values())
 
     @property
-    def actions(self) -> dict[int, ElementAction]:
+    def actions(self) -> Mapping[int, ElementAction]:
         """
         The actions of this iteration.
         """
@@ -658,7 +650,7 @@ class ElementIteration(AppAware):
         return self._action_objs
 
     @property
-    def action_runs(self) -> list[ElementActionRun]:
+    def action_runs(self) -> Sequence[ElementActionRun]:
         """
         A list of element action runs, where only the final run is taken for each
         element action.
@@ -680,8 +672,7 @@ class ElementIteration(AppAware):
         The outputs from this element.
         """
         if not self._outputs:
-            self._outputs = outs = self._app.ElementOutputs(element_iteration=self)
-            return outs
+            self._outputs = self._app.ElementOutputs(element_iteration=self)
         return self._outputs
 
     @property
@@ -690,8 +681,7 @@ class ElementIteration(AppAware):
         The input files to this element.
         """
         if not self._input_files:
-            self._input_files = eif = self._app.ElementInputFiles(element_iteration=self)
-            return eif
+            self._input_files = self._app.ElementInputFiles(element_iteration=self)
         return self._input_files
 
     @property
@@ -700,10 +690,7 @@ class ElementIteration(AppAware):
         The output files from this element.
         """
         if not self._output_files:
-            self._output_files = eof = self._app.ElementOutputFiles(
-                element_iteration=self
-            )
-            return eof
+            self._output_files = self._app.ElementOutputFiles(element_iteration=self)
         return self._output_files
 
     def get_parameter_names(self, prefix: str) -> list[str]:
@@ -828,7 +815,7 @@ class ElementIteration(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> dict[str, str]:
+    ) -> Mapping[str, str]:
         ...
 
     @overload
@@ -854,7 +841,7 @@ class ElementIteration(AppAware):
         typ: str | None = None,
         as_strings: bool = False,
         use_task_index: bool = False,
-    ) -> dict[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
+    ) -> Mapping[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
         """
         Get the origin of parameters.
 
@@ -1025,7 +1012,7 @@ class ElementIteration(AppAware):
             return self.workflow.get_elements_from_IDs(sorted(out))
         return out
 
-    def get_input_dependencies(self) -> dict[str, ParamSource]:
+    def get_input_dependencies(self) -> Mapping[str, ParamSource]:
         """Get locally defined inputs/sequences/defaults from other tasks that this
         element iteration depends on."""
         out: dict[str, ParamSource] = {}
@@ -1036,7 +1023,6 @@ class ElementIteration(AppAware):
                     and v_i["task_insert_ID"] != self.task.insert_ID
                 ):
                     out[k] = v_i
-
         return out
 
     @overload
@@ -1066,6 +1052,22 @@ class ElementIteration(AppAware):
             return [self.workflow.tasks.get(insert_ID=id_) for id_ in sorted(out)]
         return out
 
+    @property
+    def __elements(self) -> Iterator[Element]:
+        """
+        This iteration's element and its downstream elements.
+        """
+        for task in self.workflow.tasks[self.task.index :]:
+            yield from task.elements[:]
+
+    @property
+    def __iterations(self) -> Iterator[ElementIteration]:
+        """
+        This iteration and its downstream iterations.
+        """
+        for elem in self.__elements:
+            yield from elem.iterations
+
     @overload
     def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]:
         ...
@@ -1082,15 +1084,13 @@ class ElementIteration(AppAware):
         iteration."""
         # TODO: test this includes EARs of downstream iterations of this iteration's element
         deps: set[int] = set()
-        for task in self.workflow.tasks[self.task.index :]:
-            for elem in task.elements[:]:
-                for iter_ in elem.iterations:
-                    if iter_.id_ == self.id_:
-                        # don't include EARs of this iteration
-                        continue
-                    for run in iter_.action_runs:
-                        if run.get_EAR_dependencies().intersection(self.EAR_IDs_flat):
-                            deps.add(run.id_)
+        for iter_ in self.__iterations:
+            if iter_.id_ == self.id_:
+                # don't include EARs of this iteration
+                continue
+            for run in iter_.action_runs:
+                if run.get_EAR_dependencies().intersection(self.EAR_IDs_flat):
+                    deps.add(run.id_)
         if as_objects:
             return self.workflow.get_EARs_from_IDs(sorted(deps))
         return deps
@@ -1115,13 +1115,11 @@ class ElementIteration(AppAware):
         element iteration."""
         # TODO: test this includes downstream iterations of this iteration's element?
         deps: set[int] = set()
-        for task in self.workflow.tasks[self.task.index :]:
-            for elem in task.elements[:]:
-                for iter_i in elem.iterations:
-                    if iter_i.id_ == self.id_:
-                        continue
-                    if self.id_ in iter_i.get_element_iteration_dependencies():
-                        deps.add(iter_i.id_)
+        for iter_i in self.__iterations:
+            if iter_i.id_ == self.id_:
+                continue
+            if self.id_ in iter_i.get_element_iteration_dependencies():
+                deps.add(iter_i.id_)
         if as_objects:
             return self.workflow.get_element_iterations_from_IDs(sorted(deps))
         return deps
@@ -1190,11 +1188,9 @@ class ElementIteration(AppAware):
             return [self.workflow.tasks.get(insert_ID=id_) for id_ in sorted(deps)]
         return deps
 
-    def get_template_resources(self) -> dict[str, Any]:
+    def get_template_resources(self) -> Mapping[str, Any]:
         """Get template-level resources."""
-        if (res := self.workflow.template.resources) is None:
-            return {}
-        assert isinstance(res, ResourceList)
+        res = self.workflow.template._resources
         return {res_i.normalised_resources_path: res_i._get_value() for res_i in res}
 
     @TimeIt.decorator
@@ -1310,8 +1306,8 @@ class Element(AppAware):
         task: WorkflowTask,
         index: int,
         es_idx: int,
-        seq_idx: dict[str, int],
-        src_idx: dict[str, int],
+        seq_idx: Mapping[str, int],
+        src_idx: Mapping[str, int],
         iteration_IDs: list[int],
         iterations: list[dict[str, Any]],
     ) -> None:
@@ -1381,26 +1377,26 @@ class Element(AppAware):
         return self.task.template.element_sets[self.element_set_idx]
 
     @property
-    def sequence_idx(self) -> dict[str, int]:
+    def sequence_idx(self) -> Mapping[str, int]:
         """
         The sequence index IDs.
         """
         return self._seq_idx
 
     @property
-    def input_source_idx(self) -> dict[str, int]:
+    def input_source_idx(self) -> Mapping[str, int]:
         """
         The input source indices.
         """
         return self._src_idx
 
     @property
-    def input_sources(self) -> dict[str, InputSource]:
+    def input_sources(self) -> Mapping[str, InputSource]:
         """
         The sources of the inputs to this element.
         """
         return {
-            k: self.element_set.input_sources[k.split("inputs.")[1]][v]
+            k: self.element_set.input_sources[k.removeprefix("inputs.")][v]
             for k, v in self.input_source_idx.items()
         }
 
@@ -1412,7 +1408,7 @@ class Element(AppAware):
         return self.task.workflow
 
     @property
-    def iteration_IDs(self) -> list[int]:
+    def iteration_IDs(self) -> Sequence[int]:
         """
         The IDs of the iterations of this element.
         """
@@ -1420,7 +1416,7 @@ class Element(AppAware):
 
     @property
     @TimeIt.decorator
-    def iterations(self) -> list[ElementIteration]:
+    def iterations(self) -> Sequence[ElementIteration]:
         """
         The iterations of this element.
         """
@@ -1479,21 +1475,21 @@ class Element(AppAware):
         return self.latest_iteration.output_files
 
     @property
-    def schema_parameters(self) -> list[str]:
+    def schema_parameters(self) -> Sequence[str]:
         """
         The schema-defined parameters to this element (or its most recent iteration).
         """
         return self.latest_iteration.schema_parameters
 
     @property
-    def actions(self) -> dict[int, ElementAction]:
+    def actions(self) -> Mapping[int, ElementAction]:
         """
         The actions of this element (or its most recent iteration).
         """
         return self.latest_iteration.actions
 
     @property
-    def action_runs(self) -> list[ElementActionRun]:
+    def action_runs(self) -> Sequence[ElementActionRun]:
         """
         A list of element action runs from the latest iteration, where only the
         final run is taken for each element action.
@@ -1511,20 +1507,20 @@ class Element(AppAware):
         inputs: list[InputValue] = []
         resources: list[ResourceSpec] = []
         for k, v in self.get_data_idx().items():
-            k_s = k.split(".")
+            kind, parameter_or_scope, *path = k.split(".")
 
-            if k_s[0] == "inputs":
+            if kind == "inputs":
                 inp_val = self._app.InputValue(
-                    parameter=k_s[1],
-                    path=cast("str", k_s[2:]) or None,  # FIXME: suspicious cast!
+                    parameter=parameter_or_scope,
+                    path=cast("str", path) or None,  # FIXME: suspicious cast!
                     value=None,
                 )
                 inp_val._value_group_idx = v
                 inp_val._workflow = self.workflow
                 inputs.append(inp_val)
 
-            elif k_s[0] == "resources":
-                scope = self._app.ActionScope.from_json_like(k_s[1])
+            elif kind == "resources":
+                scope = self._app.ActionScope.from_json_like(parameter_or_scope)
                 res = self._app.ResourceSpec(scope=scope)
                 res._value_group_idx = v
                 res._workflow = self.workflow
@@ -1590,7 +1586,7 @@ class Element(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> dict[str, str]:
+    ) -> Mapping[str, str]:
         ...
 
     def get_parameter_sources(
@@ -1602,7 +1598,7 @@ class Element(AppAware):
         typ: str | None = None,
         as_strings: bool = False,
         use_task_index: bool = False,
-    ) -> dict[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
+    ) -> Mapping[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
         """ "Get the parameter sources of the most recent element iteration.
 
         Parameters
@@ -1702,7 +1698,7 @@ class Element(AppAware):
             return self.latest_iteration.get_element_dependencies(as_objects=True)
         return self.latest_iteration.get_element_dependencies()
 
-    def get_input_dependencies(self) -> dict[str, ParamSource]:
+    def get_input_dependencies(self) -> Mapping[str, ParamSource]:
         """Get locally defined inputs/sequences/defaults from other tasks that this
         the most recent iteration of this element depends on."""
         return self.latest_iteration.get_input_dependencies()
@@ -1882,7 +1878,7 @@ class ElementParameter:
         return self.task == __o.task and self.path == __o.path
 
     @property
-    def data_idx_is_set(self) -> dict[str, bool]:
+    def data_idx_is_set(self) -> Mapping[str, bool]:
         """
         The associated data indices for which this is set.
         """

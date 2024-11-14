@@ -39,7 +39,7 @@ from hpcflow.sdk.core.utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self, TypeAlias
     from h5py import Group  # type: ignore
@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         Numeric,
         LabelInfo,
         LabellingDescriptor,
+        ResourcePersistingWorkflow,
         RuleArgs,
         SchemaInputKwargs,
     )
@@ -528,17 +529,11 @@ class SchemaInput(SchemaParameter):
         return super().from_json_like(json_like, shared_data)
 
     def __deepcopy__(self, memo: dict[int, Any]):
-        kwargs = copy.deepcopy(
-            cast(
-                "SchemaInputKwargs",
-                {
-                    "parameter": self.parameter,
-                    "multiple": self.multiple,
-                    "labels": self.labels,
-                },
-            ),
-            memo,
-        )
+        kwargs: SchemaInputKwargs = {
+            "parameter": copy.deepcopy(self.parameter, memo),
+            "multiple": self.multiple,
+            "labels": copy.deepcopy(self.labels, memo),
+        }
         obj = self.__class__(**kwargs)
         obj._task_schema = self._task_schema
         return obj
@@ -842,7 +837,7 @@ class ValueSequence(JSONLike):
         return self._parameter
 
     @property
-    def path_split(self) -> list[str]:
+    def path_split(self) -> Sequence[str]:
         """
         The components of ths path.
         """
@@ -1675,9 +1670,9 @@ class InputValue(AbstractInputValue):
             json_like["value_class_method"] = cls_method
 
         if "path" not in json_like:
-            param_spec = json_like["parameter"].split(".")
-            json_like["parameter"] = param_spec[0]
-            json_like["path"] = ".".join(param_spec[1:])
+            param, *path = json_like["parameter"].split(".")
+            json_like["parameter"] = param
+            json_like["path"] = ".".join(path)
 
         return super().from_json_like(json_like, shared_data)
 
@@ -1828,7 +1823,7 @@ class ResourceSpec(JSONLike):
         scheduler_args: dict[str, Any] | None = None,
         shell_args: dict[str, Any] | None = None,
         os_name: str | None = None,
-        environments: dict[str, dict[str, Any]] | None = None,
+        environments: Mapping[str, Mapping[str, Any]] | None = None,
         SGE_parallel_env: str | None = None,
         SLURM_partition: str | None = None,
         SLURM_num_tasks: str | None = None,
@@ -1954,8 +1949,12 @@ class ResourceSpec(JSONLike):
         out = {k: v for k, v in out.items() if v is not None}
         return out
 
+    @classmethod
+    def __is_Workflow(cls, value) -> TypeIs[Workflow]:
+        return isinstance(value, cls._app.Workflow)
+
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: ResourcePersistingWorkflow, source: ParamSource
     ) -> tuple[str, list[int | list[int]], bool]:
         """Save to a persistent workflow.
 
@@ -1965,6 +1964,9 @@ class ResourceSpec(JSONLike):
         contains the indices of the parameter data Zarr groups where the data is
         stored.
 
+        Note
+        ----
+        May modify the internal state of this object. 
         """
 
         if self._value_group_idx is not None:
@@ -1980,7 +1982,8 @@ class ResourceSpec(JSONLike):
             data_ref = workflow._add_parameter_data(self._get_members(), source=source)
             is_new = True
             self._value_group_idx = data_ref
-            self._workflow = workflow
+            if self.__is_Workflow(workflow):
+                self._workflow = workflow
 
             self._num_cores = None
             self._scratch = None
@@ -2115,14 +2118,14 @@ class ResourceSpec(JSONLike):
         return self._get_value("time_limit")
 
     @property
-    def scheduler_args(self) -> dict:
+    def scheduler_args(self) -> Mapping:  # TODO: TypedDict
         """
         Additional arguments to pass to the scheduler.
         """
         return self._get_value("scheduler_args")
 
     @property
-    def shell_args(self) -> dict | None:
+    def shell_args(self) -> Mapping | None:  # TODO: TypedDict
         """
         Additional arguments to pass to the shell.
         """
@@ -2141,7 +2144,7 @@ class ResourceSpec(JSONLike):
         self._os_name = self._process_string(value)
 
     @property
-    def environments(self) -> dict | None:
+    def environments(self) -> Mapping | None:  # TODO: TypedDict
         """
         Which execution environments to use.
         """
@@ -2370,7 +2373,7 @@ class InputSource(JSONLike):
             )
         return None
 
-    def is_in(self, other_input_sources: list[InputSource]) -> int | None:
+    def is_in(self, other_input_sources: Sequence[InputSource]) -> int | None:
         """Check if this input source is in a list of other input sources, without
         considering the `element_iters` and `where` attributes."""
 
@@ -2389,7 +2392,6 @@ class InputSource(JSONLike):
         """
         Render this input source as a string.
         """
-        assert self.source_type
         out = [self.source_type.name.lower()]
         if self.source_type is InputSourceType.TASK:
             assert self.task_source_type

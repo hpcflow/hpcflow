@@ -3,6 +3,7 @@ Operating system information discovery helpers.
 """
 
 from __future__ import annotations
+from collections.abc import Mapping
 import platform
 import re
 import subprocess
@@ -11,7 +12,7 @@ from typing import Final
 _DEFAULT_LINUX_RELEASE_FILE: Final = "/etc/os-release"
 
 
-def get_OS_info() -> dict[str, str]:
+def get_OS_info() -> Mapping[str, str]:
     """
     Get basic operating system version info.
     """
@@ -23,7 +24,7 @@ def get_OS_info() -> dict[str, str]:
     }
 
 
-def get_OS_info_windows() -> dict[str, str]:
+def get_OS_info_windows() -> Mapping[str, str]:
     """
     Get operating system version info: Windows version.
     """
@@ -34,7 +35,7 @@ def get_OS_info_POSIX(
     WSL_executable: list[str] | None = None,
     use_py: bool = True,
     linux_release_file: str | None = None,
-) -> dict[str, str]:
+) -> Mapping[str, str]:
     """
     Get operating system version info: POSIX version.
 

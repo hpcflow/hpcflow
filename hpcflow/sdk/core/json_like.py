@@ -560,7 +560,7 @@ class BaseJSONLike:
                     sd_lookup_kwargs: dict[str, JSONable]
                     if isinstance(i, str):
                         if i.startswith("hash:"):
-                            sd_lookup_kwargs = {"_hash_value": i.split("hash:")[1]}
+                            sd_lookup_kwargs = {"_hash_value": i.removeprefix("hash:")}
                         else:
                             assert child_spec.shared_data_primary_key
                             sd_lookup_kwargs = {child_spec.shared_data_primary_key: i}

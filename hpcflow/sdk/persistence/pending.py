@@ -20,7 +20,7 @@ from hpcflow.sdk.persistence.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
     from logging import Logger
     from .base import PersistentStore, FileDescriptor, LoopDescriptor
@@ -730,14 +730,14 @@ class CommitResourceMap:
     #: This grouping allows us to batch up commit methods by resource requirements,
     #: which in turn means we can potentially minimise, e.g., the number of network
     #: requests.
-    groups: dict[tuple[str, ...], list[str]] = field(
+    groups: Mapping[tuple[str, ...], Sequence[str]] = field(
         init=False, repr=False, compare=False
     )
 
     def __post_init__(self):
         self.groups = self._group_by_resource()
 
-    def _group_by_resource(self) -> dict[tuple[str, ...], list[str]]:
+    def _group_by_resource(self) -> Mapping[tuple[str, ...], Sequence[str]]:
         """
         Get a dict whose keys are tuples of resource labels and whose values are
         lists of :py:class:`PendingChanges` commit method names that require those
@@ -758,7 +758,6 @@ class CommitResourceMap:
             if not cur_res_group:
                 # start a new resource group: a mapping between resource labels and the
                 # commit methods that require those resources:
-
                 cur_res_group = (dict.fromkeys(res_labels), [fld.name])
 
             elif not res_labels or set(res_labels).intersection(cur_res_group[0]):

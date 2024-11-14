@@ -6,7 +6,7 @@ from typing import Any, Literal, Protocol, TYPE_CHECKING
 from typing_extensions import NotRequired, TypeAlias, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime, timedelta
     import numpy as np
     from valida.conditions import ConditionLike  # type: ignore
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         ResourceSpec,
     )
     from .task import InputStatus
+    from ..persistence.types import ParamSource
 
 
 class ParameterDependence(TypedDict):
@@ -73,9 +74,9 @@ class ElementDescriptor(TypedDict):
     """
 
     #: The statuses of inputs.
-    input_statuses: dict[str, InputStatus]
+    input_statuses: Mapping[str, InputStatus]
     #: The sources of inputs.
-    input_sources: dict[str, InputSource]
+    input_sources: Mapping[str, InputSource]
     #: The insertion ID.
     task_insert_ID: int
 
@@ -369,3 +370,17 @@ class AbstractFileSystem(Protocol):
 
     def glob(self, pattern: str) -> list[str]:
         """List files in a directory that match a pattern."""
+
+
+class ResourcePersistingWorkflow(Protocol):
+    """
+    An object to pass to :py:meth:`ResourceSpec.make_persistent` that handles
+    persisting resources.
+    """
+
+    def _add_parameter_data(self, data: Any, source: ParamSource) -> int: ...
+
+    def check_parameters_exist(self, id_lst: int | list[int]) -> bool:
+        """
+        Check if all the parameters exist.
+        """

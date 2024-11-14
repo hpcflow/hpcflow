@@ -25,7 +25,7 @@ from hpcflow.sdk.core.parameters import Parameter
 from hpcflow.sdk.core.utils import check_valid_py_identifier
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
     from typing import Any, ClassVar
     from typing_extensions import Self, TypeIs
     from .actions import Action
@@ -141,7 +141,7 @@ class TaskSchema(JSONLike):
         version: str | None = None,
         parameter_class_modules: list[str] | None = None,
         web_doc: bool | None = True,
-        environment_presets: dict[str, dict[str, dict[str, Any]]] | None = None,
+        environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         _hash_value: str | None = None,
     ):
         #: This is a string representing the objective of the task schema.
@@ -405,7 +405,7 @@ class TaskSchema(JSONLike):
             return type_fmt
 
         def _prepare_script_data_format_table(
-            script_data_grouped: dict[str, dict[str, dict[str, str]]]
+            script_data_grouped: Mapping[str, Mapping[str, Mapping[str, str]]]
         ) -> str:
             out = ""
             rows = ""
@@ -880,7 +880,7 @@ class TaskSchema(JSONLike):
         """
         return (str(self.objective), self.method, self.implementation)
 
-    def _get_single_label_lookup(self, prefix: str = "") -> dict[str, str]:
+    def _get_single_label_lookup(self, prefix: str = "") -> Mapping[str, str]:
         """
         Get a mapping between schema input types that have a single label (i.e.
         labelled but with `multiple=False`) and the non-labelled type string.

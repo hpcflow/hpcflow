@@ -29,7 +29,8 @@ from hpcflow.sdk.core.errors import (
     UnsupportedScriptDataFormat,
 )
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
-from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.core.parameters import ParameterValue
+from hpcflow.sdk.typing import ParamSource, hydrate
 from hpcflow.sdk.core.utils import (
     JSONLikeDirSnapShot,
     split_param_label,
@@ -61,7 +62,7 @@ if TYPE_CHECKING:
         ElementOutputFiles,
     )
     from .environment import Environment
-    from .parameters import SchemaParameter, ParameterValue, Parameter
+    from .parameters import SchemaParameter, Parameter
     from .rule import Rule
     from .task import WorkflowTask
     from .task_schema import TaskSchema
@@ -239,14 +240,14 @@ class ElementActionRun(AppAware):
         return self._data_idx
 
     @property
-    def commands_idx(self) -> list[int]:
+    def commands_idx(self) -> Sequence[int]:
         """
         Indices of commands to apply.
         """
         return self._commands_idx
 
     @property
-    def metadata(self) -> dict[str, Any]:
+    def metadata(self) -> Mapping[str, Any]:
         """
         Metadata about the EAR.
         """
@@ -374,7 +375,7 @@ class ElementActionRun(AppAware):
 
         return EARStatus.pending
 
-    def get_parameter_names(self, prefix: str) -> list[str]:
+    def get_parameter_names(self, prefix: str) -> Sequence[str]:
         """Get parameter types associated with a given prefix.
 
         For inputs, labels are ignored. See `Action.get_parameter_names` for more
@@ -384,7 +385,6 @@ class ElementActionRun(AppAware):
         ----------
         prefix
             One of "inputs", "outputs", "input_files", "output_files".
-
         """
         return self.action.get_parameter_names(prefix)
 
@@ -411,7 +411,7 @@ class ElementActionRun(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> dict[str, dict[str, Any]]:
+    ) -> Mapping[str, ParamSource | list[ParamSource]]:
         ...
 
     @overload
@@ -422,7 +422,7 @@ class ElementActionRun(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> dict[str, str]:
+    ) -> Mapping[str, str]:
         ...
 
     @TimeIt.decorator
@@ -433,7 +433,7 @@ class ElementActionRun(AppAware):
         typ: str | None = None,
         as_strings: bool = False,
         use_task_index: bool = False,
-    ):
+    ) -> Mapping[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
         """
         Get the source or sources of a parameter in the most recent iteration.
 
@@ -521,7 +521,7 @@ class ElementActionRun(AppAware):
             return self.workflow.get_EARs_from_IDs(sorted(out))
         return out
 
-    def get_input_dependencies(self) -> dict[str, dict[str, Any]]:
+    def get_input_dependencies(self) -> Mapping[str, ParamSource]:
         """Get information about locally defined input, sequence, and schema-default
         values that this EAR depends on. Note this does not get values from this EAR's
         task/schema, because the aim of this method is to help determine which upstream
@@ -588,7 +588,7 @@ class ElementActionRun(AppAware):
         The resources to use with (or used by) this EAR.
         """
         if not self._resources:
-            self._resources = self._app.ElementResources(**self.get_resources())
+            self._resources = self.__get_resources_obj()
         return self._resources
 
     @property
@@ -610,7 +610,7 @@ class ElementActionRun(AppAware):
         return self._output_files
 
     @property
-    def env_spec(self) -> dict[str, Any]:
+    def env_spec(self) -> Mapping[str, Any]:
         """
         Environment details.
         """
@@ -624,7 +624,13 @@ class ElementActionRun(AppAware):
         template-level resources."""
         return self.element_iteration.get_resources(self.action)
 
-    def get_environment_spec(self) -> dict[str, Any]:
+    @TimeIt.decorator
+    def __get_resources_obj(self) -> ElementResources:
+        """Resolve specific resources for this EAR, considering all applicable scopes and
+        template-level resources."""
+        return self.element_iteration.get_resources_obj(self.action)
+
+    def get_environment_spec(self) -> Mapping[str, Any]:
         """
         What environment to run in?
         """
@@ -652,9 +658,9 @@ class ElementActionRun(AppAware):
 
     def get_input_values(
         self,
-        inputs: Sequence[str] | dict[str, dict] | None = None,
+        inputs: Sequence[str] | Mapping[str, Mapping[str, Any]] | None = None,
         label_dict: bool = True,
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Mapping[str, Any]]:
         """Get a dict of (optionally a subset of) inputs values for this run.
 
         Parameters
@@ -676,16 +682,7 @@ class ElementActionRun(AppAware):
 
         out: dict[str, dict[str, Any]] = {}
         for inp_name in inputs:
-            path_i, label_i = split_param_label(inp_name)
-
-            try:
-                all_iters = (
-                    isinstance(inputs, dict) and inputs[inp_name]["all_iterations"]
-                )
-            except (TypeError, KeyError):
-                all_iters = False
-
-            if all_iters:
+            if self.__all_iters(inputs, inp_name):
                 val_i = {
                     f"iteration_{run_i.element_iteration.index}": {
                         "loop_idx": run_i.element_iteration.loop_idx,
@@ -696,31 +693,42 @@ class ElementActionRun(AppAware):
             else:
                 val_i = self.get(f"inputs.{inp_name}")
 
-            key = inp_name
-            if label_dict and label_i and path_i:
-                key = path_i  # exclude label from key
-
-            if "." in key:
-                # for sub-parameters, take only the final part as the dict key:
-                key = key.split(".")[-1]
-
-            if label_dict and label_i:
+            key, label_i = self.__split_input_name(inp_name, label_dict)
+            if label_i:
                 out.setdefault(key, {})[label_i] = val_i
             else:
                 out[key] = val_i
 
         if self.action.script_pass_env_spec:
-            out["env_spec"] = self.env_spec
+            out["env_spec"] = cast("Any", self.env_spec)
 
         return out
 
-    def get_input_values_direct(self, label_dict: bool = True) -> dict[str, Any]:
+    @staticmethod
+    def __all_iters(inputs: Sequence[str] | Mapping[str, Mapping[str, Any]], inp_name: str) -> bool:
+        try:
+            return (
+                isinstance(inputs, Mapping) and bool(inputs[inp_name]["all_iterations"])
+            )
+        except (TypeError, KeyError):
+            return False
+
+    @staticmethod
+    def __split_input_name(inp_name: str, label_dict: bool) -> tuple[str, str | None]:
+        key = inp_name
+        path, label = split_param_label(key)
+        if label_dict and path:
+            key = path  # exclude label from key
+        # for sub-parameters, take only the final part as the dict key:
+        return key.split(".")[-1], (label if label_dict else None)
+
+    def get_input_values_direct(self, label_dict: bool = True) -> Mapping[str, Mapping[str, Any]]:
         """Get a dict of input values that are to be passed directly to a Python script
         function."""
         inputs = self.action.script_data_in_grouped.get("direct", {})
         return self.get_input_values(inputs=inputs, label_dict=label_dict)
 
-    def get_IFG_input_values(self) -> dict[str, Any]:
+    def get_IFG_input_values(self) -> Mapping[str, Any]:
         """
         Get a dict of input values that are to be passed via an input file generator.
         """
@@ -732,7 +740,7 @@ class ElementActionRun(AppAware):
         input_types = {param.typ for param in self.action.input_file_generators[0].inputs}
         inputs: dict[str, Any] = {}
         for inp in self.inputs:
-            assert not isinstance(inp, dict)
+            assert isinstance(inp, self._app.ElementParameter)
             if (typ := inp.path[len("inputs.") :]) in input_types:
                 inputs[typ] = inp.value
 
@@ -741,7 +749,7 @@ class ElementActionRun(AppAware):
 
         return inputs
 
-    def get_OFP_output_files(self) -> dict[str, Path]:
+    def get_OFP_output_files(self) -> Mapping[str, Path]:
         """
         Get a dict of output files that are going to be parsed to generate one or more
         outputs.
@@ -757,7 +765,7 @@ class ElementActionRun(AppAware):
             for file_spec in self.action.output_file_parsers[0].output_files
         }
 
-    def get_OFP_inputs(self) -> dict[str, str | list[str] | dict[str, Any]]:
+    def get_OFP_inputs(self) -> Mapping[str, str | list[str] | Mapping[str, Any]]:
         """
         Get a dict of input values that are to be passed to output file parsers.
         """
@@ -766,7 +774,7 @@ class ElementActionRun(AppAware):
                 "Cannot get output file parser inputs from this from EAR because the "
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
-        inputs: dict[str, str | list[str] | dict[str, Any]] = {
+        inputs: dict[str, str | list[str] | Mapping[str, Any]] = {
             inp_typ: self.get(f"inputs.{inp_typ}")
             for inp_typ in self.action.output_file_parsers[0].inputs or ()
         }
@@ -776,7 +784,7 @@ class ElementActionRun(AppAware):
 
         return inputs
 
-    def get_OFP_outputs(self) -> dict[str, str | list[str]]:
+    def get_OFP_outputs(self) -> Mapping[str, str | list[str]]:
         """
         Get the outputs obtained by parsing an output file.
         """
@@ -795,11 +803,8 @@ class ElementActionRun(AppAware):
         Write values to files in standard formats.
         """
         for fmt, ins in self.action.script_data_in_grouped.items():
-            in_vals: dict[str, ParameterValue] = self.get_input_values(
-                inputs=ins, label_dict=False
-            )
-            writer = self.__source_writer_map.get(fmt)
-            if writer:
+            in_vals = self.get_input_values(inputs=ins, label_dict=False)
+            if (writer := self.__source_writer_map.get(fmt)):
                 writer(self, in_vals, js_idx, js_act_idx)
 
         # write the script if it is specified as a app data script, otherwise we assume
@@ -811,12 +816,12 @@ class ElementActionRun(AppAware):
                 fp.write(self.action.compose_source(snip_path))
 
     def __write_json_inputs(
-        self, in_vals: dict[str, ParameterValue], js_idx: int, js_act_idx: int
+        self, in_vals: Mapping[str, ParameterValue], js_idx: int, js_act_idx: int
     ):
         in_vals_processed: dict[str, Any] = {}
         for k, v in in_vals.items():
             try:
-                in_vals_processed[k] = v.prepare_JSON_dump()
+                in_vals_processed[k] = v.prepare_JSON_dump() if isinstance(v, ParameterValue) else v
             except (AttributeError, NotImplementedError):
                 in_vals_processed[k] = v
 
@@ -826,7 +831,7 @@ class ElementActionRun(AppAware):
             json.dump(in_vals_processed, fp)
 
     def __write_hdf5_inputs(
-        self, in_vals: dict[str, ParameterValue], js_idx: int, js_act_idx: int
+        self, in_vals: Mapping[str, ParameterValue], js_idx: int, js_act_idx: int
     ):
         import h5py  # type: ignore
 
@@ -885,7 +890,7 @@ class ElementActionRun(AppAware):
 
     def compose_commands(
         self, jobscript: Jobscript, JS_action_idx: int
-    ) -> tuple[str, dict[int, list[tuple[str, ...]]]]:
+    ) -> tuple[str, Mapping[int, Sequence[tuple[str, ...]]]]:
         """
         Write the EAR's enactment to disk in preparation for submission.
 
@@ -919,9 +924,7 @@ class ElementActionRun(AppAware):
         if (env := jobscript.submission.environments.get(**env_spec)).setup:
             command_lns.extend(env.setup)
 
-        shell_vars: dict[
-            int, list[tuple[str, ...]]
-        ] = {}  # keys are cmd_idx, each value is a list of tuples
+        shell_vars: dict[int, list[tuple[str, ...]]] = {}
         for cmd_idx, command in enumerate(self.action.commands):
             if cmd_idx in self.commands_idx:
                 # only execute commands that have no rules, or all valid rules:
@@ -1092,7 +1095,7 @@ class ElementAction(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> dict[str, dict[str, Any]]:
+    ) -> Mapping[str, ParamSource | list[ParamSource]]:
         ...
 
     @overload
@@ -1104,7 +1107,7 @@ class ElementAction(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> dict[str, str]:
+    ) -> Mapping[str, str]:
         ...
 
     def get_parameter_sources(
@@ -1115,7 +1118,7 @@ class ElementAction(AppAware):
         typ: str | None = None,
         as_strings: bool = False,
         use_task_index: bool = False,
-    ):
+    ) -> Mapping[str, str] | Mapping[str, ParamSource | list[ParamSource]]:
         """
         Get information about where parameters originated.
         """
@@ -1144,7 +1147,7 @@ class ElementAction(AppAware):
         default: Any | None = None,
         raise_on_missing: bool = False,
         raise_on_unset: bool = False,
-    ):
+    ) -> Any:
         """
         Get the value of a parameter.
         """
@@ -1306,7 +1309,7 @@ class ActionEnvironment(JSONLike):
     )
 
     #: The environment document.
-    environment: dict[str, Any]
+    environment: Mapping[str, Any]
     #: The scope.
     scope: ActionScope
 
@@ -1693,7 +1696,7 @@ class Action(JSONLike):
         return all_params
 
     @property
-    def script_data_in_grouped(self) -> dict[str, dict[str, dict[str, str]]]:
+    def script_data_in_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
         """Get input parameter types by script data-in format."""
         if self.script_data_in is None:
             self.process_script_data_formats()
@@ -1703,7 +1706,7 @@ class Action(JSONLike):
         )
 
     @property
-    def script_data_out_grouped(self) -> dict[str, dict[str, dict[str, str]]]:
+    def script_data_out_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
         """Get output parameter types by script data-out format."""
         if self.script_data_out is None:
             self.process_script_data_formats()
@@ -1834,14 +1837,14 @@ class Action(JSONLike):
 
     def get_parameter_dependence(self, parameter: SchemaParameter) -> ParameterDependence:
         """Find if/where a given parameter is used by the action."""
+        # names of input files whose generation requires this parameter
         writer_files = [
             ifg.input_file
             for ifg in self.input_file_generators
             if parameter.parameter in ifg.inputs
-        ]  # names of input files whose generation requires this parameter
-        commands: list[
-            int
-        ] = []  # TODO: indices of commands in which this parameter appears
+        ]
+        # TODO: indices of commands in which this parameter appears
+        commands: list[int] = []
         return {"input_file_writers": writer_files, "commands": commands}
 
     def __get_resolved_action_env(
@@ -1918,7 +1921,7 @@ class Action(JSONLike):
         """
         return self.get_environment_spec()["name"]
 
-    def get_environment_spec(self) -> dict[str, Any]:
+    def get_environment_spec(self) -> Mapping[str, Any]:
         """
         Get the specification for the primary envionment, assuming it has been expanded.
         """
@@ -1962,7 +1965,7 @@ class Action(JSONLike):
 
     @classmethod
     def get_snippet_script_str(
-        cls, script: str, env_spec: dict[str, Any] | None = None
+        cls, script: str, env_spec: Mapping[str, Any] | None = None
     ) -> str:
         """
         Get the substituted script snippet path as a string.
@@ -1985,7 +1988,7 @@ class Action(JSONLike):
 
     @classmethod
     def get_snippet_script_path(
-        cls, script_path: str | None, env_spec: dict[str, Any] | None = None
+        cls, script_path: str | None, env_spec: Mapping[str, Any] | None = None
     ) -> Path | None:
         """
         Get the substituted script snippet path, or False if there is no snippet.
@@ -2037,7 +2040,7 @@ class Action(JSONLike):
         """
         return Path(self.__get_param_load_file_stem(js_idx, js_act_idx) + ".h5")
 
-    def expand(self) -> list[Action]:
+    def expand(self) -> Sequence[Action]:
         """
         Expand this action into a list of actions if necessary.
         This converts input file generators and output file parsers into their own actions.
@@ -2190,9 +2193,7 @@ class Action(JSONLike):
         main_act._from_expand = True
         main_act.process_script_data_formats()
 
-        cmd_acts = inp_acts + [main_act] + out_acts
-
-        return cmd_acts
+        return [*inp_acts, main_act, *out_acts]
 
     # note: we use "parameter" rather than "input", because it could be a schema input
     # or schema output.
@@ -2341,31 +2342,30 @@ class Action(JSONLike):
                 key.startswith("input_files")
                 or key.startswith("output_files")
                 or key.startswith("inputs")
-                or (key.startswith("outputs") and key.split("outputs.")[1] in OFP_outs)
+                or (key.startswith("outputs") and key.removeprefix("outputs.") in OFP_outs)
             ):
                 # look for an index in previous data indices (where for inputs we look
                 # for *output* parameters of the same name):
                 k_idx: int | list[int] | None = None
                 for prev_data_idx in all_data_idx.values():
                     if key.startswith("inputs"):
-                        k_param = key.split("inputs.")[1]
+                        k_param = key.removeprefix("inputs.")
                         k_out = f"outputs.{k_param}"
                         if k_out in prev_data_idx:
                             k_idx = prev_data_idx[k_out]
-
-                    else:
-                        if key in prev_data_idx:
-                            k_idx = prev_data_idx[key]
+                    elif key in prev_data_idx:
+                        k_idx = prev_data_idx[key]
 
                 if k_idx is None:
                     # otherwise take from the schema_data_idx:
                     if key in schema_data_idx:
                         k_idx = schema_data_idx[key]
+                        prefix = f"{key}."  # sub-parameter (note dot)
                         # add any associated sub-parameters:
                         sub_param_idx.update(
                             (k, v)
                             for k, v in schema_data_idx.items()
-                            if k.startswith(f"{key}.")  # sub-parameter (note dot)
+                            if k.startswith(prefix)
                         )
                     else:
                         # otherwise we need to allocate a new parameter datum:
@@ -2380,7 +2380,7 @@ class Action(JSONLike):
                         k_idx = prev_data_idx[key]
 
                         # allocate a new parameter datum for this intermediate output:
-                        param_source_i = copy.deepcopy(param_source)
+                        param_source_i = copy.copy(param_source)
                         param_source_i["EAR_ID"] = EAR_ID_i
                         new_k_idx = workflow._add_unset_parameter_data(param_source_i)
 

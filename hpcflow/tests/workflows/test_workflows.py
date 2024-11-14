@@ -16,7 +16,7 @@ def test_workflow_1(tmp_path: Path, new_null_config):
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == "201"
 
 
@@ -27,7 +27,7 @@ def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path, new_null_config
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=workflow_dir)
     wk.submit(wait=True, add_to_known=False)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == "201"
 
 

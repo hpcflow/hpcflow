@@ -29,6 +29,7 @@ from hpcflow.sdk.cli_common import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import Literal
     from ..app import BaseApp
 
 
@@ -117,7 +118,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @make_status_opt
     def make_demo_workflow(
         workflow_name: str,
-        format: str | None,
+        format: Literal["json", "yaml"] | None,
         path: Path | None,
         name: str | None,
         overwrite: bool,
@@ -160,7 +161,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @submit_status_opt
     def make_and_submit_demo_workflow(
         workflow_name: str,
-        format: str | None,
+        format: Literal["json", "yaml"] | None,
         path: Path | None,
         name: str | None,
         overwrite: bool,

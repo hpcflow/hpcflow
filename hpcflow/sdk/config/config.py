@@ -630,18 +630,18 @@ class Config:
     @overload
     def get_all(
         self, *, include_overrides: bool = True, as_str: Literal[True]
-    ) -> dict[str, str]:
+    ) -> Mapping[str, str]:
         ...
 
     @overload
     def get_all(
         self, *, include_overrides: bool = True, as_str: Literal[False] = False
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Any]:
         ...
 
     def get_all(
         self, *, include_overrides: bool = True, as_str: bool = False
-    ) -> dict[str, Any]:
+    ) -> Mapping[str, Any]:
         """Get all configurable items."""
         items: dict[str, Any] = {}
         for key in self._configurable_keys:
@@ -897,16 +897,15 @@ class Config:
         if is_json:
             value = self._parse_JSON(path, value)
 
-        parts = path.split(".")
-        name = parts[0]
+        name, *path_suffix = path.split(".")
         root = deepcopy(self._get(name, callback=False))
-        if parts[1:]:
+        if path_suffix:
             if root is None:
                 root = {}
-                self.set(path=parts[0], value={}, quiet=True)
+                self.set(path=name, value={}, quiet=True)
             set_in_container(
                 root,
-                path=parts[1:],
+                path=path_suffix,
                 value=value,
                 ensure_path=True,
                 cast_indices=True,
@@ -981,10 +980,10 @@ class Config:
         path:
             The name of or path to the configuration item.
         """
-        parts = path.split(".")
-        root = deepcopy(self._get(parts[0], callback=callback))
+        name, *suffix = parts = path.split(".")
+        root = deepcopy(self._get(name, callback=callback))
         try:
-            out = get_in_container(root, parts[1:], cast_indices=True)
+            out = get_in_container(root, suffix, cast_indices=True)
         except KeyError:
             out = default
         if copy:
@@ -1326,6 +1325,6 @@ class Config:
         self.set(
             "demo_data_dir",
             self._app._get_github_url(
-                sha=sha, path="/".join(self._app.demo_data_dir.split("."))
+                sha=sha, path=self._app.demo_data_dir.replace(".", "/")
             ),
         )

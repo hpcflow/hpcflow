@@ -304,7 +304,7 @@ class InputFileGenerator(JSONLike):
 
         return out.format(script_str=script_str, main_block=main_block)
 
-    def write_source(self, action: Action, env_spec: dict[str, Any]) -> None:
+    def write_source(self, action: Action, env_spec: Mapping[str, Any]) -> None:
         """
         Write the script if it is specified as a snippet script, otherwise we assume
         the script already exists in the working directory.
@@ -504,7 +504,7 @@ class OutputFileParser(JSONLike):
 
         return out.format(script_str=script_str, main_block=main_block)
 
-    def write_source(self, action: Action, env_spec: dict[str, Any]) -> None:
+    def write_source(self, action: Action, env_spec: Mapping[str, Any]) -> None:
         """
         Write the actual output parser to a file so it can be enacted.
         """

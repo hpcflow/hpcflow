@@ -108,7 +108,7 @@ def _encode_numpy_array(
     # Might need to generate new group:
     param_arr_group = root_group.require_group(arr_path)
     new_idx = (
-        max((int(i.split("arr_")[1]) for i in param_arr_group.keys()), default=-1) + 1
+        max((int(i.removeprefix("arr_")) for i in param_arr_group.keys()), default=-1) + 1
     )
     param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj)
     type_lookup["arrays"].append([path, new_idx])
@@ -701,7 +701,7 @@ class ZarrPersistentStore(
                 for dt_str, parts_j in sub_i_parts.items():
                     sub["submission_parts"][dt_str] = parts_j
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]):
+    def _update_loop_index(self, iter_ID: int, loop_idx: Mapping[str, int]):
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
         iter_dat = cast("list", arr[iter_ID])

@@ -602,7 +602,7 @@ class EnvironmentsList(AppDataList["Environment"]):
         if attr in ("name", "_hash_value"):
             return getattr(obj, attr)
         else:
-            return getattr(obj, "specifiers")[attr]
+            return obj.specifiers[attr]
 
 
 class ExecutablesList(AppDataList["Executable"]):
@@ -863,29 +863,44 @@ class ResourceList(ObjectList["ResourceSpec"]):
                 for res_i in resources
             )
 
-    def get_scopes(self) -> tuple[ActionScope, ...]:
+    def get_scopes(self) -> Iterator[ActionScope]:
         """
         Get the scopes of the contained resources.
         """
-        return tuple(rs.scope for rs in self._objects if rs.scope is not None)
+        for rs in self._objects:
+            if rs.scope is not None:
+                yield rs.scope
+
+    def __get_for_scope(self, scope: ActionScope):
+        try:
+            return self.get(scope=scope)
+        except ValueError:
+            return None
+
+    def __merge(self, our_spec: ResourceSpec | None, other_spec: ResourceSpec):
+        """
+        Merge two resource specs that have the same scope, or just add the other one to
+        the list if we didn't already have it.
+        """
+        if our_spec is not None:
+            for k, v in other_spec._get_members().items():
+                if getattr(our_spec, k, None) is None:
+                    setattr(our_spec, f"_{k}", copy.deepcopy(v))
+        else:
+            self.add_object(copy.deepcopy(other_spec))
 
     def merge_other(self, other: ResourceList):
         """Merge lower-precedence other resource list into this resource list."""
         for scope_i in other.get_scopes():
-            try:
-                self_scoped = self.get(scope=scope_i)
-            except ValueError:
-                in_self = False
-            else:
-                in_self = True
+            self.__merge(self.__get_for_scope(scope_i), other.get(scope=scope_i))
 
-            other_scoped = other.get(scope=scope_i)
-            if in_self:
-                for k, v in other_scoped._get_members().items():
-                    if getattr(self_scoped, k, None) is None:
-                        setattr(self_scoped, f"_{k}", copy.deepcopy(v))
-            else:
-                self.add_object(copy.deepcopy(other_scoped))
+    def merge_one(self, other: ResourceSpec):
+        """Merge lower-precedence other resource spec into this resource list.
+        
+        This is a simplified version of :py:meth:`merge_other`.
+        """
+        if other.scope is not None:
+            self.__merge(self.__get_for_scope(other.scope), other)
 
 
 def index(obj_lst: ObjectList[T], obj: T) -> int:

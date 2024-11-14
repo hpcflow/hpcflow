@@ -90,6 +90,7 @@ sdk_classes: Final[Mapping[str, str]] = {
     "WorkflowBlueprint": "hpcflow.sdk.core.workflow",
     "Jobscript": "hpcflow.sdk.submission.jobscript",
     "Submission": "hpcflow.sdk.submission.submission",
+    "QueuedScheduler": "hpcflow.sdk.submission.schedulers",
     "DirectWindows": "hpcflow.sdk.submission.schedulers.direct",
     "DirectPosix": "hpcflow.sdk.submission.schedulers.direct",
     "SlurmPosix": "hpcflow.sdk.submission.schedulers.slurm",

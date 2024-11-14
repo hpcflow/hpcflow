@@ -36,7 +36,7 @@ def test_script_direct_in_direct_out(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
 
 
@@ -67,7 +67,7 @@ def test_script_direct_sub_param_in_direct_out(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val["a"] + 100
 
 
@@ -101,7 +101,7 @@ def test_script_direct_in_direct_out_single_label(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
 
 
@@ -147,7 +147,7 @@ def test_script_direct_in_direct_out_labels(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_1_val + p1_2_val
 
 
@@ -178,7 +178,7 @@ def test_script_json_in_json_out(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
 
 
@@ -224,7 +224,7 @@ def test_script_json_in_json_out_labels(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_1_val + p1_2_val
 
 
@@ -270,7 +270,7 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == a_val + p1_2_val
 
 
@@ -305,7 +305,7 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p3 = wk.tasks[0].elements[0].outputs.p3
-    assert not isinstance(p3, dict)
+    assert isinstance(p3, hf.ElementParameter)
     assert p3.value == p1_val + p2_val
 
 
@@ -339,9 +339,9 @@ def test_script_json_in_json_and_direct_out(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     p3 = wk.tasks[0].elements[0].outputs.p3
-    assert not isinstance(p3, dict)
+    assert isinstance(p3, hf.ElementParameter)
     assert p2.value == p1_val + 100
     assert p3.value == p1_val + 200
 
@@ -375,7 +375,7 @@ def test_script_json_in_obj(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == a_val + 100
 
 
@@ -408,7 +408,7 @@ def test_script_hdf5_in_obj(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == a_val + 100
 
 
@@ -441,7 +441,7 @@ def test_script_json_out_obj(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p1c = wk.tasks[0].elements[0].outputs.p1c
-    assert not isinstance(p1c, dict)
+    assert isinstance(p1c, hf.ElementParameter)
     assert p1c.value == P1(a=p1_val + 100)
 
 
@@ -474,7 +474,7 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p1c = wk.tasks[0].elements[0].outputs.p1c
-    assert not isinstance(p1c, dict)
+    assert isinstance(p1c, hf.ElementParameter)
     assert p1c.value == P1(a=p1_val + 100)
 
 
@@ -532,7 +532,7 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path: Path):
     # to be later Python versions):
     time.sleep(10)
     p2 = wk.tasks[0].elements[0].outputs.p2
-    assert not isinstance(p2, dict)
+    assert isinstance(p2, hf.ElementParameter)
     assert p2.value == {
         "name": "python_env_with_specifiers",
         **vers_spec,

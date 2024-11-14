@@ -26,7 +26,7 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS, ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.enums import EARStatus
-from hpcflow.sdk.core.loop_cache import LoopCache
+from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
-    from .parameters import InputSource
+    from .parameters import InputSource, ResourceSpec
     from .task import Task, WorkflowTask
     from .types import (
         AbstractFileSystem,
@@ -102,65 +102,14 @@ if TYPE_CHECKING:
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
 
 
-class _DummyPersistentWorkflow:
-    """An object to pass to ResourceSpec.make_persistent that pretends to be a
-    Workflow object, so we can pretend to make template-level inputs/resources
-    persistent before the workflow exists."""
-
-    def __init__(self) -> None:
-        self._parameters: list[Any] = []
-        self._sources: list[ParamSource] = []
-        self._data_ref: list[int] = []
-
-    def _add_parameter_data(self, data: Any, source: ParamSource) -> int:
-        self._parameters.append(data)
-        self._sources.append(source)
-        self._data_ref.append(len(self._data_ref))
-        return self._data_ref[-1]
-
-    def get_parameter_data(self, data_idx: int) -> Any:
-        return self._parameters[self._data_ref.index(data_idx)]
-
-    def make_persistent(self, workflow: Workflow) -> None:
-        for dat_i, source_i in zip(self._parameters, self._sources):
-            workflow._add_parameter_data(dat_i, source_i)
-
-
 @dataclass
 class _Pathway:
     id_: int
-    names: dict[str, int]
+    names: LoopIndex[str, int] = field(default_factory=LoopIndex)
     iter_ids: list[int] = field(default_factory=list)
     data_idx: list[DataIndex] = field(default_factory=list)
 
-    @overload
-    def as_tuple(
-        self,
-        *,
-        ret_iter_IDs: Literal[False] = False,
-        ret_data_idx: Literal[False] = False,
-    ) -> tuple[int, dict[str, int]]:
-        ...
-
-    @overload
-    def as_tuple(
-        self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[False] = False
-    ) -> tuple[int, dict[str, int], tuple[int, ...]]:
-        ...
-
-    @overload
-    def as_tuple(
-        self, *, ret_iter_IDs: Literal[False] = False, ret_data_idx: Literal[True]
-    ) -> tuple[int, dict[str, int], tuple[dict[str, int], ...]]:
-        ...
-
-    @overload
-    def as_tuple(
-        self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[True]
-    ) -> tuple[int, dict[str, int], tuple[int, ...], tuple[dict[str, int], ...]]:
-        ...
-
-    def as_tuple(self, *, ret_iter_IDs: bool = False, ret_data_idx: bool = False):
+    def as_tuple(self, *, ret_iter_IDs: bool = False, ret_data_idx: bool = False) -> tuple:
         if ret_iter_IDs:
             if ret_data_idx:
                 return (self.id_, self.names, tuple(self.iter_ids), tuple(self.data_idx))
@@ -171,6 +120,9 @@ class _Pathway:
                 return (self.id_, self.names, tuple(self.data_idx))
             else:
                 return (self.id_, self.names)
+    
+    def __deepcopy__(self, memo) -> Self:
+        return self.__class__(self.id_, self.names, copy.deepcopy(self.iter_ids, memo), copy.deepcopy(self.data_idx, memo))
 
 
 @dataclass
@@ -244,7 +196,7 @@ class WorkflowTemplate(JSONLike):
     #: Template-level resources to apply to all tasks as default values.
     resources: Resources = None
     #: The execution environments to use.
-    environments: dict[str, dict[str, Any]] | None = None
+    environments: Mapping[str, Mapping[str, Any]] | None = None
     #: The environment presets to use.
     env_presets: str | list[str] | None = None
     #: The file this was derived from.
@@ -276,12 +228,19 @@ class WorkflowTemplate(JSONLike):
         if self.doc and not isinstance(self.doc, list):
             self.doc = [self.doc]
 
-    def _get_resources_copy(self) -> ResourceList:
+    @property
+    def _resources(self) -> ResourceList:
+        res = self.resources
+        assert isinstance(res, self._app.ResourceList)
+        return res
+
+    def _get_resources_copy(self) -> Iterator[ResourceSpec]:
         """
         Get a deep copy of the list of resources.
         """
-        assert isinstance(self.resources, self._app.ResourceList)
-        return copy.deepcopy(self.resources)
+        memo: dict[int, Any] = {}
+        for spec in self._resources:
+            yield copy.deepcopy(spec, memo)
 
     def _merge_envs_into_task_resources(self) -> None:
         self.merge_envs = False
@@ -309,7 +268,7 @@ class WorkflowTemplate(JSONLike):
             schema_presets = schema.environment_presets
             app_envs = {act.get_environment_name() for act in schema.actions}
             for es in task.element_sets:
-                app_env_specs_i = None
+                app_env_specs_i: Mapping[str, Mapping[str, Any]] | None = None
                 if not es.environments and not es.env_preset:
                     # no task level envs/presets specified, so merge template-level:
                     if self.environments:
@@ -349,13 +308,9 @@ class WorkflowTemplate(JSONLike):
                             es.env_preset = ""
 
                     if app_env_specs_i:
-                        es.resources.merge_other(
-                            self._app.ResourceList(
-                                [
-                                    self._app.ResourceSpec(
-                                        scope="any", environments=app_env_specs_i
-                                    )
-                                ]
+                        es.resources.merge_one(
+                            self._app.ResourceSpec(
+                                scope="any", environments=app_env_specs_i
                             )
                         )
 
@@ -1215,7 +1170,7 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def _add_task(self, task: Task, new_index: int | None = None) -> None:
         new_wk_task = self._add_empty_task(task=task, new_index=new_index)
-        new_wk_task._add_elements(element_sets=task.element_sets)
+        new_wk_task._add_elements(element_sets=task.element_sets, propagate_to={})
 
     def add_task(self, task: Task, new_index: int | None = None) -> None:
         """
@@ -1231,7 +1186,6 @@ class Workflow(AppAware):
         ----------
         task_ref
             If not given, the new task will be added at the end of the workflow.
-
         """
         new_index = (
             task_ref.index + 1 if task_ref and task_ref.index is not None else None
@@ -1246,7 +1200,6 @@ class Workflow(AppAware):
         ----------
         task_ref
             If not given, the new task will be added at the beginning of the workflow.
-
         """
         new_index = task_ref.index if task_ref else 0
         self.add_task(new_task, new_index)
@@ -1550,8 +1503,8 @@ class Workflow(AppAware):
 
     @dataclass
     class _IndexPath1:
-        elem_idx: int
-        task_idx: int
+        elem: int
+        task: int
 
     @TimeIt.decorator
     def get_elements_from_IDs(self, id_lst: Iterable[int]) -> list[Element]:
@@ -1573,15 +1526,15 @@ class Workflow(AppAware):
         }
 
         return [
-            elements_by_task[idx_dat.task_idx][idx_dat.elem_idx]
-            for idx_dat in index_paths
+            elements_by_task[path.task][path.elem]
+            for path in index_paths
         ]
 
     @dataclass
     class _IndexPath2:
-        iter_idx: int
-        elem_idx: int
-        task_idx: int
+        iter: int
+        elem: int
+        task: int
 
     @TimeIt.decorator
     def get_element_iterations_from_IDs(
@@ -1608,19 +1561,17 @@ class Workflow(AppAware):
         }
 
         return [
-            elements_by_task[idx_dat.task_idx][idx_dat.elem_idx].iterations[
-                idx_dat.iter_idx
-            ]
-            for idx_dat in index_paths
+            elements_by_task[path.task][path.elem].iterations[path.iter]
+            for path in index_paths
         ]
 
     @dataclass
     class _IndexPath3:
-        run_idx: int
-        action_idx: int
-        iter_idx: int
-        elem_idx: int
-        task_idx: int
+        run: int
+        act: int
+        iter: int
+        elem: int
+        task: int
 
     @overload
     def get_EARs_from_IDs(self, ids: Iterable[int]) -> list[ElementActionRun]:
@@ -1664,7 +1615,7 @@ class Workflow(AppAware):
             iter_idx_by_task_elem[tk.index][elem_idx].add(iter_idx)
 
         # retrieve elements/iterations:
-        iters_by_task_elem = {
+        iters = {
             task_idx: {
                 elem_i.index: {
                     iter_idx: elem_i.iterations[iter_idx]
@@ -1676,9 +1627,7 @@ class Workflow(AppAware):
         }
 
         result = [
-            iters_by_task_elem[path.task_idx][path.elem_idx][path.iter_idx]
-            .actions[path.action_idx]
-            .runs[path.run_idx]
+            iters[path.task][path.elem][path.iter].actions[path.act].runs[path.run]
             for path in index_paths
         ]
         if isinstance(ids, int):
@@ -1861,11 +1810,38 @@ class Workflow(AppAware):
                     f"Path already exists: {wk_path} on file system " f"{fs!r}."
                 )
 
+        class PersistenceGrabber:
+            """An object to pass to ResourceSpec.make_persistent that pretends to be a
+            Workflow object, so we can pretend to make template-level inputs/resources
+            persistent before the workflow exists."""
+
+            def __init__(self) -> None:
+                self.__ps: list[tuple[Any, ParamSource]] = []
+
+            def _add_parameter_data(self, data: Any, source: ParamSource) -> int:
+                ref = len(self.__ps)
+                self.__ps.append((data, source))
+                return ref
+
+            def get_parameter_data(self, data_idx: int) -> Any:
+                return self.__ps[data_idx - 1][0]
+
+            def check_parameters_exist(self, id_lst: int | list[int]) -> bool:
+                r = range(len(self.__ps))
+                if isinstance(id_lst, int):
+                    return id_lst in r
+                else:
+                    return all(id_ in r for id_ in id_lst)
+
+            def write_persistence_data_to_workflow(self, workflow: Workflow) -> None:
+                for dat_i, source_i in self.__ps:
+                    workflow._add_parameter_data(dat_i, source_i)
+
         # make template-level inputs/resources think they are persistent:
-        wk_dummy = cast("Workflow", _DummyPersistentWorkflow())
+        grabber = PersistenceGrabber()
         param_src: ParamSource = {"type": "workflow_resources"}
-        for res_i in template._get_resources_copy():
-            res_i.make_persistent(wk_dummy, param_src)
+        for res_i_copy in template._get_resources_copy():
+            res_i_copy.make_persistent(grabber, param_src)
 
         template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
         template_js: TemplateMeta = {
@@ -1898,7 +1874,7 @@ class Workflow(AppAware):
         wk = cls(fs_path, store_fmt=store, fs_kwargs=fs_kwargs)
 
         # actually make template inputs/resources persistent, now the workflow exists:
-        cast("_DummyPersistentWorkflow", wk_dummy).make_persistent(wk)
+        grabber.write_persistence_data_to_workflow(wk)
 
         if template.source_file:
             wk.artifacts_path.mkdir(exist_ok=False)
@@ -2123,16 +2099,16 @@ class Workflow(AppAware):
     @overload
     def get_task_unique_names(
         self, map_to_insert_ID: Literal[False] = False
-    ) -> list[str]:
+    ) -> Sequence[str]:
         ...
 
     @overload
-    def get_task_unique_names(self, map_to_insert_ID: Literal[True]) -> dict[str, int]:
+    def get_task_unique_names(self, map_to_insert_ID: Literal[True]) -> Mapping[str, int]:
         ...
 
     def get_task_unique_names(
         self, map_to_insert_ID: bool = False
-    ) -> list[str] | dict[str, int]:
+    ) -> Sequence[str] | Mapping[str, int]:
         """Return the unique names of all workflow tasks.
 
         Parameters
@@ -2463,37 +2439,37 @@ class Workflow(AppAware):
         *,
         ret_iter_IDs: Literal[False] = False,
         ret_data_idx: Literal[False] = False,
-    ) -> list[tuple[int, dict[str, int]]]:
+    ) -> Sequence[tuple[int, LoopIndex[str, int]]]:
         ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[False] = False, ret_data_idx: Literal[True]
-    ) -> list[tuple[int, dict[str, int], tuple[dict[str, int], ...]]]:
+    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[Mapping[str, int], ...]]]:
         ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[False] = False
-    ) -> list[tuple[int, dict[str, int], tuple[int, ...]]]:
+    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[int, ...]]]:
         ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[True]
-    ) -> list[tuple[int, dict[str, int], tuple[int, ...], tuple[dict[str, int], ...]]]:
+    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[int, ...], tuple[Mapping[str, int], ...]]]:
         ...
 
     @TimeIt.decorator
     def get_iteration_task_pathway(
         self, ret_iter_IDs: bool = False, ret_data_idx: bool = False
-    ) -> list[tuple]:
+    ) -> Sequence[tuple]:
         """
         Get the iteration task pathway.
         """
         pathway: list[_Pathway] = []
         for task in self.tasks:
-            pathway.append(_Pathway(task.insert_ID, {}))
+            pathway.append(_Pathway(task.insert_ID))
 
         added_loop_names: set[str] = set()
         for _ in range(self.num_loops):
@@ -2520,19 +2496,18 @@ class Workflow(AppAware):
                 replacement: list[_Pathway] = []
                 repl_idx: list[int] = []
                 for i in range(num_add):
-                    for p_idx, path_j in enumerate(pathway):
-                        if path_j.id_ not in iIDs:
+                    for p_idx, path in enumerate(pathway):
+                        if path.id_ not in iIDs:
                             continue
-                        if all(path_j.names[k] == v for k, v in parent_loop_idx):
-                            path = copy.deepcopy(path_j)
-                            path.names[to_add.name] = i
+                        if all(path.names[k] == v for k, v in parent_loop_idx):
+                            new_path = copy.deepcopy(path)
+                            new_path.names += {to_add.name: i}
                             repl_idx.append(p_idx)
-                            replacement.append(path)
+                            replacement.append(new_path)
 
                 if replacement:
-                    repl_start, repl_stop = min(repl_idx), max(repl_idx)
                     pathway = replace_items(
-                        pathway, repl_start, repl_stop + 1, replacement
+                        pathway, min(repl_idx), max(repl_idx) + 1, replacement
                     )
 
             added_loop_names.add(to_add.name)
@@ -2558,19 +2533,10 @@ class Workflow(AppAware):
                 if ret_data_idx:
                     path_i.data_idx.extend(elit.get_data_idx() for elit in i_iters)
 
-        if ret_iter_IDs:
-            if ret_data_idx:
-                return [
-                    path_i.as_tuple(ret_iter_IDs=True, ret_data_idx=True)
-                    for path_i in pathway
-                ]
-            else:
-                return [path_i.as_tuple(ret_iter_IDs=True) for path_i in pathway]
-        else:
-            if ret_data_idx:
-                return [path_i.as_tuple(ret_data_idx=True) for path_i in pathway]
-            else:
-                return [path_i.as_tuple() for path_i in pathway]
+        return [
+            path.as_tuple(ret_iter_IDs=ret_iter_IDs, ret_data_idx=ret_data_idx)
+            for path in pathway
+        ]
 
     @TimeIt.decorator
     def _submit(
@@ -2580,8 +2546,8 @@ class Workflow(AppAware):
         JS_parallelism: bool | None = None,
         print_stdout: bool = False,
         add_to_known: bool = True,
-        tasks: list[int] | None = None,
-    ) -> tuple[list[SubmissionFailure], dict[int, list[int]]]:
+        tasks: Sequence[int] | None = None,
+    ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution."""
 
         # generate a new submission if there are no pending submissions:
@@ -2634,7 +2600,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ) -> dict[int, list[int]]:
+    ) -> Mapping[int, Sequence[int]]:
         ...
 
     @overload
@@ -2665,7 +2631,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ) -> dict[int, list[int]] | None:
+    ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
         Parameters
@@ -2774,7 +2740,7 @@ class Workflow(AppAware):
         for thr in threads:
             thr.join()
 
-    def wait(self, sub_js: dict[int, list[int]] | None = None):
+    def wait(self, sub_js: Mapping[int, Sequence[int]] | None = None):
         """Wait for the completion of specified/all submitted jobscripts."""
 
         # TODO: think about how this might work with remote workflow submission (via SSH)
@@ -2784,9 +2750,10 @@ class Workflow(AppAware):
 
         if not sub_js:
             # find any active jobscripts first:
-            sub_js = defaultdict(list)
+            sub_js_: dict[int, list[int]] = defaultdict(list)
             for sub in self.submissions:
-                sub_js[sub.index].extend(sub.get_active_jobscripts())
+                sub_js_[sub.index].extend(sub.get_active_jobscripts())
+            sub_js = sub_js_
 
         js_direct: list[Jobscript] = []
         js_sched: list[Jobscript] = []
@@ -2963,7 +2930,7 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def _add_submission(
-        self, tasks: list[int] | None = None, JS_parallelism: bool | None = None
+        self, tasks: Sequence[int] | None = None, JS_parallelism: bool | None = None
     ) -> Submission | None:
         new_idx = self.num_submissions
         _ = self.submissions  # TODO: just to ensure `submissions` is loaded
@@ -2996,21 +2963,19 @@ class Workflow(AppAware):
         return self.submissions[new_idx]
 
     @TimeIt.decorator
-    def resolve_jobscripts(self, tasks: list[int] | None = None) -> list[Jobscript]:
+    def resolve_jobscripts(self, tasks: Sequence[int] | None = None) -> list[Jobscript]:
         """
         Resolve this workflow to a set of job scripts to run.
         """
         js, element_deps = self._resolve_singular_jobscripts(tasks)
         js_deps = resolve_jobscript_dependencies(js, element_deps)
 
-        for js_idx in js:
+        for js_idx, jsca in js.items():
             if js_idx in js_deps:
-                js[js_idx]["dependencies"] = js_deps[js_idx]
+                jsca["dependencies"] = js_deps[js_idx]
 
         js = merge_jobscripts_across_tasks(js)
-        js_objs = [self._app.Jobscript(**jsca) for jsca in jobscripts_to_list(js)]
-
-        return js_objs
+        return [self._app.Jobscript(**jsca) for jsca in jobscripts_to_list(js)]
 
     def __EAR_obj_map(
         self,
@@ -3019,7 +2984,7 @@ class Workflow(AppAware):
         task: WorkflowTask,
         task_actions: Sequence[tuple[int, int, int]],
         EAR_map: NDArray,
-    ) -> dict[int, ElementActionRun]:
+    ) -> Mapping[int, ElementActionRun]:
         all_EAR_IDs: list[int] = []
         for js_elem_idx, (elem_idx, act_indices) in enumerate(
             js_desc["elements"].items()
@@ -3033,8 +2998,8 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def _resolve_singular_jobscripts(
-        self, tasks: list[int] | None = None
-    ) -> tuple[dict[int, JobScriptCreationArguments], dict[int, dict[int, list[int]]]]:
+        self, tasks: Sequence[int] | None = None
+    ) -> tuple[Mapping[int, JobScriptCreationArguments], Mapping[int, Mapping[int, Sequence[int]]]]:
         """
         We arrange EARs into `EARs` and `elements` so we can quickly look up membership
         by EAR idx in the `EARs` dict.
@@ -3042,10 +3007,10 @@ class Workflow(AppAware):
         Returns
         -------
         submission_jobscripts
+            Information for making each jobscript.
         all_element_deps
             For a given jobscript index, for a given jobscript element index within that
             jobscript, this is a list of EAR IDs dependencies of that element.
-
         """
         task_set = frozenset(tasks if tasks else range(self.num_tasks))
 
@@ -3073,6 +3038,8 @@ class Workflow(AppAware):
                     ),
                     key=lambda x: x[1],
                 )
+                # Invert the mapping
+                task_actions_inv = {k: idx for idx, k in enumerate(task_actions)}
                 # task_elements: { JS_ELEM_IDX: [TASK_ELEM_IDX for each task insert ID]}
                 task_elements = {
                     js_elem_idx: [task_elem_idx]
@@ -3109,7 +3076,7 @@ class Workflow(AppAware):
                     for act_idx in act_indices:
                         EAR_ID_i: int = EAR_map[act_idx, elem_idx].item()
                         all_EAR_IDs.append(EAR_ID_i)
-                        js_act_idx = task_actions.index((task.insert_ID, act_idx, 0))
+                        js_act_idx = task_actions_inv[task.insert_ID, act_idx, 0]
                         EAR_ID_arr[js_act_idx][js_elem_idx] = EAR_ID_i
 
                     # get indices of EARs that this element depends on:
