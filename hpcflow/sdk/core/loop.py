@@ -13,7 +13,7 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import LoopTaskSubsetError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.loop_cache import LoopCache
-from hpcflow.sdk.core.parameters import InputSourceType
+from hpcflow.sdk.core.parameters import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.task import WorkflowTask
 from hpcflow.sdk.core.utils import check_valid_py_identifier, nth_key, nth_value
 from hpcflow.sdk.log import TimeIt
@@ -847,6 +847,10 @@ class WorkflowLoop:
 
         param_sources = self.workflow.get_all_parameter_sources()
 
+        # keys are parameter type, then task insert ID, then data index keys mapping to
+        # their updated values:
+        all_updates = defaultdict(lambda: defaultdict(dict))
+
         for task in self.downstream_tasks:
             for elem in task.elements:
                 for param_typ, param_out_task_iID in self.output_parameters.items():
@@ -856,6 +860,7 @@ class WorkflowLoop:
                         elem_src = elem.input_sources[f"inputs.{param_typ}"]
                         if (
                             elem_src.source_type is InputSourceType.TASK
+                            and elem_src.task_source_type is TaskSourceType.OUTPUT
                             and elem_src.task_ref == param_out_task_iID
                         ):
                             for iter_i in elem.iterations:
@@ -904,6 +909,12 @@ class WorkflowLoop:
                                     for i in iter_new_iters
                                 ]
 
+                                # keep track of updates so we can also update task-input
+                                # type sources:
+                                all_updates[param_typ][task.insert_ID].update(
+                                    dict(zip(iter_old_di, iter_new_dis))
+                                )
+
                                 iter_new_data_idx[iter_i.id_][f"inputs.{param_typ}"] = (
                                     iter_new_dis if is_group else iter_new_dis[0]
                                 )
@@ -949,6 +960,55 @@ class WorkflowLoop:
                                         run_new_data_idx[run_j.id_][
                                             f"inputs.{param_typ}"
                                         ] = (new_dis if is_group else new_dis[0])
+
+                        elif (
+                            elem_src.source_type is InputSourceType.TASK
+                            and elem_src.task_source_type is TaskSourceType.INPUT
+                        ):
+                            # parameters are that sourced from inputs of other tasks,
+                            # might need to be updated if those other tasks have
+                            # themselves had their data indices updated:
+                            ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
+
+                            if not ups_i:
+                                continue
+
+                            for iter_i in elem.iterations:
+
+                                # update the iteration data index and any pending runs:
+                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+
+                                is_group = True
+                                if not isinstance(iter_old_di, list):
+                                    is_group = False
+                                    iter_old_di = [iter_old_di]
+
+                                iter_new_dis = [ups_i.get(i, i) for i in iter_old_di]
+
+                                if iter_new_dis != iter_old_di:
+                                    iter_new_data_idx[iter_i.id_][
+                                        f"inputs.{param_typ}"
+                                    ] = (iter_new_dis if is_group else iter_new_dis[0])
+
+                                for run_j in iter_i.action_runs:
+                                    if run_j.status is EARStatus.pending:
+                                        try:
+                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
+                                        except KeyError:
+                                            # not all actions will include this input
+                                            continue
+
+                                        is_group = True
+                                        if not isinstance(old_di, list):
+                                            is_group = False
+                                            old_di = [old_di]
+
+                                        new_dis = [ups_i.get(i, i) for i in old_di]
+
+                                        if new_dis != old_di:
+                                            run_new_data_idx[run_j.id_][
+                                                f"inputs.{param_typ}"
+                                            ] = (new_dis if is_group else new_dis[0])
 
         # now update data indices (TODO: including in cache!)
         if iter_new_data_idx:

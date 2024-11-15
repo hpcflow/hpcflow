@@ -1693,6 +1693,44 @@ def test_multi_nested_loops_with_downstream_updates_iteration_pathway(
     assert pathway[17][2][0]["outputs.p1"] == pathway[18][2][0]["inputs.p1"]
 
 
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources(
+    new_null_config, tmp_path
+):
+    # task `t3` input `p1` has `InputSource.task(task_ref=1, task_source_type="input")`,
+    # so `t3` elements needs to have data indices updated, since task `t2` (i.e.
+    # `task_ref=1`) will have had its data indices updated:
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p1": None}, ("p1",), "t1"],
+            [{"p1": None}, ("p2",), "t2"],
+            [{"p1": None, "p2": None}, ("p3",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+    loops = [hf.Loop(tasks=[0], num_iterations=2)]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_task_input_source",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    t1_i0_di = wk.tasks.t1.elements[0].iterations[0].get_data_idx()
+    t1_i1_di = wk.tasks.t1.elements[0].iterations[1].get_data_idx()
+    t2_di = wk.tasks.t2.elements[0].get_data_idx()
+    t3_di = wk.tasks.t3.elements[0].get_data_idx()
+
+    assert t1_i0_di["outputs.p1"] == t1_i1_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t2_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t3_di["inputs.p1"]
+    assert t2_di["outputs.p2"] == t3_di["inputs.p2"]
+
+
 def test_adjacent_loops_iteration_pathway(null_config, tmp_path):
     ts1 = hf.TaskSchema(
         objective="t1",
