@@ -29,9 +29,11 @@ class _LoopIndexError(TypeError):
     """
     A type error special to loop indices.
     """
+
     def __init__(self, loop_index: LoopIndex) -> None:
         super().__init__(
-            f"{loop_index.__class__.__name__} does not support item assignment")
+            f"{loop_index.__class__.__name__} does not support item assignment"
+        )
 
 
 class LoopIndex(dict[K, V], Generic[K, V]):
@@ -61,6 +63,7 @@ class LoopIndex(dict[K, V], Generic[K, V]):
       http://stackoverflow.com/questions/1151658/python-hashable-dicts
     * Assumes both keys and values are hashable. True in practice.
     """
+
     def __init__(self, map: Mapping[K, V] | None = None) -> None:
         """
         Make an instance from another dictionary.
@@ -196,8 +199,7 @@ class LoopCache:
         new_loop_entry = {new_loop_name: 0}
         for id_ in elem_ids:
             self.data_idx[id_] = {
-                k + new_loop_entry: v
-                for k, v in self.data_idx[id_].items()
+                k + new_loop_entry: v for k, v in self.data_idx[id_].items()
             }
 
     @TimeIt.decorator

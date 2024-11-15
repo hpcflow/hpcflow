@@ -584,7 +584,9 @@ class WorkflowLoop(AppAware):
             self.name: cur_loop_idx + 1,
         }
         for child in child_loops:
-            child._initialise_pending_added_iters(iters_key_dct.get(j, 0) for j in child.parents)
+            child._initialise_pending_added_iters(
+                iters_key_dct.get(j, 0) for j in child.parents
+            )
 
         for task in self.task_objects:
             new_loop_idx = LoopIndex(iters_key_dct) + {
@@ -710,7 +712,9 @@ class WorkflowLoop(AppAware):
 
             task.initialise_EARs(iter_IDs=added_iter_IDs)
 
-        self._increment_pending_added_iters(parent_loop_indices_[p_nm] for p_nm in self.parents)
+        self._increment_pending_added_iters(
+            parent_loop_indices_[p_nm] for p_nm in self.parents
+        )
         self.workflow._store.update_loop_num_iters(
             index=self.index,
             num_added_iters=self.num_added_iterations,
@@ -842,9 +846,7 @@ class WorkflowLoop(AppAware):
             src_data_idx = next(
                 di_k
                 for li_k, di_k in cache.data_idx[elem_ID].items()
-                if all(
-                    li_k.get(p_k) == p_v for p_k, p_v in parent_loop_indices.items()
-                )
+                if all(li_k.get(p_k) == p_v for p_k, p_v in parent_loop_indices.items())
             )
 
             # could be multiple, but they should all have the same

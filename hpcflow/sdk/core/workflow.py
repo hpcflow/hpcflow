@@ -109,7 +109,9 @@ class _Pathway:
     iter_ids: list[int] = field(default_factory=list)
     data_idx: list[DataIndex] = field(default_factory=list)
 
-    def as_tuple(self, *, ret_iter_IDs: bool = False, ret_data_idx: bool = False) -> tuple:
+    def as_tuple(
+        self, *, ret_iter_IDs: bool = False, ret_data_idx: bool = False
+    ) -> tuple:
         if ret_iter_IDs:
             if ret_data_idx:
                 return (self.id_, self.names, tuple(self.iter_ids), tuple(self.data_idx))
@@ -120,9 +122,14 @@ class _Pathway:
                 return (self.id_, self.names, tuple(self.data_idx))
             else:
                 return (self.id_, self.names)
-    
+
     def __deepcopy__(self, memo) -> Self:
-        return self.__class__(self.id_, self.names, copy.deepcopy(self.iter_ids, memo), copy.deepcopy(self.data_idx, memo))
+        return self.__class__(
+            self.id_,
+            self.names,
+            copy.deepcopy(self.iter_ids, memo),
+            copy.deepcopy(self.data_idx, memo),
+        )
 
 
 @dataclass
@@ -1525,10 +1532,7 @@ class Workflow(AppAware):
             for task_idx, elem_idxes in element_idx_by_task.items()
         }
 
-        return [
-            elements_by_task[path.task][path.elem]
-            for path in index_paths
-        ]
+        return [elements_by_task[path.task][path.elem] for path in index_paths]
 
     @dataclass
     class _IndexPath2:
@@ -2457,7 +2461,9 @@ class Workflow(AppAware):
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[True]
-    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[int, ...], tuple[Mapping[str, int], ...]]]:
+    ) -> Sequence[
+        tuple[int, LoopIndex[str, int], tuple[int, ...], tuple[Mapping[str, int], ...]]
+    ]:
         ...
 
     @TimeIt.decorator
@@ -2999,7 +3005,10 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def _resolve_singular_jobscripts(
         self, tasks: Sequence[int] | None = None
-    ) -> tuple[Mapping[int, JobScriptCreationArguments], Mapping[int, Mapping[int, Sequence[int]]]]:
+    ) -> tuple[
+        Mapping[int, JobScriptCreationArguments],
+        Mapping[int, Mapping[int, Sequence[int]]],
+    ]:
         """
         We arrange EARs into `EARs` and `elements` so we can quickly look up membership
         by EAR idx in the `EARs` dict.

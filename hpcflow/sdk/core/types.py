@@ -378,7 +378,8 @@ class ResourcePersistingWorkflow(Protocol):
     persisting resources.
     """
 
-    def _add_parameter_data(self, data: Any, source: ParamSource) -> int: ...
+    def _add_parameter_data(self, data: Any, source: ParamSource) -> int:
+        ...
 
     def check_parameters_exist(self, id_lst: int | list[int]) -> bool:
         """

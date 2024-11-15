@@ -1966,7 +1966,7 @@ class ResourceSpec(JSONLike):
 
         Note
         ----
-        May modify the internal state of this object. 
+        May modify the internal state of this object.
         """
 
         if self._value_group_idx is not None:

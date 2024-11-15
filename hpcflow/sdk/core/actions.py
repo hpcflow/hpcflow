@@ -705,10 +705,12 @@ class ElementActionRun(AppAware):
         return out
 
     @staticmethod
-    def __all_iters(inputs: Sequence[str] | Mapping[str, Mapping[str, Any]], inp_name: str) -> bool:
+    def __all_iters(
+        inputs: Sequence[str] | Mapping[str, Mapping[str, Any]], inp_name: str
+    ) -> bool:
         try:
-            return (
-                isinstance(inputs, Mapping) and bool(inputs[inp_name]["all_iterations"])
+            return isinstance(inputs, Mapping) and bool(
+                inputs[inp_name]["all_iterations"]
             )
         except (TypeError, KeyError):
             return False
@@ -722,7 +724,9 @@ class ElementActionRun(AppAware):
         # for sub-parameters, take only the final part as the dict key:
         return key.split(".")[-1], (label if label_dict else None)
 
-    def get_input_values_direct(self, label_dict: bool = True) -> Mapping[str, Mapping[str, Any]]:
+    def get_input_values_direct(
+        self, label_dict: bool = True
+    ) -> Mapping[str, Mapping[str, Any]]:
         """Get a dict of input values that are to be passed directly to a Python script
         function."""
         inputs = self.action.script_data_in_grouped.get("direct", {})
@@ -804,7 +808,7 @@ class ElementActionRun(AppAware):
         """
         for fmt, ins in self.action.script_data_in_grouped.items():
             in_vals = self.get_input_values(inputs=ins, label_dict=False)
-            if (writer := self.__source_writer_map.get(fmt)):
+            if writer := self.__source_writer_map.get(fmt):
                 writer(self, in_vals, js_idx, js_act_idx)
 
         # write the script if it is specified as a app data script, otherwise we assume
@@ -821,7 +825,9 @@ class ElementActionRun(AppAware):
         in_vals_processed: dict[str, Any] = {}
         for k, v in in_vals.items():
             try:
-                in_vals_processed[k] = v.prepare_JSON_dump() if isinstance(v, ParameterValue) else v
+                in_vals_processed[k] = (
+                    v.prepare_JSON_dump() if isinstance(v, ParameterValue) else v
+                )
             except (AttributeError, NotImplementedError):
                 in_vals_processed[k] = v
 
@@ -2342,7 +2348,9 @@ class Action(JSONLike):
                 key.startswith("input_files")
                 or key.startswith("output_files")
                 or key.startswith("inputs")
-                or (key.startswith("outputs") and key.removeprefix("outputs.") in OFP_outs)
+                or (
+                    key.startswith("outputs") and key.removeprefix("outputs.") in OFP_outs
+                )
             ):
                 # look for an index in previous data indices (where for inputs we look
                 # for *output* parameters of the same name):

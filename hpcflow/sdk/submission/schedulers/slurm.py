@@ -437,7 +437,7 @@ class SlurmPosix(QueuedScheduler):
     def _parse_job_IDs(job_ID_str: str) -> tuple[str, None | list[int]]:
         """
         Parse the job ID column from the `squeue` command (the `%i` format option).
-        
+
         Returns
         -------
         job_id

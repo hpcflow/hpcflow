@@ -161,6 +161,7 @@ if TYPE_CHECKING:
     # Complex types for SDK functions
     class _MakeWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_workflow`"""
+
         def __call__(
             self,
             template_file_or_str: PathLike | str,
@@ -175,10 +176,12 @@ if TYPE_CHECKING:
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
             status: bool = True,
-        ) -> _Workflow: ...
+        ) -> _Workflow:
+            ...
 
     class _MakeDemoWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_demo_workflow`"""
+
         def __call__(
             self,
             workflow_name: str,
@@ -192,10 +195,12 @@ if TYPE_CHECKING:
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
             status: bool = True,
-        ) -> _Workflow: ...
+        ) -> _Workflow:
+            ...
 
     class _MakeAndSubmitWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_and_submit_workflow`"""
+
         # Should be overloaded on return_idx, but not bothering
         def __call__(
             self,
@@ -217,10 +222,12 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
+            ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_and_submit_demo_workflow`"""
+
         # Should be overloaded on return_idx, but not bothering
         def __call__(
             self,
@@ -241,10 +248,12 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
+            ...
 
     class _SubmitWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.submit_workflow`"""
+
         # Should be overloaded on return_idx, but not bothering
         def __call__(
             self,
@@ -253,10 +262,12 @@ if TYPE_CHECKING:
             wait: bool = False,
             return_idx: bool = False,
             tasks: list[int] | None = None,
-        ) -> Mapping[int, Sequence[int]] | None: ...
+        ) -> Mapping[int, Sequence[int]] | None:
+            ...
 
     class _GetKnownSubmissions(Protocol):
         """Type of :py:meth:`BaseApp.get_known_submissions`"""
+
         # Should be overloaded on as_json, but not bothering
         def __call__(
             self,
@@ -264,28 +275,36 @@ if TYPE_CHECKING:
             no_update: bool = False,
             as_json: bool = False,
             status: Status | None = None,
-        ) -> Sequence[KnownSubmissionItem]: ...
+        ) -> Sequence[KnownSubmissionItem]:
+            ...
 
     class _Show(Protocol):
         """Type of :py:meth:`BaseApp.show`"""
+
         def __call__(
             self,
             max_recent: int = 3,
             full: bool = False,
             no_update: bool = False,
-        ) -> None: ...
+        ) -> None:
+            ...
 
     class _Cancel(Protocol):
         """Type of :py:meth:`BaseApp.cancel`"""
+
         def __call__(
             self,
             workflow_ref: int | str | Path,
             ref_is_path: str | None = None,
-        ) -> None: ...
+        ) -> None:
+            ...
 
     class _RunTests(Protocol):
         """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
-        def __call__(self, *args: str) -> int: ...
+
+        def __call__(self, *args: str) -> int:
+            ...
+
 
 SDK_logger = get_SDK_logger(__name__)
 DEMO_WK_FORMATS = {".yaml": "yaml", ".yml": "yaml", ".json": "json", ".jsonc": "json"}
@@ -3691,7 +3710,9 @@ class BaseApp(metaclass=Singleton):
                 )
         return path.resolve()
 
-    def _cancel(self, workflow_ref: int | str | Path, ref_is_path: str | None = None) -> None:
+    def _cancel(
+        self, workflow_ref: int | str | Path, ref_is_path: str | None = None
+    ) -> None:
         """
         Cancel the execution of a workflow submission.
 

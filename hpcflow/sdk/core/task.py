@@ -264,7 +264,9 @@ class ElementSet(JSONLike):
         # should only happen on creation of the element set, not re-initialisation from a
         # persistent workflow):
         if self.environments and self.merge_envs:
-            self.resources.merge_one(self._app.ResourceSpec(scope="any", environments=self.environments))
+            self.resources.merge_one(
+                self._app.ResourceSpec(scope="any", environments=self.environments)
+            )
             self.merge_envs = False
 
         # note: `env_preset` is merged into resources by the Task init.
@@ -857,7 +859,9 @@ class Task(JSONLike):
                     env_specs = env_presets[es.env_preset]  # type: ignore[index]
                 except (TypeError, KeyError):
                     raise UnknownEnvironmentPresetError(es.env_preset, self.schema.name)
-                es.resources.merge_one(self._app.ResourceSpec(scope="any", environments=env_specs))
+                es.resources.merge_one(
+                    self._app.ResourceSpec(scope="any", environments=env_specs)
+                )
 
             for seq in es.sequences:
                 if seq.path == "env_preset":
@@ -1450,7 +1454,7 @@ class Task(JSONLike):
     def get_param_provided_element_sets(self, labelled_path: str) -> list[int]:
         """Get the element set indices of this task for which a specified parameter type
         is locally provided.
-        
+
         Note
         ----
         Caller may freely modify this result.
@@ -1966,7 +1970,9 @@ class WorkflowTask(AppAware):
 
         return (input_data_idx, sequence_idx, source_idx)
 
-    def ensure_input_sources(self, element_set: ElementSet) -> Mapping[str, Sequence[int]]:
+    def ensure_input_sources(
+        self, element_set: ElementSet
+    ) -> Mapping[str, Sequence[int]]:
         """Check valid input sources are specified for a new task to be added to the
         workflow in a given position. If none are specified, set them according to the
         default behaviour.
@@ -2230,7 +2236,9 @@ class WorkflowTask(AppAware):
         element_data_indices: Sequence[Mapping[str, int]],
         sequence_indices: Mapping[str, Sequence[int]],
         source_indices: Mapping[str, Sequence[int]],
-    ) -> tuple[Sequence[DataIndex], Mapping[str, Sequence[int]], Mapping[str, Sequence[int]]]:
+    ) -> tuple[
+        Sequence[DataIndex], Mapping[str, Sequence[int]], Mapping[str, Sequence[int]]
+    ]:
         """
         Create information about new elements in this task.
         """

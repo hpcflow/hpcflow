@@ -896,7 +896,7 @@ class ResourceList(ObjectList["ResourceSpec"]):
 
     def merge_one(self, other: ResourceSpec):
         """Merge lower-precedence other resource spec into this resource list.
-        
+
         This is a simplified version of :py:meth:`merge_other`.
         """
         if other.scope is not None:

@@ -262,7 +262,9 @@ class SGEPosix(QueuedScheduler):
             raise RuntimeError(f"Could not parse Job ID from scheduler output {stdout!r}")
         return match.group()
 
-    def get_job_statuses(self) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
+    def get_job_statuses(
+        self,
+    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Get information about all of this user's jobscripts that currently listed by
         the scheduler."""
         cmd = [*self.show_cmd, "-u", "$USER", "-g", "d"]  # "-g d": separate arrays items

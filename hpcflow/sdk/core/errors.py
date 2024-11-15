@@ -147,7 +147,9 @@ class UnavailableInputSource(ValueError):
     An input source was not available.
     """
 
-    def __init__(self, source: InputSource, path: str, avail: Sequence[InputSource]) -> None:
+    def __init__(
+        self, source: InputSource, path: str, avail: Sequence[InputSource]
+    ) -> None:
         super().__init__(
             f"The input source {source.to_string()!r} is not "
             f"available for input path {path!r}. Available "
