@@ -2660,13 +2660,13 @@ files = [
 
 [[package]]
 name = "ruamel-yaml"
-version = "0.17.40"
+version = "0.18.6"
 description = "ruamel.yaml is a YAML parser/emitter that supports roundtrip preservation of comments, seq/map flow style, and map key order"
 optional = false
-python-versions = ">=3"
+python-versions = ">=3.7"
 files = [
-    {file = "ruamel.yaml-0.17.40-py3-none-any.whl", hash = "sha256:b16b6c3816dff0a93dca12acf5e70afd089fa5acb80604afd1ffa8b465b7722c"},
-    {file = "ruamel.yaml-0.17.40.tar.gz", hash = "sha256:6024b986f06765d482b5b07e086cc4b4cd05dd22ddcbc758fa23d54873cf313d"},
+    {file = "ruamel.yaml-0.18.6-py3-none-any.whl", hash = "sha256:57b53ba33def16c4f3d807c0ccbc00f8a6081827e81ba2491691b76882d0c636"},
+    {file = "ruamel.yaml-0.18.6.tar.gz", hash = "sha256:8b27e6a217e786c6fbe5634d8f3f11bc63e0f80f6a5890f28863d9c45aac311b"},
 ]
 
 [package.dependencies]
@@ -3238,17 +3238,17 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "valida"
-version = "0.7.2"
+version = "0.7.5"
 description = "Comprehensive validation library for nested data structures."
 optional = false
-python-versions = ">=3.8,<4.0.0"
+python-versions = "<4.0.0,>=3.8"
 files = [
-    {file = "valida-0.7.2-py3-none-any.whl", hash = "sha256:003c376aa58ea0f8e5fb22de9b7047205c8b9a2efaadca3d87cab6bd57e4d727"},
-    {file = "valida-0.7.2.tar.gz", hash = "sha256:a98d57eab802dab82f9da90ae67f9ffef30cb4806d730da8e2c86aaeb5212c73"},
+    {file = "valida-0.7.5-py3-none-any.whl", hash = "sha256:4dc3a3b5cfc228327d44fe59dc08cdea2728124ec2ac40d1fcd76c5ba8da6c9b"},
+    {file = "valida-0.7.5.tar.gz", hash = "sha256:86bb6d187552f18f7d773550bc985304ec71913cc61d659f3d454bb42a7694d3"},
 ]
 
 [package.dependencies]
-"ruamel.yaml" = ">=0.17.20,<0.18.0"
+"ruamel.yaml" = ">=0.18.6,<0.19.0"
 
 [[package]]
 name = "virtualenv"
@@ -3580,4 +3580,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8,<3.13"
-content-hash = "6431d03eed7e069a94170e33e6549f7ce30a06d620b931bc689defb13fa7464f"
+content-hash = "a11d3767c01023b96503efba9ac9b68a08ce4c445a829ac05c819560f000bd01"

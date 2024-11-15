@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a181"></a>
+## [v0.2.0a181](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
+
+### 🐛 Bug Fixes
+
+* bump ruamel.yaml
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a180"></a>
 ## [v0.2.0a180](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a179...v0.2.0a180) - 2024.09.24
 
