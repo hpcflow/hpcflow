@@ -2234,4 +2234,260 @@ def test_loop_termination_task_raise_on_bad_task(null_config):
         )
 
 
+@pytest.mark.parametrize("num_iters", [1, 2])
+def test_inner_loop_num_added_iterations_on_reload(null_config, tmp_path, num_iters):
+    # this tests that the pending num_added_iterations are saved correctly when adding
+    # loop iterations
+    s1, s2 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=num_iters),
+        hf.Loop(name="outer", tasks=[0, 1], num_iterations=2),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    assert wk.loops.inner.num_added_iterations == {
+        (0,): num_iters,
+        (1,): num_iters,
+    }
+
+
+@pytest.mark.parametrize("num_outer_iters", [1, 2])
+def test_outer_loop_num_added_iterations_on_reload(
+    null_config, tmp_path, num_outer_iters
+):
+    # this tests that the pending num_added_iterations are saved correctly when adding
+    # loop iterations
+
+    s1, s2 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=2),
+        hf.Loop(name="outer", tasks=[0, 1], num_iterations=num_outer_iters),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    if num_outer_iters == 1:
+        assert wk.loops.inner.num_added_iterations == {(0,): 2}
+    elif num_outer_iters == 2:
+        assert wk.loops.inner.num_added_iterations == {(0,): 2, (1,): 2}
+
+
+def test_multi_nested_loop_num_added_iterations_on_reload(null_config, tmp_path):
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=2),
+        hf.Loop(name="middle", tasks=[0, 1], num_iterations=3),
+        hf.Loop(name="outer", tasks=[0, 1, 2], num_iterations=4),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    for loop in wk.loops:
+        print(loop.num_added_iterations)
+
+    assert wk.loops.inner.num_added_iterations == {
+        (0, 0): 2,
+        (1, 0): 2,
+        (2, 0): 2,
+        (0, 1): 2,
+        (1, 1): 2,
+        (2, 1): 2,
+        (0, 2): 2,
+        (1, 2): 2,
+        (2, 2): 2,
+        (0, 3): 2,
+        (1, 3): 2,
+        (2, 3): 2,
+    }
+    assert wk.loops.middle.num_added_iterations == {(0,): 3, (1,): 3, (2,): 3, (3,): 3}
+    assert wk.loops.outer.num_added_iterations == {(): 4}
+
+
+def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_inner(
+    null_config, tmp_path
+):
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=1),
+        hf.Loop(name="middle", tasks=[0, 1], num_iterations=3),
+        hf.Loop(name="outer", tasks=[0, 1, 2], num_iterations=4),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    for loop in wk.loops:
+        print(loop.num_added_iterations)
+
+    assert wk.loops.inner.num_added_iterations == {
+        (0, 0): 1,
+        (1, 0): 1,
+        (2, 0): 1,
+        (0, 1): 1,
+        (1, 1): 1,
+        (2, 1): 1,
+        (0, 2): 1,
+        (1, 2): 1,
+        (2, 2): 1,
+        (0, 3): 1,
+        (1, 3): 1,
+        (2, 3): 1,
+    }
+    assert wk.loops.middle.num_added_iterations == {(0,): 3, (1,): 3, (2,): 3, (3,): 3}
+    assert wk.loops.outer.num_added_iterations == {(): 4}
+
+
+def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_middle(
+    null_config, tmp_path
+):
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=2),
+        hf.Loop(name="middle", tasks=[0, 1], num_iterations=1),
+        hf.Loop(name="outer", tasks=[0, 1, 2], num_iterations=4),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    for loop in wk.loops:
+        print(loop.num_added_iterations)
+
+    assert wk.loops.inner.num_added_iterations == {
+        (0, 0): 2,
+        (0, 1): 2,
+        (0, 2): 2,
+        (0, 3): 2,
+    }
+    assert wk.loops.middle.num_added_iterations == {(0,): 1, (1,): 1, (2,): 1, (3,): 1}
+    assert wk.loops.outer.num_added_iterations == {(): 4}
+
+
+def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_outer(
+    null_config, tmp_path
+):
+    s1, s2, s3 = make_schemas(
+        [
+            [{"p2": None}, ("p2",), "t1"],
+            [{"p2": None}, ("p2",), "t2"],
+            [{"p2": None}, ("p2",), "t3"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p2": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+    ]
+
+    loops = [
+        hf.Loop(name="inner", tasks=[0], num_iterations=2),
+        hf.Loop(name="middle", tasks=[0, 1], num_iterations=3),
+        hf.Loop(name="outer", tasks=[0, 1, 2], num_iterations=1),
+    ]
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_num_added_iters_reload",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+
+    wk = wk.reload()
+    for loop in wk.loops:
+        print(loop.num_added_iterations)
+
+    assert wk.loops.inner.num_added_iterations == {
+        (0, 0): 2,
+        (1, 0): 2,
+        (2, 0): 2,
+    }
+    assert wk.loops.middle.num_added_iterations == {(0,): 3}
+    assert wk.loops.outer.num_added_iterations == {(): 1}
+
+
 # TODO: test loop termination across jobscripts

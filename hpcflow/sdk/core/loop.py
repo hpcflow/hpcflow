@@ -515,6 +515,13 @@ class WorkflowLoop:
             added_iters_key_chd = tuple([iters_key_dct.get(j, 0) for j in child.parents])
             child._initialise_pending_added_iters(added_iters_key_chd)
 
+            # needed for the case where an inner loop has only one iteration, meaning
+            # `add_iteration` will not be called recursively on it:
+            self.workflow._store.update_loop_num_iters(
+                index=child.index,
+                num_added_iters=child.num_added_iterations,
+            )
+
         for task in self.task_objects:
 
             new_loop_idx = {
