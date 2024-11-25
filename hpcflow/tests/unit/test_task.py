@@ -2515,3 +2515,51 @@ def test_group_values_input_and_output_source_from_upstream(null_config, tmp_pat
     assert wk.tasks[2].num_elements == 1
     assert [i.value for i in wk.tasks[2].inputs.p1] == [[None, None, None]]
     assert [i.value for i in wk.tasks[2].inputs.p2] == [[None, None, None]]
+
+
+def test_is_input_type_required_True(null_config):
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("cat <<file:my_input_file>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="NOT-SET-FOR-THIS-TEST",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=s1, inputs={"p1": 100})
+    assert t1.is_input_type_required(typ="p1", element_set=t1.element_sets[0])
+
+
+def test_is_input_type_required_False(null_config):
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("cat <<file:my_input_file>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="NOT-SET-FOR-THIS-TEST",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(
+        schema=s1, input_files=[hf.InputFile(file=inp_file, path="NOT-SET-FOR-THIS-TEST")]
+    )
+    assert not t1.is_input_type_required(typ="p1", element_set=t1.element_sets[0])
