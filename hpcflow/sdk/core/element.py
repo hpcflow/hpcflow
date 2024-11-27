@@ -264,6 +264,11 @@ class ElementResources(JSONLike):
 
         dct = {k: copy.deepcopy(v) for k, v in self.__dict__.items() if k not in exclude}
 
+        # `combine_scripts==False` and `combine_scripts==None` should have an equivalent
+        # contribution to the hash, so always set it to `False` if unset at this point:
+        if self.combine_scripts is None:
+            dct["combine_scripts"] = False
+
         return get_hash(dct)
 
     @property

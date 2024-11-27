@@ -441,3 +441,54 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_
     assert len(sub.jobscripts[0].blocks) == 1
     assert len(sub.jobscripts[1].blocks) == 1
     assert len(sub.jobscripts[2].blocks) == 2
+
+
+def test_combine_scripts_unset_False_jobscript_hash_equivalence(null_config, tmp_path):
+
+    s1 = hf.TaskSchema(
+        objective="t1",
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_direct_in.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            ),
+            hf.Action(commands=[hf.Command(command='echo "hello!"')]),
+        ],
+    )
+    t1 = hf.Task(schema=s1)
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        resources={
+            "any": {
+                "combine_scripts": False,  # only applies to the Python script action
+            },
+        },
+        template_name="combine_scripts_test",
+        path=tmp_path,
+    )
+    sub = wk.add_submission()
+
+    # test that even though `combine_scripts` is not set on second action (because it is
+    # not a Python script action), the resources have an equivalent hash and thus only one
+    # jobscript is generated:
+
+    iter_1 = wk.tasks.t1.elements[0].iterations[0]
+    act_1 = iter_1.action_runs[0].action
+    act_2 = iter_1.action_runs[1].action
+
+    res_1 = iter_1.get_resources_obj(act_1)
+    res_2 = iter_1.get_resources_obj(act_2)
+
+    # set to False on first action:
+    assert iter_1.get_resources_obj(act_1).combine_scripts == False
+
+    # not set on second action:
+    assert iter_1.get_resources_obj(act_2).combine_scripts == None
+
+    # hashes equivalent:
+    assert res_1.get_jobscript_hash() == res_2.get_jobscript_hash()
+
+    assert len(sub.jobscripts) == 1
