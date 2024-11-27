@@ -229,10 +229,9 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
-    def __repr__(self):
-        """Only include non-default/non-default-factory values."""
-
-        items = []
+    def _get_repr_fields(self) -> dict:
+        """Retrieve attributes that are non-default/non-default-factory values."""
+        items = {}
         for f in fields(self):
             if isinstance(f.default_factory, Callable):
                 compare = f.default_factory()
@@ -240,9 +239,13 @@ class ElementResources(JSONLike):
                 compare = f.default
             val = attrgetter(f.name)(self)
             if val != compare:
-                items.append((f.name, val))
+                items[f.name] = val
+        return items
 
-        items_repr = ", ".join(f"{name}={value!r}" for name, value in items)
+    def __repr__(self):
+        """Only include non-default/non-default-factory values."""
+        items = self._get_repr_fields()
+        items_repr = ", ".join(f"{name}={value!r}" for name, value in items.items())
         return f"{self.__class__.__name__}({items_repr})"
 
     def __eq__(self, other) -> bool:
