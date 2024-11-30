@@ -25,6 +25,54 @@ def test_action_exit_code_parsing(null_config, tmp_path, exit_code):
 
 
 @pytest.mark.integration
+def test_bad_action_py_script_exit_code(null_config, tmp_path):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        actions=[
+            hf.Action(
+                script="<<script:bad_script.py>>",  # raises SyntaxError
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=[s1])
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1], template_name="bad_script_test", path=tmp_path
+    )
+    wk.submit(wait=True, add_to_known=False)
+    recorded_exit = wk.get_EARs_from_IDs([0])[0].exit_code
+    assert recorded_exit == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("exit_code", [0, 1, 98, -1, -123124])
+def test_action_py_script_specified_exit_code(null_config, tmp_path, exit_code):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput("exit_code")],
+        actions=[
+            hf.Action(
+                script="<<script:script_exit_test.py>>",
+                script_exe="python_script",
+                script_data_in="direct",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=[s1], inputs={"exit_code": exit_code})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1], template_name="script_exit_test", path=tmp_path
+    )
+    wk.submit(wait=True, add_to_known=False)
+    recorded_exit = wk.get_EARs_from_IDs([0])[0].exit_code
+    if os.name == "posix":
+        # exit code from bash wraps around:
+        exit_code %= 256
+    assert recorded_exit == exit_code
+
+
+@pytest.mark.integration
 def test_skipped_action_same_element(null_config, tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",

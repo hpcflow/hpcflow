@@ -266,6 +266,13 @@ class WindowsPowerShell(Shell):
 
         return out
 
+    def format_commands_file(self, app_name, commands):
+        return (
+            self.format_source_functions_file(app_name, commands)
+            + commands
+            + "\nexit $LASTEXITCODE\n"
+        )
+
     def format_save_parameter(
         self,
         workflow_app_alias: str,

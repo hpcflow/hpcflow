@@ -243,6 +243,9 @@ class Bash(Shell):
             """
         ).format(app_caps=app_name.upper())
 
+    def format_commands_file(self, app_name, commands):
+        return self.format_source_functions_file(app_name, commands) + commands
+
     def format_save_parameter(
         self,
         workflow_app_alias: str,

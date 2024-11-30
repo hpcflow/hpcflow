@@ -862,9 +862,7 @@ class ElementActionRun:
                     app_name=app_name,
                 )
 
-        commands = (
-            jobscript.shell.format_source_functions_file(app_name, commands) + commands
-        )
+        commands_fmt = jobscript.shell.format_commands_file(app_name, commands)
 
         if jobscript.resources.combine_scripts:
             stem = f"js_{jobscript.index}"  # TODO: refactor
@@ -874,7 +872,7 @@ class ElementActionRun:
         cmd_file_name = f"{stem}{jobscript.shell.JS_EXT}"
         cmd_file_path = jobscript.submission.commands_path / cmd_file_name
         with cmd_file_path.open("wt", newline="\n") as fp:
-            fp.write(commands)
+            fp.write(commands_fmt)
 
         return cmd_file_path
 
