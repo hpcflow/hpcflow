@@ -593,7 +593,7 @@ class TaskSchema(JSONLike):
             action_show_hide = ""
             act_heading_class = ""
         description = (
-            f"<h3 class='task-desc'>Description</h3>{self.doc}" if self.doc else "" 
+            f"<h3 class='task-desc'>Description</h3>{self.doc}" if self.doc else ""
         )
         out = (
             f"{description}"
