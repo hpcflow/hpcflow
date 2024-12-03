@@ -76,7 +76,7 @@ class FileSpec(JSONLike):
         if self.doc:
             import markupsafe
 
-            return markupsafe.Markup(f"File specifier. {self.doc}")
+            return markupsafe.Markup(self.doc)
         return repr(self)
 
 
