@@ -211,10 +211,18 @@ class Environment(JSONLike):
     )
 
     def __init__(
-        self, name, setup=None, specifiers=None, executables=None, _hash_value=None
+        self,
+        name,
+        setup=None,
+        specifiers=None,
+        executables=None,
+        doc="",
+        _hash_value=None,
     ):
         #: The name of the environment.
         self.name = name
+        #: Documentation for the environment.
+        self.doc = doc
         #: Commands to run to enter the environment.
         self.setup = setup
         #: Dictionary of attributes that may be used to supply addional key/value pairs
@@ -257,3 +265,9 @@ class Environment(JSONLike):
                 f"Executables must have unique `label`s within each environment, but "
                 f"found label(s) multiple times: {dup_labels!r}"
             )
+
+    @property
+    def documentation(self) -> str:
+        if self.doc:
+            return self.doc
+        return repr(self)

@@ -112,6 +112,7 @@ class TaskSchema(JSONLike):
         parameter_class_modules: Optional[List[str]] = None,
         web_doc: Optional[bool] = True,
         environment_presets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
+        doc: str = "",
         _hash_value: Optional[str] = None,
     ):
         #: This is a string representing the objective of the task schema.
@@ -133,6 +134,8 @@ class TaskSchema(JSONLike):
         self.web_doc = web_doc
         #: Information about default execution environments.
         self.environment_presets = environment_presets
+        #: Documentation information about the task schema.
+        self.doc = doc
         self._hash_value = _hash_value
 
         self._set_parent_refs()
@@ -589,11 +592,16 @@ class TaskSchema(JSONLike):
             )
             action_show_hide = ""
             act_heading_class = ""
+        description = (
+            f"<h3 class='task-desc'>Description</h3>{self.doc}" if self.doc else "" 
+        )
         out = (
-            f"<h5>Inputs</h5>{inputs_table}"
-            f"<h5>Outputs</h5>{outputs_table}"
-            # f"<h5>Examples</h5>examples here..." # TODO:
-            f"<h5{act_heading_class}>Actions{action_show_hide}</h5>{action_table}"
+            f"{description}"
+            f"<h3>Inputs</h3>{inputs_table}"
+            f"<h3>Outputs</h3>{outputs_table}"
+            # f"<h3>Examples</h3>examples here..." # TODO:
+            f"<h3{act_heading_class}>Actions{action_show_hide}</h3>"
+            f"{action_table}"
         )
         return out
 
