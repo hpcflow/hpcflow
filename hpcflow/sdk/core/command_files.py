@@ -74,7 +74,9 @@ class FileSpec(JSONLike):
         Documentation for rendering via Jinja.
         """
         if self.doc:
-            return f"File specifier. {self.doc}"
+            import markupsafe
+
+            return markupsafe.Markup(f"File specifier. {self.doc}")
         return repr(self)
 
 

@@ -269,5 +269,7 @@ class Environment(JSONLike):
     @property
     def documentation(self) -> str:
         if self.doc:
-            return self.doc
+            import markupsafe
+
+            return markupsafe.Markup(self.doc)
         return repr(self)
