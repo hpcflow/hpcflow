@@ -88,7 +88,6 @@ You can interact with the CLI by calling::
 Working with matflow
 --------------------
 
---------
 link to local hpcflow
 ......................
 To be able to work with hpcflow and immediately see the changes reflected in matflow you need to reconfigure the hpcflow dependency to point to your local copy of hpcflow.
