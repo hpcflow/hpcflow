@@ -1,4 +1,24 @@
 
+<a name="v0.2.0a182"></a>
+## [v0.2.0a182](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
+
+### 🐛 Bug Fixes
+
+* sync again with hpcflow-shared-docs
+* sync with hpcflow-shared-docs
+* sync with python-release-workflow repo
+* release workflow pyinstaller build on CentOS
+* pyinstaller build on CentOS
+* fix pytest call in centos integration tests
+* fix pytest call in centos integration tests
+* run centOS integration tests in a docker run step rather than using a job `container`
+* run centOS unit tests in a docker run step rather than using a job `container`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a181"></a>
 ## [v0.2.0a181](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
 
