@@ -136,8 +136,8 @@ jobs:
 
   test-units-CentOS:
     needs: pre-commit
-    if: github.event_name == 'pull_request' || github.event.inputs.unit_tests == 'true'
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event.inputs.unit_tests == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
