@@ -235,7 +235,7 @@ jobs:
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev,pyinstaller
-            poetry run python -m pytest -m integration ${{ github.event.inputs.integration_test_args }}
+            poetry run hpcflow test --integration ${{ github.event.inputs.integration_test_args }}
 
   test-invocation-ubuntu:
     if: github.event_name == 'pull_request' || github.event.inputs.invocation_tests == 'true'
