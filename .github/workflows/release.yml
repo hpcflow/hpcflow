@@ -313,7 +313,7 @@ jobs:
             ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux INFO onefile
             cd ..
 
-            # version check (file)        
+            # version check (file)
             tag=${{ needs.bump-version.outputs.new_tag_name }}
             tagNoV=${tag:1}
             hpcflow_vers=$(pyinstaller/dist/onefile/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux --version)
@@ -330,7 +330,7 @@ jobs:
             ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir INFO onedir
             cd ..
 
-            # version check (folder)        
+            # version check (folder)
             tag=${{ needs.bump-version.outputs.new_tag_name }}
             tagNoV=${tag:1}
             hpcflow_vers=$(pyinstaller/dist/onedir/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir --version)
@@ -346,8 +346,6 @@ jobs:
             cd pyinstaller
             ./compress.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'
             cd ..
-
-      - run: tree .
 
       - name: Upload executable artifact (file)
         uses: actions/upload-artifact@v4

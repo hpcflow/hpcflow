@@ -283,21 +283,21 @@ jobs:
           image: ghcr.io/hpcflow/centos7-poetry:latest
           options: -v ${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           run: |
-            
+
             # set up poetry
             cd /home
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (file)
             cd pyinstaller
             ./make.sh hpcflow-${{ env.vers }}-linux ${{ github.event.inputs.logLevel }} onefile
             cd ..
-            
+
             # set demo data GitHub URL using current git SHA (file), instead of default which is current version tag
             pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-linux config set-github-demo-data-dir ${{ env.sha }}
-            
+
             # run test suite on the frozen app (file)
             pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-linux test ${{ github.event.inputs.unit_test_args }}
 
@@ -308,21 +308,21 @@ jobs:
           image: ghcr.io/hpcflow/centos7-poetry:latest
           options: -v ${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           run: |
-            
+
             # set up poetry
             cd /home
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (folder)
             cd pyinstaller
             ./make.sh hpcflow-${{ env.vers }}-linux-dir ${{ github.event.inputs.logLevel }} onedir
             cd ..
-            
+
             # set demo data GitHub URL using current git SHA (folder), instead of default which is current version tag
             pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-linux-dir/hpcflow-${{ env.vers }}-linux-dir config set-github-demo-data-dir ${{ env.sha }}
-            
+
             # run test suite on the frozen app (folder)
             pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-linux-dir/hpcflow-${{ env.vers }}-linux-dir test ${{ github.event.inputs.unit_test_args }}
 
