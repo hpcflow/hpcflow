@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a183"></a>
+## [v0.2.0a183](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* try to fix compression of centos pyinstaller directory build
+
+
 <a name="v0.2.0a182"></a>
 ## [v0.2.0a182](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
 
