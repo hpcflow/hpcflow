@@ -283,21 +283,21 @@ jobs:
           image: ghcr.io/hpcflow/centos7-poetry:latest
           options: -v {% raw %}${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}{% endraw %}
           run: |
-            
+
             # set up poetry
             cd /home
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (file)
             cd {{ pyinstaller_dir }}
             ./make.sh {{ executable_name }}-{% raw %}${{ env.vers }}-linux ${{ github.event.inputs.logLevel }}{% endraw %} onefile
             cd ..
-            
+
             # set demo data GitHub URL using current git SHA (file), instead of default which is current version tag
             {{ pyinstaller_dir }}/dist/onefile/{{ executable_name }}-{% raw %}${{ env.vers }}-linux config set-github-demo-data-dir ${{ env.sha }}{% endraw %}
-            
+
             # run test suite on the frozen app (file)
             {{ pyinstaller_dir }}/dist/onefile/{{ executable_name }}-{% raw %}${{ env.vers }}-linux test ${{ github.event.inputs.unit_test_args }}{% endraw %}
 
@@ -308,21 +308,21 @@ jobs:
           image: ghcr.io/hpcflow/centos7-poetry:latest
           options: -v {% raw %}${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}{% endraw %}
           run: |
-            
+
             # set up poetry
             cd /home
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (folder)
             cd {{ pyinstaller_dir }}
             ./make.sh {{ executable_name }}-{% raw %}${{ env.vers }}-linux-dir ${{ github.event.inputs.logLevel }}{% endraw %} onedir
             cd ..
-            
+
             # set demo data GitHub URL using current git SHA (folder), instead of default which is current version tag
             {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ env.vers }}{% endraw %}-linux-dir/{{ executable_name }}-{% raw %}${{ env.vers }}{% endraw %}-linux-dir config set-github-demo-data-dir {% raw %}${{ env.sha }}{% endraw %}
-            
+
             # run test suite on the frozen app (folder)
             {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ env.vers }}{% endraw %}-linux-dir/{{ executable_name }}-{% raw %}${{ env.vers }}{% endraw %}-linux-dir test {% raw %}${{ github.event.inputs.unit_test_args }}{% endraw %}
 

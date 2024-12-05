@@ -307,13 +307,13 @@ jobs:
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (file)
             cd {{ pyinstaller_dir }}
             ./make.sh {{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux INFO onefile{% endraw %}
             cd ..
 
-            # version check (file)        
+            # version check (file)
             tag={% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}
             tagNoV=${tag:1}
             {{ executable_name }}_vers=$({{ pyinstaller_dir }}/dist/onefile/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux --version)
@@ -321,16 +321,16 @@ jobs:
             echo ${{ executable_name }}_vers
             echo ${{ executable_name }}_vers_expected
             [ "${{ executable_name }}_vers" = "${{ executable_name }}_vers_expected" ]
-            
+
             # run test suite on the frozen app (file)
             {{ pyinstaller_dir }}/dist/onefile/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux test{% endraw %}
-            
+
             # build with pyinstaller for CentOS (folder)
             cd {{ pyinstaller_dir }}
             ./make.sh {{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux-dir INFO onedir{% endraw %}
             cd ..
-            
-            # version check (folder)        
+
+            # version check (folder)
             tag={% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}
             tagNoV=${tag:1}
             {{ executable_name }}_vers=$({{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir --version)
@@ -338,13 +338,14 @@ jobs:
             echo ${{ executable_name }}_vers
             echo ${{ executable_name }}_vers_expected
             [ "${{ executable_name }}_vers" = "${{ executable_name }}_vers_expected" ]
-            
+
             # run test suite on the frozen app (folder)
             {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir test
 
-      - name: Compress folder (folder)
-        working-directory: {{ pyinstaller_dir }}
-        run: ./compress.sh {{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'{% endraw %}
+            # Compress folder (folder)
+            cd pyinstaller
+            ./compress.sh {{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'{% endraw %}
+            cd ..
 
       - name: Upload executable artifact (file)
         uses: actions/upload-artifact@v4
