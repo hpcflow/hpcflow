@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a184"></a>
+## [v0.2.0a184](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a183...v0.2.0a184) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* fix release workflow
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a183"></a>
 ## [v0.2.0a183](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
 
