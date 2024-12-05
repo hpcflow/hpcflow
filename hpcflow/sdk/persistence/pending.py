@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.strings import shorten_list_str
 
 
 class PendingChanges:
@@ -332,26 +333,29 @@ class PendingChanges:
 
     @TimeIt.decorator
     def commit_EAR_starts(self) -> None:
-        # TODO: could be batched up?
-        for EAR_id, (time, snap, hostname, port_num) in self.set_EAR_starts.items():
+        updates = self.set_EAR_starts
+        if updates:
             self.logger.debug(
-                f"commit: adding pending start time ({time!r}), run hostname "
-                f"({hostname!r}), and directory snapshot to EAR ID {EAR_id!r}."
+                f"commit: registering {len(updates)} run(s) as started: "
+                f"{shorten_list_str(updates)}."
             )
-            self.store._update_EAR_start(EAR_id, time, snap, hostname, port_num)
-            self.store.EAR_cache.pop(EAR_id, None)  # invalidate cache
+            self.store._update_EAR_start(updates)
+            for run_id in updates:
+                self.store.EAR_cache.pop(run_id, None)  # invalidate cache
         self.clear_set_EAR_starts()
 
     @TimeIt.decorator
     def commit_EAR_ends(self) -> None:
-        # TODO: could be batched up?
-        for EAR_id, (time, snap, ext, suc) in self.set_EAR_ends.items():
+        updates = self.set_EAR_ends
+        if updates:
             self.logger.debug(
-                f"commit: adding pending end time ({time!r}), directory snapshot, "
-                f"exit code ({ext!r}), and success status {suc!r} to EAR ID {EAR_id!r}."
+                f"commit: registering {len(updates)} run(s) as ended: "
+                f"{shorten_list_str(updates)}, with exit codes: "
+                f"{shorten_list_str([i[3] for i in updates.values()])}."
             )
-            self.store._update_EAR_end(EAR_id, time, snap, ext, suc)
-            self.store.EAR_cache.pop(EAR_id, None)  # invalidate cache
+            self.store._update_EAR_end(updates)
+            for run_id in updates:
+                self.store.EAR_cache.pop(run_id, None)  # invalidate cache
         self.clear_set_EAR_ends()
 
     @TimeIt.decorator

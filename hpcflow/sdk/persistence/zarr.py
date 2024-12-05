@@ -680,40 +680,48 @@ class ZarrPersistentStore(PersistentStore):
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
 
-    def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: Dict, s_hn: str, port_number: int
-    ):
+    def _update_EAR_start(self, run_starts: Dict[int, Tuple[datetime, Dict, str, int]]):
+
+        EAR_IDs = list(run_starts.keys())
+        EARs = self._get_persistent_EARs(EAR_IDs)
+
         arr = self._get_EARs_arr(mode="r+")
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-        EAR_i = EAR_i.update(
-            start_time=s_time,
-            snapshot_start=s_snap,
-            run_hostname=s_hn,
-            port_number=port_number,
-        )
-        arr[EAR_id] = EAR_i.encode(attrs, self.ts_fmt)
+        for EAR_ID_i, (s_time, s_snap, s_hn, port_number) in run_starts.items():
+            new_EAR_i = EARs[EAR_ID_i].update(
+                start_time=s_time,
+                snapshot_start=s_snap,
+                run_hostname=s_hn,
+                port_number=port_number,
+            )
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
 
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
 
-    def _update_EAR_end(
-        self, EAR_id: int, e_time: datetime, e_snap: Dict, ext_code: int, success: bool
-    ):
+    def _update_EAR_end(self, run_ends: Dict[int, Tuple[datetime, Dict, int, bool]]):
+
+        EAR_IDs = list(run_ends.keys())
+        EARs = self._get_persistent_EARs(EAR_IDs)
+
         arr = self._get_EARs_arr(mode="r+")
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-        EAR_i = EAR_i.update(
-            end_time=e_time,
-            snapshot_end=e_snap,
-            exit_code=ext_code,
-            success=success,
-        )
-        arr[EAR_id] = EAR_i.encode(attrs, self.ts_fmt)
+        for EAR_ID_i, (e_time, e_snap, ext_code, success) in run_ends.items:
+            new_EAR_i = EARs[EAR_ID_i].update(
+                end_time=e_time,
+                snapshot_end=e_snap,
+                exit_code=ext_code,
+                success=success,
+            )
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
 
         if attrs != attrs_orig:
             arr.attrs.put(attrs)

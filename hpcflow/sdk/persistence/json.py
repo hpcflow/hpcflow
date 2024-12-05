@@ -263,23 +263,21 @@ class JSONPersistentStore(PersistentStore):
                 md["runs"][EAR_ID_i]["submission_idx"] = sub_idx_i
                 md["runs"][EAR_ID_i]["commands_file_ID"] = cmd_file_ID
 
-    def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: Dict, s_hn: str, port_number: int
-    ):
+    def _update_EAR_start(self, run_starts: Dict[int, Tuple[datetime, Dict, str, int]]):
         with self.using_resource("metadata", action="update") as md:
-            md["runs"][EAR_id]["start_time"] = s_time.strftime(self.ts_fmt)
-            md["runs"][EAR_id]["snapshot_start"] = s_snap
-            md["runs"][EAR_id]["run_hostname"] = s_hn
-            md["runs"][EAR_id]["port_number"] = port_number
+            for run_id, (s_time, s_snap, s_hn, port_number) in run_starts.items():
+                md["runs"][run_id]["start_time"] = s_time.strftime(self.ts_fmt)
+                md["runs"][run_id]["snapshot_start"] = s_snap
+                md["runs"][run_id]["run_hostname"] = s_hn
+                md["runs"][run_id]["port_number"] = port_number
 
-    def _update_EAR_end(
-        self, EAR_id: int, e_time: datetime, e_snap: Dict, ext_code: int, success: bool
-    ):
+    def _update_EAR_end(self, run_ends: Dict[int, Tuple[datetime, Dict, int, bool]]):
         with self.using_resource("metadata", action="update") as md:
-            md["runs"][EAR_id]["end_time"] = e_time.strftime(self.ts_fmt)
-            md["runs"][EAR_id]["snapshot_end"] = e_snap
-            md["runs"][EAR_id]["exit_code"] = ext_code
-            md["runs"][EAR_id]["success"] = success
+            for run_id, (e_time, e_snap, ext_code, success) in run_ends.items():
+                md["runs"][run_id]["end_time"] = e_time.strftime(self.ts_fmt)
+                md["runs"][run_id]["snapshot_end"] = e_snap
+                md["runs"][run_id]["exit_code"] = ext_code
+                md["runs"][run_id]["success"] = success
 
     def _update_EAR_skip(self, skips: Dict[int, int]):
         with self.using_resource("metadata", action="update") as md:
