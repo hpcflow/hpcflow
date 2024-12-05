@@ -23,6 +23,7 @@ def shorten_list_str(
     '[0, 1, 2, 3, ..., 19]'
 
     """
+    lst = list(lst)
     if len(lst) <= items + 1:  # (don't replace only one item)
         lst_short = lst
     else:
