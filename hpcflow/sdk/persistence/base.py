@@ -25,6 +25,7 @@ from hpcflow.sdk.core.utils import (
     set_in_container,
     JSONLikeDirSnapShot,
 )
+from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence.pending import PendingChanges
 
@@ -1594,7 +1595,10 @@ class PersistentStore(ABC):
 
     @TimeIt.decorator
     def get_elements(self, id_lst: Iterable[int]) -> List[AnySElement]:
-        self.logger.debug(f"PersistentStore.get_elements: id_lst={id_lst!r}")
+        self.logger.debug(
+            f"PersistentStore.get_elements: {len(id_lst)} elements: "
+            f"{shorten_list_str(id_lst)}."
+        )
 
         # separate pending and persistent IDs:
         id_set = set(id_lst)
@@ -1621,7 +1625,10 @@ class PersistentStore(ABC):
 
     @TimeIt.decorator
     def get_element_iterations(self, id_lst: Iterable[int]) -> List[AnySElementIter]:
-        self.logger.debug(f"PersistentStore.get_element_iterations: id_lst={id_lst!r}")
+        self.logger.debug(
+            f"PersistentStore.get_element_iterations: {len(id_lst)} iterations: "
+            f"{shorten_list_str(id_lst)}."
+        )
 
         # separate pending and persistent IDs:
         id_set = set(id_lst)
@@ -1657,7 +1664,9 @@ class PersistentStore(ABC):
 
     @TimeIt.decorator
     def get_EARs(self, id_lst: Iterable[int]) -> List[AnySEAR]:
-        self.logger.debug(f"PersistentStore.get_EARs: id_lst={id_lst!r}")
+        self.logger.debug(
+            f"PersistentStore.get_EARs: {len(id_lst)} EARs: {shorten_list_str(id_lst)}."
+        )
 
         # separate pending and persistent IDs:
         id_set = set(id_lst)

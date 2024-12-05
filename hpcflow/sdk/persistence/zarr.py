@@ -40,6 +40,7 @@ from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.strings import shorten_list_str
 
 
 blosc.use_threads = False  # hpcflow is a multiprocess program in general
@@ -1132,7 +1133,10 @@ class ZarrPersistentStore(PersistentStore):
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
             try:
-                self.logger.debug(f"_get_persistent_EARs: {id_lst=}")
+                self.logger.debug(
+                    f"_get_persistent_EARs: {len(id_lst)} EARs: "
+                    f"{shorten_list_str(id_lst)}."
+                )
                 EAR_arr_dat = _zarr_get_coord_selection(arr, id_lst, self.logger)
             except zarr.errors.BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
