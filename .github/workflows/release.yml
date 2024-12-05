@@ -307,7 +307,7 @@ jobs:
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            
+
             # build with pyinstaller for CentOS (file)
             cd pyinstaller
             ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux INFO onefile
@@ -321,15 +321,15 @@ jobs:
             echo $hpcflow_vers
             echo $hpcflow_vers_expected
             [ "$hpcflow_vers" = "$hpcflow_vers_expected" ]
-            
+
             # run test suite on the frozen app (file)
             pyinstaller/dist/onefile/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux test
-            
+
             # build with pyinstaller for CentOS (folder)
             cd pyinstaller
             ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir INFO onedir
             cd ..
-            
+
             # version check (folder)        
             tag=${{ needs.bump-version.outputs.new_tag_name }}
             tagNoV=${tag:1}
@@ -338,13 +338,16 @@ jobs:
             echo $hpcflow_vers
             echo $hpcflow_vers_expected
             [ "$hpcflow_vers" = "$hpcflow_vers_expected" ]
-            
+
             # run test suite on the frozen app (folder)
             pyinstaller/dist/onedir/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir/hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir test
 
-      - name: Compress folder (folder)
-        working-directory: pyinstaller
-        run: ./compress.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'
+            # Compress folder (folder)
+            cd pyinstaller
+            ./compress.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'
+            cd ..
+
+      - run: tree .
 
       - name: Upload executable artifact (file)
         uses: actions/upload-artifact@v4
