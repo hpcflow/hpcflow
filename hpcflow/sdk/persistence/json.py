@@ -281,9 +281,10 @@ class JSONPersistentStore(PersistentStore):
             md["runs"][EAR_id]["exit_code"] = ext_code
             md["runs"][EAR_id]["success"] = success
 
-    def _update_EAR_skip(self, EAR_id: int, reason: int):
+    def _update_EAR_skip(self, skips: Dict[int, int]):
         with self.using_resource("metadata", action="update") as md:
-            md["runs"][EAR_id]["skip"] = reason
+            for run_ID, reason in skips.items():
+                md["runs"][run_ID]["skip"] = reason
 
     def _update_js_metadata(self, js_meta: Dict):
         with self.using_resource("submissions", action="update") as sub_res:

@@ -17,6 +17,7 @@ from hpcflow.sdk.core.parameters import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.task import WorkflowTask
 from hpcflow.sdk.core.utils import check_valid_py_identifier, nth_key, nth_value
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.strings import shorten_list_str
 
 # from .parameters import Parameter
 
@@ -1076,8 +1077,10 @@ class WorkflowLoop:
                     and iter_i.task.insert_ID > current_task_iID
                 ):
                     to_skip.extend(iter_i.EAR_IDs_flat)
-        self.app.logger.info(f"runs {to_skip!r} will be set to skip")
-        for run_ID in to_skip:
-            self.workflow.set_EAR_skip(run_ID, SkipReason.LOOP_TERMINATION)
+
+        self.app.logger.info(
+            f"{len(to_skip)} runs will be set to skip: {shorten_list_str(to_skip)}"
+        )
+        self.workflow.set_EAR_skip({k: SkipReason.LOOP_TERMINATION for k in to_skip})
 
         return to_skip

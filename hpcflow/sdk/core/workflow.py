@@ -2299,7 +2299,7 @@ class Workflow:
                             f" {exit_code!r}."
                         )
                         self._store.set_EAR_skip(
-                            EAR_dep_ID, SkipReason.UPSTREAM_FAILURE.value
+                            {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                         )
 
                 self._store.set_EAR_end(
@@ -2432,8 +2432,8 @@ class Workflow:
                                     f" {exit_code!r}."
                                 )
                                 self._store.set_EAR_skip(
-                                    EAR_dep_ID, SkipReason.UPSTREAM_FAILURE.value
-                                )  # TODO: batch up
+                                    {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
+                                )
 
                         run_ids.append(run.id_)
                         exit_codes.append(exit_code)
@@ -2441,12 +2441,12 @@ class Workflow:
 
                 self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
-    def set_EAR_skip(self, EAR_ID: int, skip_reason: SkipReason) -> None:
+    def set_EAR_skip(self, skip_reasons: Dict[int, SkipReason]) -> None:
         """Record that an EAR is to be skipped due to an upstream failure or loop
         termination condition being met."""
         with self._store.cached_load():
             with self.batch_update():
-                self._store.set_EAR_skip(EAR_ID, skip_reason.value)
+                self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
 
     def get_EAR_skipped(self, EAR_ID: int) -> None:
         """Check if an EAR is to be skipped."""

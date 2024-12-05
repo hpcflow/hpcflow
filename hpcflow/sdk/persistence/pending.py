@@ -356,13 +356,12 @@ class PendingChanges:
 
     @TimeIt.decorator
     def commit_EAR_skips(self) -> None:
-        # TODO: could be batched up?
-        for run_ID, reason in self.set_EAR_skips.items():
-            self.logger.debug(
-                f"commit: setting run ID {run_ID!r} as skipped (reason: {reason})"
-            )
-            self.store._update_EAR_skip(run_ID, reason)
-            self.store.EAR_cache.pop(run_ID, None)  # invalidate cache
+        updates = self.set_EAR_skips
+        if updates:
+            self.logger.debug(f"commit: setting {len(updates)} run IDs as skipped.")
+            self.store._update_EAR_skip(updates)
+            for run_ID in updates:
+                self.store.EAR_cache.pop(run_ID, None)  # invalidate cache
         self.clear_set_EAR_skips()
 
     @TimeIt.decorator

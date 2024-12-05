@@ -1189,8 +1189,8 @@ class PersistentStore(ABC):
             self.save()
         return dt
 
-    def set_EAR_skip(self, EAR_ID: int, skip_reason: int, save: bool = True) -> None:
-        self._pending.set_EAR_skips[EAR_ID] = skip_reason
+    def set_EAR_skip(self, skip_reasons: Dict[int, int], save: bool = True) -> None:
+        self._pending.set_EAR_skips.update(skip_reasons)
         if save:
             self.save()
 

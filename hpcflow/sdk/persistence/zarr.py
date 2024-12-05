@@ -667,7 +667,6 @@ class ZarrPersistentStore(PersistentStore):
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        encoded_EARs = []
         for EAR_ID_i, (sub_idx_i, cmd_file_ID_i) in sub_data.items():
             new_EAR_i = EARs[EAR_ID_i].update(
                 submission_idx=sub_idx_i,
@@ -718,14 +717,20 @@ class ZarrPersistentStore(PersistentStore):
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
 
-    def _update_EAR_skip(self, EAR_id: int, reason: int):
+    def _update_EAR_skip(self, skips: Dict[int, int]):
+
+        EAR_IDs = list(skips.keys())
+        EARs = self._get_persistent_EARs(EAR_IDs)
+
         arr = self._get_EARs_arr(mode="r+")
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-        EAR_i = EAR_i.update(skip=reason)
-        arr[EAR_id] = EAR_i.encode(attrs, self.ts_fmt)
+        for EAR_ID_i, reason in skips.items():
+            new_EAR_i = EARs[EAR_ID_i].update(skip=reason)
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
 
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
