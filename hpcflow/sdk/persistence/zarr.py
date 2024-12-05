@@ -712,7 +712,7 @@ class ZarrPersistentStore(PersistentStore):
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        for EAR_ID_i, (e_time, e_snap, ext_code, success) in run_ends.items:
+        for EAR_ID_i, (e_time, e_snap, ext_code, success) in run_ends.items():
             new_EAR_i = EARs[EAR_ID_i].update(
                 end_time=e_time,
                 snapshot_end=e_snap,
