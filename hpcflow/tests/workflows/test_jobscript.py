@@ -4,6 +4,7 @@ import pytest
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core import SKIPPED_EXIT_CODE
+from hpcflow.sdk.core.skip_reason import SkipReason
 
 
 @pytest.mark.integration
@@ -109,6 +110,57 @@ def test_skipped_action_same_element(null_config, tmp_path):
 
     assert exit_codes == [1, SKIPPED_EXIT_CODE]
     assert is_skipped == [0, 1]
+
+
+@pytest.mark.integration
+def test_two_skipped_actions_same_element(null_config, tmp_path):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2"), hf.SchemaOutput("p3"), hf.SchemaOutput("p4")],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        command=f"echo <<parameter:p1>>", stdout="<<parameter:p2>>"
+                    ),
+                    hf.Command(command=f"exit 1"),
+                ],
+            ),
+            hf.Action(  # should be skipped
+                commands=[
+                    hf.Command(
+                        command=f"echo <<parameter:p2>>", stdout="<<parameter:p3>>"
+                    ),
+                    hf.Command(command=f"exit 0"),  # exit code should be ignored
+                ],
+            ),
+            hf.Action(  # should be skipped
+                commands=[
+                    hf.Command(
+                        command=f"echo <<parameter:p3>>", stdout="<<parameter:p4>>"
+                    ),
+                    hf.Command(command=f"exit 0"),  # exit code should be ignored
+                ],
+            ),
+        ],
+    )
+    t1 = hf.Task(schema=s1, inputs={"p1": 101})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1], template_name="test_skip_two_actions", path=tmp_path
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    runs = wk.get_EARs_from_IDs([0, 1, 2])
+    exit_codes = [i.exit_code for i in runs]
+    skip_reasons = [i.skip_reason for i in runs]
+
+    assert exit_codes == [1, SKIPPED_EXIT_CODE, SKIPPED_EXIT_CODE]
+    assert skip_reasons == [
+        SkipReason.NOT_SKIPPED,
+        SkipReason.UPSTREAM_FAILURE,
+        SkipReason.UPSTREAM_FAILURE,
+    ]
 
 
 @pytest.mark.integration

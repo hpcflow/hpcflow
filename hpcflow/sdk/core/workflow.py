@@ -2204,65 +2204,39 @@ class Workflow:
         with self._store.cached_load():
             with self.batch_update():
                 success = exit_code == 0  # TODO  more sophisticated success heuristics
-                run_dir = run.get_directory()
-                if run.action.abortable and exit_code == ABORT_EXIT_CODE:
-                    # the point of aborting an EAR is to continue with the workflow:
-                    success = True
+                if not run.skip:
+                    run_dir = run.get_directory()
+                    if run.action.abortable and exit_code == ABORT_EXIT_CODE:
+                        # the point of aborting an EAR is to continue with the workflow:
+                        success = True
 
-                for IFG_i in run.action.input_file_generators:
-                    inp_file = IFG_i.input_file
-                    self.app.logger.debug(
-                        f"Saving EAR input file: {inp_file.label!r} for EAR ID "
-                        f"{run.id_!r}."
-                    )
-                    param_id = run.data_idx[f"input_files.{inp_file.label}"]
-
-                    file_paths = inp_file.value(directory=run_dir)
-                    if not isinstance(file_paths, list):
-                        file_paths = [file_paths]
-
-                    for path_i in file_paths:
-                        self._set_file(
-                            param_id=param_id,
-                            store_contents=True,  # TODO: make optional according to IFG
-                            is_input=False,
-                            path=run_dir.joinpath(path_i),
-                        )
-
-                if run.action.script_data_out_has_files:
-                    run._param_save(block_act_key)
-
-                # Save action-level files: (TODO: refactor with below for OFPs)
-                for save_file_j in run.action.save_files:
-                    self.app.logger.debug(
-                        f"Saving file: {save_file_j.label!r} for EAR ID " f"{run.id_!r}."
-                    )
-                    try:
-                        param_id = run.data_idx[f"output_files.{save_file_j.label}"]
-                    except KeyError:
-                        # We might be saving a file that is not a defined
-                        # "output file"; this will avoid saving a reference in the
-                        # parameter data:
-                        param_id = None
-
-                    file_paths = save_file_j.value(directory=run_dir)
-                    self.app.logger.debug(f"Saving output file paths: {file_paths!r}")
-                    if not isinstance(file_paths, list):
-                        file_paths = [file_paths]
-
-                    for path_i in file_paths:
-                        self._set_file(
-                            param_id=param_id,
-                            store_contents=True,
-                            is_input=False,
-                            path=run_dir.joinpath(path_i),
-                            clean_up=(save_file_j in run.action.clean_up),
-                        )
-
-                for OFP_i in run.action.output_file_parsers:
-                    for save_file_j in OFP_i.save_files:
+                    for IFG_i in run.action.input_file_generators:
+                        inp_file = IFG_i.input_file
                         self.app.logger.debug(
-                            f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
+                            f"Saving EAR input file: {inp_file.label!r} for EAR ID "
+                            f"{run.id_!r}."
+                        )
+                        param_id = run.data_idx[f"input_files.{inp_file.label}"]
+
+                        file_paths = inp_file.value(directory=run_dir)
+                        if not isinstance(file_paths, list):
+                            file_paths = [file_paths]
+
+                        for path_i in file_paths:
+                            self._set_file(
+                                param_id=param_id,
+                                store_contents=True,  # TODO: make optional according to IFG
+                                is_input=False,
+                                path=run_dir.joinpath(path_i),
+                            )
+
+                    if run.action.script_data_out_has_files:
+                        run._param_save(block_act_key)
+
+                    # Save action-level files: (TODO: refactor with below for OFPs)
+                    for save_file_j in run.action.save_files:
+                        self.app.logger.debug(
+                            f"Saving file: {save_file_j.label!r} for EAR ID "
                             f"{run.id_!r}."
                         )
                         try:
@@ -2274,25 +2248,54 @@ class Workflow:
                             param_id = None
 
                         file_paths = save_file_j.value(directory=run_dir)
-                        self.app.logger.debug(
-                            f"Saving EAR output file paths: {file_paths!r}"
-                        )
+                        self.app.logger.debug(f"Saving output file paths: {file_paths!r}")
                         if not isinstance(file_paths, list):
                             file_paths = [file_paths]
 
                         for path_i in file_paths:
                             self._set_file(
                                 param_id=param_id,
-                                store_contents=True,  # TODO: make optional according to OFP
+                                store_contents=True,
                                 is_input=False,
                                 path=run_dir.joinpath(path_i),
-                                clean_up=(save_file_j in OFP_i.clean_up),
+                                clean_up=(save_file_j in run.action.clean_up),
                             )
+
+                    for OFP_i in run.action.output_file_parsers:
+                        for save_file_j in OFP_i.save_files:
+                            self.app.logger.debug(
+                                f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
+                                f"{run.id_!r}."
+                            )
+                            try:
+                                param_id = run.data_idx[
+                                    f"output_files.{save_file_j.label}"
+                                ]
+                            except KeyError:
+                                # We might be saving a file that is not a defined
+                                # "output file"; this will avoid saving a reference in the
+                                # parameter data:
+                                param_id = None
+
+                            file_paths = save_file_j.value(directory=run_dir)
+                            self.app.logger.debug(
+                                f"Saving EAR output file paths: {file_paths!r}"
+                            )
+                            if not isinstance(file_paths, list):
+                                file_paths = [file_paths]
+
+                            for path_i in file_paths:
+                                self._set_file(
+                                    param_id=param_id,
+                                    store_contents=True,  # TODO: make optional according to OFP
+                                    is_input=False,
+                                    path=run_dir.joinpath(path_i),
+                                    clean_up=(save_file_j in OFP_i.clean_up),
+                                )
 
                 if not success and run.skip_reason is not SkipReason.LOOP_TERMINATION:
                     # loop termination skips are already propagated
                     for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
-                        # TODO: this needs to be recursive?
                         self.app.logger.debug(
                             f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
                             f" EAR ID {run.id_!r}, which exited with a non-zero exit code:"
@@ -2324,73 +2327,43 @@ class Workflow:
                 successes = []
                 for block_act_key, run_dat in runs.items():
                     for run, exit_code in run_dat:
-                        run_dir = run.get_directory()
                         success = (
                             exit_code == 0
                         )  # TODO  more sophisticated success heuristics
-                        if run.action.abortable and exit_code == ABORT_EXIT_CODE:
-                            # the point of aborting an EAR is to continue with the workflow:
-                            success = True
+                        if not run.skip:
+                            run_dir = run.get_directory()
+                            if run.action.abortable and exit_code == ABORT_EXIT_CODE:
+                                # the point of aborting an EAR is to continue with the
+                                # workflow:
+                                success = True
 
-                        for IFG_i in run.action.input_file_generators:
-                            inp_file = IFG_i.input_file
-                            self.app.logger.debug(
-                                f"Saving EAR input file: {inp_file.label!r} for EAR ID "
-                                f"{run.id_!r}."
-                            )
-                            param_id = run.data_idx[f"input_files.{inp_file.label}"]
-
-                            file_paths = inp_file.value(directory=run_dir)
-                            if not isinstance(file_paths, list):
-                                file_paths = [file_paths]
-
-                            for path_i in file_paths:
-                                self._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,  # TODO: make optional according to IFG
-                                    is_input=False,
-                                    path=run_dir.joinpath(path_i),
-                                )
-
-                        if run.action.script_data_out_has_files:
-                            run._param_save(block_act_key)
-
-                        # Save action-level files: (TODO: refactor with below for OFPs)
-                        for save_file_j in run.action.save_files:
-                            self.app.logger.debug(
-                                f"Saving file: {save_file_j.label!r} for EAR ID "
-                                f"{run.id_!r}."
-                            )
-                            try:
-                                param_id = run.data_idx[
-                                    f"output_files.{save_file_j.label}"
-                                ]
-                            except KeyError:
-                                # We might be saving a file that is not a defined
-                                # "output file"; this will avoid saving a reference in the
-                                # parameter data:
-                                param_id = None
-
-                            file_paths = save_file_j.value(directory=run_dir)
-                            self.app.logger.debug(
-                                f"Saving output file paths: {file_paths!r}"
-                            )
-                            if not isinstance(file_paths, list):
-                                file_paths = [file_paths]
-
-                            for path_i in file_paths:
-                                self._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,
-                                    is_input=False,
-                                    path=run_dir.joinpath(path_i),
-                                    clean_up=(save_file_j in run.action.clean_up),
-                                )
-
-                        for OFP_i in run.action.output_file_parsers:
-                            for save_file_j in OFP_i.save_files:
+                            for IFG_i in run.action.input_file_generators:
+                                inp_file = IFG_i.input_file
                                 self.app.logger.debug(
-                                    f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
+                                    f"Saving EAR input file: {inp_file.label!r} for EAR "
+                                    f"ID {run.id_!r}."
+                                )
+                                param_id = run.data_idx[f"input_files.{inp_file.label}"]
+
+                                file_paths = inp_file.value(directory=run_dir)
+                                if not isinstance(file_paths, list):
+                                    file_paths = [file_paths]
+
+                                for path_i in file_paths:
+                                    self._set_file(
+                                        param_id=param_id,
+                                        store_contents=True,  # TODO: make optional according to IFG
+                                        is_input=False,
+                                        path=run_dir.joinpath(path_i),
+                                    )
+
+                            if run.action.script_data_out_has_files:
+                                run._param_save(block_act_key)
+
+                            # Save action-level files: (TODO: refactor with below for OFPs)
+                            for save_file_j in run.action.save_files:
+                                self.app.logger.debug(
+                                    f"Saving file: {save_file_j.label!r} for EAR ID "
                                     f"{run.id_!r}."
                                 )
                                 try:
@@ -2399,13 +2372,13 @@ class Workflow:
                                     ]
                                 except KeyError:
                                     # We might be saving a file that is not a defined
-                                    # "output file"; this will avoid saving a reference in the
-                                    # parameter data:
+                                    # "output file"; this will avoid saving a reference in
+                                    # the parameter data:
                                     param_id = None
 
                                 file_paths = save_file_j.value(directory=run_dir)
                                 self.app.logger.debug(
-                                    f"Saving EAR output file paths: {file_paths!r}"
+                                    f"Saving output file paths: {file_paths!r}"
                                 )
                                 if not isinstance(file_paths, list):
                                     file_paths = [file_paths]
@@ -2413,11 +2386,43 @@ class Workflow:
                                 for path_i in file_paths:
                                     self._set_file(
                                         param_id=param_id,
-                                        store_contents=True,  # TODO: make optional according to OFP
+                                        store_contents=True,
                                         is_input=False,
                                         path=run_dir.joinpath(path_i),
-                                        clean_up=(save_file_j in OFP_i.clean_up),
+                                        clean_up=(save_file_j in run.action.clean_up),
                                     )
+
+                            for OFP_i in run.action.output_file_parsers:
+                                for save_file_j in OFP_i.save_files:
+                                    self.app.logger.debug(
+                                        f"Saving EAR output file: {save_file_j.label!r} "
+                                        f"for EAR ID {run.id_!r}."
+                                    )
+                                    try:
+                                        param_id = run.data_idx[
+                                            f"output_files.{save_file_j.label}"
+                                        ]
+                                    except KeyError:
+                                        # We might be saving a file that is not a defined
+                                        # "output file"; this will avoid saving a
+                                        # reference in the parameter data:
+                                        param_id = None
+
+                                    file_paths = save_file_j.value(directory=run_dir)
+                                    self.app.logger.debug(
+                                        f"Saving EAR output file paths: {file_paths!r}"
+                                    )
+                                    if not isinstance(file_paths, list):
+                                        file_paths = [file_paths]
+
+                                    for path_i in file_paths:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,  # TODO: make optional according to OFP
+                                            is_input=False,
+                                            path=run_dir.joinpath(path_i),
+                                            clean_up=(save_file_j in OFP_i.clean_up),
+                                        )
 
                         if (
                             not success
@@ -2427,9 +2432,9 @@ class Workflow:
                             for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
                                 # TODO: this needs to be recursive?
                                 self.app.logger.debug(
-                                    f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
-                                    f" EAR ID {run.id_!r}, which exited with a non-zero exit code:"
-                                    f" {exit_code!r}."
+                                    f"Setting EAR ID {EAR_dep_ID!r} to skip because it "
+                                    f"depends on EAR ID {run.id_!r}, which exited with a "
+                                    f"non-zero exit code: {exit_code!r}."
                                 )
                                 self._store.set_EAR_skip(
                                     {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}

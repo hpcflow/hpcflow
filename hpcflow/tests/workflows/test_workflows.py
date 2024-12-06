@@ -4,6 +4,7 @@ import time
 import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.actions import EARStatus
+from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     P1_sub_parameter_cls as P1_sub,
@@ -419,3 +420,81 @@ def test_loop_termination_multi_element(null_config, tmp_path):
     assert elem_1.iterations[0].action_runs[0].status is EARStatus.success
     assert elem_1.iterations[1].action_runs[0].status is EARStatus.success
     assert elem_1.iterations[2].action_runs[0].status is EARStatus.skipped
+
+
+@pytest.mark.integration
+def test_input_file_generator_no_errors_on_skip(null_config, tmp_path):
+    """i.e. we don't try to save a file that hasn't been created because the run was
+    skipped"""
+
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+
+    if os.name == "nt":
+        cmds = (
+            "Write-Output ((<<parameter:p0>> + 1))",
+            "Get-Content <<file:my_input_file>>",
+        )
+    else:
+        cmds = ('echo "$((<<parameter:p0>> + 1))"', "cat <<file:my_input_file>>")
+
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p0"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command(command=cmds[0], stdout="<<parameter:p1>>")],
+            )
+        ],
+    )
+
+    s2 = hf.TaskSchema(
+        objective="t2",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p0"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command(cmds[1], stdout="<<int(parameter:p0)>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="<<script:input_file_generator_basic.py>>",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    p0_val = 100
+    t1 = hf.Task(schema=s1, inputs={"p0": p0_val})
+    t2 = hf.Task(schema=s2)
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1, t2],
+        loops=[
+            hf.Loop(
+                tasks=[0, 1],
+                num_iterations=2,
+                termination={"path": "outputs.p0", "condition": {"value.equal_to": 101}},
+            )
+        ],
+        template_name="input_file_generator_skip_test",
+        path=tmp_path,
+    )
+
+    wk.submit(wait=True, add_to_known=False)
+
+    # check correct runs are set to skip due to loop termination:
+    runs = wk.get_all_EARs()
+    assert runs[0].skip_reason is SkipReason.NOT_SKIPPED
+    assert runs[1].skip_reason is SkipReason.NOT_SKIPPED
+    assert runs[2].skip_reason is SkipReason.NOT_SKIPPED
+    assert runs[3].skip_reason is SkipReason.LOOP_TERMINATION
+    assert runs[4].skip_reason is SkipReason.LOOP_TERMINATION
+    assert runs[5].skip_reason is SkipReason.LOOP_TERMINATION
+
+    # run 4 is the input file generator of the second iteration, which should be skipped
+    # check no error from trying to save the input file:
+    std_stream_path = runs[4].get_app_std_path()
+    if std_stream_path.is_file():
+        assert "FileNotFoundError" not in std_stream_path.read_text()

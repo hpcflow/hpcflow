@@ -129,7 +129,11 @@ class Executor:
         try:
             process = await asyncio.create_subprocess_exec(*self.cmd, env=env)
             self.app.logger.info(f"_subprocess_runner: started subprocess: {process=!r}.")
-            self.return_code = await process.wait()
+            ret_code = await process.wait()
+            self.app.logger.info(
+                f"_subprocess_runner: subprocess finished with return code: {ret_code!r}."
+            )
+            self.return_code = ret_code
 
         except asyncio.CancelledError:
             process.kill()
