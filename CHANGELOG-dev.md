@@ -1,4 +1,64 @@
 
+<a name="v0.2.0a186"></a>
+## [v0.2.0a186](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a185...v0.2.0a186) - 2024.12.06
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a185"></a>
+## [v0.2.0a185](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a184...v0.2.0a185) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* missing GHA updates!
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a184"></a>
+## [v0.2.0a184](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a183...v0.2.0a184) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* fix release workflow
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a183"></a>
+## [v0.2.0a183](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* try to fix compression of centos pyinstaller directory build
+
+
+<a name="v0.2.0a182"></a>
+## [v0.2.0a182](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
+
+### 🐛 Bug Fixes
+
+* sync again with hpcflow-shared-docs
+* sync with hpcflow-shared-docs
+* sync with python-release-workflow repo
+* release workflow pyinstaller build on CentOS
+* pyinstaller build on CentOS
+* fix pytest call in centos integration tests
+* fix pytest call in centos integration tests
+* run centOS integration tests in a docker run step rather than using a job `container`
+* run centOS unit tests in a docker run step rather than using a job `container`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a181"></a>
 ## [v0.2.0a181](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
 

@@ -204,10 +204,13 @@ class Environment(JSONLike):
         setup: Sequence[str] | None = None,
         specifiers: Mapping[str, str] | None = None,
         executables: ExecutablesList | Sequence[Executable] | None = None,
+        doc: str = "",
         _hash_value: str | None = None,
     ):
         #: The name of the environment.
         self.name = name
+        #: Documentation for the environment.
+        self.doc = doc
         #: Dictionary of attributes that may be used to supply addional key/value pairs
         #: to look up an environment by.
         self.specifiers: Mapping[str, str] = specifiers or {}
@@ -243,3 +246,11 @@ class Environment(JSONLike):
     def _validate(self):
         if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)
+
+    @property
+    def documentation(self) -> str:
+        if self.doc:
+            import markupsafe
+
+            return markupsafe.Markup(self.doc)
+        return repr(self)
