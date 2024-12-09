@@ -1858,8 +1858,8 @@ class Action(JSONLike):
                     environments=[self.get_input_file_generator_action_env(ifg)],
                     rules=main_rules + ifg.get_action_rules(),
                     script=ifg.script,
-                    script_data_in=self._process_script_data_in("direct"),
-                    script_data_out=self._process_script_data_out("direct"),
+                    script_data_in="direct",
+                    script_data_out="direct",
                     script_exe=script_exe,
                     script_pass_env_spec=ifg.script_pass_env_spec,
                     abortable=ifg.abortable,
@@ -1868,6 +1868,7 @@ class Action(JSONLike):
                 act_i._task_schema = self.task_schema
                 if ifg.input_file not in inp_files:
                     inp_files.append(ifg.input_file)
+                act_i.process_script_data_formats()
                 act_i._from_expand = True
                 inp_acts.append(act_i)
 
@@ -1883,8 +1884,8 @@ class Action(JSONLike):
                     environments=[self.get_output_file_parser_action_env(ofp)],
                     rules=list(self.rules) + ofp.get_action_rules(),
                     script=ofp.script,
-                    script_data_in=self._process_script_data_in("direct"),
-                    script_data_out=self._process_script_data_out("direct"),
+                    script_data_in="direct",
+                    script_data_out="direct",
                     script_exe=script_exe,
                     script_pass_env_spec=ofp.script_pass_env_spec,
                     abortable=ofp.abortable,
@@ -1894,6 +1895,7 @@ class Action(JSONLike):
                 for j in ofp.output_files:
                     if j not in out_files:
                         out_files.append(j)
+                act_i.process_script_data_formats()
                 act_i._from_expand = True
                 out_acts.append(act_i)
 
