@@ -393,9 +393,6 @@ def test_get_iteration_task_pathway_nested_loops_multi_iter_add_outer_iter(
     ]
 
 
-@pytest.mark.skip(
-    reason="second set of asserts fail; need to re-source inputs on adding iterations."
-)
 def test_get_iteration_task_pathway_unconnected_loops(null_config, tmp_path):
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -444,8 +441,6 @@ def test_get_iteration_task_pathway_unconnected_loops(null_config, tmp_path):
     assert pathway[5][2][0]["inputs.p1"] == pathway[4][2][0]["outputs.p1"]
     assert pathway[6][2][0]["inputs.p1"] == pathway[5][2][0]["outputs.p1"]
     assert pathway[7][2][0]["inputs.p1"] == pathway[6][2][0]["outputs.p1"]
-
-    # FAILS currently:
     assert pathway[4][2][0]["inputs.p1"] == pathway[3][2][0]["outputs.p1"]
 
 
