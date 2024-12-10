@@ -160,6 +160,15 @@ submit_status_opt = click.option(
     help="If True, display a live status to track submission progress.",
     default=True,
 )
+force_arr_opt = click.option(
+    "--force-array",
+    help=(
+        "Used to force the use of job arrays, even if the scheduler does not support it. "
+        "This is provided for testing purposes only."
+    ),
+    is_flag=True,
+    default=False,
+)
 make_status_opt = click.option(
     "--status/--no-status",
     help="If True, display a live status to track workflow creation progress.",

@@ -29,6 +29,7 @@ from hpcflow.sdk.cli_common import (
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    force_arr_opt,
     make_status_opt,
     zip_path_opt,
     zip_overwrite_opt,
@@ -402,6 +403,27 @@ def _make_workflow_CLI(app):
         )
         if print_idx:
             click.echo(out)
+
+    @workflow.command(name="add-submission")
+    @js_parallelism_option
+    @tasks_opt
+    @force_arr_opt
+    @submit_status_opt
+    @click.pass_context
+    def add_submission(
+        ctx,
+        js_parallelism=None,
+        tasks=None,
+        force_array=False,
+        status=True,
+    ):
+        """Add a new submission to the workflow, but do not submit."""
+        ctx.obj["workflow"].add_submission(
+            JS_parallelism=js_parallelism,
+            tasks=tasks,
+            force_array=force_array,
+            status=status,
+        )
 
     @workflow.command(name="wait")
     @click.option(

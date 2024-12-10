@@ -2939,6 +2939,7 @@ class Workflow:
         tasks: Optional[List[int]] = None,
         JS_parallelism: Optional[Union[bool, Literal["direct", "scheduled"]]] = None,
         force_array: Optional[bool] = False,
+        status: Optional[bool] = True,
     ) -> app.Submission:
         """Add a new submission.
 
@@ -2948,9 +2949,19 @@ class Workflow:
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
         """
-        with self._store.cached_load():
-            with self.batch_update():
-                return self._add_submission(tasks, JS_parallelism, force_array)
+        if status:
+            console = rich.console.Console()
+            status = console.status("")
+            status.start()
+        try:
+            with self._store.cached_load():
+                with self.batch_update():
+                    return self._add_submission(
+                        tasks, JS_parallelism, force_array, status
+                    )
+        finally:
+            if status:
+                status.stop()
 
     @TimeIt.decorator
     @load_workflow_config
