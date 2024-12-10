@@ -487,10 +487,12 @@ class ElementActionRun:
         return self._output_files
 
     @property
+    @TimeIt.decorator
     def env_spec(self) -> Dict[str, Any]:
         return self.resources.environments[self.action.get_environment_name()]
 
     @property
+    @TimeIt.decorator
     def env_spec_hashable(self) -> Tuple:
         return self.action.env_spec_to_hashable(self.env_spec)
 

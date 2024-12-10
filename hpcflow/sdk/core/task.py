@@ -2805,6 +2805,32 @@ class WorkflowTask:
             return default
 
         relevant_data_idx = {k: v for k, v in data_index.items() if k in relevant_paths}
+
+        cache = self.workflow._merged_parameters_cache
+        use_cache = (
+            self.workflow._use_merged_parameters_cache
+            and raise_on_missing is False
+            and raise_on_unset is False
+            and default is None  # cannot cache on default value, may not be hashable
+        )
+        add_to_cache = False
+        cache_key = None
+        if use_cache:
+            # generate the key:
+            dat_idx_cache = []
+            for k, v in sorted(relevant_data_idx.items()):
+                dat_idx_cache.append((k, tuple(v) if isinstance(v, list) else v))
+            cache_key = (path, tuple(dat_idx_cache))
+
+            # check for cache hit:
+            if cache_key in cache:
+                self.app.logger.debug(
+                    f"_get_merged_parameter_data: cache hit with key: {cache_key}"
+                )
+                return cache[cache_key]
+            else:
+                add_to_cache = True
+
         PV_cls_paths = list(relevant_paths.keys()) + ([path] if path else [])
         PV_classes = self._paths_to_PV_classes(PV_cls_paths)
         relevant_data = _get_relevant_data(relevant_data_idx, raise_on_unset, path)
@@ -2863,6 +2889,12 @@ class WorkflowTask:
             if raise_on_missing:
                 raise missing_err
             current_val = default
+
+        if add_to_cache:
+            self.app.logger.debug(
+                f"_get_merged_parameter_data: adding to cache with key: {cache_key!r}"
+            )
+            cache[cache_key] = current_val
 
         return current_val
 

@@ -711,6 +711,9 @@ class Workflow:
         self._store = store_cls(self.app, self, self.path, fs)
         self._in_batch_mode = False  # flag to track when processing batch updates
 
+        self._use_merged_parameters_cache = False
+        self._merged_parameters_cache = {}
+
         # store indices of updates during batch update, so we can revert on failure:
         self._pending = self._get_empty_pending()
 
@@ -1753,6 +1756,20 @@ class Workflow:
 
                 self.app.persistence_logger.info("exiting batch update")
                 self._in_batch_mode = False
+
+    @contextmanager
+    def cached_merged_parameters(self):
+        if self._use_merged_parameters_cache:
+            yield
+        else:
+            try:
+                self.app.logger.debug("entering merged-parameters cache.")
+                self._use_merged_parameters_cache = True
+                yield
+            finally:
+                self.app.logger.debug("exiting merged-parameters cache.")
+                self._use_merged_parameters_cache = False
+                self._merged_parameters_cache = {}  # reset the cache
 
     @classmethod
     def temporary_rename(cls, path: str, fs) -> List[str]:
@@ -3067,9 +3084,10 @@ class Workflow:
 
         """
         with self.app.config.cached_config():
-            js, element_deps = self._resolve_singular_jobscripts(
-                cache, tasks, force_array
-            )
+            with self.cached_merged_parameters():
+                js, element_deps = self._resolve_singular_jobscripts(
+                    cache, tasks, force_array
+                )
 
             js_deps = resolve_jobscript_dependencies(js, element_deps)
 

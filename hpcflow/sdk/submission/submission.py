@@ -101,14 +101,17 @@ class Submission(JSONLike):
 
         # map required environments and executable labels to job script indices:
         req_envs = defaultdict(lambda: defaultdict(set))
-        for js_idx, js_i in enumerate(self.jobscripts):
-            for run in js_i.all_EARs:
-                env_spec_h = run.env_spec_hashable
-                for exec_label_j in run.action.get_required_executables():
-                    req_envs[env_spec_h][exec_label_j].add(js_idx)
-                # add any environment for which an executable was not required:
-                if env_spec_h not in req_envs:
-                    req_envs[env_spec_h] = defaultdict(set)
+        with self.workflow.cached_merged_parameters():
+            # using the cache (for `run.env_spec_hashable` -> `run.resources`) should
+            # significantly speed up this loop, unless a large resources sequence is used:
+            for js_idx, all_EARs_i in enumerate(self.all_EARs_by_jobscript):
+                for run in all_EARs_i:
+                    env_spec_h = run.env_spec_hashable
+                    for exec_label_j in run.action.get_required_executables():
+                        req_envs[env_spec_h][exec_label_j].add(js_idx)
+                    # add any environment for which an executable was not required:
+                    if env_spec_h not in req_envs:
+                        req_envs[env_spec_h] = defaultdict(set)
 
         # check these envs/execs exist in app data:
         envs = []
@@ -372,14 +375,17 @@ class Submission(JSONLike):
         return self.get_commands_path(self.workflow.submissions_path, self.index)
 
     @property
+    @TimeIt.decorator
     def all_EAR_IDs(self):
         return [i for js in self.jobscripts for i in js.all_EAR_IDs]
 
     @property
+    @TimeIt.decorator
     def all_EARs(self):
         return [i for js in self.jobscripts for i in js.all_EARs]
 
     @property
+    @TimeIt.decorator
     def all_EARs_by_jobscript(self) -> List:
         ids = [i.all_EAR_IDs for i in self.jobscripts]
         all_EARs = {i.id_: i for i in self.workflow.get_EARs_from_IDs(self.all_EAR_IDs)}
@@ -444,82 +450,83 @@ class Submission(JSONLike):
 
         all_runs = cache.runs
 
-        for js in self.jobscripts:
-            js_idx = js.index
-            js_run_0 = all_runs[0]
-
-            if js.resources.combine_scripts:
-                # this will be one or more snippet scripts that needs to be combined into
-                # one script for the whole jobscript
-
-                # need to write one script + one commands file for the whole jobscript
-
-                # env_spec will be the same for all runs of this jobscript:
-                combined_env_specs[js_idx] = js_run_0.env_spec
-                combined_actions[js_idx] = [
-                    [j[0:2] for j in i.task_actions] for i in js.blocks
-                ]
-
-            for idx, run_id in enumerate(js.all_EAR_IDs):
-                run = all_runs[run_id]
-
-                run_indices[run_idx] = [
-                    run.task.insert_ID,
-                    run.element.id_,
-                    run.element_iteration.id_,
-                    run.id_,
-                    run.element.index,
-                    run.element_iteration.index,
-                    run.element_action.action_idx,
-                    run.index,
-                    int(run.action.requires_dir),
-                ]
-                run_idx += 1
-
-                if status and run_idx % 10 == 0:
-                    status.update(
-                        f"Adding new submission: processing run {run_idx}/{num_runs_tot}."
-                    )
+        with self.workflow.cached_merged_parameters():
+            for js in self.jobscripts:
+                js_idx = js.index
+                js_run_0 = all_runs[0]
 
                 if js.resources.combine_scripts:
-                    if idx == 0:
-                        run.try_write_commands(
-                            environments=self.environments,
-                            jobscript=js,
-                            raise_on_unset=True,
+                    # this will be one or more snippet scripts that needs to be combined into
+                    # one script for the whole jobscript
+
+                    # need to write one script + one commands file for the whole jobscript
+
+                    # env_spec will be the same for all runs of this jobscript:
+                    combined_env_specs[js_idx] = js_run_0.env_spec
+                    combined_actions[js_idx] = [
+                        [j[0:2] for j in i.task_actions] for i in js.blocks
+                    ]
+
+                for idx, run_id in enumerate(js.all_EAR_IDs):
+                    run = all_runs[run_id]
+
+                    run_indices[run_idx] = [
+                        run.task.insert_ID,
+                        run.element.id_,
+                        run.element_iteration.id_,
+                        run.id_,
+                        run.element.index,
+                        run.element_iteration.index,
+                        run.element_action.action_idx,
+                        run.index,
+                        int(run.action.requires_dir),
+                    ]
+                    run_idx += 1
+
+                    if status and run_idx % 10 == 0:
+                        status.update(
+                            f"Adding new submission: processing run {run_idx}/{num_runs_tot}."
                         )
-                    run_cmd_file_names[run.id_] = None
 
-                else:
-                    if run.is_snippet_script:
-                        actions_by_schema[run.action.task_schema.name][
-                            run.element_action.action_idx
-                        ].add(run.env_spec_hashable)
-
-                    if run.action.commands:
-                        hash_i = run.get_commands_file_hash()
-                        # TODO: could further reduce number of files in the case the data
-                        # indices hash is the same: if commands objects are the same and
-                        # environment objects are the same, then the files will be the
-                        # same, even if runs come from different task schemas/actions...
-                        if hash_i not in cmd_hashes:
-                            try:
-                                run.try_write_commands(
-                                    environments=self.environments,
-                                    jobscript=js,
-                                )
-                            except OutputFileParserNoOutputError:
-                                # no commands to write, might be used just for saving
-                                # files
-                                run_cmd_file_names[run.id_] = None
-                        cmd_hashes[hash_i].add(run.id_)
-                    else:
+                    if js.resources.combine_scripts:
+                        if idx == 0:
+                            run.try_write_commands(
+                                environments=self.environments,
+                                jobscript=js,
+                                raise_on_unset=True,
+                            )
                         run_cmd_file_names[run.id_] = None
 
-                if run.action.requires_dir:
-                    for name, path in run.get("input_files", {}).items():
-                        if path:
-                            run_inp_files[run_idx].append(path)
+                    else:
+                        if run.is_snippet_script:
+                            actions_by_schema[run.action.task_schema.name][
+                                run.element_action.action_idx
+                            ].add(run.env_spec_hashable)
+
+                        if run.action.commands:
+                            hash_i = run.get_commands_file_hash()
+                            # TODO: could further reduce number of files in the case the data
+                            # indices hash is the same: if commands objects are the same and
+                            # environment objects are the same, then the files will be the
+                            # same, even if runs come from different task schemas/actions...
+                            if hash_i not in cmd_hashes:
+                                try:
+                                    run.try_write_commands(
+                                        environments=self.environments,
+                                        jobscript=js,
+                                    )
+                                except OutputFileParserNoOutputError:
+                                    # no commands to write, might be used just for saving
+                                    # files
+                                    run_cmd_file_names[run.id_] = None
+                            cmd_hashes[hash_i].add(run.id_)
+                        else:
+                            run_cmd_file_names[run.id_] = None
+
+                    if run.action.requires_dir:
+                        for name, path in run.get("input_files", {}).items():
+                            if path:
+                                run_inp_files[run_idx].append(path)
 
         for run_ids in cmd_hashes.values():
             run_ids_srt = sorted(run_ids)
