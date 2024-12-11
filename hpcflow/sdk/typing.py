@@ -136,7 +136,9 @@ BasicTemplateComponents: TypeAlias = "dict[str, list[dict]]"
 DataIndex: TypeAlias = "dict[str, int | list[int]]"
 """
 The type of indices to data. These are *normally* dictionaries of integers,
-but can have leaves being lists of integers when dealing with iterations.
+but can have leaves being lists of integers when dealing with element groups
+(i.e., when a downstream element uses outputs from multiple upstream elements,
+rather than just a single upstream element).
 """
 
 
