@@ -586,9 +586,6 @@ class Jobscript(JSONLike):
         scheduler_job_ID: Optional[str] = None,
         process_ID: Optional[int] = None,
         version_info: Optional[Tuple[str]] = None,
-        os_name: Optional[str] = None,
-        shell_name: Optional[str] = None,
-        scheduler_name: Optional[str] = None,
     ):
 
         if not isinstance(blocks[0], JobscriptBlock):
@@ -608,12 +605,6 @@ class Jobscript(JSONLike):
         self._scheduler_job_ID = scheduler_job_ID
         self._process_ID = process_ID
         self._version_info = version_info
-
-        # assigned as submit-time:
-        # TODO: these should now always be set in `resources` so shouldn't need these:
-        self._os_name = os_name
-        self._shell_name = shell_name
-        self._scheduler_name = scheduler_name
 
         self._submission = None  # assigned by parent Submission
 
@@ -764,15 +755,15 @@ class Jobscript(JSONLike):
 
     @property
     def os_name(self) -> Union[str, None]:
-        return self._os_name or self.resources.os_name
+        return self.resources.os_name
 
     @property
     def shell_name(self) -> Union[str, None]:
-        return self._shell_name or self.resources.shell
+        return self.resources.shell
 
     @property
     def scheduler_name(self) -> Union[str, None]:
-        return self._scheduler_name or self.resources.scheduler
+        return self.resources.scheduler
 
     def _get_submission_os_args(self):
         return {"linux_release_file": self.app.config.linux_release_file}
@@ -973,34 +964,6 @@ class Jobscript(JSONLike):
             js_idx=self.index,
             version_info=version_info,
         )
-
-    def _set_os_name(self) -> None:
-        """Set the OS name for this jobscript. This is invoked at submit-time."""
-        self._os_name = self.resources.os_name
-        self.workflow._store.set_jobscript_metadata(
-            sub_idx=self.submission.index,
-            js_idx=self.index,
-            os_name=self._os_name,
-        )
-
-    def _set_shell_name(self) -> None:
-        """Set the shell name for this jobscript. This is invoked at submit-time."""
-        self._shell_name = self.resources.shell
-        self.workflow._store.set_jobscript_metadata(
-            sub_idx=self.submission.index,
-            js_idx=self.index,
-            shell_name=self._shell_name,
-        )
-
-    def _set_scheduler_name(self) -> None:
-        """Set the scheduler name for this jobscript. This is invoked at submit-time."""
-        self._scheduler_name = self.resources.scheduler
-        if self._scheduler_name:
-            self.workflow._store.set_jobscript_metadata(
-                sub_idx=self.submission.index,
-                js_idx=self.index,
-                scheduler_name=self._scheduler_name,
-            )
 
     @TimeIt.decorator
     def compose_jobscript(

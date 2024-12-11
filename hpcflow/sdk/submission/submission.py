@@ -842,12 +842,6 @@ class Submission(JSONLike):
             self._JS_parallelism = "scheduled" if supports_JS_para else False
             # TODO: is this value saved?
 
-        # set os_name and shell_name for each jobscript:
-        for js in self.jobscripts:
-            js._set_os_name()
-            js._set_shell_name()
-            js._set_scheduler_name()
-
         outstanding = self.outstanding_jobscripts
 
         # get scheduler, shell and OS version information (also an opportunity to fail
