@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 import copy
+import sys
 from types import SimpleNamespace
 from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
 from typing_extensions import override
@@ -227,7 +228,10 @@ class DotAccessAttributeError(AttributeError):
             msg += f"Available {obj._descriptor}s are: {', '.join(obj_list)}."
         else:
             msg += "The object list is empty."
-        super().__init__(msg, name=name, obj=obj)
+        if sys.version_info >= (3, 10):
+            super().__init__(msg, name=name, obj=obj)
+        else:
+            super().__init__(msg)
 
 
 class DotAccessObjectList(ObjectList[T], Generic[T]):
