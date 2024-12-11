@@ -425,14 +425,14 @@ class PendingChanges:
     @TimeIt.decorator
     def commit_loop_indices(self) -> None:
         """Make pending update to element iteration loop indices persistent."""
-        # TODO: batch up
-        for iter_ID, loop_idx in self.update_loop_indices.items():
+        updates = self.update_loop_indices
+        if updates:
             self.logger.debug(
-                f"commit: updating loop indices of iteration ID {iter_ID!r} with "
-                f"{loop_idx!r}."
+                f"commit: updating loop indices of {len(updates)} iteration(s)."
             )
-            self.store._update_loop_index(iter_ID, loop_idx)
-            self.store.element_iter_cache.pop(iter_ID, None)  # invalidate cache
+            self.store._update_loop_index(updates)
+            for iter_ID in updates:
+                self.store.element_iter_cache.pop(iter_ID, None)  # invalidate cache
         self.clear_update_loop_indices()
 
     @TimeIt.decorator

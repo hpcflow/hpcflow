@@ -596,13 +596,19 @@ class ZarrPersistentStore(PersistentStore):
                 for dt_str, parts_j in sub_i_parts.items():
                     attrs["submissions"][sub_idx]["submission_parts"][dt_str] = parts_j
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: Dict):
+    def _update_loop_index(self, loop_indices: Dict[int, Dict[str, int]]):
+
         arr = self._get_iters_arr(mode="r+")
         attrs = arr.attrs.asdict()
-        iter_dat = arr[iter_ID]
-        store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
-        store_iter = store_iter.update_loop_idx(loop_idx)
-        arr[iter_ID] = store_iter.encode(attrs)
+        iter_IDs = list(loop_indices.keys())
+        iter_dat = arr.get_coordinate_selection(iter_IDs)
+        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
+
+        for idx, iter_ID_i in enumerate(iter_IDs):
+            new_iter_i = store_iters[idx].update_loop_idx(loop_indices[iter_ID_i])
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[iter_ID_i] = new_iter_i.encode(attrs)
 
     def _update_loop_num_iters(self, index: int, num_iters: int):
         with self.using_resource("attrs", action="update") as attrs:

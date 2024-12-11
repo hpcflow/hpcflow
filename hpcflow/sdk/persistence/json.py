@@ -223,9 +223,10 @@ class JSONPersistentStore(PersistentStore):
                 for dt_str, parts_j in sub_i_parts.items():
                     subs_res[sub_idx]["submission_parts"][dt_str] = parts_j
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: Dict):
+    def _update_loop_index(self, loop_indices: Dict[int, Dict[str, int]]):
         with self.using_resource("metadata", action="update") as md:
-            md["iters"][iter_ID]["loop_idx"].update(loop_idx)
+            for iter_ID, loop_idx in loop_indices.items():
+                md["iters"][iter_ID]["loop_idx"].update(loop_idx)
 
     def _update_loop_num_iters(self, index: int, num_iters: int):
         with self.using_resource("metadata", action="update") as md:
