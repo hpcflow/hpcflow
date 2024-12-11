@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .task_schema import TaskSchema
     from .types import Resources
     from .workflow import Workflow, WorkflowTemplate
+    from ..app import BaseApp
     from ..typing import PathLike
 # mypy: disable-error-code="no-untyped-def"
 
@@ -224,21 +225,28 @@ def make_workflow(
 
 
 def make_test_data_YAML_workflow(
-    workflow_name: str, path: PathLike, **kwargs
+    workflow_name: str,
+    path: PathLike,
+    app: BaseApp | None = None,
+    pkg: str = "hpcflow.tests.data",
+    **kwargs
 ) -> Workflow:
     """Generate a workflow whose template file is defined in the test data directory."""
-    pkg = "hpcflow.tests.data"
+    app = app or hf
     with get_file_context(pkg, workflow_name) as file_path:
-        return hf.Workflow.from_YAML_file(YAML_path=file_path, path=path, **kwargs)
+        return app.Workflow.from_YAML_file(YAML_path=file_path, path=path, **kwargs)
 
 
 def make_test_data_YAML_workflow_template(
-    workflow_name: str, **kwargs
+    workflow_name: str,
+    app: BaseApp | None = None,
+    pkg: str = "hpcflow.tests.data",
+    **kwargs
 ) -> WorkflowTemplate:
     """Generate a workflow template whose file is defined in the test data directory."""
-    pkg = "hpcflow.tests.data"
+    app = app or hf
     with get_file_context(pkg, workflow_name) as file_path:
-        return hf.WorkflowTemplate.from_file(path=file_path, **kwargs)
+        return app.WorkflowTemplate.from_file(path=file_path, **kwargs)
 
 
 @dataclass

@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a187"></a>
+## [v0.2.0a187](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a186...v0.2.0a187) - 2024.12.08
+
+### ♻ Code Refactoring
+
+* make some util funcs reusable in MatFlow
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a186"></a>
 ## [v0.2.0a186](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a185...v0.2.0a186) - 2024.12.06
 
