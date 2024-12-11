@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, InitVar
 from pathlib import Path
 from textwrap import dedent
 from typing import cast, overload, TYPE_CHECKING
-from typing_extensions import override
+from typing_extensions import Final, override
 
 from hpcflow.sdk.typing import hydrate, ParamSource
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
@@ -41,19 +41,22 @@ class FileSpec(JSONLike):
     )
 
     #: Label for this file specification.
-    label: str
+    label: Final[str]
     #: The name of the file.
-    name: FileNameSpec
+    name: Final[FileNameSpec]
     #: Documentation for the file specification.
-    doc: str = ""
+    doc: Final[str]
     _hash_value: str | None = field(default=None, repr=False)
 
     def __init__(
-        self, label: str, name: str | FileNameSpec, _hash_value: str | None = None
+        self, label: str, name: str | FileNameSpec, doc: str = "",
+        _hash_value: str | None = None
     ) -> None:
         self.label = label
         self.name = self._app.FileNameSpec(name) if isinstance(name, str) else name
+        self.doc = doc
         self._hash_value = _hash_value
+        self.__hash = hash((label, self.name))
 
     def value(self, directory: str = ".") -> str:
         """
@@ -65,6 +68,9 @@ class FileSpec(JSONLike):
         if not isinstance(other, self.__class__):
             return False
         return self.label == other.label and self.name == other.name
+
+    def __hash__(self) -> int:
+        return self.__hash
 
     @property
     def stem(self) -> FileNameStem:
@@ -112,11 +118,12 @@ class FileNameSpec(JSONLike):
         self, name: str, args: list | None = None, is_regex: bool = False
     ) -> None:
         #: The name or pattern.
-        self.name = name
+        self.name: Final[str] = name
         #: Positional arguments to use when formatting the name.
-        self.args = args
+        self.args: Final[list] = args or []
         #: Whether the name is used as a regex to search for actual files.
-        self.is_regex = is_regex
+        self.is_regex: Final[bool] = is_regex
+        self.__hash = hash((name, args, is_regex))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
@@ -126,6 +133,9 @@ class FileNameSpec(JSONLike):
             and self.args == other.args
             and self.is_regex == other.is_regex
         )
+
+    def __hash__(self) -> int:
+        return self.__hash
 
     @property
     def stem(self) -> FileNameStem:
@@ -151,7 +161,7 @@ class FileNameSpec(JSONLike):
         directory: str
             Where to resolve values with respect to.
         """
-        format_args = [arg.value(directory) for arg in self.args or ()]
+        format_args = [arg.value(directory) for arg in self.args]
         value = self.name.format(*format_args)
         if self.is_regex:
             return search_dir_files_by_regex(value, directory=directory)
