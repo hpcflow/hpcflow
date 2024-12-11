@@ -32,6 +32,7 @@ class FileNamePart(Protocol):
     """
     A filename or piece of filename that can be expanded.
     """
+
     def value(self, directory: str = ".") -> str | list[str]:
         """
         Get the part of the file, possibly with directory specified.
@@ -61,8 +62,11 @@ class FileSpec(JSONLike):
     _hash_value: str | None = field(default=None, repr=False)
 
     def __init__(
-        self, label: str, name: str | FileNameSpec, doc: str = "",
-        _hash_value: str | None = None
+        self,
+        label: str,
+        name: str | FileNameSpec,
+        doc: str = "",
+        _hash_value: str | None = None,
     ) -> None:
         self.label = label
         self.name = self._app.FileNameSpec(name) if isinstance(name, str) else name
@@ -85,7 +89,7 @@ class FileSpec(JSONLike):
         return self.__hash
 
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
-        d.pop('_FileSpec__hash')
+        d.pop("_FileSpec__hash")
         return d
 
     @property
@@ -157,7 +161,7 @@ class FileNameSpec(JSONLike):
         return self.__hash
 
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
-        d.pop('_FileNameSpec__hash')
+        d.pop("_FileNameSpec__hash")
         return d
 
     @property

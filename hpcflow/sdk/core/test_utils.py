@@ -229,7 +229,7 @@ def make_test_data_YAML_workflow(
     path: PathLike,
     app: BaseApp | None = None,
     pkg: str = "hpcflow.tests.data",
-    **kwargs
+    **kwargs,
 ) -> Workflow:
     """Generate a workflow whose template file is defined in the test data directory."""
     app = app or hf
@@ -241,7 +241,7 @@ def make_test_data_YAML_workflow_template(
     workflow_name: str,
     app: BaseApp | None = None,
     pkg: str = "hpcflow.tests.data",
-    **kwargs
+    **kwargs,
 ) -> WorkflowTemplate:
     """Generate a workflow template whose file is defined in the test data directory."""
     app = app or hf
