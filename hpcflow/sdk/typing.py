@@ -132,16 +132,6 @@ class TemplateComponents(TypedDict):
 #: internal manipulations.
 BasicTemplateComponents: TypeAlias = "dict[str, list[dict]]"
 
-# EAR: (task_insert_ID, element_idx, iteration_idx, action_idx, run_idx)
-#: Type of an element index:
-#: (task_insert_ID, element_idx)
-E_idx_type: TypeAlias = "tuple[int, int]"
-#: Type of an element iteration index:
-#: (task_insert_ID, element_idx, iteration_idx)
-EI_idx_type: TypeAlias = "tuple[int, int, int]"
-#: Type of an element action run index:
-#: (task_insert_ID, element_idx, iteration_idx, action_idx, run_idx)
-EAR_idx_type: TypeAlias = "tuple[int, int, int, int, int]"
 
 DataIndex: TypeAlias = "dict[str, int | list[int]]"
 """
