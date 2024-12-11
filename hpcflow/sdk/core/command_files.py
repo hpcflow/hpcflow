@@ -7,7 +7,7 @@ import copy
 from dataclasses import dataclass, field, InitVar
 from pathlib import Path
 from textwrap import dedent
-from typing import cast, overload, TYPE_CHECKING
+from typing import Protocol, cast, overload, TYPE_CHECKING
 from typing_extensions import Final, override
 
 from hpcflow.sdk.typing import hydrate, ParamSource
@@ -26,6 +26,18 @@ if TYPE_CHECKING:
     from .parameters import Parameter
     from .task import ElementSet
     from .workflow import Workflow
+
+
+class FileNamePart(Protocol):
+    """
+    A filename or piece of filename that can be expanded.
+    """
+    def value(self, directory: str = ".") -> str | list[str]:
+        """
+        Get the part of the file, possibly with directory specified.
+        Implementations of this may ignore the directory.
+        If a pattern, the expanded value may be a list of strings.
+        """
 
 
 @dataclass(init=False)
@@ -72,6 +84,10 @@ class FileSpec(JSONLike):
     def __hash__(self) -> int:
         return self.__hash
 
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        d.pop('_FileSpec__hash')
+        return d
+
     @property
     def stem(self) -> FileNameStem:
         """
@@ -115,15 +131,18 @@ class FileNameSpec(JSONLike):
     """
 
     def __init__(
-        self, name: str, args: list | None = None, is_regex: bool = False
+        self,
+        name: str,
+        args: list[FileNamePart] | None = None,
+        is_regex: bool = False,
     ) -> None:
         #: The name or pattern.
         self.name: Final[str] = name
         #: Positional arguments to use when formatting the name.
-        self.args: Final[list] = args or []
+        self.args: Final[tuple[FileNamePart, ...]] = tuple(args or [])
         #: Whether the name is used as a regex to search for actual files.
         self.is_regex: Final[bool] = is_regex
-        self.__hash = hash((name, args, is_regex))
+        self.__hash = hash((name, self.args, is_regex))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
@@ -136,6 +155,10 @@ class FileNameSpec(JSONLike):
 
     def __hash__(self) -> int:
         return self.__hash
+
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        d.pop('_FileNameSpec__hash')
+        return d
 
     @property
     def stem(self) -> FileNameStem:
