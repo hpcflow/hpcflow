@@ -20,6 +20,7 @@ from hpcflow.sdk.cli_common import (
     cancel_opt,
     submit_status_opt,
     make_status_opt,
+    add_sub_opt,
 )
 
 
@@ -104,6 +105,7 @@ def get_demo_workflow_CLI(app):
     @ts_name_fmt_option
     @variables_option
     @make_status_opt
+    @add_sub_opt
     def make_demo_workflow(
         workflow_name,
         format,
@@ -115,6 +117,7 @@ def get_demo_workflow_CLI(app):
         ts_name_fmt=None,
         variables=None,
         status=True,
+        add_submission=False,
     ):
         wk = app.make_demo_workflow(
             workflow_name=workflow_name,
@@ -127,6 +130,7 @@ def get_demo_workflow_CLI(app):
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables),
             status=status,
+            add_submission=add_submission,
         )
         click.echo(wk.path)
 

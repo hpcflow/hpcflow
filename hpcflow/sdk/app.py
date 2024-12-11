@@ -1205,6 +1205,7 @@ class BaseApp(metaclass=Singleton):
         store_kwargs: Optional[Dict] = None,
         variables: Optional[Dict[str, str]] = None,
         status: Optional[bool] = True,
+        add_submission: Optional[bool] = False,
     ) -> get_app_attribute("Workflow"):
         """Generate a new {app_name} workflow from a file or string containing a workflow
         template parametrisation.
@@ -1243,6 +1244,8 @@ class BaseApp(metaclass=Singleton):
             String variables to substitute in `template_file_or_str`.
         status
             If True, display a live status to track workflow creation progress.
+        add_submission
+            If True, add a submission to the workflow (but do not submit).
         """
 
         self.API_logger.info("make_workflow called")
@@ -1264,47 +1267,46 @@ class BaseApp(metaclass=Singleton):
             "status": status,
         }
 
-        if not is_string:
-            wk = self.Workflow.from_file(
-                template_path=template_file_or_str,
-                template_format=template_format,
-                **common,
-            )
+        try:
+            if not is_string:
+                wk = self.Workflow.from_file(
+                    template_path=template_file_or_str,
+                    template_format=template_format,
+                    **common,
+                )
 
-        elif template_format == "json":
-            try:
+            elif template_format == "json":
                 wk = self.Workflow.from_JSON_string(
                     JSON_str=template_file_or_str, **common
                 )
-            except Exception:
-                if status:
-                    status.stop()
-                raise
 
-        elif template_format == "yaml":
-            try:
+            elif template_format == "yaml":
                 wk = self.Workflow.from_YAML_string(
                     YAML_str=template_file_or_str, **common
                 )
-            except Exception:
-                if status:
-                    status.stop()
-                raise
 
-        elif not template_format:
-            raise ValueError(
-                f"Must specify `template_format` if parsing a workflow template from a "
-                f"string; available options are: {ALL_TEMPLATE_FORMATS!r}."
-            )
+            elif not template_format:
+                raise ValueError(
+                    f"Must specify `template_format` if parsing a workflow template from "
+                    f"a string; available options are: {ALL_TEMPLATE_FORMATS!r}."
+                )
 
-        else:
-            raise ValueError(
-                f"Template format {template_format!r} not understood. Available template "
-                f"formats are {ALL_TEMPLATE_FORMATS!r}."
-            )
+            else:
+                raise ValueError(
+                    f"Template format {template_format!r} not understood. Available "
+                    f"template formats are {ALL_TEMPLATE_FORMATS!r}."
+                )
 
-        if status:
-            status.stop()
+            if add_submission:
+                with wk._store.cached_load():
+                    with wk.batch_update():
+                        return wk._add_submission(status=status)
+
+        except Exception:
+            raise
+        finally:
+            if status:
+                status.stop()
 
         return wk
 
@@ -1433,6 +1435,7 @@ class BaseApp(metaclass=Singleton):
         store_kwargs: Optional[Dict] = None,
         variables: Optional[Dict[str, str]] = None,
         status: Optional[bool] = True,
+        add_submission: Optional[bool] = False,
     ) -> get_app_attribute("Workflow"):
         """Generate a new {app_name} workflow from a builtin demo workflow template.
 
@@ -1468,6 +1471,8 @@ class BaseApp(metaclass=Singleton):
             String variables to substitute in the demo workflow template file.
         status
             If True, display a live status to track workflow creation progress.
+        add_submission
+            If True, add a submission to the workflow (but do not submit).
         """
 
         self.API_logger.info("make_demo_workflow called")
@@ -1477,22 +1482,30 @@ class BaseApp(metaclass=Singleton):
             status = console.status("Making persistent workflow...")
             status.start()
 
-        with self.get_demo_workflow_template_file(workflow_name) as template_path:
-            wk = self.Workflow.from_file(
-                template_path=template_path,
-                template_format=template_format,
-                path=path,
-                name=name,
-                overwrite=overwrite,
-                store=store,
-                ts_fmt=ts_fmt,
-                ts_name_fmt=ts_name_fmt,
-                store_kwargs=store_kwargs,
-                variables=variables,
-                status=status,
-            )
-        if status:
-            status.stop()
+        try:
+            with self.get_demo_workflow_template_file(workflow_name) as template_path:
+                wk = self.Workflow.from_file(
+                    template_path=template_path,
+                    template_format=template_format,
+                    path=path,
+                    name=name,
+                    overwrite=overwrite,
+                    store=store,
+                    ts_fmt=ts_fmt,
+                    ts_name_fmt=ts_name_fmt,
+                    store_kwargs=store_kwargs,
+                    variables=variables,
+                    status=status,
+                )
+            if add_submission:
+                with wk._store.cached_load():
+                    with wk.batch_update():
+                        return wk._add_submission(status=status)
+        except Exception:
+            raise
+        finally:
+            if status:
+                status.stop()
         return wk
 
     def _make_and_submit_demo_workflow(

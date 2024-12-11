@@ -31,6 +31,7 @@ from hpcflow.sdk.cli_common import (
     submit_status_opt,
     force_arr_opt,
     make_status_opt,
+    add_sub_opt,
     zip_path_opt,
     zip_overwrite_opt,
     zip_log_opt,
@@ -122,6 +123,7 @@ def _make_API_CLI(app):
     @ts_name_fmt_option
     @variables_option
     @make_status_opt
+    @add_sub_opt
     def make_workflow(
         template_file_or_str,
         string,
@@ -134,6 +136,7 @@ def _make_API_CLI(app):
         ts_name_fmt=None,
         variables=None,
         status=True,
+        add_submission=False,
     ):
         """Generate a new {app_name} workflow.
 
@@ -153,6 +156,7 @@ def _make_API_CLI(app):
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables),
             status=status,
+            add_submission=add_submission,
         )
         click.echo(wk.path)
 

@@ -174,6 +174,12 @@ make_status_opt = click.option(
     help="If True, display a live status to track workflow creation progress.",
     default=True,
 )
+add_sub_opt = click.option(
+    "--add-submission",
+    help=("If True, add a submission to the workflow (but do not submit)."),
+    is_flag=True,
+    default=False,
+)
 zip_path_opt = click.option(
     "--path",
     default=".",
