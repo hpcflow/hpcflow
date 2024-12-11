@@ -193,22 +193,26 @@ def make_workflow(
     return wk
 
 
-def make_test_data_YAML_workflow(workflow_name, path, **kwargs):
+def make_test_data_YAML_workflow(
+    workflow_name, path, app=None, pkg="hpcflow.tests.data", **kwargs
+):
     """Generate a workflow whose template file is defined in the test data directory."""
-    pkg = "hpcflow.tests.data"
+    app = hf if app is None else app
     script_ctx = resources.as_file(resources.files(pkg).joinpath(workflow_name))
 
     with script_ctx as file_path:
-        return hf.Workflow.from_YAML_file(YAML_path=file_path, path=path, **kwargs)
+        return app.Workflow.from_YAML_file(YAML_path=file_path, path=path, **kwargs)
 
 
-def make_test_data_YAML_workflow_template(workflow_name, **kwargs):
+def make_test_data_YAML_workflow_template(
+    workflow_name, app=None, pkg="hpcflow.tests.data", **kwargs
+):
     """Generate a workflow template whose file is defined in the test data directory."""
-    pkg = "hpcflow.tests.data"
+    app = hf if app is None else app
     script_ctx = resources.as_file(resources.files(pkg).joinpath(workflow_name))
 
     with script_ctx as file_path:
-        return hf.WorkflowTemplate.from_file(path=file_path, **kwargs)
+        return app.WorkflowTemplate.from_file(path=file_path, **kwargs)
 
 
 @dataclass

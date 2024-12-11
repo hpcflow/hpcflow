@@ -32,6 +32,8 @@ class FileSpec(JSONLike):
     label: str
     #: The name of the file.
     name: str
+    #: Documentation for the file specification.
+    doc: str = ""
     _hash_value: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -65,6 +67,17 @@ class FileSpec(JSONLike):
         The extension of the file name.
         """
         return self.name.ext
+
+    @property
+    def documentation(self) -> str:
+        """
+        Documentation for rendering via Jinja.
+        """
+        if self.doc:
+            import markupsafe
+
+            return markupsafe.Markup(self.doc)
+        return repr(self)
 
 
 class FileNameSpec(JSONLike):
