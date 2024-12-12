@@ -55,12 +55,12 @@ jobs:
         run: poetry install --without dev
 
       - name: Build with pyinstaller (non Windows, file)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }} INFO 'onefile'
         
       - name: Build with pyinstaller (non Windows, folder)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir INFO 'onedir'
 
@@ -80,7 +80,7 @@ jobs:
         run: ./compress.ps1 -ExeName 'hpcflow-release-test-build-${{ matrix.executable_os }}-dir' -BuildType 'onedir'
 
       - name: Compress folder (non-windows, folder)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./compress.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir onedir
 
