@@ -481,11 +481,7 @@ class BaseApp(metaclass=Singleton):
         components = {}
         for comp_type in TEMPLATE_COMP_TYPES:
             resource = f"{comp_type}.yaml"
-            try:
-                fh = resources.files(package).joinpath(resource).open("rt")
-            except AttributeError:
-                # < python 3.9; `resource.open_text` deprecated since 3.11
-                fh = resources.open_text(package, resource)
+            fh = resources.files(package).joinpath(resource).open("rt")
             SDK_logger.info(f"Parsing file as YAML: {fh.name!r}")
             comp_dat = fh.read()
             components[comp_type] = read_YAML_str(comp_dat)
@@ -905,11 +901,7 @@ class BaseApp(metaclass=Singleton):
         # TODO: load custom directories / custom functions (via decorator)
         scripts_package = f"{self.package_name}.{self.scripts_dir}"
 
-        try:
-            ctx = resources.as_file(resources.files(scripts_package))
-        except AttributeError:
-            # < python 3.9; `resource.path` deprecated since 3.11
-            ctx = resources.path(scripts_package, "")
+        ctx = resources.as_file(resources.files(scripts_package))
 
         scripts = {}
         with ctx as path:
@@ -930,11 +922,7 @@ class BaseApp(metaclass=Singleton):
         """Get all builtin demo workflow template file paths."""
         templates = {}
         pkg = f"{self.package_name}.{self.workflows_dir}"
-        try:
-            files = resources.files(pkg).iterdir()
-        except AttributeError:
-            # python 3.8; `resources.contents` deprecated since 3.11
-            files = resources.contents(pkg)
+        files = resources.files(pkg).iterdir()
         for i in files:
             if i.suffix in (".yaml", ".yml", ".json", ".jsonc"):
                 templates[i.stem] = i
@@ -1778,11 +1766,7 @@ class BaseApp(metaclass=Singleton):
         test_args = (self.pytest_args or []) + list(args)
         pkg = self.package_name
         tests_dir = "tests"
-        try:
-            ctx_man = resources.as_file(resources.files(pkg).joinpath(tests_dir))
-        except AttributeError:
-            # < Python 3.9
-            ctx_man = resources.path(pkg, tests_dir)
+        ctx_man = resources.as_file(resources.files(pkg).joinpath(tests_dir))
         with ctx_man as test_dir:
             return pytest.main([str(test_dir)] + test_args)
 
@@ -2473,11 +2457,7 @@ class BaseApp(metaclass=Singleton):
             )
             package = self.demo_data_manifest_dir
             resource = "demo_data_manifest.json"
-            try:
-                fh = resources.files(package).joinpath(resource).open("rt")
-            except AttributeError:
-                # < python 3.9; `resource.open_text` deprecated since 3.11
-                fh = resources.open_text(package, resource)
+            fh = resources.files(package).joinpath(resource).open("rt")
             manifest = json.load(fh)
             fh.close()
         return manifest
@@ -2561,12 +2541,6 @@ class BaseApp(metaclass=Singleton):
             try:
                 ctx_man = resources.as_file(resources.files(package).joinpath(src_fn))
                 # raises ModuleNotFoundError
-            except AttributeError:
-                # < python 3.9
-                try:
-                    ctx_man = resources.path(package, src_fn)
-                except ModuleNotFoundError:
-                    resource_exists = False
             except ModuleNotFoundError:
                 resource_exists = False
 

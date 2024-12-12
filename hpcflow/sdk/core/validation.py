@@ -18,11 +18,7 @@ def get_schema(filename):
         (:py:mod:`hpcflow.sdk.data`).
     """
     package = "hpcflow.sdk.data"
-    try:
-        fh = resources.files(package).joinpath(filename).open("rt")
-    except AttributeError:
-        # < python 3.9; `resource.open_text` deprecated since 3.11
-        fh = resources.open_text(package, filename)
+    fh = resources.files(package).joinpath(filename).open("rt")
     schema_dat = fh.read()
     fh.close()
     schema = Schema.from_yaml(schema_dat)
