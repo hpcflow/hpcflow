@@ -187,12 +187,12 @@ jobs:
         run: poetry install --without dev
 
       - name: Build with pyinstaller (non-Windows, file)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-${{ matrix.executable_os }} INFO 'onefile'
 
       - name: Build with pyinstaller (non-Windows, folder)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./make.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name}}-${{ matrix.executable_os }}-dir INFO 'onedir'
 
@@ -233,7 +233,7 @@ jobs:
           }
 
       - name: Version check (non-windows, file)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         run: |
           tag=${{ needs.bump-version.outputs.new_tag_name }}
           tagNoV=${tag:1}
@@ -244,7 +244,7 @@ jobs:
           [ "$hpcflow_vers" = "$hpcflow_vers_expected" ]
 
       - name: Version check (non-windows, folder)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         run: |
           tag=${{ needs.bump-version.outputs.new_tag_name }}
           tagNoV=${tag:1}
@@ -266,7 +266,7 @@ jobs:
         run: ./compress.ps1 -ExeName 'hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-${{ matrix.executable_os }}-dir' -BuildType 'onedir'
 
       - name: Compress folder (non-windows, folder)
-        if: "!contains(matrix.os, 'windows')"
+        if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./compress.sh hpcflow-${{ needs.bump-version.outputs.new_tag_name }}-${{ matrix.executable_os }}-dir 'onedir'
 
