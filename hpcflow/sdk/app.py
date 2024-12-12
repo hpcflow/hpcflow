@@ -2243,7 +2243,7 @@ class BaseApp(metaclass=Singleton):
 
     def _get_demo_workflows(self) -> dict[str, Path]:
         """Get all builtin demo workflow template file paths."""
-        templates = {}
+        templates: dict[str, Path] = {}
         pkg = f"{self.package_name}.{self.workflows_dir}"
         for file in resources.files(pkg).iterdir():
             p = Path(str(file))
@@ -3819,7 +3819,7 @@ class BaseApp(metaclass=Singleton):
                 logger=self.logger,
             )
             with fs.open(url_path) as fh:
-                manifest = json.load(fh)
+                return json.load(fh)
         else:
             self.logger.debug(
                 f"loading example data files manifest from the app attribute "
@@ -3830,8 +3830,7 @@ class BaseApp(metaclass=Singleton):
                 self.logger.warning("no demo data dir defined")
                 return {}
             with open_text_resource(package, "demo_data_manifest.json") as fh:
-                manifest = json.load(fh)
-        return manifest
+                return json.load(fh)
 
     def list_demo_data_files(self) -> tuple[str, ...]:
         """List available example data files."""

@@ -1,7 +1,7 @@
 
 [tool.poetry]
 name = "hpcflow-new2"
-version = "0.2.0a187"
+version = "0.2.0a188"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
@@ -13,15 +13,9 @@ packages = [
 exclude = ["hpcflow/data/demo_data"]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.13"
-zarr = [
-    {version = "^2.16.1", python = "<3.9"},
-    {version = "2.17.2", python = ">=3.9"}
-]
-numpy = [
-    {version = "^1.24.4", python = "<3.9"},
-    {version = "^1.26.4", python = ">=3.9"},
-]
+python = ">=3.9,<3.13"
+zarr = "^2.17.2"
+numpy = "^1.26.4"
 ruamel-yaml = "^0.18.6"
 colorama = "^0.4.6"
 termcolor = "^1.1.0"
@@ -89,7 +83,7 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0a187"
+version = "0.2.0a188"
 tag_format = "v$version"
 version_files = [ 
     "pyproject.toml:version",
