@@ -45,11 +45,9 @@ jobs:
           path: ./.venv
           key: venv-build-${{ matrix.os }}-${{ hashFiles('**/poetry.lock') }}
 
-      - name: Install poetry
-        run: python -m pip install poetry==1.2.2
-
-      - name: Configure poetry
-        run: poetry config virtualenvs.in-project true
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: 1.2.2
 
       - name: Install dependencies
         run: poetry install --without dev
@@ -58,7 +56,7 @@ jobs:
         if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }} INFO 'onefile'
-        
+
       - name: Build with pyinstaller (non Windows, folder)
         if: ${{ !contains(matrix.os, 'windows') }}
         working-directory: pyinstaller
@@ -168,11 +166,9 @@ jobs:
           path: ./.venv
           key: venv-release-${{ hashFiles('**/poetry.lock') }}
 
-      - name: Install poetry
-        run: python -m pip install poetry==1.2.2
-
-      - name: Configure poetry
-        run: poetry config virtualenvs.in-project true
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: 1.2.2
 
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller

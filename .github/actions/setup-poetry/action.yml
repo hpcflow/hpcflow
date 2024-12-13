@@ -1,0 +1,17 @@
+name: Set up Poetry
+description: >
+  Sets up Poetry, assuming Python is already set up.
+inputs:
+  version:
+    description: The version of Poetry to install.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        python -m pip install poetry==$VERSION
+        poetry config virtualenvs.in-project true
+        poetry config installer.modern-installation false || true
+      env:
+        VERSION: ${{ inputs.version }}

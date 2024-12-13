@@ -43,13 +43,34 @@ on:
         default: ""
 
 jobs:
-  build-windows-executables:
-    if: github.event.inputs.build_windows == 'true'
-    runs-on: windows-latest
+  status:
+    runs-on: ubuntu-latest # Fastest and cheapest
+    outputs:
+      version: ${{ steps.info.outputs.vers }}
+      sha: ${{ steps.info.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # get all history and tags
+      - name: Get executable version name and store git SHA
+        id: info
+        run: |
+          CUR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
+          echo "CUR_TAG is: $CUR_TAG"
+          echo "cur_tag=$CUR_TAG" >> $GITHUB_OUTPUT
+          vers=$(git describe --tags)
+          echo "vers is: $vers"
+          echo "vers=$vers" >> $GITHUB_OUTPUT
+          sha=$(git rev-parse HEAD)
+          echo "sha is: $sha"
+          echo "sha=$sha" >> $GITHUB_OUTPUT
+
+  build-windows-executables:
+    if: github.event.inputs.build_windows == 'true'
+    needs: status
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
@@ -61,99 +82,82 @@ jobs:
           path: ./.venv
           key: venv-build-windows-latest-${{ hashFiles('**/poetry.lock') }}
 
-      - name: Install poetry
-        run: python -m pip install poetry==${{ env.POETRY_VERSION }}
-
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: ${{ env.POETRY_VERSION }}
 
       - name: Install dependencies
         run: poetry install --without dev
 
-      - name: Get executable version name and store git SHA
-        run: |
-          $CUR_TAG = $(git describe --tags $(git rev-list --tags --max-count=1))
-          echo "CUR_TAG is: $CUR_TAG"
-          echo "cur_tag=$CUR_TAG" >> $env:GITHUB_ENV
-          $vers = git describe --tags
-          echo "vers is: $vers"
-          echo "vers=$vers" >> $env:GITHUB_ENV
-          $sha = git rev-parse HEAD
-          echo "sha is: $sha"
-          echo "sha=$sha" >> $env:GITHUB_ENV
-
       - name: Build with pyinstaller for Windows (file)
         if: github.event.inputs.build_onefile == 'true'
         working-directory: pyinstaller
-        run: ./make.ps1 -ExeName "hpcflow-${{ env.vers }}-win" -LogLevel ${{ github.event.inputs.logLevel }} -BuildType 'onefile'
+        run: ./make.ps1 -ExeName "hpcflow-${{ needs.status.outputs.version }}-win" -LogLevel ${{ github.event.inputs.logLevel }} -BuildType 'onefile'
 
       - name: Build with pyinstaller for Windows (folder)
         if: github.event.inputs.build_onedir == 'true'
         working-directory: pyinstaller
-        run: ./make.ps1 -ExeName "hpcflow-${{ env.vers }}-win-dir" -LogLevel ${{ github.event.inputs.logLevel }} -BuildType 'onedir'
+        run: ./make.ps1 -ExeName "hpcflow-${{ needs.status.outputs.version }}-win-dir" -LogLevel ${{ github.event.inputs.logLevel }} -BuildType 'onedir'
 
       - name: Upload executable artifact (file)
         if: github.event.inputs.build_onefile == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-win.exe
-          path: pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-win.exe
+          name: hpcflow-${{ needs.status.outputs.version }}-win.exe
+          path: pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-win.exe
 
       - name: Upload executable artifact (folder)
         if: github.event.inputs.build_onedir == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-win-dir
-          path: pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-win-dir
+          name: hpcflow-${{ needs.status.outputs.version }}-win-dir
+          path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-win-dir
 
       - name: Upload spec file
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-win.spec
-          path: pyinstaller/hpcflow-${{ env.vers }}-win.spec
+          name: hpcflow-${{ needs.status.outputs.version }}-win.spec
+          path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-win.spec
 
       - name: Upload build directory
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-win-build
-          path: pyinstaller/build/hpcflow-${{ env.vers }}-win
+          name: hpcflow-${{ needs.status.outputs.version }}-win-build
+          path: pyinstaller/build/hpcflow-${{ needs.status.outputs.version }}-win
 
       - name: Set demo data GitHub URL using current git SHA (file) # instead of default which is current version tag
         if: github.event.inputs.build_onefile == 'true'
         run: |
-          pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-win.exe config set-github-demo-data-dir ${{ env.sha }}
+          pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-win.exe config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
       - name: Set demo data GitHub URL using current git SHA (folder) # instead of default which is current version tag
         if: github.event.inputs.build_onedir == 'true'
         run: |
-          pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-win-dir/hpcflow-${{ env.vers }}-win-dir.exe config set-github-demo-data-dir ${{ env.sha }}
+          pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-win-dir/hpcflow-${{ needs.status.outputs.version }}-win-dir.exe config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
       - name: Run test suite on the frozen app (file)
         if: github.event.inputs.build_onefile == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-win.exe test ${{ github.event.inputs.unit_test_args }}
+          pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-win.exe test ${{ github.event.inputs.unit_test_args }}
 
       - name: Run test suite on the frozen app (folder)
         if: github.event.inputs.build_onedir == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-win-dir/hpcflow-${{ env.vers }}-win-dir.exe test ${{ github.event.inputs.unit_test_args }}
+          pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-win-dir/hpcflow-${{ needs.status.outputs.version }}-win-dir.exe test ${{ github.event.inputs.unit_test_args }}
 
 
   build-macos-executables:
     if: github.event.inputs.build_macos == 'true'
+    needs: status
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # get all history and tags
 
       - uses: actions/setup-python@v5
         with:
@@ -165,116 +169,87 @@ jobs:
           path: ./.venv
           key: venv-build-macos-13-${{ hashFiles('**/poetry.lock') }}
 
-      - name: Install poetry
-        run: python -m pip install poetry==${{ env.POETRY_VERSION }}
-
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: ${{ env.POETRY_VERSION }}
 
       - name: Install dependencies
         run: poetry install --without dev
 
-      - name: Get executable version name and store git SHA
-        run: |
-          CUR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
-          echo "CUR_TAG is: $CUR_TAG"
-          echo "cur_tag=$CUR_TAG" >> $GITHUB_ENV
-          vers=$(git describe --tags)
-          echo "vers is: $vers"
-          echo "vers=$vers" >> $GITHUB_ENV
-          sha=$(git rev-parse HEAD)
-          echo "sha is: $sha"
-          echo "sha=$sha" >> $GITHUB_ENV
-
       - name: Build with pyinstaller for macOS (file)
         if: github.event.inputs.build_onefile == 'true'
         working-directory: pyinstaller
-        run: ./make.sh hpcflow-${{ env.vers }}-macOS ${{ github.event.inputs.logLevel }} 'onefile'
+        run: ./make.sh hpcflow-${{ needs.status.outputs.version }}-macOS ${{ github.event.inputs.logLevel }} 'onefile'
 
       - name: Build with pyinstaller for macOS (folder)
         if: github.event.inputs.build_onedir == 'true'
         working-directory: pyinstaller
-        run: ./make.sh hpcflow-${{ env.vers }}-macOS-dir ${{ github.event.inputs.logLevel }} 'onedir'
+        run: ./make.sh hpcflow-${{ needs.status.outputs.version }}-macOS-dir ${{ github.event.inputs.logLevel }} 'onedir'
 
       - name: Upload executable artifact (file)
         if: github.event.inputs.build_onefile == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-macOS
-          path: pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-macOS
+          name: hpcflow-${{ needs.status.outputs.version }}-macOS
+          path: pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-macOS
 
       - name: Upload executable artifact (folder)
         if: github.event.inputs.build_onedir == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-macOS-dir
-          path: pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-macOS-dir
+          name: hpcflow-${{ needs.status.outputs.version }}-macOS-dir
+          path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir
 
       - name: Upload spec file
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-macOS.spec
-          path: pyinstaller/hpcflow-${{ env.vers }}-macOS.spec
+          name: hpcflow-${{ needs.status.outputs.version }}-macOS.spec
+          path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-macOS.spec
 
       - name: Upload build directory
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-macOS-build
-          path: pyinstaller/build/hpcflow-${{ env.vers }}-macOS
+          name: hpcflow-${{ needs.status.outputs.version }}-macOS-build
+          path: pyinstaller/build/hpcflow-${{ needs.status.outputs.version }}-macOS
 
       - name: Set demo data GitHub URL using current git SHA (file) # instead of default which is current version tag
         if: github.event.inputs.build_onefile == 'true'
         run: |
-          pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-macOS config set-github-demo-data-dir ${{ env.sha }}
+          pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-macOS config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
       - name: Set demo data GitHub URL using current git SHA (folder) # instead of default which is current version tag
         if: github.event.inputs.build_onedir == 'true'
         run: |
-          pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-macOS-dir/hpcflow-${{ env.vers }}-macOS-dir config set-github-demo-data-dir ${{ env.sha }}
+          pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
       - name: Run test suite on the frozen app (file)
         if: github.event.inputs.build_onefile == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-macOS test ${{ github.event.inputs.unit_test_args }}
+          pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-macOS test ${{ github.event.inputs.unit_test_args }}
 
       - name: Run test suite on the frozen app (folder)
         if: github.event.inputs.build_onedir == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-macOS-dir/hpcflow-${{ env.vers }}-macOS-dir test ${{ github.event.inputs.unit_test_args }}
+          pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir test ${{ github.event.inputs.unit_test_args }}
 
   build-executables-linux:
     if: github.event.inputs.build_linux == 'true'
+    needs: status
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # get all history and tags
 
       - name: Cache the virtualenv
         uses: actions/cache@v4
         with:
           path: ./.venv
           key: venv-build-CentOS-${{ hashFiles('**/poetry.lock') }}
-
-      - name: Get executable version name and store git SHA
-        run: |
-          CUR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
-          echo "CUR_TAG is: $CUR_TAG"
-          echo "cur_tag=$CUR_TAG" >> $GITHUB_ENV
-          vers=$(git describe --tags)
-          echo "vers is: $vers"
-          echo "vers=$vers" >> $GITHUB_ENV
-          sha=$(git rev-parse HEAD)
-          echo "sha is: $sha"
-          echo "sha=$sha" >> $GITHUB_ENV
 
       - name: Build executable (file) within Docker
         if: github.event.inputs.build_onefile == 'true'
@@ -292,14 +267,14 @@ jobs:
 
             # build with pyinstaller for CentOS (file)
             cd pyinstaller
-            ./make.sh hpcflow-${{ env.vers }}-linux ${{ github.event.inputs.logLevel }} onefile
+            ./make.sh hpcflow-${{ needs.status.outputs.version }}-linux ${{ github.event.inputs.logLevel }} onefile
             cd ..
 
             # set demo data GitHub URL using current git SHA (file), instead of default which is current version tag
-            pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-linux config set-github-demo-data-dir ${{ env.sha }}
+            pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-linux config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
             # run test suite on the frozen app (file)
-            pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-linux test ${{ github.event.inputs.unit_test_args }}
+            pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-linux test ${{ github.event.inputs.unit_test_args }}
 
       - name: Build executable (folder) within Docker
         if: github.event.inputs.build_onedir == 'true'
@@ -317,39 +292,39 @@ jobs:
 
             # build with pyinstaller for CentOS (folder)
             cd pyinstaller
-            ./make.sh hpcflow-${{ env.vers }}-linux-dir ${{ github.event.inputs.logLevel }} onedir
+            ./make.sh hpcflow-${{ needs.status.outputs.version }}-linux-dir ${{ github.event.inputs.logLevel }} onedir
             cd ..
 
             # set demo data GitHub URL using current git SHA (folder), instead of default which is current version tag
-            pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-linux-dir/hpcflow-${{ env.vers }}-linux-dir config set-github-demo-data-dir ${{ env.sha }}
+            pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-linux-dir/hpcflow-${{ needs.status.outputs.version }}-linux-dir config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
 
             # run test suite on the frozen app (folder)
-            pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-linux-dir/hpcflow-${{ env.vers }}-linux-dir test ${{ github.event.inputs.unit_test_args }}
+            pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-linux-dir/hpcflow-${{ needs.status.outputs.version }}-linux-dir test ${{ github.event.inputs.unit_test_args }}
 
       - name: Upload executable artifact (file)
         if: github.event.inputs.build_onefile == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-linux
-          path: pyinstaller/dist/onefile/hpcflow-${{ env.vers }}-linux
+          name: hpcflow-${{ needs.status.outputs.version }}-linux
+          path: pyinstaller/dist/onefile/hpcflow-${{ needs.status.outputs.version }}-linux
 
       - name: Upload executable artifact (folder)
         if: github.event.inputs.build_onedir == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-linux-dir
-          path: pyinstaller/dist/onedir/hpcflow-${{ env.vers }}-linux-dir
+          name: hpcflow-${{ needs.status.outputs.version }}-linux-dir
+          path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-linux-dir
 
       - name: Upload spec file
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-linux.spec
-          path: pyinstaller/hpcflow-${{ env.vers }}-linux.spec
+          name: hpcflow-${{ needs.status.outputs.version }}-linux.spec
+          path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-linux.spec
 
       - name: Upload build directory
         if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
         uses: actions/upload-artifact@v4
         with:
-          name: hpcflow-${{ env.vers }}-linux-build
-          path: pyinstaller/build/hpcflow-${{ env.vers }}-linux
+          name: hpcflow-${{ needs.status.outputs.version }}-linux-build
+          path: pyinstaller/build/hpcflow-${{ needs.status.outputs.version }}-linux

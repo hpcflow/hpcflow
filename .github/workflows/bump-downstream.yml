@@ -24,24 +24,19 @@ jobs:
           fetch-depth: 0 # get all history and tags
           token: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
           ref: develop
-      
+
       - name: Configure git
-        run: |
-          git config user.name hpcflow-actions
-          git config user.email hpcflow-actions@users.noreply.github.com
+        uses: ./.github/actions/configure-git
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION_MAKE_PRs }}
-      
-      - name: Install poetry
-        run: python -m pip install poetry==${{ env.POETRY_VERSION }}
-      
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
+
+      - name: Setup poetry
+        uses: ./.github/actions/setup-poetry
+        with:
+          version: ${{ env.POETRY_VERSION }}
 
       - name: Install dependencies
         run: |
@@ -62,8 +57,8 @@ jobs:
           git add pyproject.toml poetry.lock
           git commit -m"feat: bump hpcflow version"
           git push
-        
+
       - name: Create pull request
         run: gh pr create -B develop -H bump/hpcflow --title 'Bump hpcflow version' --body 'Created by Github action'
         env:
-            GITHUB_TOKEN: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}

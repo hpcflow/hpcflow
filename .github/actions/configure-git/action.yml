@@ -1,0 +1,23 @@
+name: Configure git for robotic commits
+description: >
+  Sets up git for robotic commits.
+  Assumes that the correct token was used when checking out the repository!
+inputs:
+  name:
+    description: The user name for the robot.
+    required: false
+    default: hpcflow-actions
+  email:
+    description: The user email (possibly fake).
+    required: false
+    default: hpcflow-actions@users.noreply.github.com
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        git config user.name $ACT_NAME
+        git config user.email $ACT_EMAIL
+      env:
+        ACT_NAME: ${{ inputs.name }}
+        ACT_EMAIL: ${{ inputs.email }}
