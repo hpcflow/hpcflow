@@ -1350,6 +1350,7 @@ class ResourceSpec(JSONLike):
     -----
     `os_name` is used for retrieving a default shell name and for retrieving the correct
     `Shell` class; when using WSL, it should still be `nt` (i.e. Windows).
+    `resources_id` is an integer that can be used to force multiple jobscript.
 
     """
 
@@ -1372,6 +1373,7 @@ class ResourceSpec(JSONLike):
         "shell_args",
         "os_name",
         "environments",
+        "resources_id",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -1410,6 +1412,7 @@ class ResourceSpec(JSONLike):
         shell_args: Optional[Dict] = None,
         os_name: Optional[str] = None,
         environments: Optional[Dict] = None,
+        resources_id: Optional[int] = None,
         SGE_parallel_env: Optional[str] = None,
         SLURM_partition: Optional[str] = None,
         SLURM_num_tasks: Optional[str] = None,
@@ -1439,6 +1442,7 @@ class ResourceSpec(JSONLike):
         self._shell = self._process_string(shell)
         self._os_name = self._process_string(os_name)
         self._environments = environments
+        self._resources_id = resources_id
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
         self._write_app_logs = write_app_logs
@@ -1580,6 +1584,7 @@ class ResourceSpec(JSONLike):
             self._shell_args = None
             self._os_name = None
             self._environments = None
+            self._resources_id = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -1694,6 +1699,10 @@ class ResourceSpec(JSONLike):
     @property
     def environments(self):
         return self._get_value("environments")
+
+    @property
+    def resources_id(self):
+        return self._get_value("resources_id")
 
     @property
     def SGE_parallel_env(self):

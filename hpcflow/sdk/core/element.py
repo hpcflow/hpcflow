@@ -206,6 +206,7 @@ class ElementResources(JSONLike):
     shell_args: Optional[Dict] = field(default_factory=dict)
     os_name: Optional[str] = None
     environments: Optional[Dict] = None
+    resources_id: Optional[int] = None
 
     # SGE scheduler specific:
     SGE_parallel_env: str = None
