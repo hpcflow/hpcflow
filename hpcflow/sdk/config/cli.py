@@ -1,46 +1,30 @@
 """Module defining a function that returns the click CLI group for manipulating the app
 configuration."""
 
+from __future__ import annotations
 import json
 import logging
 import warnings
 from functools import wraps
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import click
 from colorama import init as colorama_init
-from termcolor import colored
+from termcolor import colored  # type: ignore
 
-from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.utils import open_file
 
-from .errors import ConfigError
+from hpcflow.sdk.config.errors import ConfigError
+from hpcflow.sdk.config.config import Config
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+    from ..app import BaseApp
 
 logger = logging.getLogger(__name__)
 
 colorama_init(autoreset=True)
-
-
-def custom_warning_formatter(message, category, filename, lineno, file=None, line=None):
-    """Simple warning formatter that shows just the warning type and the message. We use
-    this in the CLI, to avoid producing distracting output."""
-    return f"{colored(category.__name__, 'yellow')}: {message}\n"
-
-
-@contextmanager
-def warning_formatter(func=custom_warning_formatter):
-    """Context manager for modifying the warnings formatter.
-
-    Parameters
-    ----------
-    func : function to set as the `warnings.formatwarning` function.
-
-    """
-    existing_func = warnings.formatwarning
-    try:
-        warnings.formatwarning = func
-        yield
-    finally:
-        warnings.formatwarning = existing_func
 
 
 def CLI_exception_wrapper_gen(*exception_cls):
@@ -49,18 +33,38 @@ def CLI_exception_wrapper_gen(*exception_cls):
     success or failure.
     """
 
-    def CLI_exception_wrapper(func):
+    @contextmanager
+    def warning_formatter():
+        """
+        Context manager to apply a simple warning formatter that shows just the warning
+        type and the message. We use this in the CLI to avoid producing distracting
+        output.
+        """
+
+        def custom_warning_formatter(
+            message, category, filename, lineno, file=None, line=None
+        ):
+            return f"{colored(category.__name__, 'yellow')}: {message}\n"
+
+        existing_func = warnings.formatwarning
+        try:
+            warnings.formatwarning = custom_warning_formatter
+            yield
+        finally:
+            warnings.formatwarning = existing_func
+
+    def CLI_exception_wrapper(func: Callable):
         """Decorator
 
         Parameters
         ----------
         func
-            Function that return a truthy value if the ???
+            Function that return a non-None value if the operation succeeds
         """
 
         @wraps(func)
         @click.pass_context
-        def wrapper(ctx, *args, **kwargs):
+        def wrapper(ctx: click.Context, *args, **kwargs):
             try:
                 with warning_formatter():
                     out = func(*args, **kwargs)
@@ -76,25 +80,32 @@ def CLI_exception_wrapper_gen(*exception_cls):
     return CLI_exception_wrapper
 
 
-def get_config_CLI(app):
+def get_config_CLI(app: BaseApp) -> click.Group:
     """Generate the configuration CLI for the app."""
 
-    def show_all_config(ctx, param, value):
+    pass_config = click.make_pass_decorator(Config)
+
+    def find_config(ctx: click.Context) -> Config:
+        if (cfg := ctx.find_object(Config)) is None:
+            raise RuntimeError("no configuration defined")
+        return cfg
+
+    def show_all_config(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        ctx.obj["config"]._show(config=True, metadata=False)
+        find_config(ctx)._show(config=True, metadata=False)
         ctx.exit()
 
-    def show_all_metadata(ctx, param, value):
+    def show_all_metadata(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        ctx.obj["config"]._show(config=False, metadata=True)
+        find_config(ctx)._show(config=False, metadata=True)
         ctx.exit()
 
-    def show_config_file(ctx, param, value):
+    def show_config_file(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        print(ctx.obj["config"].config_file_contents)
+        print(find_config(ctx).config_file_contents)
         ctx.exit()
 
     @click.group()
@@ -104,19 +115,18 @@ def get_config_CLI(app):
         help="Exclude a named get/set callback function during execution of the command.",
     )
     @click.pass_context
-    def config(ctx, no_callback):
+    def config(ctx: click.Context, no_callback: Sequence[str]):
         """Configuration sub-command for getting and setting data in the configuration
         file(s)."""
-        ctx.ensure_object(dict)
-        ctx.obj["config"] = app.config
+        ctx.obj = app.config
         if no_callback:
-            ctx.obj["config"]._disable_callbacks(no_callback)
+            app.config._disable_callbacks(no_callback)
 
     @config.command("list")
-    @click.pass_context
-    def config_list(ctx):
+    @pass_config
+    def config_list(config: Config):
         """Show a list of all configurable keys."""
-        click.echo("\n".join(ctx.obj["config"].get_configurable()))
+        click.echo("\n".join(config.get_configurable()))
 
     @config.command("import")
     @click.argument("file_path")
@@ -139,10 +149,10 @@ def get_config_CLI(app):
             "config. If False, modify the currently loaded config."
         ),
     )
-    @click.pass_context
-    def import_from_file(ctx, file_path, rename, new):
+    @pass_config
+    def import_from_file(config: Config, file_path: str, rename: bool, new: bool):
         """Update the config file with keys from a YAML file."""
-        ctx.obj["config"].import_from_file(file_path, rename=rename, make_new=new)
+        config.import_from_file(file_path, rename=rename, make_new=new)
 
     @config.command()
     @click.argument("name")
@@ -170,11 +180,11 @@ def get_config_CLI(app):
         help="Show the contents of the configuration file.",
         callback=show_config_file,
     )
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def get(ctx, name):
+    def get(config: Config, name: str):
         """Show the value of the specified configuration item."""
-        val = ctx.obj["config"].get(name)
+        val = config.get(name)
         if isinstance(val, list):
             val = "\n".join(str(i) for i in val)
         click.echo(val)
@@ -189,21 +199,24 @@ def get_config_CLI(app):
         default=False,
         help="Interpret VALUE as a JSON string.",
     )
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def set(ctx, name, value, is_json):
+    def set(config: Config, name: str, value: str, is_json: bool):
         """Set and save the value of the specified configuration item."""
-        ctx.obj["config"].set(name, value, is_json)
-        ctx.obj["config"].save()
+        if is_json:
+            config.set(name, value, is_json=True)
+        else:
+            config.set(name, value, is_json=False)
+        config.save()
 
     @config.command()
     @click.argument("name")
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def unset(ctx, name):
+    def unset(config: Config, name: str):
         """Unset and save the value of the specified configuration item."""
-        ctx.obj["config"].unset(name)
-        ctx.obj["config"].save()
+        config.unset(name)
+        config.save()
 
     @config.command()
     @click.argument("name")
@@ -215,16 +228,19 @@ def get_config_CLI(app):
         default=False,
         help="Interpret VALUE as a JSON string.",
     )
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def append(ctx, name, value, is_json):
+    def append(config: Config, name: str, value: str, is_json: bool):
         """Append a new value to the specified configuration item.
 
         NAME is the dot-delimited path to the list to be appended to.
 
         """
-        ctx.obj["config"].append(name, value, is_json)
-        ctx.obj["config"].save()
+        if is_json:
+            config.append(name, value, is_json=True)
+        else:
+            config.append(name, value, is_json=False)
+        config.save()
 
     @config.command()
     @click.argument("name")
@@ -236,30 +252,33 @@ def get_config_CLI(app):
         default=False,
         help="Interpret VALUE as a JSON string.",
     )
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def prepend(ctx, name, value, is_json):
+    def prepend(config: Config, name: str, value: str, is_json: bool):
         """Prepend a new value to the specified configuration item.
 
         NAME is the dot-delimited path to the list to be prepended to.
 
         """
-        ctx.obj["config"].prepend(name, value, is_json)
-        ctx.obj["config"].save()
+        if is_json:
+            config.prepend(name, value, is_json=True)
+        else:
+            config.prepend(name, value, is_json=False)
+        config.save()
 
     @config.command(context_settings={"ignore_unknown_options": True})
     @click.argument("name")
     @click.argument("index", type=click.types.INT)
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def pop(ctx, name, index):
+    def pop(config: Config, name: str, index: int):
         """Remove a value from a list-like configuration item.
 
         NAME is the dot-delimited path to the list to be modified.
 
         """
-        ctx.obj["config"].pop(name, index)
-        ctx.obj["config"].save()
+        config.pop(name, index)
+        config.save()
 
     @config.command()
     @click.argument("name")
@@ -271,80 +290,84 @@ def get_config_CLI(app):
         default=False,
         help="Interpret VALUE as a JSON string.",
     )
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def update(ctx, name, value, is_json):
+    def update(config: Config, name: str, value: str, is_json: bool):
         """Update a map-like value in the configuration.
 
         NAME is the dot-delimited path to the map to be updated.
 
         """
-        ctx.obj["config"].update(name, value, is_json)
-        ctx.obj["config"].save()
+        if is_json:
+            config.update(name, value, is_json=True)
+        else:
+            config.update(name, value, is_json=False)
+        config.save()
 
     @config.command()
     @click.argument("name")
     @click.option("--defaults")
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def add_scheduler(ctx, name, defaults):
+    def add_scheduler(config: Config, name: str, defaults: str | None):
         if defaults:
-            defaults = json.loads(defaults)
+            loaded_defaults: dict = json.loads(defaults)
         else:
-            defaults = {}
-        ctx.obj["config"].add_scheduler(name, **defaults)
-        ctx.obj["config"].save()
+            loaded_defaults = {}
+        config.add_scheduler(name, **loaded_defaults)
+        config.save()
 
     @config.command()
     @click.argument("name")
     @click.option("--defaults")
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def add_shell(ctx, name, defaults):
+    def add_shell(config: Config, name: str, defaults: str | None):
         if defaults:
-            defaults = json.loads(defaults)
+            loaded_defaults: dict = json.loads(defaults)
         else:
-            defaults = {}
-        ctx.obj["config"].add_shell(name, **defaults)
-        ctx.obj["config"].save()
+            loaded_defaults = {}
+        config.add_shell(name, **loaded_defaults)
+        config.save()
 
     @config.command()
     @click.option("--defaults")
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def add_shell_wsl(ctx, defaults):
+    def add_shell_wsl(config: Config, defaults: str | None):
         if defaults:
-            defaults = json.loads(defaults)
+            loaded_defaults: dict = json.loads(defaults)
         else:
-            defaults = {}
-        ctx.obj["config"].add_shell_WSL(**defaults)
-        ctx.obj["config"].save()
+            loaded_defaults = {}
+        config.add_shell_WSL(**loaded_defaults)
+        config.save()
 
     @config.command()
     @click.argument("sha")
-    @click.pass_context
+    @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
-    def set_github_demo_data_dir(ctx, sha):
-        ctx.obj["config"].set_github_demo_data_dir(sha=sha)
-        ctx.obj["config"].save()
+    def set_github_demo_data_dir(config: Config, sha: str):
+        config.set_github_demo_data_dir(sha=sha)
+        config.save()
 
     @config.command()
     def load_data_files():
         """Check we can load the data files (e.g. task schema files) as specified in the
         configuration."""
         app.load_data_files()
+        # FIXME: No such method?
 
     @config.command()
     @click.option("--path", is_flag=True, default=False)
-    @click.pass_context
-    def open(ctx, path=False):
+    @pass_config
+    def open(config: Config, path: bool = False):
         """Alias for `{package_name} open config`: open the configuration file, or retrieve
         it's path."""
-        file_path = ctx.obj["config"].get("config_file_path")
+        file_path = config.get("config_file_path")
         if path:
             click.echo(file_path)
         else:
-            utils.open_file(file_path)
+            open_file(file_path)
 
     @config.command()
     @click.argument("known_name")
@@ -356,10 +379,10 @@ def get_config_CLI(app):
             "files."
         ),
     )
-    @click.pass_context
-    def init(ctx, known_name, path):
-        ctx.obj["config"].init(known_name=known_name, path=path)
+    @pass_config
+    def init(config: Config, known_name: str, path: str | None):
+        config.init(known_name=known_name, path=path)
 
-    open.help = open.help.format(package_name=app.package_name)
+    open.help = (open.help or "").format(package_name=app.package_name)
 
     return config

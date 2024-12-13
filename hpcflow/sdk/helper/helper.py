@@ -2,20 +2,24 @@
 Implementation of a helper process used to monitor jobs.
 """
 
+from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import signal
-import socket
 import subprocess
 import sys
 import time
-
+from typing import Any, TYPE_CHECKING
 import psutil
 
-from .watcher import MonitorController
+from hpcflow.sdk.helper.watcher import MonitorController
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from ..app import BaseApp
 
 
 DEFAULT_TIMEOUT = 3600  # seconds
@@ -24,12 +28,23 @@ DEFAULT_WATCH_INTERVAL = 10  # seconds
 
 
 def kill_proc_tree(
-    pid, sig=signal.SIGTERM, include_parent=True, timeout=None, on_terminate=None
-):
+    pid: int,
+    sig=signal.SIGTERM,
+    include_parent: bool = True,
+    timeout: float | None = None,
+    on_terminate: Callable[[psutil.Process], object] | None = None,
+) -> tuple[list[psutil.Process], list[psutil.Process]]:
     """Kill a process tree (including grandchildren) with signal
-    "sig" and return a (gone, still_alive) tuple.
-    "on_terminate", if specified, is a callback function which is
+    `sig` and return a (gone, still_alive) tuple.
+    `on_terminate`, if specified, is a callback function which is
     called as soon as a child terminates.
+
+    Returns
+    -------
+    list[Process]:
+        The process and subprocesses that have died.
+    list[Process]:
+        The process and subprocesses that are still alive.
     """
     assert pid != os.getpid(), "won't kill myself"
     parent = psutil.Process(pid)
@@ -41,39 +56,40 @@ def kill_proc_tree(
             p.send_signal(sig)
         except psutil.NoSuchProcess:
             pass
-    gone, alive = psutil.wait_procs(children, timeout=timeout, callback=on_terminate)
-    return (gone, alive)
+    return psutil.wait_procs(children, timeout=timeout, callback=on_terminate)
 
 
-def get_PID_file_path(app):
+def get_PID_file_path(app: BaseApp) -> Path:
     """Get the path to the file containing the process ID of the helper, if running."""
     return app.user_data_dir / "pid.txt"
 
 
-def get_watcher_file_path(app):
+def get_watcher_file_path(app: BaseApp) -> Path:
     """Get the path to the watcher file, which contains a list of workflows to watch."""
     return app.user_data_dir / "watch_workflows.txt"
 
 
-def get_helper_log_path(app):
+def get_helper_log_path(app: BaseApp) -> Path:
     """Get the log file path for the helper."""
     return app.user_data_dir / "helper.log"
 
 
-def get_helper_watch_list(app):
+def get_helper_watch_list(app: BaseApp):
     """Get the list of workflows currently being watched by the helper process."""
-    logger = get_helper_logger(app)
     watch_file_path = get_watcher_file_path(app)
     if watch_file_path.exists():
-        return MonitorController.parse_watch_workflows_file(watch_file_path, logger)
+        return MonitorController.parse_watch_workflows_file(
+            watch_file_path, get_helper_logger(app)
+        )
+    return None
 
 
 def start_helper(
-    app,
-    timeout=DEFAULT_TIMEOUT,
-    timeout_check_interval=DEFAULT_TIMEOUT_CHECK,
-    watch_interval=DEFAULT_WATCH_INTERVAL,
-    logger=None,
+    app: BaseApp,
+    timeout: timedelta | float = DEFAULT_TIMEOUT,
+    timeout_check_interval: timedelta | float = DEFAULT_TIMEOUT_CHECK,
+    watch_interval: timedelta | float = DEFAULT_WATCH_INTERVAL,
+    logger: logging.Logger | None = None,
 ):
     """
     Start the helper process.
@@ -90,9 +106,9 @@ def start_helper(
             f"Starting helper with timeout={timeout!r}, timeout_check_interval="
             f"{timeout_check_interval!r} and watch_interval={watch_interval!r}."
         )
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if os.name == "nt":
-            kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW}
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
@@ -101,8 +117,8 @@ def start_helper(
         if isinstance(watch_interval, timedelta):
             watch_interval = watch_interval.total_seconds()
 
-        args = app.run_time_info.invocation_command
-        args += [
+        args = [
+            *app.run_time_info.invocation_command,
             "--config-dir",
             str(app.config.config_directory),
             "helper",
@@ -137,10 +153,10 @@ def start_helper(
 
 
 def restart_helper(
-    app,
-    timeout=DEFAULT_TIMEOUT,
-    timeout_check_interval=DEFAULT_TIMEOUT_CHECK,
-    watch_interval=DEFAULT_WATCH_INTERVAL,
+    app: BaseApp,
+    timeout: timedelta | float = DEFAULT_TIMEOUT,
+    timeout_check_interval: timedelta | float = DEFAULT_TIMEOUT_CHECK,
+    watch_interval: timedelta | float = DEFAULT_WATCH_INTERVAL,
 ):
     """
     Restart the helper process.
@@ -149,7 +165,7 @@ def restart_helper(
     start_helper(app, timeout, timeout_check_interval, watch_interval, logger=logger)
 
 
-def get_helper_PID(app):
+def get_helper_PID(app: BaseApp):
     """
     Get the process ID of the helper process.
     """
@@ -157,20 +173,18 @@ def get_helper_PID(app):
     if not PID_file.is_file():
         print("Helper not running!")
         return None
-    else:
-        with PID_file.open("rt") as fp:
-            helper_pid = int(fp.read().strip())
-        return helper_pid, PID_file
+    with PID_file.open("rt") as fp:
+        helper_pid = int(fp.read().strip())
+    return helper_pid, PID_file
 
 
-def stop_helper(app, return_logger=False):
+def stop_helper(app: BaseApp, return_logger: bool = False):
     """
     Stop the helper process.
     """
     logger = get_helper_logger(app)
-    pid_info = get_helper_PID(app)
-    if pid_info:
-        logger.info(f"Stopping helper.")
+    if pid_info := get_helper_PID(app):
+        logger.info("Stopping helper.")
         pid, pid_file = pid_info
         kill_proc_tree(pid=pid)
         pid_file.unlink()
@@ -179,37 +193,34 @@ def stop_helper(app, return_logger=False):
         logger.info(f"Deleting watcher file: {str(workflow_dirs_file_path)}")
         workflow_dirs_file_path.unlink()
 
-    if return_logger:
-        return logger
+    return logger if return_logger else None
 
 
-def clear_helper(app):
+def clear_helper(app: BaseApp):
     """
     Stop the helper or remove any stale information relating to it.
     """
     try:
         stop_helper(app)
     except psutil.NoSuchProcess:
-        pid_info = get_helper_PID(app)
-        if pid_info:
+        if pid_info := get_helper_PID(app):
             pid_file = pid_info[1]
             print(f"Removing file {pid_file!r}")
             pid_file.unlink()
 
 
-def get_helper_uptime(app):
+def get_helper_uptime(app: BaseApp) -> None | timedelta:
     """
     Get the amount of time that the helper has been running.
     """
-    pid_info = get_helper_PID(app)
-    if pid_info:
-        proc = psutil.Process(pid_info[0])
-        create_time = datetime.fromtimestamp(proc.create_time())
-        uptime = datetime.now() - create_time
-        return uptime
+    if not (pid_info := get_helper_PID(app)):
+        return None
+    proc = psutil.Process(pid_info[0])
+    create_time = datetime.fromtimestamp(proc.create_time())
+    return datetime.now() - create_time
 
 
-def get_helper_logger(app):
+def get_helper_logger(app: BaseApp) -> logging.Logger:
     """
     Get the logger for helper-related messages.
     """
@@ -224,17 +235,21 @@ def get_helper_logger(app):
     return logger
 
 
-def helper_timeout(app, timeout, controller, logger):
+def helper_timeout(
+    app: BaseApp,
+    timeout: timedelta,
+    controller: MonitorController,
+    logger: logging.Logger,
+):
     """Kill the helper due to running duration exceeding the timeout."""
 
     logger.info(f"Helper exiting due to timeout ({timeout!r}).")
-    pid_info = get_helper_PID(app)
-    if pid_info:
+    if pid_info := get_helper_PID(app):
         pid_file = pid_info[1]
         logger.info(f"Deleting PID file: {pid_file!r}.")
         pid_file.unlink()
 
-    logger.info(f"Stopping all watchers.")
+    logger.info("Stopping all watchers.")
     controller.stop()
     controller.join()
 
@@ -245,10 +260,10 @@ def helper_timeout(app, timeout, controller, logger):
 
 
 def run_helper(
-    app,
-    timeout=DEFAULT_TIMEOUT,
-    timeout_check_interval=DEFAULT_TIMEOUT_CHECK,
-    watch_interval=DEFAULT_WATCH_INTERVAL,
+    app: BaseApp,
+    timeout: timedelta | float = DEFAULT_TIMEOUT,
+    timeout_check_interval: timedelta | float = DEFAULT_TIMEOUT_CHECK,
+    watch_interval: timedelta | float = DEFAULT_WATCH_INTERVAL,
 ):
     """
     Run the helper core.
@@ -260,11 +275,8 @@ def run_helper(
     # TODO: we will want to set the timeout to be slightly more than the largest allowable
     # walltime in the case of scheduler submissions.
 
-    if isinstance(timeout, timedelta):
-        timeout_s = timeout.total_seconds()
-    else:
-        timeout_s = timeout
-        timeout = timedelta(seconds=timeout_s)
+    if not isinstance(timeout, timedelta):
+        timeout = timedelta(seconds=timeout)
 
     if isinstance(timeout_check_interval, timedelta):
         timeout_check_interval_s = timeout_check_interval.total_seconds()

@@ -1,8 +1,9 @@
 import os
+from pathlib import Path
 import time
 import pytest
 from hpcflow.app import app as hf
-from hpcflow.sdk.core.actions import EARStatus
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     P1_sub_parameter_cls as P1_sub,
@@ -11,26 +12,30 @@ from hpcflow.sdk.core.test_utils import (
 
 
 @pytest.mark.integration
-def test_workflow_1(tmp_path, new_null_config):
+def test_workflow_1(tmp_path: Path, new_null_config):
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False)
-    assert wk.tasks[0].elements[0].outputs.p2.value == "201"
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == "201"
 
 
 @pytest.mark.integration
-def test_workflow_1_with_working_dir_with_spaces(tmp_path, new_null_config):
+def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path, new_null_config):
     workflow_dir = tmp_path / "sub path with spaces"
     workflow_dir.mkdir()
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=workflow_dir)
     wk.submit(wait=True, add_to_known=False)
-    assert wk.tasks[0].elements[0].outputs.p2.value == "201"
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == "201"
 
 
 @pytest.mark.integration
 @pytest.mark.skip(
     reason="Sometimes fails on MacOS GHAs runner; too slow on Windows + Linux"
 )
-def test_run_abort(tmp_path, new_null_config):
+def test_run_abort(tmp_path: Path, new_null_config):
     wk = make_test_data_YAML_workflow("workflow_test_run_abort.yaml", path=tmp_path)
     wk.submit(add_to_known=False)
 
@@ -56,7 +61,7 @@ def test_run_abort(tmp_path, new_null_config):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_multi_command_action_stdout_parsing(null_config, tmp_path, store):
+def test_multi_command_action_stdout_parsing(null_config, tmp_path: Path, store: str):
     if os.name == "nt":
         cmds = [
             "Write-Output (<<parameter:p1>> + 100)",
@@ -98,7 +103,7 @@ def test_multi_command_action_stdout_parsing(null_config, tmp_path, store):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_element_get_group(null_config, tmp_path, store):
+def test_element_get_group(null_config, tmp_path: Path, store: str):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -146,7 +151,7 @@ def test_element_get_group(null_config, tmp_path, store):
 
 
 @pytest.mark.integration
-def test_element_get_sub_object_group(null_config, tmp_path):
+def test_element_get_sub_object_group(null_config, tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -196,7 +201,7 @@ def test_element_get_sub_object_group(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_element_get_sub_data_group(null_config, tmp_path):
+def test_element_get_sub_data_group(null_config, tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -243,7 +248,7 @@ def test_element_get_sub_data_group(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_input_source_labels_and_groups(null_config, tmp_path):
+def test_input_source_labels_and_groups(null_config, tmp_path: Path):
     """This is structurally the same as the `fit_yield_functions` MatFlow workflow."""
     if os.name == "nt":
         cmds = [
@@ -338,7 +343,7 @@ def test_input_source_labels_and_groups(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_loop_simple(null_config, tmp_path):
+def test_loop_simple(null_config, tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1>> + 100)"
     else:
@@ -362,7 +367,7 @@ def test_loop_simple(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_loop_termination_multi_element(null_config, tmp_path):
+def test_loop_termination_multi_element(null_config, tmp_path: Path):
     if os.name == "nt":
         cmds = [
             "Write-Output (<<parameter:p1>> + 100)",

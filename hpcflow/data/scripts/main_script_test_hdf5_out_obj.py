@@ -1,4 +1,4 @@
-import h5py
+import h5py  # type: ignore[import-untyped]
 
 
 def main_script_test_hdf5_out_obj(p1, _output_files):

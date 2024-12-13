@@ -1,37 +1,46 @@
 """
-Shell models based on the Bourne-Again Shell.
+Shell models based on the GNU Bourne-Again Shell.
 """
 
+from __future__ import annotations
 from pathlib import Path
 import subprocess
 from textwrap import dedent, indent
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING
+from typing_extensions import override
+from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core import ABORT_EXIT_CODE
-from hpcflow.sdk.submission.shells import Shell
+from hpcflow.sdk.submission.shells.base import Shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Any, ClassVar
+    from .base import VersionInfo, JobscriptHeaderArgs
 
+
+@hydrate
 class Bash(Shell):
     """
     Class to represent using bash on a POSIX OS to generate and submit a jobscript.
     """
 
     #: Default for executable name.
-    DEFAULT_EXE = "/bin/bash"
+    DEFAULT_EXE: ClassVar[str] = "/bin/bash"
 
     #: File extension for jobscripts.
-    JS_EXT = ".sh"
+    JS_EXT: ClassVar[str] = ".sh"
     #: Basic indent.
-    JS_INDENT = "  "
+    JS_INDENT: ClassVar[str] = "  "
     #: Indent for environment setup.
-    JS_ENV_SETUP_INDENT = 2 * JS_INDENT
+    JS_ENV_SETUP_INDENT: ClassVar[str] = 2 * JS_INDENT
     #: Template for the jobscript shebang line.
-    JS_SHEBANG = """#!{shebang_executable} {shebang_args}"""
+    JS_SHEBANG: ClassVar[str] = """#!{shebang_executable} {shebang_args}"""
     #: Template for the common part of the jobscript header.
-    JS_HEADER = dedent(
+    JS_HEADER: ClassVar[str] = dedent(
         """\
         {workflow_app_alias} () {{
         (
@@ -52,7 +61,7 @@ class Bash(Shell):
     """
     )
     #: Template for the jobscript header when scheduled.
-    JS_SCHEDULER_HEADER = dedent(
+    JS_SCHEDULER_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
 
@@ -61,7 +70,7 @@ class Bash(Shell):
     """
     )
     #: Template for the jobscript header when directly executed.
-    JS_DIRECT_HEADER = dedent(
+    JS_DIRECT_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
 
@@ -70,7 +79,7 @@ class Bash(Shell):
     """
     )
     #: Template for the jobscript body.
-    JS_MAIN = dedent(
+    JS_MAIN: ClassVar[str] = dedent(
         """\
         elem_EAR_IDs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$EAR_ID_FILE"`
         elem_run_dirs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$ELEM_RUN_DIR_FILE"`
@@ -119,7 +128,7 @@ class Bash(Shell):
     """
     )
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_LOOP = dedent(
+    JS_ELEMENT_LOOP: ClassVar[str] = dedent(
         """\
         for ((JS_elem_idx=0;JS_elem_idx<{num_elements};JS_elem_idx++))
         do
@@ -129,7 +138,7 @@ class Bash(Shell):
     """
     )
     #: Template for the array handling code in a jobscript.
-    JS_ELEMENT_ARRAY = dedent(
+    JS_ELEMENT_ARRAY: ClassVar[str] = dedent(
         """\
         JS_elem_idx=$(({scheduler_array_item_var} - 1))
         {main}
@@ -137,20 +146,18 @@ class Bash(Shell):
     """
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @property
-    def linux_release_file(self):
+    def linux_release_file(self) -> str:
         """
         The name of the file describing the Linux version.
         """
         return self.os_args["linux_release_file"]
 
-    def _get_OS_info_POSIX(self):
+    def _get_OS_info_POSIX(self) -> Mapping[str, str]:
         return get_OS_info_POSIX(linux_release_file=self.linux_release_file)
 
-    def get_version_info(self, exclude_os: Optional[bool] = False) -> Dict:
+    @override
+    def get_version_info(self, exclude_os: bool = False) -> VersionInfo:
         """Get bash version information.
 
         Parameters
@@ -171,29 +178,27 @@ class Bash(Shell):
         else:
             raise RuntimeError("Failed to parse bash version information.")
 
-        out = {
+        return {
             "shell_name": "bash",
             "shell_executable": self.executable,
             "shell_version": bash_version,
+            **({} if exclude_os else self._get_OS_info_POSIX()),
         }
 
-        if not exclude_os:
-            out.update(**self._get_OS_info_POSIX())
-
-        return out
-
     @staticmethod
-    def process_app_invoc_executable(app_invoc_exe):
+    def process_app_invoc_executable(app_invoc_exe: str) -> str:
         # escape spaces with a back slash:
-        app_invoc_exe = app_invoc_exe.replace(" ", r"\ ")
-        return app_invoc_exe
+        return app_invoc_exe.replace(" ", r"\ ")
 
-    def format_stream_assignment(self, shell_var_name, command):
+    @override
+    @staticmethod
+    def format_stream_assignment(shell_var_name: str, command: str) -> str:
         """
         Produce code to assign the output of the command to a shell variable.
         """
         return f"{shell_var_name}=`{command}`"
 
+    @override
     def format_save_parameter(
         self,
         workflow_app_alias: str,
@@ -217,7 +222,10 @@ class Bash(Shell):
             f"\n"
         )
 
-    def format_loop_check(self, workflow_app_alias: str, loop_name: str, run_ID: int):
+    @override
+    def format_loop_check(
+        self, workflow_app_alias: str, loop_name: str, run_ID: int
+    ) -> str:
         """
         Produce code to check the looping status of part of a workflow.
         """
@@ -229,6 +237,7 @@ class Bash(Shell):
             f"\n"
         )
 
+    @override
     def wrap_in_subshell(self, commands: str, abortable: bool) -> str:
         """Format commands to run within a subshell.
 
@@ -276,16 +285,17 @@ class Bash(Shell):
             ).format(commands=commands)
 
 
+@hydrate
 class WSLBash(Bash):
     """
     A variant of bash that handles running under WSL on Windows.
     """
 
     #: Default name of the WSL interface executable.
-    DEFAULT_WSL_EXE = "wsl"
+    DEFAULT_WSL_EXE: ClassVar[str] = "wsl"
 
     #: Template for the common part of the jobscript header.
-    JS_HEADER = Bash.JS_HEADER.replace(
+    JS_HEADER: ClassVar[str] = Bash.JS_HEADER.replace(
         'WK_PATH_ARG="$WK_PATH"',
         'WK_PATH_ARG=`wslpath -m "$WK_PATH"`',
     ).replace(
@@ -295,25 +305,28 @@ class WSLBash(Bash):
 
     def __init__(
         self,
-        WSL_executable: Optional[str] = None,
-        WSL_distribution: Optional[str] = None,
-        WSL_user: Optional[str] = None,
+        WSL_executable: str | None = None,
+        WSL_distribution: str | None = None,
+        WSL_user: str | None = None,
         *args,
         **kwargs,
     ):
+        #: The WSL executable wrapper.
         self.WSL_executable = WSL_executable or self.DEFAULT_WSL_EXE
+        #: The WSL distribution to use, if any.
         self.WSL_distribution = WSL_distribution
+        #: The WSL user to use, if any.
         self.WSL_user = WSL_user
         super().__init__(*args, **kwargs)
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and (
             self.WSL_executable == other.WSL_executable
             and self.WSL_distribution == other.WSL_distribution
             and self.WSL_user == other.WSL_user
         )
 
-    def _get_WSL_command(self):
+    def _get_WSL_command(self) -> list[str]:
         out = [self.WSL_executable]
         if self.WSL_distribution:
             out += ["--distribution", self.WSL_distribution]
@@ -322,14 +335,14 @@ class WSLBash(Bash):
         return out
 
     @property
-    def executable(self) -> List[str]:
+    def executable(self) -> list[str]:
         return self._get_WSL_command() + super().executable
 
     @property
-    def shebang_executable(self) -> List[str]:
+    def shebang_executable(self) -> list[str]:
         return super().executable
 
-    def _get_OS_info_POSIX(self):
+    def _get_OS_info_POSIX(self) -> Mapping[str, str]:
         return get_OS_info_POSIX(
             WSL_executable=self._get_WSL_command(),
             use_py=False,
@@ -337,27 +350,29 @@ class WSLBash(Bash):
         )
 
     @staticmethod
-    def _convert_to_wsl_path(win_path: Union[str, Path]) -> str:
+    def _convert_to_wsl_path(win_path: str | Path) -> str:
         win_path = Path(win_path)
         parts = list(win_path.parts)
         parts[0] = f"/mnt/{win_path.drive.lower().rstrip(':')}"
-        wsl_path = "/".join(parts)
-        return wsl_path
+        return "/".join(parts)
 
-    def process_JS_header_args(self, header_args):
+    def process_JS_header_args(
+        self, header_args: JobscriptHeaderArgs
+    ) -> JobscriptHeaderArgs:
         # convert executable windows paths to posix style as expected by WSL:
-        header_args["app_invoc"][0] = self._convert_to_wsl_path(
-            header_args["app_invoc"][0]
-        )
+        ai = header_args["app_invoc"]
+        if isinstance(ai, list):
+            ai[0] = self._convert_to_wsl_path(ai[0])
         return super().process_JS_header_args(header_args)
 
     def prepare_JS_path(self, js_path: Path) -> str:
         return self._convert_to_wsl_path(js_path)
 
-    def prepare_element_run_dirs(self, run_dirs: List[List[Path]]) -> List[List[str]]:
-        return [["/".join(str(j).split("\\")) for j in i] for i in run_dirs]
+    def prepare_element_run_dirs(self, run_dirs: list[list[Path]]) -> list[list[str]]:
+        return [[str(path).replace("\\", "/") for path in i] for i in run_dirs]
 
-    def get_version_info(self, exclude_os: Optional[bool] = False) -> Dict:
+    @override
+    def get_version_info(self, exclude_os: bool = False) -> VersionInfo:
         """Get WSL and bash version information.
 
         Parameters
@@ -368,12 +383,14 @@ class WSLBash(Bash):
         """
         vers_info = super().get_version_info(exclude_os=exclude_os)
 
-        vers_info["shell_name"] = ("wsl+" + vers_info["shell_name"]).lower()
+        vers_info["shell_name"] = f"wsl+{vers_info['shell_name']}".lower()
         vers_info["WSL_executable"] = self.WSL_executable
-        vers_info["WSL_distribution"] = self.WSL_distribution
-        vers_info["WSL_user"] = self.WSL_user
+        if self.WSL_distribution:
+            vers_info["WSL_distribution"] = self.WSL_distribution
+        if self.WSL_user:
+            vers_info["WSL_user"] = self.WSL_user
 
-        for key in list(vers_info.keys()):
+        for key in tuple(vers_info):
             if key.startswith("OS_"):
                 vers_info[f"WSL_{key}"] = vers_info.pop(key)
 

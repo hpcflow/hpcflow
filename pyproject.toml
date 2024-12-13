@@ -33,6 +33,7 @@ h5py = "^3.9.0"
 valida = "^0.7.5"
 requests = "^2.31.0"
 platformdirs = "^4.2.1"
+typing-extensions = "^4.12.2"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.12.2"
@@ -59,6 +60,18 @@ ipykernel = "^6.25.1"
 [tool.poetry.group.pyinstaller.dependencies]
 pyinstaller = "^5.13"
 
+[tool.poetry.group.typecheck]
+optional = true
+[tool.poetry.group.typecheck.dependencies]
+types-colorama = "^0.4.15.20240311"
+types-paramiko = "^3.4.0.20240423"
+types-psutil = "^6.0.0.20240621"
+types-pyinstaller = "^6.8.0.20240626"
+types-requests = "^2.32.0.20240622"
+types-setuptools = "^70.2.0.20240704"
+mypy = "^1.10.1"
+types-markupsafe = "^1.1.10"
+
 [tool.poetry.extras]
 test = ["pytest"]
 
@@ -80,6 +93,9 @@ bump_message = "bump: $current_version → $new_version [skip ci]"
 
 [tool.black]
 line-length = 90
+
+[tool.mypy]
+incremental = false
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

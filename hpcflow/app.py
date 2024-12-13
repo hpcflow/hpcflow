@@ -1,3 +1,4 @@
+from __future__ import annotations
 from hpcflow import __version__, _app_name
 from hpcflow.sdk import app as sdk_app
 from hpcflow.sdk.config import ConfigOptions

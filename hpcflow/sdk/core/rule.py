@@ -3,15 +3,20 @@ Rules apply conditions to workflow elements or loops.
 """
 
 from __future__ import annotations
-from typing import Dict, Optional, Union
+from typing import TYPE_CHECKING
 
-from valida.conditions import ConditionLike
-from valida.rules import Rule as ValidaRule
+from valida.conditions import ConditionLike  # type: ignore
+from valida import Rule as ValidaRule  # type: ignore
 
-from hpcflow.sdk import app
 from hpcflow.sdk.core.json_like import JSONLike
 from hpcflow.sdk.core.utils import get_in_container
 from hpcflow.sdk.log import TimeIt
+
+if TYPE_CHECKING:
+    from typing import Any
+    from typing_extensions import TypeIs
+    from .actions import Action, ElementActionRun
+    from .element import ElementIteration
 
 
 class Rule(JSONLike):
@@ -39,21 +44,24 @@ class Rule(JSONLike):
 
     def __init__(
         self,
-        check_exists: Optional[str] = None,
-        check_missing: Optional[str] = None,
-        path: Optional[str] = None,
-        condition: Optional[Union[Dict, ConditionLike]] = None,
-        cast: Optional[str] = None,
-        doc: Optional[str] = None,
+        check_exists: str | None = None,
+        check_missing: str | None = None,
+        path: str | None = None,
+        condition: dict[str, Any] | ConditionLike | None = None,
+        cast: str | None = None,
+        doc: str | None = None,
     ):
-        if sum(i is not None for i in (check_exists, check_missing, condition)) != 1:
+        if sum(arg is not None for arg in (check_exists, check_missing, condition)) != 1:
             raise ValueError(
                 "Specify either one of `check_exists`, `check_missing` or a `condition` "
                 "(and optional `path`)"
             )
 
-        if isinstance(condition, dict):
-            condition = ConditionLike.from_json_like(condition)
+        if not isinstance(condition, dict):
+            #: A general condition for this rule to check.
+            self.condition = condition
+        else:
+            self.condition = ConditionLike.from_json_like(condition)
 
         #: If set, this rule checks this attribute exists.
         self.check_exists = check_exists
@@ -61,14 +69,12 @@ class Rule(JSONLike):
         self.check_missing = check_missing
         #: Where to look up the attribute to check (if not determined by context).
         self.path = path
-        #: A general condition for this rule to check.
-        self.condition = condition
         #: If set, a cast to apply prior to running the general check.
         self.cast = cast
         #: Optional descriptive text.
         self.doc = doc
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         out = f"{self.__class__.__name__}("
         if self.check_exists:
             out += f"check_exists={self.check_exists!r}"
@@ -84,26 +90,27 @@ class Rule(JSONLike):
         out += ")"
         return out
 
-    def __eq__(self, other):
-        if not isinstance(other, Rule):
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
             return False
-        elif (
+        return (
             self.check_exists == other.check_exists
             and self.check_missing == other.check_missing
             and self.path == other.path
             and self.condition == other.condition
             and self.cast == other.cast
             and self.doc == other.doc
-        ):
-            return True
-        else:
-            return False
+        )
+
+    @classmethod
+    def __is_ElementIteration(cls, value) -> TypeIs[ElementIteration]:
+        return isinstance(value, cls._app.ElementIteration)
 
     @TimeIt.decorator
     def test(
         self,
-        element_like: Union[app.ElementIteration, app.ElementActionRun],
-        action: Optional[app.Action] = None,
+        element_like: ElementIteration | ElementActionRun,
+        action: Action | None = None,
     ) -> bool:
         """Test if the rule evaluates to true or false for a given run, or element
         iteration and action combination."""
@@ -111,33 +118,29 @@ class Rule(JSONLike):
         task = element_like.task
         schema_data_idx = element_like.data_idx
 
-        check = self.check_exists or self.check_missing
-        if check:
-            param_s = check.split(".")
-            if len(param_s) > 2:
+        if check := self.check_exists or self.check_missing:
+            if len(check.split(".")) > 2:
                 # sub-parameter, so need to try to retrieve parameter data
                 try:
                     task._get_merged_parameter_data(
                         schema_data_idx, raise_on_missing=True
                     )
-                    return True if self.check_exists else False
+                    return bool(self.check_exists)
                 except ValueError:
-                    return False if self.check_exists else True
+                    return not self.check_exists
             else:
                 if self.check_exists:
                     return self.check_exists in schema_data_idx
                 elif self.check_missing:
                     return self.check_missing not in schema_data_idx
-
         else:
-            if self.path.startswith("resources."):
-                try:
-                    # assume an `ElementIteration`
+            if self.path and self.path.startswith("resources."):
+                if self.__is_ElementIteration(element_like):
+                    assert action is not None
                     elem_res = element_like.get_resources(
                         action=action, set_defaults=True
                     )
-                except TypeError:
-                    # must be an `ElementActionRun`
+                else:
                     elem_res = element_like.get_resources()
 
                 res_path = self.path.split(".")[1:]
@@ -151,7 +154,22 @@ class Rule(JSONLike):
                     raise_on_unset=True,
                 )
             # test the rule:
-            # note: Valida can't `rule.test` scalars yet, so wrap it in a list and set
-            # path to first element (see: https://github.com/hpcflow/valida/issues/9):
-            rule = ValidaRule(path=[0], condition=self.condition, cast=self.cast)
-            return rule.test([element_dat]).is_valid
+            return self._valida_check(element_dat)
+
+        # Something bizarre was specified. Don't match it!
+        return False
+
+    def _valida_check(self, value: Any) -> bool:
+        """
+        Check this rule against the specific object, under the assumption that we need
+        to use valida for the check. Does not do path tracing to select the object to
+        pass; that is the caller's responsibility.
+        """
+        # note: Valida can't `rule.test` scalars yet, so wrap it in a list and set
+        # path to first element (see: https://github.com/hpcflow/valida/issues/9):
+        rule = ValidaRule(
+            path=[0],
+            condition=self.condition,
+            cast=self.cast,
+        )
+        return rule.test([value]).is_valid

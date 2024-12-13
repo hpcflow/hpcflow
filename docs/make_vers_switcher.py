@@ -6,10 +6,11 @@ from pathlib import Path
 
 def pad_version(version, pad_length=3):
     p = ""
+    n: str
     for n in re.findall(r"\d+", version):
-        p = p + str(n.zfill(pad_length))
+        p += str(n.zfill(pad_length))
     if "a" not in version:
-        p = p + "999"  # stable versions before pre-releases (with `reverse=True`)
+        p += "9" * pad_length  # stable versions before pre-releases (with `reverse=True`)
     return p
 
 

@@ -1,17 +1,21 @@
 """Click CLI options that are used as decorators in multiple modules."""
 
+from __future__ import annotations
 import click
 
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
-from hpcflow.sdk.persistence import ALL_STORE_FORMATS, DEFAULT_STORE_FORMAT
+from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
+from hpcflow.sdk.persistence.discovery import ALL_STORE_FORMATS
 
 
-def sub_tasks_callback(ctx, param, value):
+def sub_tasks_callback(ctx, param, value: str | None) -> list[int] | None:
     """
     Parse subtasks.
     """
     if value:
         return [int(i) for i in value.split(",")]
+    else:
+        return None
 
 
 #: Standard option

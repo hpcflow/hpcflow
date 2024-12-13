@@ -2,4 +2,4 @@
 Configuration loading and manipulation.
 """
 
-from .config import Config, ConfigFile, ConfigOptions, DEFAULT_CONFIG
+from hpcflow.sdk.config.config import Config, ConfigFile, ConfigOptions, DEFAULT_CONFIG

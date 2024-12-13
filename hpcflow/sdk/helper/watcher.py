@@ -2,10 +2,34 @@
 File-system watcher classes.
 """
 
+from __future__ import annotations
+from collections.abc import Callable
 from datetime import timedelta
+from logging import Logger
 from pathlib import Path
 from watchdog.observers.polling import PollingObserver
-from watchdog.events import FileSystemEventHandler, PatternMatchingEventHandler
+from watchdog.events import (
+    FileSystemEvent,
+    FileSystemEventHandler,
+    PatternMatchingEventHandler,
+)
+
+
+class _PMEHDelegate(PatternMatchingEventHandler):
+    def __init__(self, pattern: str, on_modified: Callable[[FileSystemEvent], None]):
+        super().__init__([pattern])
+        self.__on_modified = on_modified
+
+    def on_modified(self, event: FileSystemEvent) -> None:
+        self.__on_modified(event)
+
+
+class _FSEHDelegate(FileSystemEventHandler):
+    def __init__(self, on_modified: Callable[[FileSystemEvent], None]) -> None:
+        self.__on_modified = on_modified
+
+    def on_modified(self, event: FileSystemEvent) -> None:
+        self.__on_modified(event)
 
 
 class MonitorController:
@@ -13,12 +37,16 @@ class MonitorController:
     Controller for tracking watch files.
     """
 
-    def __init__(self, workflow_dirs_file_path, watch_interval, logger):
-
+    def __init__(
+        self,
+        workflow_dirs_file_path: str | Path,
+        watch_interval: float | timedelta,
+        logger: Logger,
+    ):
         if isinstance(watch_interval, timedelta):
-            watch_interval = watch_interval.total_seconds()
-
-        self.watch_interval = int(watch_interval)
+            self.watch_interval = int(watch_interval.total_seconds())
+        else:
+            self.watch_interval = int(watch_interval)
         self.workflow_dirs_file_path = Path(workflow_dirs_file_path).absolute()
         self.logger = logger
 
@@ -31,8 +59,7 @@ class MonitorController:
 
         self.logger.info(f"Watching file: {str(self.workflow_dirs_file_path)}")
 
-        self.event_handler = PatternMatchingEventHandler(patterns=["watch_workflows.txt"])
-        self.event_handler.on_modified = self.on_modified
+        self.event_handler = _PMEHDelegate("watch_workflows.txt", self.on_modified)
 
         self.observer = PollingObserver(timeout=self.watch_interval)
         self.observer.schedule(
@@ -53,7 +80,9 @@ class MonitorController:
         )
 
     @staticmethod
-    def parse_watch_workflows_file(path, logger):
+    def parse_watch_workflows_file(
+        path: str | Path, logger: Logger
+    ) -> list[dict[str, Path]]:
         """
         Parse the file describing what workflows to watch.
         """
@@ -61,7 +90,7 @@ class MonitorController:
         with Path(path).open("rt") as fp:
             lns = fp.readlines()
 
-        wks = []
+        wks: list[dict[str, Path]] = []
         for ln in lns:
             ln_s = ln.strip()
             if not ln_s:
@@ -79,7 +108,7 @@ class MonitorController:
 
         return wks
 
-    def on_modified(self, event):
+    def on_modified(self, event: FileSystemEvent):
         """
         Callback when files are modified.
         """
@@ -87,13 +116,13 @@ class MonitorController:
         wks = self.parse_watch_workflows_file(event.src_path, logger=self.logger)
         self.workflow_monitor.update_workflow_paths(wks)
 
-    def join(self):
+    def join(self) -> None:
         """
         Join the worker thread.
         """
         self.observer.join()
 
-    def stop(self):
+    def stop(self) -> None:
         """
         Stop this monitor.
         """
@@ -107,44 +136,48 @@ class WorkflowMonitor:
     Workflow monitor.
     """
 
-    def __init__(self, workflow_paths, watch_interval, logger):
-
+    def __init__(
+        self,
+        workflow_paths: list[dict[str, Path]],
+        watch_interval: float | timedelta,
+        logger: Logger,
+    ):
         if isinstance(watch_interval, timedelta):
-            watch_interval = watch_interval.total_seconds()
+            self.watch_interval = int(watch_interval.total_seconds())
+        else:
+            self.watch_interval = int(watch_interval)
 
-        self.event_handler = FileSystemEventHandler()
-        self.event_handler.on_modified = self.on_modified
+        self.event_handler = _FSEHDelegate(self.on_modified)
         self.workflow_paths = workflow_paths
-        self.watch_interval = int(watch_interval)
         self.logger = logger
 
         self._monitor_workflow_paths()
 
-    def _monitor_workflow_paths(self):
-
-        self.observer = PollingObserver(timeout=self.watch_interval)
+    def _monitor_workflow_paths(self) -> None:
+        observer = PollingObserver(timeout=self.watch_interval)
+        self.observer: PollingObserver | None = observer
         for i in self.workflow_paths:
-            self.observer.schedule(self.event_handler, path=i["path"], recursive=False)
+            observer.schedule(self.event_handler, path=i["path"], recursive=False)
             self.logger.info(f"Watching workflow: {i['path'].name}")
 
-        self.observer.start()
+        observer.start()
 
-    def on_modified(self, event):
+    def on_modified(self, event: FileSystemEvent):
         """
         Triggered on a workflow being modified.
         """
         self.logger.info(f"Workflow modified: {event.src_path}")
 
-    def update_workflow_paths(self, new_paths):
+    def update_workflow_paths(self, new_paths: list[dict[str, Path]]):
         """
         Change the set of paths to monitored workflows.
         """
-        self.logger.info(f"Updating watched workflows.")
+        self.logger.info("Updating watched workflows.")
         self.stop()
         self.workflow_paths = new_paths
         self._monitor_workflow_paths()
 
-    def stop(self):
+    def stop(self) -> None:
         """
         Stop this monitor.
         """

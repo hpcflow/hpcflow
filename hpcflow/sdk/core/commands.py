@@ -2,22 +2,32 @@
 Model of a command run in an action.
 """
 
+from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 import re
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
 
-from hpcflow.sdk import app
+from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.element import ElementResources
 from hpcflow.sdk.core.errors import NoCLIFormatMethodError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import ParameterValue
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from re import Pattern
+    from .actions import ActionRule
+    from .element import ElementActionRun
+    from .environment import Environment
+    from ..submission.shells import Shell
+
 
 @dataclass
+@hydrate
 class Command(JSONLike):
     """
     A command that may be run within a workflow action.
@@ -43,10 +53,7 @@ class Command(JSONLike):
         Rules that state whether this command is eligible to run.
     """
 
-    # TODO: What is the difference between command and executable?
-
-    _app_attr = "app"
-    _child_objects = (
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="rules",
             class_name="ActionRule",
@@ -57,22 +64,22 @@ class Command(JSONLike):
 
     #: The actual command.
     #: Overrides :py:attr:`executable`.
-    command: Optional[str] = None
+    command: str | None = None
     #: The executable to run,
     #: from the set of executable managed by the environment.
-    executable: Optional[str] = None
+    executable: str | None = None
     #: The arguments to pass in.
-    arguments: Optional[List[str]] = None
+    arguments: list[str] | None = None
     #: Values that may be substituted when preparing the arguments.
-    variables: Optional[Dict[str, str]] = None
+    variables: dict[str, str] | None = None
     #: The name of a file to write standard output to.
-    stdout: Optional[str] = None
+    stdout: str | None = None
     #: The name of a file to write standard error to.
-    stderr: Optional[str] = None
+    stderr: str | None = None
     #: The name of a file to read standard input from.
-    stdin: Optional[str] = None
+    stdin: str | None = None
     #: Rules that state whether this command is eligible to run.
-    rules: Optional[List[app.ActionRule]] = field(default_factory=lambda: [])
+    rules: list[ActionRule] = field(default_factory=list)
 
     def __repr__(self) -> str:
         out = []
@@ -95,61 +102,63 @@ class Command(JSONLike):
 
         return f"{self.__class__.__name__}({', '.join(out)})"
 
-    def _get_initial_command_line(self) -> str:
+    def __get_initial_command_line(self) -> str:
         if self.command:
             return self.command
         else:
             return self.executable or ""
 
-    def get_command_line(self, EAR, shell, env) -> Tuple[str, List[Tuple[str, str]]]:
+    __EXE_SCRIPT_RE: ClassVar[Pattern] = re.compile(r"\<\<(executable|script):(.*?)\>\>")
+    __ENV_SPEC_RE: ClassVar[Pattern] = re.compile(r"\<\<env:(.*?)\>\>")
+
+    def get_command_line(
+        self, EAR: ElementActionRun, shell: Shell, env: Environment
+    ) -> tuple[str, list[tuple[str, ...]]]:
         """Return the resolved command line.
 
         This is ordinarily called at run-time by `Workflow.write_commands`.
-
         """
 
-        self.app.persistence_logger.debug("Command.get_command_line")
-        cmd_str = self._get_initial_command_line()
+        self._app.persistence_logger.debug("Command.get_command_line")
+        cmd_str = self.__get_initial_command_line()
 
         def _format_sum(iterable: Iterable) -> str:
             return str(sum(iterable))
 
         def _join(iterable: Iterable, delim: str) -> str:
-            return delim.join(str(i) for i in iterable)
+            return delim.join(map(str, iterable))
 
-        parse_types = {
+        parse_types: dict[str, Callable[..., str]] = {
             "sum": _format_sum,
             "join": _join,
         }
 
-        def exec_script_repl(match_obj):
+        def exec_script_repl(match_obj: re.Match[str]) -> str:
             typ, val = match_obj.groups()
             if typ == "executable":
                 executable = env.executables.get(val)
                 filterable = ElementResources.get_env_instance_filterable_attributes()
-                filter_exec = {j: EAR.get_resources().get(j) for j in filterable}
+                filter_exec = {attr: EAR.get_resources().get(attr) for attr in filterable}
                 exec_cmd = executable.filter_instances(**filter_exec)[0].command
-                out = exec_cmd.replace("<<num_cores>>", str(EAR.resources.num_cores))
+                return exec_cmd.replace("<<num_cores>>", str(EAR.resources.num_cores))
             elif typ == "script":
-                out = EAR.action.get_script_name(val)
-            return out
+                return EAR.action.get_script_name(val)
+            else:
+                raise ValueError("impossible match occurred")
 
-        def input_param_repl(match_obj, inp_val):
+        def input_param_repl(match_obj: re.Match[str], inp_val) -> str:
             _, func, func_kwargs, method, method_kwargs = match_obj.groups()
 
             if isinstance(inp_val, ParameterValue):
                 if not method:
                     method = "CLI_format"
                 if not hasattr(inp_val, method):
-                    raise NoCLIFormatMethodError(
-                        f"No CLI format method {method!r} exists for the "
-                        f"object {inp_val!r}."
-                    )
-                kwargs = self._prepare_kwargs_from_string(args_str=method_kwargs)
+                    raise NoCLIFormatMethodError(method, inp_val)
+                kwargs = self.__prepare_kwargs_from_string(args_str=method_kwargs)
                 inp_val = getattr(inp_val, method)(**kwargs)
 
             if func:
-                kwargs = self._prepare_kwargs_from_string(
+                kwargs = self.__prepare_kwargs_from_string(
                     args_str=func_kwargs,
                     doubled_quoted_args=["delim"],
                 )
@@ -158,12 +167,9 @@ class Command(JSONLike):
             return str(inp_val)
 
         file_regex = r"(\<\<file:{}\>\>?)"
-        exe_script_regex = r"\<\<(executable|script):(.*?)\>\>"
-        env_specs_regex = r"\<\<env:(.*?)\>\>"
 
         # substitute executables:
-        cmd_str = re.sub(
-            pattern=exe_script_regex,
+        cmd_str = self.__EXE_SCRIPT_RE.sub(
             repl=exec_script_repl,
             string=cmd_str,
         )
@@ -172,14 +178,13 @@ class Command(JSONLike):
         # an `<<args>>` variable::
         for var_key, var_val in (self.variables or {}).items():
             # substitute any `<<env:>>` specifiers
-            var_val = re.sub(
-                pattern=env_specs_regex,
-                repl=lambda match_obj: EAR.env_spec[match_obj.group(1)],
+            var_val = self.__ENV_SPEC_RE.sub(
+                repl=lambda match_obj: EAR.env_spec[match_obj[1]],
                 string=var_val,
             )
             cmd_str = cmd_str.replace(f"<<{var_key}>>", var_val)
             if "<<args>>" in cmd_str:
-                args_str = " ".join(self.arguments or [])
+                args_str = " ".join(self.arguments or ())
                 ends_in_args = cmd_str.endswith("<<args>>")
                 cmd_str = cmd_str.replace("<<args>>", args_str)
                 if ends_in_args and not args_str:
@@ -226,7 +231,7 @@ class Command(JSONLike):
                 string=cmd_str,
             )
 
-        shell_vars = []
+        shell_vars: list[tuple[str, ...]] = []
         out_types = self.get_output_types()
         if out_types["stdout"]:
             # TODO: also map stderr/both if possible
@@ -246,56 +251,53 @@ class Command(JSONLike):
 
         return cmd_str, shell_vars
 
-    def get_output_types(self):
+    # note: we use "parameter" rather than "output", because it could be a schema
+    # output or schema input.
+    __PARAM_RE: ClassVar[Pattern] = re.compile(
+        r"(?:\<\<(?:\w+(?:\[(?:.*)\])?\()?parameter:(\w+)"
+        r"(?:\.(?:\w+)\((?:.*?)\))?\)?\>\>?)"
+    )
+
+    def get_output_types(self) -> Mapping[str, str | None]:
         """
         Get whether stdout and stderr are workflow parameters.
         """
-        # note: we use "parameter" rather than "output", because it could be a schema
-        # output or schema input.
-        pattern = (
-            r"(?:\<\<(?:\w+(?:\[(?:.*)\])?\()?parameter:(\w+)"
-            r"(?:\.(?:\w+)\((?:.*?)\))?\)?\>\>?)"
-        )
-        out = {"stdout": None, "stderr": None}
+        out: dict[str, str | None] = {"stdout": None, "stderr": None}
         for i, label in zip((self.stdout, self.stderr), ("stdout", "stderr")):
-            if i:
-                match = re.search(pattern, i)
-                if match:
-                    param_typ = match.group(1)
-                    if match.span(0) != (0, len(i)):
-                        raise ValueError(
-                            f"If specified as a parameter, `{label}` must not include"
-                            f" any characters other than the parameter "
-                            f"specification, but this was given: {i!r}."
-                        )
-                    out[label] = param_typ
+            if i and (match := self.__PARAM_RE.search(i)):
+                param_typ: str = match[1]
+                if match.span(0) != (0, len(i)):
+                    raise ValueError(
+                        f"If specified as a parameter, `{label}` must not include"
+                        f" any characters other than the parameter "
+                        f"specification, but this was given: {i!r}."
+                    )
+                out[label] = param_typ
         return out
 
     @staticmethod
-    def _prepare_kwargs_from_string(args_str: Union[str, None], doubled_quoted_args=None):
-        kwargs = {}
+    def __prepare_kwargs_from_string(
+        args_str: str | None, doubled_quoted_args: list[str] | None = None
+    ) -> dict[str, str]:
         if args_str is None:
-            return kwargs
+            return {}
 
+        kwargs: dict[str, str] = {}
         # deal with specified double-quoted arguments first if it exists:
-        for quote_arg in doubled_quoted_args or []:
+        for quote_arg in doubled_quoted_args or ():
             quote_pat = r'.*({quote_arg}="(.*)").*'.format(quote_arg=quote_arg)
-            match = re.match(quote_pat, args_str)
-            if match:
+            if match := re.match(quote_pat, args_str):
                 quote_str, quote_contents = match.groups()
                 args_str = args_str.replace(quote_str, "")
                 kwargs[quote_arg] = quote_contents
 
-        args_str = args_str.strip().strip(",")
-        if args_str:
-            for i in args_str.split(","):
-                i_split = i.split("=")
-                name_i = i_split[0].strip()
-                value = i_split[1].strip()
-                kwargs[name_i] = value
+        if args_str := args_str.strip().strip(","):
+            for arg_part in args_str.split(","):
+                name_i, value_i = map(str.strip, arg_part.split("="))
+                kwargs[name_i] = value_i
         return kwargs
 
-    def process_std_stream(self, name: str, value: str, stderr: bool):
+    def process_std_stream(self, name: str, value: str, stderr: bool) -> Any:
         """
         Process a description of a standard stread from a command to get how it becomes
         a workflow parameter for later actions.
@@ -310,15 +312,19 @@ class Command(JSONLike):
             If true, this is handling the stderr stream. If false, the stdout stream.
         """
 
-        def _parse_list(lst_str: str, item_type: str = "str", delim: str = " "):
+        def _parse_list(
+            lst_str: str, item_type: str = "str", delim: str = " "
+        ) -> list[Any]:
             return [parse_types[item_type](i) for i in lst_str.split(delim)]
 
-        def _parse_array(arr_str: str, item_type: str = "float", delim: str = " "):
+        def _parse_array(
+            arr_str: str, item_type: str = "float", delim: str = " "
+        ) -> np.ndarray[Any, np.dtype[Any]]:
             return np.array(
                 _parse_list(lst_str=arr_str, item_type=item_type, delim=delim)
             )
 
-        def _parse_bool(bool_str):
+        def _parse_bool(bool_str: str) -> bool:
             bool_str = bool_str.lower()
             if bool_str in ("true", "1"):
                 return True
@@ -331,7 +337,7 @@ class Command(JSONLike):
                     f"{self.stderr if stderr else self.stdout!r}."
                 )
 
-        parse_types = {
+        parse_types: dict[str, Callable[[str], Any]] = {
             "str": str,
             "int": int,
             "float": float,
@@ -341,6 +347,7 @@ class Command(JSONLike):
         }
         types_pattern = "|".join(parse_types)
 
+        # TODO: use str.removeprefix in 3.9 onwards
         out_name = name.replace("outputs.", "")
         pattern = (
             r"(\<\<(?:({types_pattern})(?:\[(.*)\])?\()?parameter:{name}(?:\.(\w+)"
@@ -348,42 +355,39 @@ class Command(JSONLike):
         )
         pattern = pattern.format(types_pattern=types_pattern, name=out_name)
         spec = self.stderr if stderr else self.stdout
-        self.app.submission_logger.info(
+        assert spec is not None
+        self._app.submission_logger.info(
             f"processing shell standard stream according to spec: {spec!r}"
         )
-        param = self.app.Parameter(out_name)
-        match = re.match(pattern, spec)
-        try:
-            groups = match.groups()
-        except AttributeError:
+        param = self._app.Parameter(out_name)
+        if (match := re.match(pattern, spec)) is None:
             return value
-        else:
-            parse_type, parse_args_str = groups[1:3]
-            parse_args = self._prepare_kwargs_from_string(
-                args_str=parse_args_str,
+        groups = match.groups()
+        parse_type, parse_args_str = groups[1:3]
+        parse_args = self.__prepare_kwargs_from_string(
+            args_str=parse_args_str,
+            doubled_quoted_args=["delim"],
+        )
+        if param._value_class:
+            method, method_args_str = groups[3:5]
+            method_args = self.__prepare_kwargs_from_string(
+                args_str=method_args_str,
                 doubled_quoted_args=["delim"],
             )
-            if param._value_class:
-                method, method_args_str = groups[3:5]
-                method_args = self._prepare_kwargs_from_string(
-                    args_str=method_args_str,
-                    doubled_quoted_args=["delim"],
-                )
-                method = method or "CLI_parse"
-                value = getattr(param._value_class, method)(value, **method_args)
-            if parse_type:
-                value = parse_types[parse_type](value, **parse_args)
+            method = method or "CLI_parse"
+            value = getattr(param._value_class, method)(value, **method_args)
+        if parse_type:
+            value = parse_types[parse_type](value, **parse_args)
 
         return value
 
-    @staticmethod
-    def _extract_executable_labels(cmd_str) -> List[str]:
-        exe_regex = r"\<\<(?:executable):(.*?)\>\>"
-        return re.findall(exe_regex, cmd_str)
+    __EXE_RE: ClassVar[Pattern] = re.compile(r"\<\<(?:executable):(.*?)\>\>")
 
-    def get_required_executables(self) -> List[str]:
+    @classmethod
+    def _extract_executable_labels(cls, cmd_str: str) -> Sequence[str]:
+        return cls.__EXE_RE.findall(cmd_str)
+
+    def get_required_executables(self) -> Sequence[str]:
         """Return executable labels required by this command."""
         # an executable label might appear in the `command` or `executable` attribute:
-        cmd_str = self._get_initial_command_line()
-        exe_labels = self._extract_executable_labels(cmd_str)
-        return exe_labels
+        return self._extract_executable_labels(self.__get_initial_command_line())

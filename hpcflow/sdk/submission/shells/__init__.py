@@ -1,17 +1,17 @@
 """
 Adapters for various shells.
 """
+from __future__ import annotations
 import os
-from typing import Dict, Optional
 
 from hpcflow.sdk.core.errors import UnsupportedShellError
 
-from .base import Shell
-from .bash import Bash, WSLBash
-from .powershell import WindowsPowerShell
+from hpcflow.sdk.submission.shells.base import Shell
+from hpcflow.sdk.submission.shells.bash import Bash, WSLBash
+from hpcflow.sdk.submission.shells.powershell import WindowsPowerShell
 
 #: All supported shells.
-ALL_SHELLS = {
+ALL_SHELLS: dict[str, dict[str, type[Shell]]] = {
     "bash": {"posix": Bash},
     "powershell": {"nt": WindowsPowerShell},
     "wsl+bash": {"nt": WSLBash},
@@ -25,28 +25,27 @@ DEFAULT_SHELL_NAMES = {
 }
 
 
-def get_supported_shells(os_name: Optional[str] = None) -> Dict[str, Shell]:
+def get_supported_shells(os_name: str | None = None) -> dict[str, type[Shell]]:
     """
     Get shells supported on the current or given OS.
     """
-    os_name = os_name or os.name
-    return {k: v.get(os_name) for k, v in ALL_SHELLS.items() if v.get(os_name)}
+    os_name_ = os_name or os.name
+    return {k: v[os_name_] for k, v in ALL_SHELLS.items() if v.get(os_name_)}
 
 
-def get_shell(shell_name, os_name: Optional[str] = None, **kwargs) -> Shell:
+def get_shell(shell_name: str | None, os_name: str | None = None, **kwargs) -> Shell:
     """
     Get a shell interface with the given name for a given OS (or the current one).
     """
     # TODO: apply config default shell args?
 
     os_name = os_name or os.name
-    shell_name = shell_name.lower()
+    shell_name = (
+        DEFAULT_SHELL_NAMES[os_name] if shell_name is None else shell_name.lower()
+    )
 
     supported = get_supported_shells(os_name.lower())
-    shell_cls = supported.get(shell_name)
-    if not shell_cls:
+    if not (shell_cls := supported.get(shell_name)):
         raise UnsupportedShellError(shell=shell_name, supported=supported)
 
-    shell_obj = shell_cls(**kwargs)
-
-    return shell_obj
+    return shell_cls(**kwargs)

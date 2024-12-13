@@ -2,14 +2,16 @@
 Information about the Python runtime.
 """
 
+from __future__ import annotations
 from importlib import import_module
-import logging
+from logging import Logger
 import os
 import platform
+import re
 import socket
 import sys
 from pathlib import Path
-import warnings
+from typing import Any, ClassVar
 
 from rich.table import Table
 from rich.console import Console
@@ -31,10 +33,14 @@ class RunTimeInfo:
         Where to write logging versions.
     """
 
-    def __init__(self, name, package_name, version, logger):
-        is_frozen = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    def __init__(
+        self, name: str, package_name: str, version: str, logger: Logger
+    ) -> None:
+        is_frozen: bool = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
         bundle_dir = (
-            sys._MEIPASS if is_frozen else os.path.dirname(os.path.abspath(__file__))
+            sys._MEIPASS
+            if is_frozen and hasattr(sys, "_MEIPASS")
+            else os.path.dirname(os.path.abspath(__file__))
         )
 
         #: Application name.
@@ -69,10 +75,11 @@ class RunTimeInfo:
             self.python_executable_path = Path(sys.executable)
 
             try:
-                get_ipython
-                self.in_ipython = True
+                get_ipython  # type: ignore
             except NameError:
                 pass
+            else:
+                self.in_ipython = True
 
             if hasattr(sys, "ps1"):
                 self.is_interactive = True
@@ -101,7 +108,7 @@ class RunTimeInfo:
 
         try:
             #: The virtual environment path.
-            self.venv_path = self._set_venv_path()
+            self.venv_path: str | list[str] | None = self.__set_venv_path()
         except ValueError:
             self.venv_path = None
 
@@ -126,7 +133,7 @@ class RunTimeInfo:
         #     )
         #     warnings.warn(msg)
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """
         Serialize this class as a dictionary.
         """
@@ -171,16 +178,16 @@ class RunTimeInfo:
             )
         return out
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         out = f"{self.__class__.__name__}("
         out += ", ".join(f"{k}={v!r}" for k, v in self.to_dict().items())
         return out
 
-    def _set_venv_path(self):
-        out = []
-        if self.is_venv:
+    def __set_venv_path(self) -> str | list[str]:
+        out: list[str] = []
+        if self.sys_prefix is not None:
             out.append(self.sys_prefix)
-        elif self.is_conda_venv:
+        elif self.conda_prefix is not None:
             out.append(self.conda_prefix)
         if not out:
             raise ValueError("Not running in a virtual environment!")
@@ -201,7 +208,7 @@ class RunTimeInfo:
         """
         pass
 
-    def show(self):
+    def show(self) -> None:
         """
         Display the information known by this class as a human-readable table.
         """
@@ -215,7 +222,7 @@ class RunTimeInfo:
         console.print(tab)
 
     @property
-    def executable_path(self):
+    def executable_path(self) -> Path | None:
         """Get the path that the user invoked to launch the frozen app, if the app is
         frozen.
 
@@ -223,11 +230,10 @@ class RunTimeInfo:
         whereas `executable_path_resolved` returns the actual frozen app path.
 
         """
-        if self.is_frozen:
-            return Path(sys.argv[0])
+        return Path(sys.argv[0]) if self.is_frozen else None
 
     @property
-    def resolved_executable_path(self):
+    def resolved_executable_path(self) -> Path | None:
         """Get the resolved path to the frozen app that the user launched, if the app is
         frozen.
 
@@ -239,11 +245,10 @@ class RunTimeInfo:
         [1] https://pyinstaller.org/en/stable/runtime-information.html#using-sys-executable-and-sys-argv-0
 
         """
-        if self.is_frozen:
-            return Path(sys.executable)
+        return Path(sys.executable) if self.is_frozen else None
 
     @property
-    def executable_name(self):
+    def executable_name(self) -> str | None:
         """Get the name of the frozen app executable, if the app is frozen.
 
         If the user launches the app via a symbolic link, then this returns the name of
@@ -251,47 +256,45 @@ class RunTimeInfo:
         name.
 
         """
-        if self.is_frozen:
-            return self.executable_path.name
+        return None if (p := self.executable_path) is None else p.name
 
     @property
-    def resolved_executable_name(self):
+    def resolved_executable_name(self) -> str | None:
         """Get the resolved name of the frozen app executable, if the app is frozen."""
-        if self.is_frozen:
-            return self.resolved_executable_path.name
+        return None if (p := self.resolved_executable_path) is None else p.name
 
     @property
-    def script_path(self) -> Path:
+    def script_path(self) -> Path | None:
         """Get the path to the Python script used to invoked this instance of the app, if
         the app is not frozen."""
-        if not self.is_frozen:
-            return Path(sys.argv[0])
+        return None if self.is_frozen else Path(sys.argv[0])
 
     @property
-    def resolved_script_path(self) -> Path:
+    def resolved_script_path(self) -> Path | None:
         """Get the resolved path to the Python script used to invoked this instance of the
         app, if the app is not frozen."""
-        if not self.is_frozen:
-            return self.script_path.resolve()
+        return None if (p := self.script_path) is None else p.resolve()
+
+    # For removing a trailing '.cmd' from a filename
+    __CMD_TRIM: ClassVar[re.Pattern[str]] = re.compile(r"\.cmd$")
 
     @property
-    def invocation_command(self):
+    def invocation_command(self) -> tuple[str, ...]:
         """Get the command that was used to invoke this instance of the app."""
         if self.is_frozen:
             # (this also works if we are running tests using the frozen app)
-            command = [str(self.resolved_executable_path)]
+            return (str(self.resolved_executable_path),)
         elif self.from_CLI:
             script = str(self.resolved_script_path)
-            if os.name == "nt" and script.endswith(".cmd"):
+            if os.name == "nt":
                 # cannot reproduce locally, but on Windows GHA runners, if pytest is
                 # invoked via `hpcflow test`, `resolved_script_path` seems to be the
                 # batch script wrapper (ending in .cmd) rather than the Python entry point
                 # itself, so trim if off:
-                script = script.rstrip(".cmd")
-            command = [str(self.python_executable_path), script]
+                script = self.__CMD_TRIM.sub("", script)  # Work with 3.8 too
+                # script = script.removesuffix(".cmd")
+            return (str(self.python_executable_path), script)
         else:
             app_module = import_module(self.package_name)
             CLI_path = Path(*app_module.__path__, "cli.py")
-            command = [str(self.python_executable_path), str(CLI_path)]
-
-        return tuple(command)
+            return (str(self.python_executable_path), str(CLI_path))

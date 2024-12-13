@@ -5,15 +5,17 @@ Model of an execution environment.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Any
+from typing import TYPE_CHECKING
 
-from textwrap import dedent
-
-from hpcflow.sdk import app
+from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ExecutablesList
 from hpcflow.sdk.core.utils import check_valid_py_identifier, get_duplicate_items
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from typing import Any, ClassVar
 
 
 @dataclass
@@ -36,30 +38,14 @@ class NumCores(JSONLike):
     #: The maximum number of cores supported.
     stop: int
     #: The step in the number of cores supported. Normally 1.
-    step: int = None
+    step: int = 1
 
-    def __post_init__(self):
-        if self.step is None:
-            self.step = 1
-
-    def __contains__(self, x):
-        if x in range(self.start, self.stop + 1, self.step):
-            return True
-        else:
-            return False
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.start == other.start
-            and self.stop == other.stop
-            and self.step == other.step
-        ):
-            return True
-        return False
+    def __contains__(self, x: int) -> bool:
+        return x in range(self.start, self.stop + 1, self.step)
 
 
 @dataclass
+@hydrate
 class ExecutableInstance(JSONLike):
     """
     A particular instance of an executable that can support some mode of operation.
@@ -75,30 +61,26 @@ class ExecutableInstance(JSONLike):
     """
 
     #: What parallel mode is supported by this executable instance.
-    parallel_mode: str
+    parallel_mode: str | None
     #: The number of cores supported by this executable instance.
-    num_cores: Any
+    num_cores: NumCores
     #: The actual command to use for this executable instance.
     command: str
 
-    def __post_init__(self):
-        if not isinstance(self.num_cores, dict):
-            self.num_cores = {"start": self.num_cores, "stop": self.num_cores}
-        if not isinstance(self.num_cores, NumCores):
-            self.num_cores = self.app.NumCores(**self.num_cores)
-
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
-            and self.parallel_mode == other.parallel_mode
-            and self.num_cores == other.num_cores
-            and self.command == other.command
-        ):
-            return True
-        return False
+    def __init__(
+        self, parallel_mode: str | None, num_cores: NumCores | int | dict, command: str
+    ):
+        self.parallel_mode = parallel_mode
+        self.command = command
+        if isinstance(num_cores, NumCores):
+            self.num_cores = num_cores
+        elif isinstance(num_cores, int):
+            self.num_cores = NumCores(num_cores, num_cores)
+        else:
+            self.num_cores = NumCores(**num_cores)
 
     @classmethod
-    def from_spec(cls, spec):
+    def from_spec(cls, spec: dict[str, Any]) -> ExecutableInstance:
         """
         Construct an instance from a specification dictionary.
         """
@@ -117,7 +99,7 @@ class Executable(JSONLike):
         The concrete instances of the application that may be present.
     """
 
-    _child_objects = (
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="instances",
             class_name="ExecutableInstance",
@@ -125,13 +107,13 @@ class Executable(JSONLike):
         ),
     )
 
-    def __init__(self, label: str, instances: List[app.ExecutableInstance]):
+    def __init__(self, label: str, instances: list[ExecutableInstance]):
         #: The abstract name of the program.
         self.label = check_valid_py_identifier(label)
         #: The concrete instances of the application that may be present.
         self.instances = instances
 
-        self._executables_list = None  # assigned by parent
+        self._executables_list: ExecutablesList | None = None  # assigned by parent
 
     def __repr__(self):
         return (
@@ -141,24 +123,31 @@ class Executable(JSONLike):
             f")"
         )
 
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
+    def __eq__(self, other: Any) -> bool:
+        return (
+            isinstance(other, self.__class__)
             and self.label == other.label
             and self.instances == other.instances
-            and self.environment.name == other.environment.name
-        ):
-            return True
-        return False
+            and (
+                (
+                    self.environment
+                    and other.environment
+                    and self.environment.name == other.environment.name
+                )
+                or (not self.environment and not other.environment)
+            )
+        )
 
     @property
-    def environment(self):
+    def environment(self) -> Environment | None:
         """
         The environment that the executable is going to run in.
         """
-        return self._executables_list.environment
+        return None if (el := self._executables_list) is None else el.environment
 
-    def filter_instances(self, parallel_mode=None, num_cores=None):
+    def filter_instances(
+        self, parallel_mode: str | None = None, num_cores: int | None = None
+    ) -> list[ExecutableInstance]:
         """
         Select the instances of the executable that are compatible with the given
         requirements.
@@ -175,12 +164,12 @@ class Executable(JSONLike):
         list[ExecutableInstance]:
             The known executable instances that match the requirements.
         """
-        out = []
-        for i in self.instances:
-            if parallel_mode is None or i.parallel_mode == parallel_mode:
-                if num_cores is None or num_cores in i.num_cores:
-                    out.append(i)
-        return out
+        return [
+            inst
+            for inst in self.instances
+            if (parallel_mode is None or inst.parallel_mode == parallel_mode)
+            and (num_cores is None or num_cores in inst.num_cores)
+        ]
 
 
 class Environment(JSONLike):
@@ -200,9 +189,8 @@ class Environment(JSONLike):
         List of abstract executables in the environment.
     """
 
-    _hash_value = None
-    _validation_schema = "environments_spec_schema.yaml"
-    _child_objects = (
+    _validation_schema: ClassVar[str] = "environments_spec_schema.yaml"
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="executables",
             class_name="ExecutablesList",
@@ -212,59 +200,52 @@ class Environment(JSONLike):
 
     def __init__(
         self,
-        name,
-        setup=None,
-        specifiers=None,
-        executables=None,
-        doc="",
-        _hash_value=None,
+        name: str,
+        setup: Sequence[str] | None = None,
+        specifiers: Mapping[str, str] | None = None,
+        executables: ExecutablesList | Sequence[Executable] | None = None,
+        doc: str = "",
+        _hash_value: str | None = None,
     ):
         #: The name of the environment.
         self.name = name
         #: Documentation for the environment.
         self.doc = doc
-        #: Commands to run to enter the environment.
-        self.setup = setup
         #: Dictionary of attributes that may be used to supply addional key/value pairs
         #: to look up an environment by.
-        self.specifiers = specifiers or {}
+        self.specifiers: Mapping[str, str] = specifiers or {}
         #: List of abstract executables in the environment.
         self.executables = (
             executables
             if isinstance(executables, ExecutablesList)
-            else self.app.ExecutablesList(executables or [])
+            else self._app.ExecutablesList(executables or ())
         )
         self._hash_value = _hash_value
-        if self.setup:
-            if isinstance(self.setup, str):
-                self.setup = tuple(
-                    i.strip() for i in dedent(self.setup).strip().split("\n")
-                )
-            elif not isinstance(self.setup, tuple):
-                self.setup = tuple(self.setup)
+        #: Commands to run to enter the environment.
+        self.setup: tuple[str, ...] | None
+        if not setup:
+            self.setup = None
+        elif isinstance(setup, str):
+            self.setup = tuple(cmd.strip() for cmd in setup.strip().split("\n"))
+        else:
+            self.setup = tuple(setup)
         self._set_parent_refs()
         self._validate()
 
-    def __eq__(self, other):
-        if (
-            type(self) == type(other)
+    def __eq__(self, other: Any) -> bool:
+        return (
+            isinstance(other, self.__class__)
             and self.setup == other.setup
             and self.executables == other.executables
             and self.specifiers == other.specifiers
-        ):
-            return True
-        return False
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name!r})"
 
     def _validate(self):
-        dup_labels = get_duplicate_items(i.label for i in self.executables)
-        if dup_labels:
-            raise DuplicateExecutableError(
-                f"Executables must have unique `label`s within each environment, but "
-                f"found label(s) multiple times: {dup_labels!r}"
-            )
+        if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
+            raise DuplicateExecutableError(dup_labels)
 
     @property
     def documentation(self) -> str:

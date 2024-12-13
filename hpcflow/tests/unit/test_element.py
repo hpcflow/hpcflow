@@ -1,4 +1,7 @@
+from __future__ import annotations
+from pathlib import Path
 from textwrap import dedent
+from typing import Any, TYPE_CHECKING
 import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import UnsetParameterDataError
@@ -8,14 +11,15 @@ from hpcflow.sdk.core.test_utils import (
     P1_sub_parameter_cls as P1_sub,
 )
 
+if TYPE_CHECKING:
+    from hpcflow.sdk.core.workflow import Workflow
+
 
 @pytest.fixture
-def workflow_w1(null_config, tmp_path):
+def workflow_w1(null_config, tmp_path: Path) -> Workflow:
     s1, s2 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
-        ]
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, (), "t2"),
     )
 
     t1 = hf.Task(
@@ -28,38 +32,30 @@ def workflow_w1(null_config, tmp_path):
     return hf.Workflow.from_template(wkt, path=tmp_path)
 
 
-def test_element_task_dependencies(workflow_w1):
+def test_element_task_dependencies(workflow_w1: Workflow):
     assert workflow_w1.tasks.t2.elements[0].get_task_dependencies(as_objects=True) == [
         workflow_w1.tasks.t1
     ]
 
 
-def test_element_dependent_tasks(workflow_w1):
+def test_element_dependent_tasks(workflow_w1: Workflow):
     assert workflow_w1.tasks.t1.elements[0].get_dependent_tasks(as_objects=True) == [
         workflow_w1.tasks.t2
     ]
 
 
-def test_element_element_dependencies(workflow_w1):
-    assert all(
-        (
-            workflow_w1.tasks.t2.elements[0].get_element_dependencies() == [0],
-            workflow_w1.tasks.t2.elements[1].get_element_dependencies() == [1],
-        )
-    )
+def test_element_element_dependencies(workflow_w1: Workflow):
+    assert workflow_w1.tasks.t2.elements[0].get_element_dependencies() == {0}
+    assert workflow_w1.tasks.t2.elements[1].get_element_dependencies() == {1}
 
 
-def test_element_dependent_elements(workflow_w1):
-    assert all(
-        (
-            workflow_w1.tasks.t1.elements[0].get_dependent_elements() == [2],
-            workflow_w1.tasks.t1.elements[1].get_dependent_elements() == [3],
-        )
-    )
+def test_element_dependent_elements(workflow_w1: Workflow):
+    assert workflow_w1.tasks.t1.elements[0].get_dependent_elements() == {2}
+    assert workflow_w1.tasks.t1.elements[1].get_dependent_elements() == {3}
 
 
 def test_equivalence_single_labelled_schema_input_element_get_label_and_non_label(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -83,7 +79,7 @@ def test_equivalence_single_labelled_schema_input_element_get_label_and_non_labe
     )
 
 
-def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path):
+def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -115,12 +111,12 @@ def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path):
         path=tmp_path,
         template_name="wk0",
     )
-    assert wk.tasks.t1.elements[0].get_dependent_elements() == [1]
-    assert wk.tasks.t2.elements[0].get_element_dependencies() == [0]
-    assert wk.tasks.t2.elements[0].get_EAR_dependencies() == [0]
+    assert wk.tasks.t1.elements[0].get_dependent_elements() == {1}
+    assert wk.tasks.t2.elements[0].get_element_dependencies() == {0}
+    assert wk.tasks.t2.elements[0].get_EAR_dependencies() == {0}
 
 
-def test_element_get_empty_path_single_labelled_input(null_config, tmp_path):
+def test_element_get_empty_path_single_labelled_input(null_config, tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -138,7 +134,7 @@ def test_element_get_empty_path_single_labelled_input(null_config, tmp_path):
     }
 
 
-def test_element_get_labelled_non_labelled_equivalence(null_config, tmp_path):
+def test_element_get_labelled_non_labelled_equivalence(null_config, tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -156,7 +152,7 @@ def test_element_get_labelled_non_labelled_equivalence(null_config, tmp_path):
 
 
 @pytest.fixture
-def element_get_wk(null_config, tmp_path):
+def element_get_wk(null_config, tmp_path: Path) -> Workflow:
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1"), hf.SchemaInput(parameter="p1c")],
@@ -191,62 +187,62 @@ def element_get_wk(null_config, tmp_path):
     return wk
 
 
-def test_element_get_simple(element_get_wk):
+def test_element_get_simple(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1") == 100
     assert element_get_wk.tasks.t1.elements[1].get("inputs.p1") == 100
 
 
-def test_element_get_obj(element_get_wk):
+def test_element_get_obj(element_get_wk: Workflow):
     obj_0 = P1(a=20, sub_param=P1_sub(e=5))
     obj_1 = P1(a=30, sub_param=P1_sub(e=5))
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1c") == obj_0
     assert element_get_wk.tasks.t1.elements[1].get("inputs.p1c") == obj_1
 
 
-def test_element_get_sub_obj(element_get_wk):
+def test_element_get_sub_obj(element_get_wk: Workflow):
     sub_obj = P1_sub(e=5)
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1c.sub_param") == sub_obj
     assert element_get_wk.tasks.t1.elements[1].get("inputs.p1c.sub_param") == sub_obj
 
 
-def test_element_get_sub_obj_attr(element_get_wk):
+def test_element_get_sub_obj_attr(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1c.sub_param.e") == 5
     assert element_get_wk.tasks.t1.elements[1].get("inputs.p1c.sub_param.e") == 5
 
 
-def test_element_get_sub_obj_property(element_get_wk):
+def test_element_get_sub_obj_property(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1c.sub_param.twice_e") == 10
     assert element_get_wk.tasks.t1.elements[1].get("inputs.p1c.sub_param.twice_e") == 10
 
 
-def test_element_get_obj_no_raise_missing_attr(element_get_wk):
+def test_element_get_obj_no_raise_missing_attr(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("inputs.p1c.b") is None
 
 
-def test_element_get_obj_raise_missing_attr(element_get_wk):
+def test_element_get_obj_raise_missing_attr(element_get_wk: Workflow):
     with pytest.raises(ValueError):
         element_get_wk.tasks.t1.elements[0].get("inputs.p1c.b", raise_on_missing=True)
 
 
-def test_element_get_obj_raise_missing_nested_attr(element_get_wk):
+def test_element_get_obj_raise_missing_nested_attr(element_get_wk: Workflow):
     with pytest.raises(ValueError):
         element_get_wk.tasks.t1.elements[0].get("inputs.p1c.a.b", raise_on_missing=True)
 
 
-def test_element_get_raise_missing_root(element_get_wk):
+def test_element_get_raise_missing_root(element_get_wk: Workflow):
     with pytest.raises(ValueError):
         element_get_wk.tasks.t1.elements[0].get("blah", raise_on_missing=True)
 
 
-def test_element_get_no_raise_missing_root(element_get_wk):
+def test_element_get_no_raise_missing_root(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("blah") is None
 
 
-def test_element_get_expected_default(element_get_wk):
+def test_element_get_expected_default(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("blah", default={}) == {}
 
 
-def test_element_get_part_unset(null_config, tmp_path):
+def test_element_get_part_unset(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -299,7 +295,7 @@ def test_element_get_part_unset(null_config, tmp_path):
         wk.tasks.t2.elements[0].get("inputs.p2", raise_on_unset=True)
 
 
-def test_element_get_unset_object(null_config, tmp_path):
+def test_element_get_unset_object(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -328,7 +324,7 @@ def test_element_get_unset_object(null_config, tmp_path):
     assert wk.tasks.t1.elements[0].get("outputs.p1c") == None
 
 
-def test_element_get_unset_sub_object(null_config, tmp_path):
+def test_element_get_unset_sub_object(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -357,7 +353,7 @@ def test_element_get_unset_sub_object(null_config, tmp_path):
     assert wk.tasks.t1.elements[0].get("outputs.p1c.sub_param") == None
 
 
-def test_element_get_unset_object_group(null_config, tmp_path):
+def test_element_get_unset_object_group(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1c")],
@@ -397,7 +393,7 @@ def test_element_get_unset_object_group(null_config, tmp_path):
     assert wk.tasks.t2.elements[0].get("inputs.p1c") == [None, None]
 
 
-def test_element_get_unset_sub_object_group(null_config, tmp_path):
+def test_element_get_unset_sub_object_group(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1c")],
@@ -437,7 +433,7 @@ def test_element_get_unset_sub_object_group(null_config, tmp_path):
     assert wk.tasks.t2.elements[0].get("inputs.p1c.sub_param") == [None, None]
 
 
-def test_iter(new_null_config, tmp_path):
+def test_iter(new_null_config, tmp_path: Path):
     wkt = hf.WorkflowTemplate(
         name="test",
         tasks=[
@@ -452,7 +448,7 @@ def test_iter(new_null_config, tmp_path):
         assert elem_i.index == idx
 
 
-def test_slice(new_null_config, tmp_path):
+def test_slice(new_null_config, tmp_path: Path):
     wkt = hf.WorkflowTemplate(
         name="test",
         tasks=[
@@ -469,7 +465,7 @@ def test_slice(new_null_config, tmp_path):
     assert elems[1].index == 2
 
 
-def test_element_get_with_list_index_sequence(null_config, tmp_path):
+def test_element_get_with_list_index_sequence(null_config, tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -487,7 +483,7 @@ def test_element_get_with_list_index_sequence(null_config, tmp_path):
     assert wk.tasks[0].elements[0].get("inputs.p1") == [9, 1]
 
 
-def test_element_get_with_list_index_sequence_two_parts(null_config, tmp_path):
+def test_element_get_with_list_index_sequence_two_parts(null_config, tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -515,7 +511,7 @@ def test_element_get_with_list_index_sequence_two_parts(null_config, tmp_path):
     ]
 
 
-def test_element_get_group_sequence(null_config, tmp_path):
+def test_element_get_group_sequence(null_config, tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -553,7 +549,7 @@ def test_element_get_group_sequence(null_config, tmp_path):
     ]
 
 
-def test_element_get_group_sequence_obj(new_null_config, tmp_path):
+def test_element_get_group_sequence_obj(new_null_config, tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -607,29 +603,28 @@ def test_element_get_group_sequence_obj(new_null_config, tmp_path):
     ]
 
 
-def test_element_resources_get_jobscript_hash_equal_empty():
+def test_element_resources_get_jobscript_hash_equal_empty() -> None:
     assert (
         hf.ElementResources().get_jobscript_hash()
         == hf.ElementResources().get_jobscript_hash()
     )
 
 
-def test_element_resources_get_jobscript_hash_unequal_num_cores():
+def test_element_resources_get_jobscript_hash_unequal_num_cores() -> None:
     assert (
         hf.ElementResources(num_cores=1).get_jobscript_hash()
         != hf.ElementResources(num_cores=2).get_jobscript_hash()
     )
 
 
-def test_element_resources_get_jobscript_hash_equal_num_cores():
+def test_element_resources_get_jobscript_hash_equal_num_cores() -> None:
     assert (
         hf.ElementResources(num_cores=1).get_jobscript_hash()
         == hf.ElementResources(num_cores=1).get_jobscript_hash()
     )
 
 
-def test_element_resources_get_jobscript_hash_unequal_scheduler_args_empty():
-
+def test_element_resources_get_jobscript_hash_unequal_scheduler_args_empty() -> None:
     assert (
         hf.ElementResources().get_jobscript_hash()
         != hf.ElementResources(
@@ -638,16 +633,16 @@ def test_element_resources_get_jobscript_hash_unequal_scheduler_args_empty():
     )
 
 
-def test_element_resources_get_jobscript_hash_equal_non_truthy_scheduler_args():
-
+def test_element_resources_get_jobscript_hash_equal_non_truthy_scheduler_args() -> None:
     assert (
         hf.ElementResources().get_jobscript_hash()
         == hf.ElementResources(scheduler_args={}).get_jobscript_hash()
     )
 
 
-def test_element_resources_get_jobscript_hash_unequal_scheduler_args_diff_options():
-
+def test_element_resources_get_jobscript_hash_unequal_scheduler_args_diff_options() -> (
+    None
+):
     assert (
         hf.ElementResources(
             scheduler_args={"options": {"--time": "02:00:00"}}
@@ -658,8 +653,9 @@ def test_element_resources_get_jobscript_hash_unequal_scheduler_args_diff_option
     )
 
 
-def test_element_resources_get_jobscript_hash_unequal_scheduler_args_same_options():
-
+def test_element_resources_get_jobscript_hash_unequal_scheduler_args_same_options() -> (
+    None
+):
     assert (
         hf.ElementResources(
             scheduler_args={"options": {"--time": "02:00:00"}}

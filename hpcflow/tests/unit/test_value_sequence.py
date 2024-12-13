@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+from pathlib import Path
 import pytest
 import requests
 
@@ -8,7 +9,7 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 
 @pytest.fixture
-def null_config(tmp_path):
+def null_config(tmp_path: Path):
     if not hf.is_config_loaded:
         hf.load_config(config_dir=tmp_path)
 
@@ -124,7 +125,9 @@ def test_resources_value_sequence_path_attributes():
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_value_sequence_object_values_during_workflow_init(null_config, tmp_path, store):
+def test_value_sequence_object_values_during_workflow_init(
+    null_config, tmp_path: Path, store: str
+):
     p1 = hf.Parameter("p1c")
     s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter=p1)])
     obj = P1(a=101)
@@ -156,7 +159,7 @@ def test_value_sequence_object_values_during_workflow_init(null_config, tmp_path
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_value_sequence_object_values_class_method_during_workflow_init(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     p1 = hf.Parameter("p1c")
     s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter=p1)])
@@ -189,7 +192,7 @@ def test_value_sequence_object_values_class_method_during_workflow_init(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_value_sequence_object_values_named_class_method_during_workflow_init(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     p1 = hf.Parameter("p1c")
     s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter=p1)])
@@ -222,7 +225,7 @@ def test_value_sequence_object_values_named_class_method_during_workflow_init(
     assert wk.tasks[0].template.element_sets[0].sequences[0].values == values_exp
 
 
-def test_nesting_order_two_seqs_parallel(null_config, tmp_path):
+def test_nesting_order_two_seqs_parallel(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
     )
@@ -243,7 +246,7 @@ def test_nesting_order_two_seqs_parallel(null_config, tmp_path):
     assert wk.tasks.test.elements[1].get("inputs") == {"p1": "b", "p2": "d"}
 
 
-def test_nesting_order_two_seqs_parallel_decimal_equiv(null_config, tmp_path):
+def test_nesting_order_two_seqs_parallel_decimal_equiv(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
     )
@@ -266,7 +269,7 @@ def test_nesting_order_two_seqs_parallel_decimal_equiv(null_config, tmp_path):
 
 def test_nesting_order_two_seqs_nested(
     null_config,
-    tmp_path,
+    tmp_path: Path,
 ):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
@@ -290,7 +293,7 @@ def test_nesting_order_two_seqs_nested(
     assert wk.tasks.test.elements[3].get("inputs") == {"p1": "b", "p2": "d"}
 
 
-def test_nesting_order_two_seqs_default_nesting_order(null_config, tmp_path):
+def test_nesting_order_two_seqs_default_nesting_order(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
     )
@@ -311,7 +314,7 @@ def test_nesting_order_two_seqs_default_nesting_order(null_config, tmp_path):
     assert wk.tasks.test.elements[1].get("inputs") == {"p1": "b", "p2": "d"}
 
 
-def test_raise_nesting_order_two_seqs_default_nesting_order(null_config, tmp_path):
+def test_raise_nesting_order_two_seqs_default_nesting_order(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
     )
@@ -331,7 +334,7 @@ def test_raise_nesting_order_two_seqs_default_nesting_order(null_config, tmp_pat
 
 
 def test_raise_nesting_order_two_seqs_default_nesting_order_decimal(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     ts = hf.TaskSchema(
         objective="test", inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2")]
@@ -351,7 +354,7 @@ def test_raise_nesting_order_two_seqs_default_nesting_order_decimal(
         )
 
 
-def test_nesting_order_three_seqs_decimal(null_config, tmp_path):
+def test_nesting_order_three_seqs_decimal(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test",
         inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2"), hf.SchemaInput("p3")],
@@ -380,7 +383,7 @@ def test_nesting_order_three_seqs_decimal(null_config, tmp_path):
     assert wk.tasks.test.elements[5].get("inputs") == {"p1": "b", "p2": "e", "p3": "k"}
 
 
-def test_nesting_order_three_seqs_all_decimal(null_config, tmp_path):
+def test_nesting_order_three_seqs_all_decimal(null_config, tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test",
         inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2"), hf.SchemaInput("p3")],

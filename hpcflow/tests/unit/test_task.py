@@ -1,8 +1,10 @@
+from __future__ import annotations
 import copy
 import os
 import pytest
+from typing import TYPE_CHECKING
 
-from valida.conditions import Value
+from valida.conditions import Value  # type: ignore
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import (
@@ -24,30 +26,38 @@ from hpcflow.sdk.core.test_utils import (
     P1_sub_parameter_cls_2 as P1_sub_param_2,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+    from hpcflow.sdk.core.actions import Action, ActionEnvironment
+    from hpcflow.sdk.core.command_files import FileSpec
+    from hpcflow.sdk.core.parameters import Parameter
+    from hpcflow.sdk.core.task_schema import TaskSchema
+    from hpcflow.sdk.core.workflow import Workflow
+
 
 @pytest.fixture
-def null_config(tmp_path):
+def null_config(tmp_path: Path):
     if not hf.is_config_loaded:
         hf.load_config(config_dir=tmp_path)
 
 
 @pytest.fixture
-def param_p1():
+def param_p1() -> Parameter:
     return hf.Parameter("p1")
 
 
 @pytest.fixture
-def param_p2():
+def param_p2() -> Parameter:
     return hf.Parameter("p2")
 
 
 @pytest.fixture
-def param_p3():
+def param_p3() -> Parameter:
     return hf.Parameter("p3")
 
 
 @pytest.fixture
-def workflow_w0(null_config, tmp_path):
+def workflow_w0(null_config, tmp_path: Path) -> Workflow:
     t1 = hf.Task(schema=[hf.TaskSchema(objective="t1", actions=[])])
     t2 = hf.Task(schema=[hf.TaskSchema(objective="t2", actions=[])])
 
@@ -56,7 +66,9 @@ def workflow_w0(null_config, tmp_path):
 
 
 @pytest.fixture
-def workflow_w1(null_config, tmp_path, param_p1, param_p2):
+def workflow_w1(
+    null_config, tmp_path: Path, param_p1: Parameter, param_p2: Parameter
+) -> Workflow:
     s1 = hf.TaskSchema("t1", actions=[], inputs=[param_p1], outputs=[param_p2])
     s2 = hf.TaskSchema("t2", actions=[], inputs=[param_p2])
 
@@ -71,7 +83,13 @@ def workflow_w1(null_config, tmp_path, param_p1, param_p2):
 
 
 @pytest.fixture
-def workflow_w2(null_config, tmp_path, param_p1, param_p2):
+def workflow_w2(
+    null_config,
+    tmp_path: Path,
+    param_p1: Parameter,
+    param_p2: Parameter,
+    param_p3: Parameter,
+) -> Workflow:
     s1 = hf.TaskSchema("t1", actions=[], inputs=[param_p1], outputs=[param_p2])
     s2 = hf.TaskSchema("t2", actions=[], inputs=[param_p2, param_p3])
 
@@ -92,7 +110,14 @@ def workflow_w2(null_config, tmp_path, param_p1, param_p2):
 
 
 @pytest.fixture
-def workflow_w3(null_config, tmp_path, param_p1, param_p2, param_p3, param_p4):
+def workflow_w3(
+    null_config,
+    tmp_path: Path,
+    param_p1: Parameter,
+    param_p2: Parameter,
+    param_p3: Parameter,
+    param_p4: Parameter,
+) -> Workflow:
     s1 = hf.TaskSchema("t1", actions=[], inputs=[param_p1], outputs=[param_p3])
     s2 = hf.TaskSchema("t2", actions=[], inputs=[param_p2, param_p3], outputs=[param_p4])
     s3 = hf.TaskSchema("t3", actions=[], inputs=[param_p3, param_p4])
@@ -109,17 +134,19 @@ def workflow_w3(null_config, tmp_path, param_p1, param_p2, param_p3, param_p4):
 
 
 @pytest.fixture
-def file_spec_fs1():
+def file_spec_fs1() -> FileSpec:
     return hf.FileSpec(label="file1", name="file1.txt")
 
 
 @pytest.fixture
-def act_env_1():
+def act_env_1() -> ActionEnvironment:
     return hf.ActionEnvironment("env_1")
 
 
 @pytest.fixture
-def act_3(act_env_1, param_p2, file_spec_fs1):
+def act_3(
+    act_env_1: ActionEnvironment, param_p2: Parameter, file_spec_fs1: FileSpec
+) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p1>>")],
         output_file_parsers=[
@@ -130,24 +157,21 @@ def act_3(act_env_1, param_p2, file_spec_fs1):
 
 
 @pytest.fixture
-def schema_s3(param_p1, param_p2, act_3):
+def schema_s3(param_p1: Parameter, param_p2: Parameter, act_3) -> TaskSchema:
     return hf.TaskSchema("ts1", actions=[act_3], inputs=[param_p1], outputs=[param_p2])
 
 
 @pytest.fixture
-def workflow_w4(null_config, tmp_path, schema_s3, param_p1):
+def workflow_w4(
+    null_config, tmp_path: Path, schema_s3: TaskSchema, param_p1: Parameter
+) -> Workflow:
     t1 = hf.Task(schema=schema_s3, inputs=[hf.InputValue(param_p1, 101)])
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1])
     return hf.Workflow.from_template(wkt, path=tmp_path)
 
 
 @pytest.fixture
-def act_env_1():
-    return hf.ActionEnvironment("env_1")
-
-
-@pytest.fixture
-def act_1(act_env_1):
+def act_1(act_env_1: ActionEnvironment) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p1>>")],
         environments=[act_env_1],
@@ -155,7 +179,7 @@ def act_1(act_env_1):
 
 
 @pytest.fixture
-def act_2(act_env_1):
+def act_2(act_env_1: ActionEnvironment) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p2>>")],
         environments=[act_env_1],
@@ -163,32 +187,32 @@ def act_2(act_env_1):
 
 
 @pytest.fixture
-def schema_s1(param_p1, act_1):
+def schema_s1(param_p1: Parameter, act_1) -> TaskSchema:
     return hf.TaskSchema("ts1", actions=[act_1], inputs=[param_p1])
 
 
 @pytest.fixture
-def schema_s2(param_p1, act_1):
+def schema_s2(param_p1: Parameter, act_1) -> TaskSchema:
     return hf.TaskSchema(
         "ts1", actions=[act_1], inputs=[hf.SchemaInput(param_p1, default_value=101)]
     )
 
 
 @pytest.fixture
-def schema_s4(param_p2, act_2):
+def schema_s4(param_p2: Parameter, act_2) -> TaskSchema:
     return hf.TaskSchema("ts2", actions=[act_2], inputs=[param_p2])
 
 
 @pytest.fixture
-def schema_s5(param_p2, act_2):
+def schema_s5(param_p2: Parameter, act_2) -> TaskSchema:
     return hf.TaskSchema(
         "ts2", actions=[act_2], inputs=[hf.SchemaInput(param_p2, default_value=2002)]
     )
 
 
 def test_task_get_available_task_input_sources_expected_return_first_task_local_value(
-    schema_s1,
-    param_p1,
+    schema_s1: TaskSchema,
+    param_p1: Parameter,
 ):
     t1 = hf.Task(schema=schema_s1, inputs=[hf.InputValue(param_p1, value=101)])
 
@@ -202,7 +226,7 @@ def test_task_get_available_task_input_sources_expected_return_first_task_local_
 
 
 def test_task_get_available_task_input_sources_expected_return_first_task_default_value(
-    schema_s2,
+    schema_s2: TaskSchema,
 ):
     t1 = hf.Task(schema=schema_s2)
     available = t1.get_available_task_input_sources(element_set=t1.element_sets[0])
@@ -212,12 +236,12 @@ def test_task_get_available_task_input_sources_expected_return_first_task_defaul
 
 
 def test_task_get_available_task_input_sources_expected_return_one_param_one_output(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2 = make_tasks(
         schemas_spec=[
-            [{"p1": NullDefault.NULL}, ("p2",), "t1"],
-            [{"p2": NullDefault.NULL}, (), "t2"],
+            ({"p1": NullDefault.NULL}, ("p2",), "t1"),
+            ({"p2": NullDefault.NULL}, (), "t2"),
         ],
         local_inputs={0: ("p1",)},
     )
@@ -242,10 +266,13 @@ def test_task_get_available_task_input_sources_expected_return_one_param_one_out
 
 
 def test_task_get_available_task_input_sources_expected_return_one_param_one_output_with_default(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2 = make_tasks(
-        schemas_spec=[[{"p1": None}, ("p2",), "t1"], [{"p2": 2001}, (), "t2"]],
+        schemas_spec=[
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": 2001}, (), "t2"),
+        ],
         local_inputs={0: ("p1",)},
     )
     wk = hf.Workflow.from_template(
@@ -270,12 +297,12 @@ def test_task_get_available_task_input_sources_expected_return_one_param_one_out
 
 
 def test_task_get_available_task_input_sources_expected_return_one_param_one_output_with_local(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2 = make_tasks(
         schemas_spec=[
-            [{"p1": NullDefault.NULL}, ("p2",), "t1"],
-            [{"p2": NullDefault.NULL}, (), "t2"],
+            ({"p1": NullDefault.NULL}, ("p2",), "t1"),
+            ({"p2": NullDefault.NULL}, (), "t2"),
         ],
         local_inputs={0: ("p1",), 1: ("p2",)},
     )
@@ -301,10 +328,13 @@ def test_task_get_available_task_input_sources_expected_return_one_param_one_out
 
 
 def test_task_get_available_task_input_sources_expected_return_one_param_one_output_with_default_and_local(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2 = make_tasks(
-        schemas_spec=[[{"p1": None}, ("p2",), "t1"], [{"p2": 2001}, (), "t2"]],
+        schemas_spec=[
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": 2001}, (), "t2"),
+        ],
         local_inputs={0: ("p1",), 1: ("p2",)},
     )
     wk = hf.Workflow.from_template(
@@ -330,13 +360,13 @@ def test_task_get_available_task_input_sources_expected_return_one_param_one_out
 
 
 def test_task_get_available_task_input_sources_expected_return_one_param_two_outputs(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2, t3 = make_tasks(
         schemas_spec=[
-            [{"p1": NullDefault.NULL}, ("p2", "p3"), "t1"],
-            [{"p2": NullDefault.NULL}, ("p3", "p4"), "t2"],
-            [{"p3": NullDefault.NULL}, (), "t3"],
+            ({"p1": NullDefault.NULL}, ("p2", "p3"), "t1"),
+            ({"p2": NullDefault.NULL}, ("p3", "p4"), "t2"),
+            ({"p3": NullDefault.NULL}, (), "t3"),
         ],
         local_inputs={0: ("p1",), 1: ("p2",)},
     )
@@ -367,12 +397,12 @@ def test_task_get_available_task_input_sources_expected_return_one_param_two_out
 
 
 def test_task_get_available_task_input_sources_expected_return_two_params_one_output(
-    tmp_path,
+    tmp_path: Path,
 ):
     t1, t2 = make_tasks(
         schemas_spec=[
-            [{"p1": NullDefault.NULL}, ("p2", "p3"), "t1"],
-            [{"p2": NullDefault.NULL, "p3": NullDefault.NULL}, (), "t2"],
+            ({"p1": NullDefault.NULL}, ("p2", "p3"), "t1"),
+            ({"p2": NullDefault.NULL, "p3": NullDefault.NULL}, (), "t2"),
         ],
         local_inputs={0: ("p1",)},
     )
@@ -405,16 +435,16 @@ def test_task_get_available_task_input_sources_expected_return_two_params_one_ou
 
 
 def test_task_get_available_task_input_sources_one_parameter_extravaganza(
-    tmp_path,
+    tmp_path: Path,
 ):
     """Test an input source is excluded if it is not locally defined (meaning it comes
     from another task)."""
 
     t1, t2, t3 = make_tasks(
         schemas_spec=[
-            [{"p1": NullDefault.NULL}, ("p1",), "t1"],  # sources for t3: input + output
-            [{"p1": NullDefault.NULL}, ("p1",), "t2"],  # sources fot t3: output only
-            [{"p1": NullDefault.NULL}, ("p1",), "t3"],
+            ({"p1": NullDefault.NULL}, ("p1",), "t1"),  # sources for t3: input + output
+            ({"p1": NullDefault.NULL}, ("p1",), "t2"),  # sources fot t3: output only
+            ({"p1": NullDefault.NULL}, ("p1",), "t3"),
         ],
         local_inputs={0: ("p1",)},
     )
@@ -456,7 +486,7 @@ def test_task_get_available_task_input_sources_one_parameter_extravaganza(
     assert available == available_exp
 
 
-def test_task_input_sources_output_label(null_config, tmp_path):
+def test_task_input_sources_output_label(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         outputs=[hf.SchemaOutput("p1")],
@@ -487,7 +517,7 @@ def test_task_input_sources_output_label(null_config, tmp_path):
     }
 
 
-def test_task_input_sources_output_label_filtered(null_config, tmp_path):
+def test_task_input_sources_output_label_filtered(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -560,8 +590,8 @@ def test_raise_on_multiple_schema_objectives():
         hf.Task(schema=[s1, s2])
 
 
-def test_raise_on_unexpected_inputs(param_p1, param_p2):
-    s1 = make_schemas([[{"p1": None}, ()]])
+def test_raise_on_unexpected_inputs(param_p1: Parameter, param_p2: Parameter):
+    (s1,) = make_schemas(({"p1": None}, ()))
 
     with pytest.raises(TaskTemplateUnexpectedInput):
         hf.Task(
@@ -573,8 +603,8 @@ def test_raise_on_unexpected_inputs(param_p1, param_p2):
         )
 
 
-def test_raise_on_multiple_input_values(param_p1):
-    s1 = make_schemas([[{"p1": None}, ()]])
+def test_raise_on_multiple_input_values(param_p1: Parameter):
+    (s1,) = make_schemas(({"p1": None}, ()))
 
     with pytest.raises(TaskTemplateMultipleInputValues):
         hf.Task(
@@ -586,7 +616,7 @@ def test_raise_on_multiple_input_values(param_p1):
         )
 
 
-def test_raise_on_multiple_input_values_same_label(param_p1):
+def test_raise_on_multiple_input_values_same_label(param_p1: Parameter):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1", labels={"0": {}})],
@@ -596,13 +626,13 @@ def test_raise_on_multiple_input_values_same_label(param_p1):
         hf.Task(
             schema=s1,
             inputs=[
-                hf.InputValue(param_p1, value=101, label=0),
-                hf.InputValue(param_p1, value=101, label=0),
+                hf.InputValue(param_p1, value=101, label="0"),
+                hf.InputValue(param_p1, value=101, label="0"),
             ],
         )
 
 
-def test_multiple_input_values_different_labels(param_p1):
+def test_multiple_input_values_different_labels(param_p1: Parameter):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[
@@ -616,14 +646,16 @@ def test_multiple_input_values_different_labels(param_p1):
     hf.Task(
         schema=s1,
         inputs=[
-            hf.InputValue(param_p1, value=101, label=0),
-            hf.InputValue(param_p1, value=101, label=1),
+            hf.InputValue(param_p1, value=101, label="0"),
+            hf.InputValue(param_p1, value=101, label="1"),
         ],
     )
 
 
-def test_expected_return_defined_and_undefined_input_types(param_p1, param_p2):
-    s1 = make_schemas([[{"p1": None, "p2": None}, ()]])
+def test_expected_return_defined_and_undefined_input_types(
+    param_p1: Parameter, param_p2: Parameter
+):
+    (s1,) = make_schemas(({"p1": None, "p2": None}, ()))
 
     t1 = hf.Task(schema=s1, inputs=[hf.InputValue(param_p1, value=101)])
     element_set = t1.element_sets[0]
@@ -632,18 +664,20 @@ def test_expected_return_defined_and_undefined_input_types(param_p1, param_p2):
     } and element_set.undefined_input_types == {param_p2.typ}
 
 
-def test_expected_return_all_schema_input_types_single_schema(param_p1, param_p2):
-    s1 = make_schemas([[{"p1": None, "p2": None}, ()]])
+def test_expected_return_all_schema_input_types_single_schema(
+    param_p1: Parameter, param_p2: Parameter
+):
+    (s1,) = make_schemas(({"p1": None, "p2": None}, ()))
     t1 = hf.Task(schema=s1)
 
     assert t1.all_schema_input_types == {param_p1.typ, param_p2.typ}
 
 
 def test_expected_return_all_schema_input_types_multiple_schemas(
-    param_p1, param_p2, param_p3
+    param_p1: Parameter, param_p2: Parameter, param_p3: Parameter
 ):
     s1, s2 = make_schemas(
-        [[{"p1": None, "p2": None}, (), "t1"], [{"p1": None, "p3": None}, (), "t1"]]
+        ({"p1": None, "p2": None}, (), "t1"), ({"p1": None, "p3": None}, (), "t1")
     )
 
     t1 = hf.Task(schema=[s1, s2])
@@ -725,7 +759,7 @@ def test_expected_name_two_schemas_both_with_method_and_implementation():
 
 
 def test_raise_on_negative_nesting_order():
-    s1 = make_schemas([[{"p1": None}, ()]])
+    (s1,) = make_schemas(({"p1": None}, ()))
     with pytest.raises(TaskTemplateInvalidNesting):
         hf.Task(schema=s1, nesting_order={"inputs.p1": -1})
 
@@ -735,15 +769,15 @@ def test_raise_on_negative_nesting_order():
 
 def test_empty_task_init():
     """Check we can init a hf.Task with no input values."""
-    s1 = make_schemas([[{"p1": None}, ()]])
+    (s1,) = make_schemas(({"p1": None}, ()))
     t1 = hf.Task(schema=s1)
 
 
-def test_task_task_dependencies(tmp_path):
+def test_task_task_dependencies(tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_inputs={0: ("p1",)},
         path=tmp_path,
@@ -751,11 +785,11 @@ def test_task_task_dependencies(tmp_path):
     assert wk.tasks.t2.get_task_dependencies(as_objects=True) == [wk.tasks.t1]
 
 
-def test_task_dependent_tasks(tmp_path):
+def test_task_dependent_tasks(tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_inputs={0: ("p1",)},
         path=tmp_path,
@@ -763,39 +797,39 @@ def test_task_dependent_tasks(tmp_path):
     assert wk.tasks.t1.get_dependent_tasks(as_objects=True) == [wk.tasks.t2]
 
 
-def test_task_element_dependencies(tmp_path):
+def test_task_element_dependencies(tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
         path=tmp_path,
     )
-    assert wk.tasks.t2.get_element_dependencies() == [0, 1]
+    assert wk.tasks.t2.get_element_dependencies() == {0, 1}
 
 
-def test_task_dependent_elements(tmp_path):
+def test_task_dependent_elements(tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
         path=tmp_path,
     )
-    assert wk.tasks.t1.get_dependent_elements() == [2, 3]
+    assert wk.tasks.t1.get_dependent_elements() == {2, 3}
 
 
 def test_task_add_elements_without_propagation_expected_workflow_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -808,12 +842,12 @@ def test_task_add_elements_without_propagation_expected_workflow_num_elements(
 
 
 def test_task_add_elements_without_propagation_expected_task_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -826,31 +860,31 @@ def test_task_add_elements_without_propagation_expected_task_num_elements(
 
 
 def test_task_add_elements_without_propagation_expected_new_data_index(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
         path=tmp_path,
     )
-    data_index = [sorted(i.get_data_idx().keys()) for i in wk.tasks.t1.elements[:]]
+    data_index = [sorted(i.get_data_idx()) for i in wk.tasks.t1.elements[:]]
     wk.tasks.t1.add_elements(inputs=[hf.InputValue(param_p1, 103)])
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.tasks.t1.elements[:]]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.tasks.t1.elements[:]]
     new_elems = data_index_new[len(data_index) :]
     assert new_elems == [["inputs.p1", "outputs.p2", "resources.any"]]
 
 
 def test_task_add_elements_with_propagation_expected_workflow_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -866,12 +900,12 @@ def test_task_add_elements_with_propagation_expected_workflow_num_elements(
 
 
 def test_task_add_elements_with_propagation_expected_task_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -887,11 +921,13 @@ def test_task_add_elements_with_propagation_expected_task_num_elements(
     assert num_elems_diff[0] == 1 and num_elems_diff[1] == 1
 
 
-def test_task_add_elements_with_propagation_expected_new_data_index(tmp_path, param_p1):
+def test_task_add_elements_with_propagation_expected_new_data_index(
+    tmp_path: Path, param_p1: Parameter
+):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -905,7 +941,7 @@ def test_task_add_elements_with_propagation_expected_new_data_index(tmp_path, pa
     )
     t1_num_elems_new = wk.tasks.t1.num_elements
     t2_num_elems_new = wk.tasks.t2.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -920,12 +956,12 @@ def test_task_add_elements_with_propagation_expected_new_data_index(tmp_path, pa
 
 
 def test_task_add_elements_sequence_without_propagation_expected_workflow_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -940,12 +976,12 @@ def test_task_add_elements_sequence_without_propagation_expected_workflow_num_el
 
 
 def test_task_add_elements_sequence_without_propagation_expected_task_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -960,12 +996,12 @@ def test_task_add_elements_sequence_without_propagation_expected_task_num_elemen
 
 
 def test_task_add_elements_sequence_without_propagation_expected_new_data_index(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -976,7 +1012,7 @@ def test_task_add_elements_sequence_without_propagation_expected_new_data_index(
         sequences=[hf.ValueSequence("inputs.p1", values=[103, 104], nesting_order=1)]
     )
     t1_num_elems_new = wk.tasks.t1.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems = data_index_new[t1_num_elems:t1_num_elems_new]
     assert new_elems == [
         ["inputs.p1", "outputs.p2", "resources.any"],
@@ -985,12 +1021,12 @@ def test_task_add_elements_sequence_without_propagation_expected_new_data_index(
 
 
 def test_task_add_elements_sequence_with_propagation_expected_workflow_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1010,12 +1046,12 @@ def test_task_add_elements_sequence_with_propagation_expected_workflow_num_eleme
 
 
 def test_task_add_elements_sequence_with_propagation_expected_task_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1035,11 +1071,13 @@ def test_task_add_elements_sequence_with_propagation_expected_task_num_elements(
     assert num_elems_diff[0] == 3 and num_elems_diff[1] == 3
 
 
-def test_task_add_elements_sequence_with_propagation_expected_new_data_index(tmp_path):
+def test_task_add_elements_sequence_with_propagation_expected_new_data_index(
+    tmp_path: Path,
+):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1057,7 +1095,7 @@ def test_task_add_elements_sequence_with_propagation_expected_new_data_index(tmp
     )
     t1_num_elems_new = wk.tasks.t1.num_elements
     t2_num_elems_new = wk.tasks.t2.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1074,12 +1112,12 @@ def test_task_add_elements_sequence_with_propagation_expected_new_data_index(tmp
 
 
 def test_task_add_elements_sequence_with_propagation_into_sequence_expected_workflow_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None, "p3": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None, "p3": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 1)], 1: [("inputs.p3", 3, 1)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1101,12 +1139,12 @@ def test_task_add_elements_sequence_with_propagation_into_sequence_expected_work
 
 
 def test_task_add_elements_sequence_with_propagation_into_sequence_expected_task_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None, "p3": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None, "p3": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 1)], 1: [("inputs.p3", 3, 1)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1129,12 +1167,12 @@ def test_task_add_elements_sequence_with_propagation_into_sequence_expected_task
 
 
 def test_task_add_elements_sequence_with_propagation_into_sequence_expected_new_data_index(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None, "p3": None}, (), "t2"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None, "p3": None}, (), "t2"),
         ],
         local_sequences={0: [("inputs.p1", 2, 1)], 1: [("inputs.p3", 3, 1)]},
         nesting_orders={1: {"inputs.p2": 0}},
@@ -1155,7 +1193,7 @@ def test_task_add_elements_sequence_with_propagation_into_sequence_expected_new_
     )
     t1_num_elems_new = wk.tasks.t1.num_elements
     t2_num_elems_new = wk.tasks.t2.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1178,13 +1216,13 @@ def test_task_add_elements_sequence_with_propagation_into_sequence_expected_new_
 
 
 def test_task_add_elements_multi_task_dependence_expected_workflow_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1204,13 +1242,13 @@ def test_task_add_elements_multi_task_dependence_expected_workflow_num_elements(
 
 
 def test_task_add_elements_multi_task_dependence_expected_task_num_elements(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1231,13 +1269,13 @@ def test_task_add_elements_multi_task_dependence_expected_task_num_elements(
 
 
 def test_task_add_elements_multi_task_dependence_expected_task_num_elements_custom_input_source(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1264,13 +1302,13 @@ def test_task_add_elements_multi_task_dependence_expected_task_num_elements_cust
 
 
 def test_task_add_elements_multi_task_dependence_expected_new_data_index(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1290,7 +1328,7 @@ def test_task_add_elements_multi_task_dependence_expected_new_data_index(
     t1_num_elems_new = wk.tasks.t1.num_elements
     t2_num_elems_new = wk.tasks.t2.num_elements
     t3_num_elems_new = wk.tasks.t3.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1312,13 +1350,13 @@ def test_task_add_elements_multi_task_dependence_expected_new_data_index(
 
 
 def test_task_add_elements_multi_task_dependence_expected_new_data_index_custom_input_source(
-    tmp_path, param_p1
+    tmp_path: Path, param_p1: Parameter
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1344,7 +1382,7 @@ def test_task_add_elements_multi_task_dependence_expected_new_data_index_custom_
     t1_num_elems_new = wk.tasks.t1.num_elements
     t2_num_elems_new = wk.tasks.t2.num_elements
     t3_num_elems_new = wk.tasks.t3.num_elements
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1366,13 +1404,13 @@ def test_task_add_elements_multi_task_dependence_expected_new_data_index_custom_
 
 
 def test_task_add_elements_sequence_multi_task_dependence_workflow_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1394,13 +1432,13 @@ def test_task_add_elements_sequence_multi_task_dependence_workflow_num_elements(
 
 
 def test_task_add_elements_sequence_multi_task_dependence_workflow_num_elements_custom_input_source(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1428,13 +1466,13 @@ def test_task_add_elements_sequence_multi_task_dependence_workflow_num_elements_
 
 
 def test_task_add_elements_sequence_multi_task_dependence_expected_task_num_elements(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1457,13 +1495,13 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_task_num_elem
 
 
 def test_task_add_elements_sequence_multi_task_dependence_expected_task_num_elements_custom_input_source(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1492,13 +1530,13 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_task_num_elem
 
 
 def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_index(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1521,7 +1559,7 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_inde
     t2_num_elems_new = wk.tasks.t2.num_elements
     t3_num_elems_new = wk.tasks.t3.num_elements
 
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1542,13 +1580,13 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_inde
 
 
 def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_index_custom_input_source(
-    tmp_path,
+    tmp_path: Path,
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p3",), "t1"],
-            [{"p2": None, "p3": None}, ("p4",), "t2"],
-            [{"p3": None, "p4": None}, (), "t3"],
+            ({"p1": None}, ("p3",), "t1"),
+            ({"p2": None, "p3": None}, ("p4",), "t2"),
+            ({"p3": None, "p4": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         local_sequences={1: [("inputs.p2", 2, 1)]},
@@ -1577,7 +1615,7 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_inde
     t2_num_elems_new = wk.tasks.t2.num_elements
     t3_num_elems_new = wk.tasks.t3.num_elements
 
-    data_index_new = [sorted(i.get_data_idx().keys()) for i in wk.elements()]
+    data_index_new = [sorted(i.get_data_idx()) for i in wk.elements()]
     new_elems_t1 = data_index_new[t1_num_elems:t1_num_elems_new]
     new_elems_t2 = data_index_new[
         t1_num_elems_new + t2_num_elems : t1_num_elems_new + t2_num_elems_new
@@ -1597,12 +1635,14 @@ def test_task_add_elements_sequence_multi_task_dependence_expected_new_data_inde
     )
 
 
-def test_task_add_elements_simple_dependence_three_tasks(tmp_path, param_p1):
+def test_task_add_elements_simple_dependence_three_tasks(
+    tmp_path: Path, param_p1: Parameter
+):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p3",), "t2"],
-            [{"p3": None}, (), "t3"],
+            ({"p1": None}, ("p2",), "t1"),
+            ({"p2": None}, ("p3",), "t2"),
+            ({"p3": None}, (), "t3"),
         ],
         local_inputs={0: ("p1",)},
         path=tmp_path,
@@ -1616,15 +1656,15 @@ def test_task_add_elements_simple_dependence_three_tasks(tmp_path, param_p1):
     assert num_elems_new == [i + 1 for i in num_elems]
 
 
-def test_no_change_to_tasks_metadata_on_add_task_failure(tmp_path):
+def test_no_change_to_tasks_metadata_on_add_task_failure(tmp_path: Path):
     wk = make_workflow(
-        schemas_spec=[[{"p1": NullDefault.NULL}, (), "t1"]],
+        schemas_spec=[({"p1": NullDefault.NULL}, (), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
     )
     tasks_meta = copy.deepcopy(wk._store.get_tasks())
 
-    s2 = make_schemas([[{"p1": NullDefault.NULL, "p3": NullDefault.NULL}, ()]])
+    (s2,) = make_schemas(({"p1": NullDefault.NULL, "p3": NullDefault.NULL}, ()))
     t2 = hf.Task(schema=s2)
     with pytest.raises(MissingInputs) as exc_info:
         wk.add_task(t2)
@@ -1632,15 +1672,17 @@ def test_no_change_to_tasks_metadata_on_add_task_failure(tmp_path):
     assert wk._store.get_tasks() == tasks_meta
 
 
-def test_no_change_to_parameter_data_on_add_task_failure(tmp_path, param_p2, param_p3):
+def test_no_change_to_parameter_data_on_add_task_failure(
+    tmp_path: Path, param_p2: Parameter, param_p3: Parameter
+):
     wk = make_workflow(
-        schemas_spec=[[{"p1": NullDefault.NULL}, (), "t1"]],
+        schemas_spec=[({"p1": NullDefault.NULL}, (), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
     )
-    param_data = copy.deepcopy(wk.get_all_parameters())
-    s2 = make_schemas(
-        [[{"p1": NullDefault.NULL, "p2": NullDefault.NULL, "p3": NullDefault.NULL}, ()]]
+    param_data: list = copy.deepcopy(wk.get_all_parameters())
+    (s2,) = make_schemas(
+        ({"p1": NullDefault.NULL, "p2": NullDefault.NULL, "p3": NullDefault.NULL}, ())
     )
     t2 = hf.Task(schema=s2, inputs=[hf.InputValue(param_p2, 201)])
     with pytest.raises(MissingInputs) as exc_info:
@@ -1649,21 +1691,23 @@ def test_no_change_to_parameter_data_on_add_task_failure(tmp_path, param_p2, par
     assert wk.get_all_parameters() == param_data
 
 
-def test_expected_additional_parameter_data_on_add_task(tmp_path, param_p3):
+def test_expected_additional_parameter_data_on_add_task(
+    tmp_path: Path, param_p3: Parameter
+):
     wk = make_workflow(
-        schemas_spec=[[{"p1": NullDefault.NULL}, (), "t1"]],
+        schemas_spec=[({"p1": NullDefault.NULL}, (), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
     )
     param_data = copy.deepcopy(wk.get_all_parameter_data())
 
-    s2 = make_schemas([[{"p1": NullDefault.NULL, "p3": NullDefault.NULL}, ()]])
+    (s2,) = make_schemas(({"p1": NullDefault.NULL, "p3": NullDefault.NULL}, ()))
     t2 = hf.Task(schema=s2, inputs=[hf.InputValue(param_p3, 301)])
     wk.add_task(t2)
 
     param_data_new = wk.get_all_parameter_data()
 
-    new_keys = set(param_data_new.keys()) - set(param_data.keys())
+    new_keys = sorted(set(param_data_new).difference(param_data))
     new_data = [param_data_new[k] for k in new_keys]
 
     # one new key for resources, one for param_p3 value
@@ -1671,62 +1715,57 @@ def test_expected_additional_parameter_data_on_add_task(tmp_path, param_p3):
     assert new_data[1] == 301
 
 
-def test_parameters_accepted_on_add_task(tmp_path, param_p3):
+def test_parameters_accepted_on_add_task(tmp_path: Path, param_p3: Parameter):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, (), "t1"]],
+        schemas_spec=[({"p1": None}, (), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
     )
-    s2 = make_schemas([[{"p1": None, "p3": None}, ()]])
+    (s2,) = make_schemas(({"p1": None, "p3": None}, ()))
     t2 = hf.Task(schema=s2, inputs=[hf.InputValue(param_p3, 301)])
     wk.add_task(t2)
     assert not wk._store._pending.add_parameters
 
 
-def test_parameters_pending_during_add_task(tmp_path, param_p3):
+def test_parameters_pending_during_add_task(tmp_path: Path, param_p3: Parameter):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, (), "t1"]],
+        schemas_spec=[({"p1": None}, (), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
     )
-    s2 = make_schemas([[{"p1": None, "p3": None}, ()]])
+    (s2,) = make_schemas(({"p1": None, "p3": None}, ()))
     t2 = hf.Task(schema=s2, inputs=[hf.InputValue(param_p3, 301)])
     with wk.batch_update():
         wk.add_task(t2)
         assert wk._store._pending.add_parameters
 
 
-def test_add_task_after(workflow_w0):
+def test_add_task_after(workflow_w0: Workflow):
     new_task = hf.Task(schema=hf.TaskSchema(objective="after_t1", actions=[]))
     workflow_w0.add_task_after(new_task, workflow_w0.tasks.t1)
     assert [i.name for i in workflow_w0.tasks] == ["t1", "after_t1", "t2"]
 
 
-def test_add_task_after_no_ref(workflow_w0):
+def test_add_task_after_no_ref(workflow_w0: Workflow):
     new_task = hf.Task(schema=hf.TaskSchema(objective="at_end", actions=[]))
     workflow_w0.add_task_after(new_task)
     assert [i.name for i in workflow_w0.tasks] == ["t1", "t2", "at_end"]
 
 
-def test_add_task_before(workflow_w0):
+def test_add_task_before(workflow_w0: Workflow):
     new_task = hf.Task(schema=hf.TaskSchema(objective="before_t2", actions=[]))
     workflow_w0.add_task_before(new_task, workflow_w0.tasks.t2)
     assert [i.name for i in workflow_w0.tasks] == ["t1", "before_t2", "t2"]
 
 
-def test_add_task_before_no_ref(workflow_w0):
+def test_add_task_before_no_ref(workflow_w0: Workflow):
     new_task = hf.Task(schema=hf.TaskSchema(objective="at_start", actions=[]))
     workflow_w0.add_task_before(new_task)
     assert [i.name for i in workflow_w0.tasks] == ["at_start", "t1", "t2"]
 
 
-@pytest.fixture
-def act_env_1():
-    return hf.ActionEnvironment("env_1")
-
-
 def test_parameter_two_modifying_actions_expected_data_indices(
-    tmp_path, act_env_1, param_p1
+    tmp_path: Path, act_env_1: ActionEnvironment, param_p1: Parameter
 ):
     act1 = hf.Action(
         commands=[hf.Command("doSomething <<parameter:p1>>", stdout="<<parameter:p1>>")],
@@ -1761,7 +1800,9 @@ def test_parameter_two_modifying_actions_expected_data_indices(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_conditional_shell_schema_single_initialised_action(null_config, tmp_path, store):
+def test_conditional_shell_schema_single_initialised_action(
+    null_config, tmp_path: Path, store: str
+):
     rules = {
         "posix": hf.ActionRule(
             rule=hf.Rule(path="resources.os_name", condition=Value.equal_to("posix"))
@@ -1813,7 +1854,7 @@ def test_conditional_shell_schema_single_initialised_action(null_config, tmp_pat
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_initialised_on_make_workflow(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1845,7 +1886,7 @@ def test_element_iteration_EARs_initialised_on_make_workflow(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_initialised_on_make_workflow_with_no_actions(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1866,7 +1907,7 @@ def test_element_iteration_EARs_initialised_on_make_workflow_with_no_actions(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_not_initialised_on_make_workflow_due_to_unset(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1917,7 +1958,7 @@ def test_element_iteration_EARs_not_initialised_on_make_workflow_due_to_unset(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_initialised_on_make_workflow_with_no_valid_actions(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     rules = {
         "posix": hf.ActionRule(
@@ -1958,7 +1999,9 @@ def test_element_iteration_EARs_initialised_on_make_workflow_with_no_valid_actio
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_unset_data_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_unset_data_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -1992,7 +2035,9 @@ def test_get_merged_parameter_data_unset_data_raise(null_config, tmp_path, store
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_unset_data_no_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_unset_data_no_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2025,7 +2070,9 @@ def test_get_merged_parameter_data_unset_data_no_raise(null_config, tmp_path, st
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_missing_data_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_missing_data_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2059,7 +2106,9 @@ def test_get_merged_parameter_data_missing_data_raise(null_config, tmp_path, sto
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_missing_data_no_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_missing_data_no_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2092,7 +2141,9 @@ def test_get_merged_parameter_data_missing_data_no_raise(null_config, tmp_path, 
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_group_unset_data_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_group_unset_data_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2143,7 +2194,7 @@ def test_get_merged_parameter_data_group_unset_data_raise(null_config, tmp_path,
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_get_merged_parameter_data_group_unset_data_no_raise(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -2192,7 +2243,9 @@ def test_get_merged_parameter_data_group_unset_data_no_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_group_missing_data_raise(null_config, tmp_path, store):
+def test_get_merged_parameter_data_group_missing_data_raise(
+    null_config, tmp_path: Path, store: str
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2243,7 +2296,7 @@ def test_get_merged_parameter_data_group_missing_data_raise(null_config, tmp_pat
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_get_merged_parameter_data_group_missing_data_no_raise(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -2292,7 +2345,7 @@ def test_get_merged_parameter_data_group_missing_data_no_raise(
 
 
 @pytest.fixture
-def path_to_PV_classes_workflow(null_config, tmp_path):
+def path_to_PV_classes_workflow(null_config, tmp_path: Path) -> Workflow:
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1c"))],
@@ -2311,60 +2364,64 @@ def path_to_PV_classes_workflow(null_config, tmp_path):
     return wk
 
 
-def test_path_to_PV_classes(path_to_PV_classes_workflow):
-    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(["inputs.p1c"]) == {
+def test_path_to_PV_classes(path_to_PV_classes_workflow: Workflow):
+    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes("inputs.p1c") == {
         "inputs.p1c": P1,
     }
 
 
-def test_path_to_PV_classes_sub_data(path_to_PV_classes_workflow):
-    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(
-        ["inputs.p1c.a"]
-    ) == {
+def test_path_to_PV_classes_sub_data(path_to_PV_classes_workflow: Workflow):
+    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes("inputs.p1c.a") == {
         "inputs.p1c": P1,
     }
 
 
-def test_path_to_PV_classes_sub_parameter(path_to_PV_classes_workflow):
+def test_path_to_PV_classes_sub_parameter(path_to_PV_classes_workflow: Workflow):
     assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(
-        ["inputs.p1c.sub_param"]
+        "inputs.p1c.sub_param"
     ) == {
         "inputs.p1c": P1,
         "inputs.p1c.sub_param": P1_sub_param,
     }
 
 
-def test_path_to_PV_classes_multiple_sub_parameters(path_to_PV_classes_workflow):
+def test_path_to_PV_classes_multiple_sub_parameters(
+    path_to_PV_classes_workflow: Workflow,
+):
     paths = ["inputs.p1c.sub_param", "inputs.p1c.sub_param_2"]
-    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(paths) == {
+    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(*paths) == {
         "inputs.p1c": P1,
         "inputs.p1c.sub_param": P1_sub_param,
         "inputs.p1c.sub_param_2": P1_sub_param_2,
     }
 
 
-def test_path_to_PV_classes_multiple_sub_parameter_attr(path_to_PV_classes_workflow):
+def test_path_to_PV_classes_multiple_sub_parameter_attr(
+    path_to_PV_classes_workflow: Workflow,
+):
     paths = ["inputs.p1c.sub_param.e"]
-    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(paths) == {
+    assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(*paths) == {
         "inputs.p1c": P1,
         "inputs.p1c.sub_param": P1_sub_param,
     }
 
 
-def test_path_to_PV_classes_inputs_only_path_ignored(path_to_PV_classes_workflow):
+def test_path_to_PV_classes_inputs_only_path_ignored(
+    path_to_PV_classes_workflow: Workflow,
+):
     paths_1 = ["inputs", "inputs.p1c"]
     paths_2 = ["inputs.p1c"]
     assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(
-        paths_1
-    ) == path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(paths_2)
+        *paths_1
+    ) == path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(*paths_2)
 
 
-def test_path_to_PV_classes_resources_path_ignored(path_to_PV_classes_workflow):
+def test_path_to_PV_classes_resources_path_ignored(path_to_PV_classes_workflow: Workflow):
     paths_1 = ["resources", "inputs.p1c"]
     paths_2 = ["inputs.p1c"]
     assert path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(
-        paths_1
-    ) == path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(paths_2)
+        *paths_1
+    ) == path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(*paths_2)
 
 
 def test_input_values_specified_by_dict(null_config):
@@ -2396,7 +2453,7 @@ def test_raise_UnknownEnvironmentPresetError_sequence(null_config):
         hf.Task(schema=ts, sequences=[seq])
 
 
-def test_group_values_input_and_output_source_from_upstream(null_config, tmp_path):
+def test_group_values_input_and_output_source_from_upstream(null_config, tmp_path: Path):
     """
     | task | inputs | outputs | group    | num_elements               |
     | ---- | ------ | ------- | -------- | ---------------------------|
@@ -2458,3 +2515,51 @@ def test_group_values_input_and_output_source_from_upstream(null_config, tmp_pat
     assert wk.tasks[2].num_elements == 1
     assert [i.value for i in wk.tasks[2].inputs.p1] == [[None, None, None]]
     assert [i.value for i in wk.tasks[2].inputs.p2] == [[None, None, None]]
+
+
+def test_is_input_type_required_True(null_config):
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("cat <<file:my_input_file>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="NOT-SET-FOR-THIS-TEST",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=s1, inputs={"p1": 100})
+    assert t1.is_input_type_required(typ="p1", element_set=t1.element_sets[0])
+
+
+def test_is_input_type_required_False(null_config):
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("cat <<file:my_input_file>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="NOT-SET-FOR-THIS-TEST",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    t1 = hf.Task(
+        schema=s1, input_files=[hf.InputFile(file=inp_file, path="NOT-SET-FOR-THIS-TEST")]
+    )
+    assert not t1.is_input_type_required(typ="p1", element_set=t1.element_sets[0])

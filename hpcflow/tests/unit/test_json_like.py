@@ -1,13 +1,19 @@
+# mypy: disable-error-code="annotation-unchecked"
+from __future__ import annotations
 from dataclasses import dataclass
 import enum
 from types import SimpleNamespace
-from typing import Optional, Any
+from typing import Any
 
 import pytest
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.json_like import BaseJSONLike, ChildObjectSpec
 from hpcflow.sdk.core.object_list import ObjectList
+
+# BE AWARE THAT MYPY CANNOT CORRECTLY TYPE-CHECK THIS FILE AT ALL.
+# It fails massively due to all the classes inside functions being passed to other functions.
+# Omitting the types makes it ignore them all, which us for the best.
 
 
 @pytest.fixture
@@ -87,16 +93,17 @@ def test_BaseJSONLike_child_object_class_namespace_via_obj(null_config):
 
 
 def test_BaseJSONLike_child_object_class_namespace_via_name_and_dict_namespace(
-    BaseJSONLikeSubClass,
+    BaseJSONLikeSubClass: type[BaseJSONLike],
 ):
     """Child object class passed as a name and namespace passed as a dict."""
+    T: type = BaseJSONLikeSubClass  # Workaround for python/mypy#14458
 
     @dataclass
-    class ObjB(BaseJSONLikeSubClass):
+    class ObjB(T):
         c: int
 
     @dataclass
-    class ObjA(BaseJSONLikeSubClass):
+    class ObjA(T):
         _child_objects = (
             ChildObjectSpec(
                 name="b",
@@ -118,16 +125,17 @@ def test_BaseJSONLike_child_object_class_namespace_via_name_and_dict_namespace(
 
 
 def test_BaseJSONLike_child_object_class_namespace_via_name_and_func_locals(
-    BaseJSONLikeSubClass,
+    BaseJSONLikeSubClass: type[BaseJSONLike],
 ):
     """Child object class passed as a name and namespace passed as function locals."""
+    T: type = BaseJSONLikeSubClass  # Workaround for python/mypy#14458
 
     @dataclass
-    class ObjB(BaseJSONLikeSubClass):
+    class ObjB(T):
         c: int
 
     @dataclass
-    class ObjA(BaseJSONLikeSubClass):
+    class ObjA(T):
         _child_objects = (
             ChildObjectSpec(
                 name="b",
@@ -149,16 +157,17 @@ def test_BaseJSONLike_child_object_class_namespace_via_name_and_func_locals(
 
 
 def test_BaseJSONLike_child_object_class_namespace_via_name_and_SimpleNamespace(
-    BaseJSONLikeSubClass,
+    BaseJSONLikeSubClass: type[BaseJSONLike],
 ):
     """Child object class passed as a name and namespace passed as a SimpleNamespace."""
+    T: type = BaseJSONLikeSubClass  # Workaround for python/mypy#14458
 
     @dataclass
-    class ObjB(BaseJSONLikeSubClass):
+    class ObjB(T):
         c: int
 
     @dataclass
-    class ObjA(BaseJSONLikeSubClass):
+    class ObjA(T):
         _child_objects = (
             ChildObjectSpec(
                 name="b",
@@ -549,12 +558,12 @@ def test_from_json_like_with_parent_ref(null_config):
     class ObjB(BaseJSONLike):
         name: str
         c: int
-        obj_A: Optional[Any] = None
+        obj_A: Any = None
 
         def __eq__(self, other):
-            if self.name == other.name and self.c == other.c:
-                return True
-            return False
+            if not isinstance(other, self.__class__):
+                return False
+            return self.name == other.name and self.c == other.c
 
     @dataclass
     class ObjA(BaseJSONLike):
@@ -572,14 +581,14 @@ def test_from_json_like_with_parent_ref(null_config):
             self._set_parent_refs()
 
         def __eq__(self, other):
-            if (
+            if not isinstance(other, self.__class__):
+                return False
+            return (
                 self.a == other.a
                 and self.b == other.b
                 and self.b.obj_A is self
                 and other.b.obj_A is other
-            ):
-                return True
-            return False
+            )
 
     js_1 = {
         "a": 1,
@@ -600,12 +609,12 @@ def test_json_like_round_trip_with_parent_ref(null_config):
     class ObjB(BaseJSONLike):
         name: str
         c: int
-        obj_A: Optional[Any] = None
+        obj_A: Any = None
 
         def __eq__(self, other):
-            if self.name == other.name and self.c == other.c:
-                return True
-            return False
+            if not isinstance(other, self.__class__):
+                return False
+            return self.name == other.name and self.c == other.c
 
     @dataclass
     class ObjA(BaseJSONLike):
@@ -620,14 +629,14 @@ def test_json_like_round_trip_with_parent_ref(null_config):
         b: float
 
         def __eq__(self, other):
-            if (
+            if not isinstance(other, self.__class__):
+                return False
+            return (
                 self.a == other.a
                 and self.b == other.b
                 and self.b.obj_A is self
                 and other.b.obj_A is other
-            ):
-                return True
-            return False
+            )
 
     js_1 = {
         "a": 1,
@@ -658,7 +667,7 @@ def test_from_json_like_optional_attr(null_config):
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     js_in = {"a": 9, "b": None}
     objA = ObjA.from_json_like(js_in)
@@ -683,7 +692,7 @@ def test_from_json_like_optional_attr_with_is_multiple_both_none(null_config):
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     js_in = {
         "a": 9,
@@ -711,7 +720,7 @@ def test_from_json_like_optional_attr_with_is_multiple_one_none(null_config):
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     js_in = {
         "a": 9,
@@ -743,7 +752,7 @@ def test_from_json_like_optional_attr_with_is_multiple_one_none_and_shared_data_
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     dcts = [
         {"name": "c1", "c": 2},
@@ -782,7 +791,7 @@ def test_from_json_like_optional_attr_with_is_multiple_all_none_and_shared_data_
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     dcts = [
         {"name": "c1", "c": 2},
@@ -819,7 +828,7 @@ def test_from_json_like_optional_attr_with_shared_data_name(null_config):
             ),
         )
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     dcts = [
         {"name": "c1", "c": 2},
@@ -848,7 +857,7 @@ def test_from_json_like_optional_attr_with_enum(null_config):
     class ObjA(BaseJSONLikeSubClass):
         _child_objects = (ChildObjectSpec(name="b", class_obj=MyEnum, is_enum=True),)
         a: int
-        b: Optional[Any] = None
+        b: Any = None
 
     js_in = {
         "a": 9,
@@ -1079,7 +1088,7 @@ def test_from_json_like_with_is_multiple_and_shared_data_dict_lookup(null_config
     class ObjB(BaseJSONLikeSubClass):
         name: str
         c: int
-        _hash_value: Optional[str] = None
+        _hash_value: str | None = None
 
     @dataclass
     class ObjA(BaseJSONLikeSubClass):
@@ -1205,7 +1214,7 @@ def test_to_json_like_with_child_ref(null_config):
     class ObjB(BaseJSONLike):
         name: str
         c: int
-        obj_A: Optional[Any] = None
+        obj_A: Any = None
 
     @dataclass
     class ObjA(BaseJSONLike):

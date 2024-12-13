@@ -1,8 +1,10 @@
+from __future__ import annotations
+from pathlib import Path
 import pytest
 from hpcflow.app import app as hf
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--slurm",
         action="store_true",
@@ -29,7 +31,7 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config):
     config.addinivalue_line("markers", "slurm: mark test as slurm to run")
     config.addinivalue_line("markers", "wsl: mark test as wsl to run")
     config.addinivalue_line(
@@ -42,7 +44,7 @@ def pytest_configure(config):
     hf.run_time_info.in_pytest = True
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
     if config.getoption("--slurm"):
         # --slurm given in cli: only run slurm tests
         for item in items:
@@ -84,19 +86,19 @@ def pytest_collection_modifyitems(config, items):
                 )
 
 
-def pytest_unconfigure(config):
+def pytest_unconfigure(config: pytest.Config):
     hf.run_time_info.in_pytest = False
 
 
 @pytest.fixture
-def null_config(tmp_path):
+def null_config(tmp_path: Path):
     if not hf.is_config_loaded:
         hf.load_config(config_dir=tmp_path)
     hf.run_time_info.in_pytest = True
 
 
 @pytest.fixture
-def new_null_config(tmp_path):
+def new_null_config(tmp_path: Path):
     hf.load_config(config_dir=tmp_path, warn=False)
     hf.load_template_components(warn=False)
     hf.run_time_info.in_pytest = True

@@ -2,12 +2,22 @@
 Miscellaneous persistence-related helpers.
 """
 
+from __future__ import annotations
 from getpass import getpass
+from typing import TYPE_CHECKING
 
 from hpcflow.sdk.core.errors import WorkflowNotFoundError
 
+if TYPE_CHECKING:
+    from typing import Callable, TypeVar
+    from fsspec import AbstractFileSystem  # type: ignore
 
-def ask_pw_on_auth_exc(f, *args, add_pw_to=None, **kwargs):
+    T = TypeVar("T")
+
+
+def ask_pw_on_auth_exc(
+    f: Callable[..., T], *args, add_pw_to: str | None = None, **kwargs
+) -> tuple[T, str | None]:
     """
     Run the given function on the given arguments and add a password if the function
     fails with an SSHException.
@@ -24,19 +34,14 @@ def ask_pw_on_auth_exc(f, *args, add_pw_to=None, **kwargs):
         if not add_pw_to:
             kwargs["password"] = pw
         else:
-            kwargs[add_pw_to]["password"] = pw
+            kwargs[add_pw_to] = {**kwargs[add_pw_to], "password": pw}
 
         out = f(*args, **kwargs)
-
-        if not add_pw_to:
-            del kwargs["password"]
-        else:
-            del kwargs[add_pw_to]["password"]
 
     return out, pw
 
 
-def infer_store(path: str, fs) -> str:
+def infer_store(path: str, fs: AbstractFileSystem) -> str:
     """Identify the store type using the path and file system parsed by fsspec.
 
     Parameters
@@ -63,8 +68,6 @@ def infer_store(path: str, fs) -> str:
         elif fs.glob(f"{path}/metadata.json"):
             store_fmt = "json"
         else:
-            raise WorkflowNotFoundError(
-                f"Cannot infer a store format at path {path!r} with file system {fs!r}."
-            )
+            raise WorkflowNotFoundError(path, fs)
 
     return store_fmt

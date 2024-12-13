@@ -2,25 +2,36 @@
 An interface to SLURM.
 """
 
-from pathlib import Path
+from __future__ import annotations
 import subprocess
 import time
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING
+from typing_extensions import override
+from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.core.enums import ParallelMode
 from hpcflow.sdk.core.errors import (
     IncompatibleParallelModeError,
     IncompatibleSLURMArgumentsError,
     IncompatibleSLURMPartitionError,
     UnknownSLURMPartitionError,
 )
-from hpcflow.sdk.core.parameters import ParallelMode
 from hpcflow.sdk.log import TimeIt
-from hpcflow.sdk.submission.jobscript_info import JobscriptElementState
-from hpcflow.sdk.submission.schedulers import Scheduler
+from hpcflow.sdk.submission.enums import JobscriptElementState
+from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.utils import run_cmd
-from hpcflow.sdk.submission.shells.base import Shell
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+    from typing import Any, ClassVar
+    from ...config.types import SchedulerConfigDescriptor, SLURMPartitionsDescriptor
+    from ...core.element import ElementResources
+    from ..jobscript import Jobscript
+    from ..types import VersionInfo
+    from ..shells.base import Shell
 
 
-class SlurmPosix(Scheduler):
+@hydrate
+class SlurmPosix(QueuedScheduler):
     """
     A scheduler that uses SLURM.
 
@@ -48,27 +59,29 @@ class SlurmPosix(Scheduler):
 
     """
 
-    _app_attr = "app"
-
     #: Default shell.
-    DEFAULT_SHELL_EXECUTABLE = "/bin/bash"
+    DEFAULT_SHELL_EXECUTABLE: ClassVar[str] = "/bin/bash"
     #: Default args for shebang line.
-    DEFAULT_SHEBANG_ARGS = ""
+    DEFAULT_SHEBANG_ARGS: ClassVar[str] = ""
     #: Default submission command.
-    DEFAULT_SUBMIT_CMD = "sbatch"
+    DEFAULT_SUBMIT_CMD: ClassVar[str] = "sbatch"
     #: Default command to show the queue state.
-    DEFAULT_SHOW_CMD = ["squeue", "--me"]
+    DEFAULT_SHOW_CMD: ClassVar[Sequence[str]] = ("squeue", "--me")
     #: Default cancel command.
-    DEFAULT_DEL_CMD = "scancel"
+    DEFAULT_DEL_CMD: ClassVar[str] = "scancel"
     #: Default job control directive prefix.
-    DEFAULT_JS_CMD = "#SBATCH"
+    DEFAULT_JS_CMD: ClassVar[str] = "#SBATCH"
     #: Default prefix to enable array processing.
-    DEFAULT_ARRAY_SWITCH = "--array"
+    DEFAULT_ARRAY_SWITCH: ClassVar[str] = "--array"
     #: Default shell variable with array ID.
-    DEFAULT_ARRAY_ITEM_VAR = "SLURM_ARRAY_TASK_ID"
+    DEFAULT_ARRAY_ITEM_VAR: ClassVar[str] = "SLURM_ARRAY_TASK_ID"
+    #: Number of times to try when querying the state.
+    NUM_STATE_QUERY_TRIES: ClassVar[int] = 5
+    #: Delay (in seconds) between attempts to query the state.
+    INTER_STATE_QUERY_DELAY: ClassVar[float] = 0.5
 
     #: Maps scheduler state codes to :py:class:`JobscriptElementState` values.
-    state_lookup = {
+    state_lookup: ClassVar[Mapping[str, JobscriptElementState]] = {
         "PENDING": JobscriptElementState.pending,
         "RUNNING": JobscriptElementState.running,
         "COMPLETING": JobscriptElementState.running,
@@ -79,16 +92,17 @@ class SlurmPosix(Scheduler):
         "TIMEOUT": JobscriptElementState.errored,
     }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @classmethod
+    @override
     @TimeIt.decorator
-    def process_resources(cls, resources, scheduler_config: Dict) -> None:
+    def process_resources(
+        cls, resources: ElementResources, scheduler_config: SchedulerConfigDescriptor
+    ) -> None:
         """Perform scheduler-specific processing to the element resources.
 
-        Note: this mutates `resources`.
-
+        Note
+        ----
+        This mutates `resources`.
         """
         if resources.is_parallel:
             if resources.parallel_mode is None:
@@ -97,21 +111,17 @@ class SlurmPosix(Scheduler):
 
             if resources.parallel_mode is ParallelMode.SHARED:
                 if (resources.num_nodes and resources.num_nodes > 1) or (
-                    resources.SLURM_node_nodes and resources.SLURM_num_nodes > 1
+                    resources.SLURM_num_nodes and resources.SLURM_num_nodes > 1
                 ):
-                    raise IncompatibleParallelModeError(
-                        f"For the {resources.parallel_mode.name.lower()} parallel mode, "
-                        f"only a single node may be requested."
-                    )
+                    raise IncompatibleParallelModeError(resources.parallel_mode)
                 # consider `num_cores` and `num_threads` synonyms in this case:
-                if resources.SLURM_num_tasks and resources.SLURM_num_task != 1:
+                if resources.SLURM_num_tasks and resources.SLURM_num_tasks != 1:
                     raise IncompatibleSLURMArgumentsError(
                         f"For the {resources.parallel_mode.name.lower()} parallel mode, "
                         f"`SLURM_num_tasks` must be set to 1 (to ensure all requested "
                         f"cores reside on the same node)."
                     )
-                else:
-                    resources.SLURM_num_tasks = 1
+                resources.SLURM_num_tasks = 1
 
                 if resources.SLURM_num_cpus_per_task == 1:
                     raise IncompatibleSLURMArgumentsError(
@@ -120,28 +130,24 @@ class SlurmPosix(Scheduler):
                         f"number of threads/cores to use, and so must be greater than 1, "
                         f"but {resources.SLURM_num_cpus_per_task!r} was specified."
                     )
-                else:
-                    resources.num_threads = resources.num_threads or resources.num_cores
-                    if (
-                        not resources.num_threads
-                        and not resources.SLURM_num_cpus_per_task
-                    ):
-                        raise ValueError(
-                            f"For the {resources.parallel_mode.name.lower()} parallel "
-                            f"mode, specify `num_threads` (or its synonym for this "
-                            f"parallel mode: `num_cores`), or the SLURM-specific "
-                            f"parameter `SLURM_num_cpus_per_task`."
-                        )
-                    elif (
-                        resources.num_threads and resources.SLURM_num_cpus_per_task
-                    ) and (resources.num_threads != resources.SLURM_num_cpus_per_task):
-                        raise IncompatibleSLURMArgumentsError(
-                            f"Incompatible parameters for `num_cores`/`num_threads` "
-                            f"({resources.num_threads}) and `SLURM_num_cpus_per_task` "
-                            f"({resources.SLURM_num_cpus_per_task}) for the "
-                            f"{resources.parallel_mode.name.lower()} parallel mode."
-                        )
-                    resources.SLURM_num_cpus_per_task = resources.num_threads
+                resources.num_threads = resources.num_threads or resources.num_cores
+                if not resources.num_threads and not resources.SLURM_num_cpus_per_task:
+                    raise ValueError(
+                        f"For the {resources.parallel_mode.name.lower()} parallel "
+                        f"mode, specify `num_threads` (or its synonym for this "
+                        f"parallel mode: `num_cores`), or the SLURM-specific "
+                        f"parameter `SLURM_num_cpus_per_task`."
+                    )
+                elif (resources.num_threads and resources.SLURM_num_cpus_per_task) and (
+                    resources.num_threads != resources.SLURM_num_cpus_per_task
+                ):
+                    raise IncompatibleSLURMArgumentsError(
+                        f"Incompatible parameters for `num_cores`/`num_threads` "
+                        f"({resources.num_threads}) and `SLURM_num_cpus_per_task` "
+                        f"({resources.SLURM_num_cpus_per_task}) for the "
+                        f"{resources.parallel_mode.name.lower()} parallel mode."
+                    )
+                resources.SLURM_num_cpus_per_task = resources.num_threads
 
             elif resources.parallel_mode is ParallelMode.DISTRIBUTED:
                 if resources.num_threads:
@@ -197,9 +203,9 @@ class SlurmPosix(Scheduler):
         else:
             if resources.SLURM_is_parallel:
                 raise IncompatibleSLURMArgumentsError(
-                    f"Some specified SLURM-specific arguments (which indicate a parallel "
-                    f"job) conflict with the scheduler-agnostic arguments (which "
-                    f"indicate a serial job)."
+                    "Some specified SLURM-specific arguments (which indicate a parallel "
+                    "job) conflict with the scheduler-agnostic arguments (which "
+                    "indicate a serial job)."
                 )
             if not resources.SLURM_num_tasks:
                 resources.SLURM_num_tasks = 1
@@ -228,155 +234,138 @@ class SlurmPosix(Scheduler):
             try:
                 part = all_parts[resources.SLURM_partition]
             except KeyError:
-                raise UnknownSLURMPartitionError(
-                    f"The SLURM partition {resources.SLURM_partition!r} is not "
-                    f"specified in the configuration. Specified partitions are "
-                    f"{list(all_parts.keys())!r}."
-                )
+                raise UnknownSLURMPartitionError(resources.SLURM_partition, all_parts)
             # TODO: we when we support ParallelMode.HYBRID, these checks will have to
             # consider the total number of cores requested per node
             # (num_cores_per_node * num_threads)?
-            part_num_cores = part.get("num_cores")
-            part_num_cores_per_node = part.get("num_cores_per_node")
-            part_num_nodes = part.get("num_nodes")
-            part_para_modes = part.get("parallel_modes", [])
-            if (
-                num_cores
-                and part_num_cores
-                and not cls.is_num_cores_supported(num_cores, part_num_cores)
-            ):
+            part_num_cores = part.get("num_cores", ())
+            part_num_cores_per_node = part.get("num_cores_per_node", ())
+            part_num_nodes = part.get("num_nodes", ())
+            part_para_modes = part.get("parallel_modes", ())
+            if cls.__is_present_unsupported(num_cores, part_num_cores):
                 raise IncompatibleSLURMPartitionError(
-                    f"The SLURM partition {resources.SLURM_partition!r} is not "
-                    f"compatible with the number of cores requested: {num_cores!r}."
+                    resources.SLURM_partition, "number of cores", num_cores
                 )
-            if (
-                num_cores_per_node
-                and part_num_cores_per_node
-                and not cls.is_num_cores_supported(
-                    num_cores_per_node, part_num_cores_per_node
-                )
-            ):
+            if cls.__is_present_unsupported(num_cores_per_node, part_num_cores_per_node):
                 raise IncompatibleSLURMPartitionError(
-                    f"The SLURM partition {resources.SLURM_partition!r} is not "
-                    f"compatible with the number of cores per node requested: "
-                    f"{num_cores_per_node!r}."
+                    resources.SLURM_partition,
+                    "number of cores per node",
+                    num_cores_per_node,
                 )
-            if (
-                num_nodes
-                and part_num_nodes
-                and not cls.is_num_cores_supported(num_nodes, part_num_nodes)
-            ):
+            if cls.__is_present_unsupported(num_nodes, part_num_nodes):
                 raise IncompatibleSLURMPartitionError(
-                    f"The SLURM partition {resources.SLURM_partition!r} is not "
-                    f"compatible with the number of nodes requested: {num_nodes!r}."
+                    resources.SLURM_partition, "number of nodes", num_nodes
                 )
             if para_mode and para_mode.name.lower() not in part_para_modes:
                 raise IncompatibleSLURMPartitionError(
-                    f"The SLURM partition {resources.SLURM_partition!r} is not "
-                    f"compatible with the parallel mode requested: {para_mode!r}."
+                    resources.SLURM_partition, "parallel mode", para_mode
                 )
         else:
             # find the first compatible partition if one exists:
             # TODO: bug here? not finding correct partition?
-            part_match = False
             for part_name, part_info in all_parts.items():
-                part_num_cores = part_info.get("num_cores")
-                part_num_cores_per_node = part_info.get("num_cores_per_node")
-                part_num_nodes = part_info.get("num_nodes")
-                part_para_modes = part_info.get("parallel_modes", [])
-                if (
-                    num_cores
-                    and part_num_cores
-                    and cls.is_num_cores_supported(num_cores, part_num_cores)
+                if cls.__partition_matches(
+                    num_cores, num_cores_per_node, num_nodes, para_mode, part_info
                 ):
-                    part_match = True
-                else:
-                    part_match = False
-                    continue
-                if (
-                    num_cores_per_node
-                    and part_num_cores_per_node
-                    and cls.is_num_cores_supported(
-                        num_cores_per_node, part_num_cores_per_node
-                    )
-                ):
-                    part_match = True
-                else:
-                    part_match = False
-                    continue
-                if (
-                    num_nodes
-                    and part_num_nodes
-                    and cls.is_num_cores_supported(num_nodes, part_num_nodes)
-                ):
-                    part_match = True
-                else:
-                    part_match = False
-                    continue
-                if part_match:
-                    part_match = part_name
+                    resources.SLURM_partition = str(part_name)
                     break
-                if para_mode and para_mode.name.lower() not in part_para_modes:
-                    part_match = False
-                    continue
-                if part_match:
-                    part_match = part_name
-                    break
-            if part_match:
-                resources.SLURM_partition = part_match
 
-    def _format_core_request_lines(self, resources):
-        lns = []
+    @classmethod
+    def __is_present_unsupported(
+        cls, num_req: int | None, part_have: Sequence[int] | None
+    ) -> bool:
+        """
+        Test if information is present on both sides, but doesn't match.
+        """
+        return bool(
+            num_req and part_have and not cls.is_num_cores_supported(num_req, part_have)
+        )
+
+    @classmethod
+    def __is_present_supported(
+        cls, num_req: int | None, part_have: Sequence[int] | None
+    ) -> bool:
+        """
+        Test if information is present on both sides, and also matches.
+        """
+        return bool(
+            num_req and part_have and cls.is_num_cores_supported(num_req, part_have)
+        )
+
+    @classmethod
+    def __partition_matches(
+        cls,
+        num_cores: int | None,
+        num_cores_per_node: int | None,
+        num_nodes: int | None,
+        para_mode: ParallelMode | None,
+        part_info: SLURMPartitionsDescriptor,
+    ) -> bool:
+        """
+        Check whether a partition (part_name, part_info) matches the requested number
+        of cores and nodes.
+        """
+        part_num_cores = part_info.get("num_cores", [])
+        part_num_cores_per_node = part_info.get("num_cores_per_node", [])
+        part_num_nodes = part_info.get("num_nodes", [])
+        part_para_modes = part_info.get("parallel_modes", [])
+        if (
+            not cls.__is_present_supported(num_cores, part_num_cores)
+            or not cls.__is_present_supported(num_cores_per_node, part_num_cores_per_node)
+            or not cls.__is_present_supported(num_nodes, part_num_nodes)
+        ):
+            return False
+        # FIXME: Does the next check come above or below the check below?
+        # Surely not both!
+        part_match = True
+        if part_match:
+            return True
+        if para_mode and para_mode.name.lower() not in part_para_modes:
+            return False
+        if part_match:
+            return True
+        return False
+
+    def __format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
         if resources.SLURM_partition:
-            lns.append(f"{self.js_cmd} --partition {resources.SLURM_partition}")
-
+            yield f"{self.js_cmd} --partition {resources.SLURM_partition}"
         if resources.SLURM_num_nodes:  # TODO: option for --exclusive ?
-            lns.append(f"{self.js_cmd} --nodes {resources.SLURM_num_nodes}")
-
+            yield f"{self.js_cmd} --nodes {resources.SLURM_num_nodes}"
         if resources.SLURM_num_tasks:
-            lns.append(f"{self.js_cmd} --ntasks {resources.SLURM_num_tasks}")
-
+            yield f"{self.js_cmd} --ntasks {resources.SLURM_num_tasks}"
         if resources.SLURM_num_tasks_per_node:
-            lns.append(
-                f"{self.js_cmd} --ntasks-per-node {resources.SLURM_num_tasks_per_node}"
-            )
-
+            yield f"{self.js_cmd} --ntasks-per-node {resources.SLURM_num_tasks_per_node}"
         if resources.SLURM_num_cpus_per_task:
-            lns.append(
-                f"{self.js_cmd} --cpus-per-task {resources.SLURM_num_cpus_per_task}"
-            )
+            yield f"{self.js_cmd} --cpus-per-task {resources.SLURM_num_cpus_per_task}"
 
-        return lns
-
-    def _format_array_request(self, num_elements, resources):
+    def __format_array_request(self, num_elements: int, resources: ElementResources):
         # TODO: Slurm docs start indices at zero, why are we starting at one?
         #   https://slurm.schedmd.com/sbatch.html#OPT_array
         max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
-    def _format_std_stream_file_option_lines(self, is_array, sub_idx):
-        base = r"%x_"
-        if is_array:
-            base += r"%A.%a"
-        else:
-            base += r"%j"
+    def __format_std_stream_file_option_lines(
+        self, is_array: bool, sub_idx: int
+    ) -> Iterator[str]:
+        pattern = R"%x_%A.%a" if is_array else R"%x_%j"
+        base = f"./artifacts/submissions/{sub_idx}/{pattern}"
+        yield f"{self.js_cmd} -o {base}.out"
+        yield f"{self.js_cmd} -e {base}.err"
 
-        base = f"./artifacts/submissions/{sub_idx}/{base}"
-        return [
-            f"{self.js_cmd} -o {base}.out",
-            f"{self.js_cmd} -e {base}.err",
-        ]
-
-    def format_options(self, resources, num_elements, is_array, sub_idx):
+    @override
+    def format_options(
+        self, resources: ElementResources, num_elements: int, is_array: bool, sub_idx: int
+    ) -> str:
         """
         Format the options to the scheduler.
         """
-        opts = []
-        opts.extend(self._format_core_request_lines(resources))
-        if is_array:
-            opts.append(self._format_array_request(num_elements, resources))
+        opts: list[str] = []
+        opts.extend(self.__format_core_request_lines(resources))
 
-        opts.extend(self._format_std_stream_file_option_lines(is_array, sub_idx))
+        if is_array:
+            opts.append(self.__format_array_request(num_elements, resources))
+
+        opts.extend(self.__format_std_stream_file_option_lines(is_array, sub_idx))
 
         for opt_k, opt_v in self.options.items():
             if isinstance(opt_v, list):
@@ -389,8 +378,9 @@ class SlurmPosix(Scheduler):
 
         return "\n".join(opts) + "\n"
 
+    @override
     @TimeIt.decorator
-    def get_version_info(self):
+    def get_version_info(self) -> VersionInfo:
         vers_cmd = [self.submit_cmd, "--version"]
         proc = subprocess.run(
             args=vers_cmd,
@@ -402,18 +392,18 @@ class SlurmPosix(Scheduler):
         if stderr:
             print(stderr)
         name, version = stdout.split()
-        out = {
+        return {
             "scheduler_name": name,
             "scheduler_version": version,
         }
-        return out
 
+    @override
     def get_submit_command(
         self,
         shell: Shell,
         js_path: str,
-        deps: List[Tuple],
-    ) -> List[str]:
+        deps: dict[Any, tuple[Any, ...]],
+    ) -> list[str]:
         """
         Get the command to use to submit a job to the scheduler.
 
@@ -422,94 +412,96 @@ class SlurmPosix(Scheduler):
         List of argument words.
         """
         cmd = [self.submit_cmd, "--parsable"]
-
-        dep_cmd = []
-        for job_ID, is_array_dep in deps.values():
-            dep_i_str = ""
-            if is_array_dep:  # array dependency
-                dep_i_str += "aftercorr:"
-            else:
-                dep_i_str += "afterany:"
-            dep_i_str += str(job_ID)
-            dep_cmd.append(dep_i_str)
-
-        if dep_cmd:
-            cmd.append(f"--dependency")
-            cmd.append(",".join(dep_cmd))
-
+        if deps:
+            cmd.append("--dependency")
+            cmd.append(",".join(self.__dependency_args(deps)))
         cmd.append(js_path)
-
         return cmd
+
+    @staticmethod
+    def __dependency_args(deps: dict[Any, tuple[Any, ...]]) -> Iterator[str]:
+        for job_ID, is_array_dep in deps.values():
+            if is_array_dep:  # array dependency
+                yield f"aftercorr:{job_ID}"
+            else:
+                yield f"afterany:{job_ID}"
 
     def parse_submission_output(self, stdout: str) -> str:
         """Extract scheduler reference for a newly submitted jobscript"""
         if ";" in stdout:
-            job_ID, _ = stdout.split(";")  # since we submit with "--parsable"
-        else:
-            job_ID = stdout
-        return job_ID
+            return stdout.split(";")[0]  # since we submit with "--parsable"
+        # Try using the whole thing
+        return stdout
 
     @staticmethod
-    def _parse_job_IDs(job_ID_str: str):
-        """Parse the job ID column from the `squeue` command (the `%i` format option)."""
-        parts = job_ID_str.split("_")
-        base_job_ID, arr_idx = parts if len(parts) == 2 else (parts[0], None)
-        if arr_idx is not None:
-            try:
-                arr_idx = [int(arr_idx) - 1]  # zero-index
-            except ValueError:
-                # split on commas (e.g. "[5,8-40]")
-                _arr_idx = []
-                for i_range_str in arr_idx.strip("[]").split(","):
-                    if "-" in i_range_str:
-                        range_parts = i_range_str.split("-")
-                        if "%" in range_parts[1]:
-                            # indicates max concurrent array items; not needed
-                            range_parts[1] = range_parts[1].split("%")[0]
-                        i_args = [int(j) - 1 for j in range_parts]
-                        _arr_idx.extend(list(range(i_args[0], i_args[1] + 1)))
-                    else:
-                        _arr_idx.append(int(i_range_str) - 1)
-                arr_idx = _arr_idx
-        return base_job_ID, arr_idx
+    def _parse_job_IDs(job_ID_str: str) -> tuple[str, None | list[int]]:
+        """
+        Parse the job ID column from the `squeue` command (the `%i` format option).
 
-    def _parse_job_states(self, stdout) -> Dict[str, Dict[int, JobscriptElementState]]:
+        Returns
+        -------
+        job_id
+            The job identifier.
+        array_indices
+            The indices into the job array.
+        """
+        base_job_ID, *arr_idx_data = job_ID_str.split("_")
+        if not arr_idx_data:
+            return base_job_ID, None
+        arr_idx = arr_idx_data[0]
+        try:
+            return base_job_ID, [int(arr_idx) - 1]  # zero-index
+        except ValueError:
+            pass
+        # split on commas (e.g. "[5,8-40]")
+        _arr_idx: list[int] = []
+        for i_range_str in arr_idx.strip("[]").split(","):
+            if "-" in i_range_str:
+                _from, _to = i_range_str.split("-")
+                if "%" in _to:
+                    # indicates max concurrent array items; not needed
+                    _to = _to.split("%")[0]
+                _arr_idx.extend(range(int(_from) - 1, int(_to)))
+            else:
+                _arr_idx.append(int(i_range_str) - 1)
+        return base_job_ID, _arr_idx
+
+    def __parse_job_states(
+        self, stdout: str
+    ) -> dict[str, dict[int | None, JobscriptElementState]]:
         """Parse output from Slurm `squeue` command with a simple format."""
-        info = {}
+        info: dict[str, dict[int | None, JobscriptElementState]] = {}
         for ln in stdout.split("\n"):
             if not ln:
                 continue
-            ln_s = [i.strip() for i in ln.split()]
-            base_job_ID, arr_idx = self._parse_job_IDs(ln_s[0])
-            state = self.state_lookup.get(ln_s[1], None)
+            job_id, job_state, *_ = ln.split()
+            base_job_ID, arr_idx = self._parse_job_IDs(job_id)
+            state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
-            if base_job_ID not in info:
-                info[base_job_ID] = {}
-
-            for arr_idx_i in arr_idx or [None]:
-                info[base_job_ID][arr_idx_i] = state
+            entry = info.setdefault(base_job_ID, {})
+            for arr_idx_i in arr_idx or ():
+                entry[arr_idx_i] = state
 
         return info
 
-    def _query_job_states(self, job_IDs):
+    def __query_job_states(self, job_IDs: Iterable[str]) -> tuple[str, str]:
         """Query the state of the specified jobs."""
         cmd = [
-            "squeue",
-            "--me",
+            *self.show_cmd,
             "--noheader",
             "--format",
-            r"%40i %30T",
+            R"%40i %30T",
             "--jobs",
             ",".join(job_IDs),
         ]
-        return run_cmd(cmd, logger=self.app.submission_logger)
+        return run_cmd(cmd, logger=self._app.submission_logger)
 
-    def _get_job_valid_IDs(self, job_IDs=None):
+    def __get_job_valid_IDs(self, job_IDs: Collection[str] | None = None) -> set[str]:
         """Get a list of job IDs that are known by the scheduler, optionally filtered by
         specified job IDs."""
 
-        cmd = ["squeue", "--me", "--noheader", "--format", r"%F"]
-        stdout, stderr = run_cmd(cmd, logger=self.app.submission_logger)
+        cmd = [*self.show_cmd, "--noheader", "--format", r"%F"]
+        stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
         if stderr:
             raise ValueError(
                 f"Could not get query Slurm jobs. Command was: {cmd!r}; stderr was: "
@@ -517,64 +509,67 @@ class SlurmPosix(Scheduler):
             )
         else:
             known_jobs = set(i.strip() for i in stdout.split("\n") if i.strip())
-        job_IDs = known_jobs.intersection(job_IDs or [])
+        if job_IDs is None:
+            return known_jobs
+        return known_jobs.intersection(job_IDs)
 
-        return job_IDs
-
+    @override
     def get_job_state_info(
-        self, js_refs: List[str] = None
-    ) -> Dict[str, Dict[int, JobscriptElementState]]:
+        self, *, js_refs: Sequence[str] | None = None, num_js_elements: int = 0
+    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.
 
         Jobs that are not in the scheduler's status output will not appear in the output
         of this method.
-
         """
 
         # if job_IDs are passed, then assume they are existant, otherwise retrieve valid
         # jobs:
-        if not js_refs:
-            js_refs = self._get_job_valid_IDs()
-            if not js_refs:
-                return {}
+        refs: Collection[str] = js_refs or self.__get_job_valid_IDs()
 
-        stdout, stderr = self._query_job_states(js_refs)
         count = 0
-        while stderr:
-            if "Invalid job id specified" in stderr and count < 5:
-                # the job might have finished; this only seems to happen if a single
-                # non-existant job ID is specified; for multiple non-existant jobs, no
-                # error is produced;
-                self.app.submission_logger.info(
-                    f"A specified job ID is non-existant; refreshing known job IDs..."
-                )
-                time.sleep(0.5)
-                js_refs = self._get_job_valid_IDs(js_refs)
-                if not js_refs:
-                    return {}
-                stdout, stderr = self._query_job_states(js_refs)
-                count += 1
-            else:
+        while refs:
+            stdout, stderr = self.__query_job_states(refs)
+            if not stderr:
+                return self.__parse_job_states(stdout)
+            if (
+                "Invalid job id specified" not in stderr
+                or count >= self.NUM_STATE_QUERY_TRIES
+            ):
                 raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
 
-        info = self._parse_job_states(stdout)
-        return info
+            # the job might have finished; this only seems to happen if a single
+            # non-existant job ID is specified; for multiple non-existant jobs, no
+            # error is produced;
+            self._app.submission_logger.info(
+                "A specified job ID is non-existant; refreshing known job IDs..."
+            )
+            time.sleep(self.INTER_STATE_QUERY_DELAY)
+            refs = self.__get_job_valid_IDs(refs)
+            count += 1
+        return {}
 
-    def cancel_jobs(self, js_refs: List[str], jobscripts: List = None):
+    @override
+    def cancel_jobs(
+        self,
+        js_refs: list[str],
+        jobscripts: list[Jobscript] | None = None,
+        num_js_elements: int = 0,  # Ignored!
+    ):
         """
         Cancel submitted jobs.
         """
-        cmd = [self.del_cmd] + js_refs
-        self.app.submission_logger.info(
+        cmd = [self.del_cmd, *js_refs]
+        self._app.submission_logger.info(
             f"cancelling {self.__class__.__name__} jobscripts with command: {cmd}."
         )
-        stdout, stderr = run_cmd(cmd, logger=self.app.submission_logger)
+        stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
         if stderr:
             raise ValueError(
                 f"Could not get query {self.__class__.__name__} jobs. Command was: "
                 f"{cmd!r}; stderr was: {stderr}"
             )
-        self.app.submission_logger.info(
+        self._app.submission_logger.info(
             f"jobscripts cancel command executed; stdout was: {stdout}."
         )

@@ -1,21 +1,28 @@
 """
-Jobscript state enumeration.
+Submission enumeration types.
 """
+from __future__ import annotations
+from dataclasses import dataclass
+from enum import Enum
 
-import enum
+
+@dataclass(frozen=True)
+class _JES:
+    """
+    Model of the state of a JobscriptElementState
+    """
+
+    _value: int
+    #: The symbol used to render the state.
+    symbol: str
+    #: The colour used to render the state.
+    colour: str
+    __doc__: str = ""
 
 
-class JobscriptElementState(enum.Enum):
+class JobscriptElementState(_JES, Enum):
     """Enumeration to convey a particular jobscript element state as reported by the
     scheduler."""
-
-    def __new__(cls, value, symbol, colour, doc=None):
-        member = object.__new__(cls)
-        member._value_ = value
-        member.symbol = symbol
-        member.colour = colour
-        member.__doc__ = doc
-        return member
 
     #: Waiting for resource allocation.
     pending = (
@@ -61,8 +68,28 @@ class JobscriptElementState(enum.Enum):
     )
 
     @property
-    def rich_repr(self):
+    def value(self) -> int:
+        """
+        The numerical value of this state.
+        """
+        return self._value
+
+    @property
+    def rich_repr(self) -> str:
         """
         Rich representation of this enumeration element.
         """
         return f"[{self.colour}]{self.symbol}[/{self.colour}]"
+
+
+class SubmissionStatus(Enum):
+    """
+    The overall status of a submission.
+    """
+
+    #: Not yet submitted.
+    PENDING = 0
+    #: All jobscripts submitted successfully.
+    SUBMITTED = 1
+    #: Some jobscripts submitted successfully.
+    PARTIALLY_SUBMITTED = 2

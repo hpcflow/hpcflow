@@ -7,15 +7,33 @@ from __future__ import annotations
 from collections import defaultdict
 import contextlib
 from dataclasses import dataclass, field, fields
-from datetime import datetime
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Generic, TYPE_CHECKING
 
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.persistence.types import (
+    AnySTask,
+    AnySElement,
+    AnySElementIter,
+    AnySEAR,
+    AnySParameter,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from datetime import datetime
+    from logging import Logger
+    from .base import PersistentStore, FileDescriptor, LoopDescriptor
+    from ..app import BaseApp
+    from ..typing import ParamSource
+    from ..core.json_like import JSONDocument
 
 
-class PendingChanges:
-    """Class to store pending changes and merge them into a persistent store.
+class PendingChanges(
+    Generic[AnySTask, AnySElement, AnySElementIter, AnySEAR, AnySParameter]
+):
+    """
+    Class to store pending changes and merge them into a persistent store.
 
     Parameters
     ----------
@@ -27,70 +45,91 @@ class PendingChanges:
         Map of resources, used when processing commits.
     """
 
-    def __init__(self, app, store, resource_map):
-        self.app = app
+    # These would be in the docstring except they render really wrongly!
+    # Type Parameters
+    # ---------------
+    # AnySTask
+    #     The type of stored tasks.
+    # AnySElement
+    #     The type of stored elements.
+    # AnySElementIter
+    #     The type of stored element iterations.
+    # AnySEAR
+    #     The type of stored EARs.
+    # AnySParameter
+    #     The type of stored parameters.
+
+    def __init__(
+        self,
+        app: BaseApp,
+        store: PersistentStore[
+            AnySTask, AnySElement, AnySElementIter, AnySEAR, AnySParameter
+        ],
+        resource_map: CommitResourceMap,
+    ):
+        self._app = app
         self.store = store
         self.resource_map = resource_map
 
         #: Keys are new task IDs.
-        self.add_tasks: Dict[int, AnySTask] = None
+        self.add_tasks: dict[int, AnySTask] = {}
         #: Keys are loop IDs, values are loop descriptors.
-        self.add_loops: Dict[int, Dict] = None
+        self.add_loops: dict[int, LoopDescriptor] = {}
         #: Keys are submission IDs, values are submission descriptors.
-        self.add_submissions: Dict[int, Dict] = None
+        self.add_submissions: dict[int, JSONDocument] = {}
         #: Keys are element IDs.
-        self.add_elements: Dict[int, AnySElement] = None
+        self.add_elements: dict[int, AnySElement] = {}
         #: Keys are element iteration IDs.
-        self.add_elem_iters: Dict[int, AnySElementIter] = None
+        self.add_elem_iters: dict[int, AnySElementIter] = {}
         #: Keys are element action run IDs.
-        self.add_EARs: Dict[int, AnySEAR] = None
+        self.add_EARs: dict[int, AnySEAR] = {}
         #: Keys are parameter indices and values are tuples whose first element is data
         #: to add and whose second element is the source dict for the new data.
-        self.add_parameters: Dict[int, AnySParameter] = None
+        self.add_parameters: dict[int, AnySParameter] = {}
         #: Workflow-related files (inputs, outputs) added to the persistent store.
-        self.add_files: List[Dict] = None
+        self.add_files: list[FileDescriptor] = []
         #: Template components to add.
-        self.add_template_components: Dict[str, Dict[str, Dict]] = None
+        self.add_template_components: dict[str, dict[str, dict]] = {}
         #: Keys are element set IDs, values are descriptors.
-        self.add_element_sets: Dict[int, Dict] = None
+        self.add_element_sets: dict[int, list[Mapping]] = {}
 
         #: Keys are task IDs, and values are element IDs to add to that task.
-        self.add_elem_IDs: Dict[int, List] = None
+        self.add_elem_IDs: dict[int, list[int]] = {}
         #: Keys are element IDs, and values are iteration IDs to add to that element.
-        self.add_elem_iter_IDs: Dict[int, List] = None
+        self.add_elem_iter_IDs: dict[int, list[int]] = {}
         #: Keys are element iteration IDs, then EAR action index, and values are EAR IDs.
         #: This is a list of EAR IDs to add to a given element iteration action.
-        self.add_elem_iter_EAR_IDs: Dict[int, Dict[int, List]] = None
+        self.add_elem_iter_EAR_IDs: dict[int, dict[int, list[int]]] = {}
         #: Submission parts to add.
-        self.add_submission_parts: Dict[int, Dict[str, List[int]]] = None
+        self.add_submission_parts: dict[int, dict[str, list[int]]] = {}
 
         #: IDs of EARs to mark as initialised.
-        self.set_EARs_initialised: List[int] = None
+        self.set_EARs_initialised: list[int] = []
         #: Submission IDs to attach to EARs.
-        self.set_EAR_submission_indices: Dict[int, int] = None
+        self.set_EAR_submission_indices: dict[int, int] = {}
         #: IDs of EARs to mark as skipped.
-        self.set_EAR_skips: List[int] = None
+        self.set_EAR_skips: list[int] = []
         #: Keys are EAR IDs and values are tuples of start time, and start dir snapshot.
-        self.set_EAR_starts: Dict[int, Tuple[datetime, Dict], str] = None
+        self.set_EAR_starts: dict[int, tuple[datetime, dict[str, Any], str]] = {}
         #: Keys are EAR IDs and values are tuples of end time, end dir snapshot, exit
         #: code, and success boolean.
-        self.set_EAR_ends: Dict[int, Tuple[datetime, Dict, int, bool]] = None
+        self.set_EAR_ends: dict[int, tuple[datetime, dict[str, Any], int, bool]] = {}
 
         #: Keys are IDs of jobscripts.
-        self.set_js_metadata: Dict[int, Dict[int, Any]] = None
+        self.set_js_metadata: dict[int, dict[int, dict[str, Any]]] = {}
 
         #: Keys are IDs of parameters to add or modify.
-        self.set_parameters: Dict[int, AnySParameter] = None
+        self.set_parameters: dict[int, tuple[Any, bool]] = {}
 
         #: Keys are parameter indices and values are dict parameter sources to merge
         #: with existing source of that parameter.
-        self.update_param_sources: Dict[int, Dict] = None
+        self.update_param_sources: dict[int, ParamSource] = {}
         #: Keys are indices of loops, values are descriptions of what to update.
-        self.update_loop_indices: Dict[int, Dict[str, int]] = None
+        self.update_loop_indices: dict[int, dict[str, int]] = {}
         #: Keys are indices of loops, values are number of iterations.
-        self.update_loop_num_iters: Dict[int, int] = None
+        self.update_loop_num_iters: dict[int, list[list[list[int] | int]]] = {}
         #: Keys are indices of loops, values are list of parent names.
-        self.update_loop_parents: Dict[int, List[str]] = None
+        self.update_loop_parents: dict[int, list[str]] = {}
 
         self.reset(is_init=True)  # set up initial data structures
 
@@ -124,25 +163,22 @@ class PendingChanges:
             or bool(self.update_loop_parents)
         )
 
-    def where_pending(self) -> List[str]:
+    def where_pending(self) -> list[str]:
         """
         Get the list of items for which there is some outstanding pending items.
         """
-        return [
-            k
-            for k, v in self.__dict__.items()
-            if k not in ("app", "store", "resource_map") and bool(v)
-        ]
+        excluded = {"app", "store", "resource_map"}
+        return [k for k, v in self.__dict__.items() if k not in excluded and bool(v)]
 
     @property
-    def logger(self):
+    def logger(self) -> Logger:
         """
         The logger.
         """
-        return self.app.persistence_logger
+        return self._app.persistence_logger
 
     @TimeIt.decorator
-    def commit_all(self):
+    def commit_all(self) -> None:
         """Commit all pending changes to disk."""
         self.logger.info(f"committing all pending changes: {self.where_pending()}")
 
@@ -155,7 +191,9 @@ class PendingChanges:
             with contextlib.ExitStack() as stack:
                 for res in resources:
                     # TODO: only enter required resources!
-                    stack.enter_context(self.store.using_resource(res, "update"))
+                    stack.enter_context(
+                        self.store.using_resource(res, "update")  # type: ignore[call-overload]
+                    )
                 for meth in methods:
                     getattr(self, meth)()
 
@@ -166,7 +204,7 @@ class PendingChanges:
         """Commit pending tasks to disk."""
         if self.add_tasks:
             tasks = self.store.get_tasks_by_IDs(self.add_tasks)
-            task_ids = list(self.add_tasks.keys())
+            task_ids = set(self.add_tasks)
             self.logger.debug(f"commit: adding pending tasks with IDs: {task_ids!r}")
             self.store._append_tasks(tasks)
             self.store.num_tasks_cache = None  # invalidate cache
@@ -182,7 +220,7 @@ class PendingChanges:
         if self.add_loops:
             # retrieve pending loops, including pending changes to num_added_iterations:
             loops = self.store.get_loops_by_IDs(self.add_loops)
-            loop_ids = list(self.add_loops.keys())
+            loop_ids = set(self.add_loops)
             self.logger.debug(f"commit: adding pending loops with indices {loop_ids!r}")
             self.store._append_loops(loops)
 
@@ -203,7 +241,7 @@ class PendingChanges:
         if self.add_submissions:
             # retrieve pending submissions:
             subs = self.store.get_submissions_by_ID(self.add_submissions)
-            sub_ids = list(self.add_submissions.keys())
+            sub_ids = set(self.add_submissions)
             self.logger.debug(
                 f"commit: adding pending submissions with indices {sub_ids!r}"
             )
@@ -216,7 +254,7 @@ class PendingChanges:
         Commit pending submission parts to disk.
         """
         if self.add_submission_parts:
-            self.logger.debug(f"commit: adding pending submission parts")
+            self.logger.debug("commit: adding pending submission parts")
             self.store._append_submission_parts(self.add_submission_parts)
         self._clear_add_submission_parts()
 
@@ -241,7 +279,7 @@ class PendingChanges:
         """
         if self.add_elements:
             elems = self.store.get_elements(self.add_elements)
-            elem_ids = list(self.add_elements.keys())
+            elem_ids = set(self.add_elements)
             self.logger.debug(f"commit: adding pending elements with IDs: {elem_ids!r}")
             self.store._append_elements(elems)
             # pending iter IDs that belong to pending elements are now committed:
@@ -257,7 +295,7 @@ class PendingChanges:
         """
         # TODO: could be batched up?
         for task_id, es_js in self.add_element_sets.items():
-            self.logger.debug(f"commit: adding pending element sets.")
+            self.logger.debug("commit: adding pending element sets.")
             self.store._append_element_sets(task_id, es_js)
         self._clear_add_element_sets()
 
@@ -282,8 +320,8 @@ class PendingChanges:
         Commit pending element iterations to disk.
         """
         if self.add_elem_iters:
-            iters = self.store.get_element_iterations(self.add_elem_iters.keys())
-            iter_ids = list(self.add_elem_iters.keys())
+            iters = self.store.get_element_iterations(self.add_elem_iters)
+            iter_ids = set(self.add_elem_iters)
             self.logger.debug(
                 f"commit: adding pending element iterations with IDs: {iter_ids!r}"
             )
@@ -321,7 +359,7 @@ class PendingChanges:
         """
         if self.add_EARs:
             EARs = self.store.get_EARs(self.add_EARs)
-            EAR_ids = list(self.add_EARs.keys())
+            EAR_ids = list(self.add_EARs)
             self.logger.debug(f"commit: adding pending EARs with IDs: {EAR_ids!r}")
             self.store._append_EARs(EARs)
             self.store.num_EARs_cache = None  # invalidate cache
@@ -370,7 +408,7 @@ class PendingChanges:
                 f"{self.set_EAR_submission_indices!r}."
             )
             self.store._update_EAR_submission_indices(self.set_EAR_submission_indices)
-            for EAR_ID_i in self.set_EAR_submission_indices.keys():
+            for EAR_ID_i in self.set_EAR_submission_indices:
                 self.store.EAR_cache.pop(EAR_ID_i, None)  # invalidate cache
             self._clear_set_EAR_submission_indices()
 
@@ -433,25 +471,24 @@ class PendingChanges:
         """Make pending parameters persistent."""
         if self.add_parameters:
             params = self.store.get_parameters(self.add_parameters)
-            param_ids = list(self.add_parameters.keys())
+            param_ids = list(self.add_parameters)
             self.logger.debug(f"commit: adding pending parameters IDs: {param_ids!r}")
             self.store._append_parameters(params)
         self._clear_add_parameters()
 
         if self.set_parameters:
-            param_ids = list(self.set_parameters.keys())
+            param_ids = list(self.set_parameters)
             self.logger.debug(f"commit: setting values of parameter IDs {param_ids!r}.")
             self.store._set_parameter_values(self.set_parameters)
             for id_i in param_ids:
                 self.store.parameter_cache.pop(id_i, None)
-
         self._clear_set_parameters()
 
     @TimeIt.decorator
     def commit_files(self) -> None:
         """Add pending files to the files directory."""
         if self.add_files:
-            self.logger.debug(f"commit: adding pending files to the files directory.")
+            self.logger.debug("commit: adding pending files to the files directory.")
             self.store._append_files(self.add_files)
         self._clear_add_files()
 
@@ -461,7 +498,7 @@ class PendingChanges:
         Commit pending template components to disk.
         """
         if self.add_template_components:
-            self.logger.debug(f"commit: adding template components.")
+            self.logger.debug("commit: adding template components.")
             self.store._update_template_components(self.store.get_template_components())
         self._clear_add_template_components()
 
@@ -469,7 +506,7 @@ class PendingChanges:
     def commit_param_sources(self) -> None:
         """Make pending changes to parameter sources persistent."""
         if self.update_param_sources:
-            param_ids = list(self.update_param_sources.keys())
+            param_ids = list(self.update_param_sources)
             self.logger.debug(f"commit: updating sources of parameter IDs {param_ids!r}.")
             self.store._update_parameter_sources(self.update_param_sources)
             for id_i in param_ids:
@@ -507,82 +544,82 @@ class PendingChanges:
             self.store._update_loop_parents(index, parents)
         self._clear_update_loop_parents()
 
-    def _clear_add_tasks(self):
+    def _clear_add_tasks(self) -> None:
         self.add_tasks = {}
 
-    def _clear_add_loops(self):
+    def _clear_add_loops(self) -> None:
         self.add_loops = {}
 
-    def _clear_add_submissions(self):
+    def _clear_add_submissions(self) -> None:
         self.add_submissions = {}
 
-    def _clear_add_submission_parts(self):
+    def _clear_add_submission_parts(self) -> None:
         self.add_submission_parts = defaultdict(dict)
 
-    def _clear_add_elements(self):
+    def _clear_add_elements(self) -> None:
         self.add_elements = {}
 
-    def _clear_add_element_sets(self):
+    def _clear_add_element_sets(self) -> None:
         self.add_element_sets = defaultdict(list)
 
-    def _clear_add_elem_iters(self):
+    def _clear_add_elem_iters(self) -> None:
         self.add_elem_iters = {}
 
-    def _clear_add_EARs(self):
+    def _clear_add_EARs(self) -> None:
         self.add_EARs = {}
 
-    def _clear_add_elem_IDs(self):
+    def _clear_add_elem_IDs(self) -> None:
         self.add_elem_IDs = defaultdict(list)
 
-    def _clear_add_elem_iter_IDs(self):
+    def _clear_add_elem_iter_IDs(self) -> None:
         self.add_elem_iter_IDs = defaultdict(list)
 
-    def _clear_add_elem_iter_EAR_IDs(self):
+    def _clear_add_elem_iter_EAR_IDs(self) -> None:
         self.add_elem_iter_EAR_IDs = defaultdict(lambda: defaultdict(list))
 
-    def _clear_set_EARs_initialised(self):
+    def _clear_set_EARs_initialised(self) -> None:
         self.set_EARs_initialised = []
 
-    def _clear_set_EAR_submission_indices(self):
+    def _clear_set_EAR_submission_indices(self) -> None:
         self.set_EAR_submission_indices = {}
 
-    def _clear_set_EAR_starts(self):
+    def _clear_set_EAR_starts(self) -> None:
         self.set_EAR_starts = {}
 
-    def _clear_set_EAR_ends(self):
+    def _clear_set_EAR_ends(self) -> None:
         self.set_EAR_ends = {}
 
-    def _clear_set_EAR_skips(self):
+    def _clear_set_EAR_skips(self) -> None:
         self.set_EAR_skips = []
 
-    def _clear_set_js_metadata(self):
+    def _clear_set_js_metadata(self) -> None:
         self.set_js_metadata = defaultdict(lambda: defaultdict(dict))
 
-    def _clear_add_parameters(self):
+    def _clear_add_parameters(self) -> None:
         self.add_parameters = {}
 
-    def _clear_add_files(self):
+    def _clear_add_files(self) -> None:
         self.add_files = []
 
-    def _clear_add_template_components(self):
+    def _clear_add_template_components(self) -> None:
         self.add_template_components = defaultdict(dict)
 
-    def _clear_set_parameters(self):
+    def _clear_set_parameters(self) -> None:
         self.set_parameters = {}
 
-    def _clear_update_param_sources(self):
+    def _clear_update_param_sources(self) -> None:
         self.update_param_sources = {}
 
-    def _clear_update_loop_indices(self):
+    def _clear_update_loop_indices(self) -> None:
         self.update_loop_indices = defaultdict(dict)
 
-    def _clear_update_loop_num_iters(self):
+    def _clear_update_loop_num_iters(self) -> None:
         self.update_loop_num_iters = {}
 
-    def _clear_update_loop_parents(self):
+    def _clear_update_loop_parents(self) -> None:
         self.update_loop_parents = {}
 
-    def reset(self, is_init=False) -> None:
+    def reset(self, is_init: bool = False) -> None:
         """Clear all pending data and prepare to accept new pending data."""
 
         if not is_init and not self:
@@ -640,65 +677,67 @@ class CommitResourceMap:
     """
 
     #: Resources for :py:meth:`~.PendingChanges.commit_tasks`.
-    commit_tasks: Optional[Tuple[str]] = tuple()
+    commit_tasks: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_loops`.
-    commit_loops: Optional[Tuple[str]] = tuple()
+    commit_loops: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_submissions`.
-    commit_submissions: Optional[Tuple[str]] = tuple()
+    commit_submissions: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_submission_parts`.
-    commit_submission_parts: Optional[Tuple[str]] = tuple()
+    commit_submission_parts: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elem_IDs`.
-    commit_elem_IDs: Optional[Tuple[str]] = tuple()
+    commit_elem_IDs: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elements`.
-    commit_elements: Optional[Tuple[str]] = tuple()
+    commit_elements: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_element_sets`.
-    commit_element_sets: Optional[Tuple[str]] = tuple()
+    commit_element_sets: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elem_iter_IDs`.
-    commit_elem_iter_IDs: Optional[Tuple[str]] = tuple()
+    commit_elem_iter_IDs: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elem_iters`.
-    commit_elem_iters: Optional[Tuple[str]] = tuple()
+    commit_elem_iters: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elem_iter_EAR_IDs`.
-    commit_elem_iter_EAR_IDs: Optional[Tuple[str]] = tuple()
+    commit_elem_iter_EAR_IDs: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EARs_initialised`.
-    commit_EARs_initialised: Optional[Tuple[str]] = tuple()
+    commit_EARs_initialised: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EARs`.
-    commit_EARs: Optional[Tuple[str]] = tuple()
+    commit_EARs: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EAR_submission_indices`.
-    commit_EAR_submission_indices: Optional[Tuple[str]] = tuple()
+    commit_EAR_submission_indices: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EAR_skips`.
-    commit_EAR_skips: Optional[Tuple[str]] = tuple()
+    commit_EAR_skips: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EAR_starts`.
-    commit_EAR_starts: Optional[Tuple[str]] = tuple()
+    commit_EAR_starts: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_EAR_ends`.
-    commit_EAR_ends: Optional[Tuple[str]] = tuple()
+    commit_EAR_ends: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_js_metadata`.
-    commit_js_metadata: Optional[Tuple[str]] = tuple()
+    commit_js_metadata: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_parameters`.
-    commit_parameters: Optional[Tuple[str]] = tuple()
+    commit_parameters: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_files`.
-    commit_files: Optional[Tuple[str]] = tuple()
+    commit_files: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_template_components`.
-    commit_template_components: Optional[Tuple[str]] = tuple()
+    commit_template_components: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_param_sources`.
-    commit_param_sources: Optional[Tuple[str]] = tuple()
+    commit_param_sources: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_loop_indices`.
-    commit_loop_indices: Optional[Tuple[str]] = tuple()
+    commit_loop_indices: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_loop_num_iters`.
-    commit_loop_num_iters: Optional[Tuple[str]] = tuple()
+    commit_loop_num_iters: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_loop_parents`.
-    commit_loop_parents: Optional[Tuple[str]] = tuple()
+    commit_loop_parents: tuple[str, ...] | None = tuple()
     #: A dict whose keys are tuples of resource labels and whose values are lists
     #: of :py:class:`PendingChanges` commit method names that require those resources.
     #:
     #: This grouping allows us to batch up commit methods by resource requirements,
     #: which in turn means we can potentially minimise, e.g., the number of network
     #: requests.
-    groups: Dict[Tuple[str], List[str]] = field(init=False, repr=False, compare=False)
+    groups: Mapping[tuple[str, ...], Sequence[str]] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self):
         self.groups = self._group_by_resource()
 
-    def _group_by_resource(self) -> Dict[Tuple[str], List[str]]:
+    def _group_by_resource(self) -> Mapping[tuple[str, ...], Sequence[str]]:
         """
         Get a dict whose keys are tuples of resource labels and whose values are
         lists of :py:class:`PendingChanges` commit method names that require those
@@ -708,8 +747,9 @@ class CommitResourceMap:
         which in turn means we can potentially minimise e.g. the number of network
         requests.
         """
-        groups = {}
-        cur_res_group = None
+        groups: dict[tuple[str, ...], list[str]] = {}
+        # The dicts are pretending to be insertion-ordered sets
+        cur_res_group: tuple[dict[str, None], list[str]] | None = None
         for fld in fields(self):
             if not fld.name.startswith("commit_"):
                 continue
@@ -718,28 +758,23 @@ class CommitResourceMap:
             if not cur_res_group:
                 # start a new resource group: a mapping between resource labels and the
                 # commit methods that require those resources:
-                cur_res_group = [list(res_labels), [fld.name]]
+                cur_res_group = (dict.fromkeys(res_labels), [fld.name])
 
             elif not res_labels or set(res_labels).intersection(cur_res_group[0]):
                 # there is some overlap between resource labels required in the current
                 # group and this commit method, so we merge resource labels and add the
                 # new commit method:
-                cur_res_group[0] = list(set(cur_res_group[0] + list(res_labels)))
+                cur_res_group[0].update(dict.fromkeys(res_labels))
                 cur_res_group[1].append(fld.name)
 
             else:
                 # no overlap between resource labels required in the current group and
                 # those required by this commit method, so append the current group, and
                 # start a new group for this commit method:
-                if tuple(cur_res_group[0]) not in groups:
-                    groups[tuple(cur_res_group[0])] = []
-                groups[tuple(cur_res_group[0])].extend(cur_res_group[1])
-                cur_res_group = [list(res_labels), [fld.name]]
+                groups.setdefault(tuple(cur_res_group[0]), []).extend(cur_res_group[1])
+                cur_res_group = (dict.fromkeys(res_labels), [fld.name])
 
         if cur_res_group:
-            if tuple(cur_res_group[0]) not in groups:
-                groups[tuple(cur_res_group[0])] = []
-
-            groups[tuple(cur_res_group[0])].extend(cur_res_group[1])
+            groups.setdefault(tuple(cur_res_group[0]), []).extend(cur_res_group[1])
 
         return groups
