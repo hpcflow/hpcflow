@@ -107,10 +107,6 @@ class DirectScheduler(NullScheduler):
                     f"jobscript child process ({proc.pid}) killed"
                 )
                 return
-            print(
-                f"Jobscript {js.index} from submission {js.submission.index} "
-                f"terminated (user-initiated cancel) with exit code {proc.returncode}."
-            )
 
         procs = self._get_jobscript_processes(js_refs)
         self.app.submission_logger.info(
@@ -118,6 +114,7 @@ class DirectScheduler(NullScheduler):
         )
         js_proc_id = {i.pid: jobscripts[idx] for idx, i in enumerate(procs)}
         self._kill_processes(procs, timeout=3, on_terminate=callback)
+        print(f"Cancelled {len(procs)} jobscript{'s' if len(procs) > 1 else ''}.")
         self.app.submission_logger.info(f"jobscripts cancel command executed.")
 
     def is_jobscript_active(self, process_ID: int, process_cmdline: List[str]):

@@ -955,8 +955,8 @@ class Submission(JSONLike):
             js_idx = [i[1] for i in js_indices if i[1] in act_js]
             if js_idx:
                 print(
-                    f"Cancelling jobscripts {js_idx!r} of submission {self.index} of "
-                    f"workflow {self.workflow.name!r}."
+                    f"Cancelling jobscripts {shorten_list_str(js_idx, items=5)} of "
+                    f"submission {self.index} of workflow {self.workflow.name!r}."
                 )
                 jobscripts = [self.jobscripts[i] for i in js_idx]
                 sched_refs = [i.scheduler_js_ref for i in jobscripts]
