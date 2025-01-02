@@ -29,33 +29,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: ${{ env.POETRY_VERSION }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: ${{ runner.os }}-test-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}
+          name: benchmark
+          version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           poetry install --without dev,pyinstaller
 
+      - name: Set up variables
+        id: vars
+        run: |
+          echo "timeit=benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt" >> $GITHUB_OUTPUT
+
       - name: Run app make workflow command
         run: |
-          poetry run hpcflow --timeit-file benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt make ./hpcflow/tests/data/benchmark_N_elements.yaml --var N ${{ matrix.num_elements }}
+          poetry run hpcflow --timeit-file $TIMEIT_FILE make ./hpcflow/tests/data/benchmark_N_elements.yaml --var N $N_ELEMS
+        env:
+          TIMEIT_FILE: ${{ steps.vars.outputs.timeit }}
+          N_ELEMS: ${{ matrix.num_elements }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt
-          path: benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt
+          name: ${{ steps.vars.outputs.timeit }}
+          path: ${{ steps.vars.outputs.timeit }}
 
   make-workflow-benchmark-upload:
     needs: make-workflow-benchmark

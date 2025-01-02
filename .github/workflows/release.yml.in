@@ -31,7 +31,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     outputs:
-      new_tag_name: {% raw %}${{ steps.get_new_tag.outputs.new_tag_name }}{% endraw %}
+      new_tag_name: {% raw %}${{ steps.new_tag.outputs.tag }}{% endraw %}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,18 +55,20 @@ jobs:
 
       - name: Manipulate tags (stable release)
         if: github.event.pull_request.base.ref == '{{ release_branch }}'
-        run:
-          | # delete all pre-release tags, set current version to the latest stable release,
+        id: pre_tag
+        # delete all pre-release tags, set current version to the latest stable release,
+        run: |
           CUR_PRE_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
           echo "CUR_PRE_TAG is: $CUR_PRE_TAG"
-          echo "cur_pre_tag=$CUR_PRE_TAG" >> $GITHUB_ENV
+          echo "cur_pre_tag=$CUR_PRE_TAG" >> $GITHUB_OUTPUT
           git tag -l | awk '/^(v[0-9]+\.[0-9]+\.[0-9]+(a|b|rc).*)$/ {print $1}' | xargs git tag -d
 
       - name: Get current tag
+        id: cur_tag
         run: |
           CUR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
           echo "CUR_TAG is: $CUR_TAG"
-          echo "cur_tag=$CUR_TAG" >> $GITHUB_ENV
+          echo "tag=$CUR_TAG" >> $GITHUB_OUTPUT
 
       - name: Commitizen bump (pre-release) # Bump version strings (pre-release) and add a new tag; commit
         if: github.event.pull_request.base.ref == '{{ pre_release_branch }}'
@@ -77,20 +79,24 @@ jobs:
         run: |
           python3 -c "
           from commitizen.bump import update_version_in_files
-          update_version_in_files({% raw %}
-              current_version='${{ env.cur_pre_tag }}'.lstrip('v'),
-              new_version='${{ env.cur_tag }}'.lstrip('v'),{% endraw %}
+          update_version_in_files(
+              current_version='$pre_tag'.lstrip('v'),
+              new_version='$cur_tag'.lstrip('v'),
               files=['pyproject.toml', '{{ version_file }}'],
           )"
           cz bump
+        env:
+{% raw %}
+          pre_tag: ${{ steps.pre_tag.outputs.tag }}
+          cur_tag: ${{ steps.cur_tag.outputs.tag }}
+{% endraw %}
 
       - name: Get new tag
-        id: get_new_tag
+        id: new_tag
         run: |
           NEW_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
           echo "NEW_TAG is: $NEW_TAG"
-          echo "new_tag=$NEW_TAG" >> $GITHUB_ENV
-          echo "new_tag_name=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
 
       - name: Generate CHANGELOG (stable release)
         if: github.event.pull_request.base.ref == '{{ release_branch }}'
@@ -103,13 +109,15 @@ jobs:
         run: |
           ./git-chglog --output CHANGELOG-dev.md
           git add CHANGELOG-dev.md
-{% raw %}
       - name: Push new CHANGELOG
         run: |
-          git tag -d ${{ env.new_tag }}
+          git tag -d $new_tag
           git commit --amend --no-edit
-          git tag ${{ env.new_tag }}
-          git push && git push origin ${{ env.new_tag }}
+          git tag $new_tag
+          git push && git push origin $new_tag
+        env:
+{% raw %}
+          new_tag: ${{ steps.new_tag.outputs.tag }}
 {% endraw %}
       - name: Rebase into develop branch if exists (stable release)
         if: github.event.pull_request.base.ref == '{{ release_branch }}'
@@ -129,14 +137,23 @@ jobs:
       - name: Generate incremental CHANGELOG for GitHub release body (stable release)
         if: github.event.pull_request.base.ref == '{{ release_branch }}'
         run: |
-          {% raw %}./git-chglog --template .chglog/RELEASE.tpl.md --output CHANGELOG_increment.md ${{ env.cur_tag }}..{% endraw %}
+          ./git-chglog --template .chglog/RELEASE.tpl.md --output CHANGELOG_increment.md $cur_tag..
           cat CHANGELOG_increment.md
+        env:
+{% raw %}
+          cur_tag: ${{ steps.cur_tag.outputs.tag }}
+          new_tag: ${{ steps.new_tag.outputs.tag }}
+{% endraw %}
 
       - name: Generate incremental CHANGELOG for GitHub release body (pre-release)
         if: github.event.pull_request.base.ref == '{{ pre_release_branch }}'
         run: |
-          {% raw %}./git-chglog --template .chglog/RELEASE.tpl.md --output CHANGELOG_increment.md ${{ env.new_tag }}{% endraw %}
+          ./git-chglog --template .chglog/RELEASE.tpl.md --output CHANGELOG_increment.md $new_tag
           cat CHANGELOG_increment.md
+        env:
+{% raw %}
+          new_tag: ${{ steps.new_tag.outputs.tag }}
+{% endraw %}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -162,17 +179,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.event.pull_request.base.ref }}{% endraw %} # otherwise we get the ref when the workflow started (missing above commit)
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-build-${{ matrix.os }}-${{ hashFiles('**/poetry.lock') }}{% endraw %}
-
+          name: build
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
@@ -283,12 +296,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.event.pull_request.base.ref }}{% endraw %} # otherwise we get the ref when the workflow started (missing above commit)
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-CentOS-{% raw %}${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: build
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
 
       - name: Build executables within Docker
         uses: addnab/docker-run-action@v3
@@ -337,7 +348,7 @@ jobs:
             {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir/{{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}{% endraw %}-linux-dir test
 
             # Compress folder (folder)
-            cd pyinstaller
+            cd {{ pyinstaller_dir }}
             ./compress.sh {{ executable_name }}-{% raw %}${{ needs.bump-version.outputs.new_tag_name }}-linux-dir 'onedir'{% endraw %}
             cd ..
 
@@ -374,20 +385,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}${{ runner.os }}-test-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: benchmark
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
@@ -395,7 +402,7 @@ jobs:
 
       - name: Run app make workflow command
         run: |
-          poetry run {{ executable_name }} --timeit-file benchmark_make_workflow_{% raw %}${{ matrix.num_elements }}{% endraw %}_elements-{% raw %}${{ runner.os }}-py-${{ matrix.python-version }}.txt{% endraw %} make {{ benchmark_make_workflow }} --var N {% raw %}${{ matrix.num_elements }}{% endraw %}
+          poetry run {{ executable_name }} --timeit-file benchmark_make_workflow_{% raw %}${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt{% endraw %} make {{ benchmark_make_workflow }} --var N {% raw %}${{ matrix.num_elements }}{% endraw %}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -438,17 +445,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.event.pull_request.base.ref }}{% endraw %} # otherwise we get the ref when the workflow started (missing above commit)
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ env.PYTHON_VERSION_RELEASE }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-release-${{ hashFiles('**/poetry.lock') }}{% endraw %}
-
+          name: release
+          version: {% raw %}${{ env.PYTHON_VERSION_RELEASE }}{% endraw %}
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
@@ -551,12 +554,10 @@ jobs:
             echo "No {{ pre_release_branch }} branch to merge into."
           fi
 
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-release-${{ matrix.os }}-${{ hashFiles('**/poetry.lock') }}{% endraw %}
-
+          name: release-doc
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_DOCS }}{% endraw %}
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
@@ -566,9 +567,9 @@ jobs:
 
       - name: Build documentation with Sphinx
         run: |
-          cd docs
           poetry run make clean
           poetry run make html
+        working-directory: docs
 
       - name: Upload documentation artifact
         uses: actions/upload-artifact@v4

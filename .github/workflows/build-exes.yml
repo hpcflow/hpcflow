@@ -71,17 +71,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-windows-latest-${{ hashFiles('**/poetry.lock') }}
-
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
       - uses: ./.github/actions/setup-poetry
         with:
           version: ${{ env.POETRY_VERSION }}
@@ -114,14 +110,14 @@ jobs:
           path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-win-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-win.spec
           path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-win.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-win-build
@@ -158,17 +154,13 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-macos-13-${{ hashFiles('**/poetry.lock') }}
-
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
       - uses: ./.github/actions/setup-poetry
         with:
           version: ${{ env.POETRY_VERSION }}
@@ -201,14 +193,14 @@ jobs:
           path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-macOS-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-macOS.spec
           path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-macOS.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-macOS-build
@@ -244,12 +236,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-CentOS-${{ hashFiles('**/poetry.lock') }}
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
 
       - name: Build executable (file) within Docker
         if: github.event.inputs.build_onefile == 'true'
@@ -316,14 +306,14 @@ jobs:
           path: pyinstaller/dist/onedir/hpcflow-${{ needs.status.outputs.version }}-linux-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-linux.spec
           path: pyinstaller/hpcflow-${{ needs.status.outputs.version }}-linux.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: hpcflow-${{ needs.status.outputs.version }}-linux-build

@@ -104,20 +104,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}${{ runner.os }}-test-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
@@ -137,12 +133,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-CentOS-test-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test
+          version: CentOS
 
       - name: Run unit tests within Docker
         uses: addnab/docker-run-action@v3
@@ -177,20 +171,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}${{ runner.os }}-test-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
@@ -210,12 +200,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-CentOS-test-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test
+          version: CentOS
 
       - name: Run integration tests within Docker
         uses: addnab/docker-run-action@v3
@@ -244,20 +232,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-test-invocation-linux{% raw %}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test-invocation
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
@@ -344,20 +328,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-test-invocation-macos{% raw %}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test-invocation
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
@@ -444,20 +424,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-test-invocation-windows{% raw %}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: test-invocation
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |

@@ -21,10 +21,10 @@ jobs:
         with:
           version: ${{ env.POETRY_VERSION }}
       - name: Cache Virtual Environment
-        uses: actions/cache@v4
+        uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: ${{ runner.os }}-typecheck-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}
+          name: typecheck
+          version: ${{ matrix.python-version }}
       - name: Install Dependencies
         run: |
           poetry install --without dev,pyinstaller --with typecheck

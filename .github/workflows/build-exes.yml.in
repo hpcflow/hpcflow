@@ -46,8 +46,10 @@ jobs:
   status:
     runs-on: ubuntu-latest # Fastest and cheapest
     outputs:
-      version: {% raw %}${{ steps.info.outputs.vers }}{% endraw %}
-      sha: {% raw %}${{ steps.info.outputs.sha }}{% endraw %}
+{% raw %}
+      version: ${{ steps.info.outputs.vers }}
+      sha: ${{ steps.info.outputs.sha }}
+{% endraw %}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,16 +73,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-build-windows-latest-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: build-exe
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
 
       - uses: ./.github/actions/setup-poetry
         with:
@@ -114,14 +113,14 @@ jobs:
           path: {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-win-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-win.spec
           path: {{ pyinstaller_dir }}/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-win.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-win-build
@@ -158,17 +157,13 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-build-macos-13-${{ hashFiles('**/poetry.lock') }}{% endraw %}
-
+          name: build-exe
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
       - uses: ./.github/actions/setup-poetry
         with:
           version: ${{ env.POETRY_VERSION }}
@@ -201,14 +196,14 @@ jobs:
           path: {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-macOS-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-macOS.spec
           path: {{ pyinstaller_dir }}/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-macOS.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-macOS-build
@@ -244,12 +239,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}venv-build-CentOS-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: build-exe
+          version: {% raw %}${{ env.PYTHON_VERSION_BUILD_EXES }}{% endraw %}
 
       - name: Build executable (file) within Docker
         if: github.event.inputs.build_onefile == 'true'
@@ -316,14 +309,14 @@ jobs:
           path: {{ pyinstaller_dir }}/dist/onedir/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-linux-dir
 
       - name: Upload spec file
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-linux.spec
           path: {{ pyinstaller_dir }}/{{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-linux.spec
 
       - name: Upload build directory
-        if: ((github.event.inputs.build_onefile == 'true') || (github.event.inputs.build_onedir == 'true'))
+        if: (github.event.inputs.build_onefile == 'true' || github.event.inputs.build_onedir == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: {{ executable_name }}-{% raw %}${{ needs.status.outputs.version }}{% endraw %}-linux-build

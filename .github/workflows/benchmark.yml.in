@@ -21,41 +21,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: {% raw %}${{ fromJSON(github.event.inputs.python)}}{% endraw %}
-        os: {% raw %}${{ fromJSON(github.event.inputs.platform)}}{% endraw %}
-        num_elements: {% raw %}${{ fromJSON(github.event.inputs.num_elements)}}{% endraw %}
+{% raw %}
+        python-version: ${{ fromJSON(github.event.inputs.python)}}
+        os: ${{ fromJSON(github.event.inputs.platform)}}
+        num_elements: ${{ fromJSON(github.event.inputs.num_elements)}}
+{% endraw %}
     runs-on: {% raw %}${{ matrix.os }}{% endraw %}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: {% raw %}${{ github.ref }}{% endraw %}
-
       - uses: actions/setup-python@v5
         with:
           python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: {% raw %}${{ runner.os }}-test-${{ matrix.python-version }}-venv-${{ hashFiles('**/poetry.lock') }}{% endraw %}
+          name: benchmark
+          version: {% raw %}${{ matrix.python-version }}{% endraw %}
 
       - name: Install dependencies
         run: |
           poetry install --without dev,pyinstaller
 
+      - name: Set up variables
+        id: vars
+        run: |
+          echo {% raw %}"timeit=benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt"{% endraw %} >> $GITHUB_OUTPUT
+
       - name: Run app make workflow command
         run: |
-          poetry run {{ executable_name }} --timeit-file benchmark_make_workflow_{% raw %}${{ matrix.num_elements }}{% endraw %}_elements-{% raw %}${{ runner.os }}-py-${{ matrix.python-version }}.txt{% endraw %} make {{ benchmark_make_workflow }} --var N {% raw %}${{ matrix.num_elements }}{% endraw %}
+          poetry run {{ executable_name }} --timeit-file $TIMEIT_FILE make {{ benchmark_make_workflow }} --var N $N_ELEMS
+        env:
+{% raw %}
+          TIMEIT_FILE: ${{ steps.vars.outputs.timeit }}
+          N_ELEMS: ${{ matrix.num_elements }}
+{% endraw %}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: {% raw %}benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt{% endraw %}
-          path: {% raw %}benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt{% endraw %}
+{% raw %}
+          name: ${{ steps.vars.outputs.timeit }}
+          path: ${{ steps.vars.outputs.timeit }}
+{% endraw %}
 
   make-workflow-benchmark-upload:
     needs: make-workflow-benchmark

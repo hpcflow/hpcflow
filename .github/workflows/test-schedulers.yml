@@ -27,24 +27,21 @@ jobs:
         run: apt install -y python-tk
 
       - name: Set ownership
+        # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
+        # this is to fix GIT not liking owner of the checkout dir
         run: |
-          # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
-          # this is to fix GIT not liking owner of the checkout dir
           chown -R $(id -u):$(id -g) $PWD
 
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
       - uses: ./.github/actions/setup-poetry
         with:
           version: ${{ env.POETRY_VERSION }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-slurm-test-${{ hashFiles('**/poetry.lock') }}
+          name: slurm-test
+          version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller
@@ -71,13 +68,11 @@ jobs:
         run: |
           poetry config virtualenvs.in-project true
           poetry config installer.modern-installation false
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-direct-linux-test-${{ hashFiles('**/poetry.lock') }}
-
+          name: direct-linux-test
+          version: ${{ env.PYTHON_VERSION }}
+  
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller
 
