@@ -5,23 +5,19 @@ on:
       pre_commit:
         description: "Run pre-commit."
         required: true
-        type: boolean
-        default: true
+        type: string
       unit_tests:
         description: "Run unit tests"
         required: true
-        type: boolean
-        default: true
+        type: string
       invocation_tests:
         description: "Run invocation tests."
         required: true
-        type: boolean
-        default: true
+        type: string
       integration_tests:
         description: "Run integration-like workflow submission tests."
         required: true
-        type: boolean
-        default: true
+        type: string
       unit_test_args:
         description: "CLI args to pass verbatim to pytest (unit tests)."
         required: false
