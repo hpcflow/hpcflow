@@ -1,8 +1,5 @@
 name: benchmark
 
-env:
-  POETRY_VERSION: "1.4"
-
 on:
   workflow_dispatch: # manual invocation
     inputs:
@@ -17,70 +14,14 @@ on:
         default: '["ubuntu-latest", "macos-13", "windows-latest"]'
 
 jobs:
-  make-workflow-benchmark:
-    strategy:
-      fail-fast: false
-      matrix:
+  workflow-benchmark:
+    uses: ./.github/workflows/benchmark-impl.yml
+    with:
+      executable_name: {{ executable_name }}
+      benchmark_make_workflow: {{ benchmark_make_workflow }}
 {% raw %}
-        python-version: ${{ fromJSON(github.event.inputs.python)}}
-        os: ${{ fromJSON(github.event.inputs.platform)}}
-        num_elements: ${{ fromJSON(github.event.inputs.num_elements)}}
+      python: ${{ github.event.inputs.python }}
+      num_elements: ${{ github.event.inputs.num_elements }}
+      platform: ${{ github.event.inputs.platform }}
+      ref: ${{ github.ref }}
 {% endraw %}
-    runs-on: {% raw %}${{ matrix.os }}{% endraw %}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: {% raw %}${{ github.ref }}{% endraw %}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: {% raw %}${{ matrix.python-version }}{% endraw %}
-      - uses: ./.github/actions/setup-poetry
-        with:
-          version: {% raw %}${{ env.POETRY_VERSION }}{% endraw %}
-      - uses: ./.github/actions/init-cache
-        with:
-          name: benchmark
-          version: {% raw %}${{ matrix.python-version }}{% endraw %}
-
-      - name: Install dependencies
-        run: |
-          poetry install --without dev,pyinstaller
-
-      - name: Set up variables
-        id: vars
-        run: |
-          echo {% raw %}"timeit=benchmark_make_workflow_${{ matrix.num_elements }}_elements-${{ runner.os }}-py-${{ matrix.python-version }}.txt"{% endraw %} >> $GITHUB_OUTPUT
-
-      - name: Run app make workflow command
-        run: |
-          poetry run {{ executable_name }} --timeit-file $TIMEIT_FILE make {{ benchmark_make_workflow }} --var N $N_ELEMS
-        env:
-{% raw %}
-          TIMEIT_FILE: ${{ steps.vars.outputs.timeit }}
-          N_ELEMS: ${{ matrix.num_elements }}
-{% endraw %}
-
-      - uses: actions/upload-artifact@v4
-        with:
-{% raw %}
-          name: ${{ steps.vars.outputs.timeit }}
-          path: ${{ steps.vars.outputs.timeit }}
-{% endraw %}
-
-  make-workflow-benchmark-upload:
-    needs: make-workflow-benchmark
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: {% raw %}${{ github.ref }}{% endraw %}
-      - run: |
-          mkdir benchmarks
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: benchmarks
-      - uses: actions/upload-artifact@v4
-        with:
-          name: benchmarks
-          path: benchmarks
