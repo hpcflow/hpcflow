@@ -92,7 +92,17 @@ on:
       website-token:
         description: Token for publishing the website.
         required: true
-
+    outputs:
+      new-version:
+        description: The new version created.
+        value: ${{ jobs.bump-version.outputs.new_tag }}
+      pypi-published:
+        description: Whether the release was successfully published to PyPI.
+        value: ${{ jobs.release-github-PyPI.outputs.publish-state == 'success' }}
+      website-published:
+        description: Whether the release was successfully published to the website.
+        value: ${{ jobs.update-website.outputs.publish-state == 'success' }}
+  
 jobs:
   bump-version:
     # skip if trying to re-run; PR is closed without merging; '[skip release]' is in the PR title; or if merging any branch other than pre_release_branch into release_branch
@@ -479,6 +489,8 @@ jobs:
   make-workflow-benchmark-upload:
     needs: make-workflow-benchmark
     runs-on: ubuntu-latest
+    outputs:
+      benchmark-url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -496,6 +508,7 @@ jobs:
         with:
           name: benchmarks.zip
           path: benchmarks.zip
+        id: upload
 
   release-github-PyPI:
     needs:
@@ -506,6 +519,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       binary_download_links: ${{ steps.get_binary_download_links.outputs.binary_download_links }}
+      release-state: ${{ steps.release.outcome }}
+      publish-state: ${{ steps.publish.outcome }}
     permissions:
       contents: write
     steps:
@@ -575,6 +590,7 @@ jobs:
           echo "$EOF" >> $GITHUB_OUTPUT
 
       - name: Publish (to ${{ inputs.pypi-url }})
+        id: publish
         run: |
           poetry config repositories.pypi ${{ inputs.pypi-url }}
           poetry config pypi-token.pypi ${{ secrets.pypi-token }}
@@ -644,6 +660,8 @@ jobs:
   update-website:
     needs: [bump-version, release-github-PyPI, build-documentation]
     runs-on: ubuntu-latest
+    outputs:
+      publish-state: ${{ steps.publish.outcome }}
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -680,6 +698,7 @@ jobs:
           python docs/make_vers_switcher.py ${{ inputs.docs_url_prefix }}
 
       - name: Push changes
+        id: publish
         run: |
           git add .
           git commit -m "update content"
