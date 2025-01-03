@@ -68,7 +68,7 @@ jobs:
       full-repo-name: ${{ github.event.pull_request.head.repo.full_name }}
       app_package: hpcflow.app
       CLI_module: hpcflow.cli
-      CLI_path: ./hpcflow/cli.py
+      CLI_path: hpcflow/cli.py
       CLI_path_win: hpcflow\cli.py
       executable_name: hpcflow
       pytest_args: 
