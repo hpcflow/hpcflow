@@ -1,0 +1,336 @@
+name: build-exes Implementation
+
+env:
+  PYTHON_VERSION_BUILD_EXES: "3.12"
+  POETRY_VERSION: "1.4"
+
+on:
+  workflow_call: # This is a component workflow
+    inputs:
+      build_linux:
+        description: "Build executables for linux?"
+        required: true
+        type: boolean
+        default: true
+      build_macos:
+        description: "Build executables for macOS?"
+        required: true
+        type: boolean
+        default: true
+      build_windows:
+        description: "Build executables for Windows?"
+        required: true
+        type: boolean
+        default: true
+      build_onedir:
+        description: "Build one-dir?"
+        required: true
+        type: boolean
+        default: true
+      build_onefile:
+        description: "Build one-file?"
+        required: true
+        type: boolean
+        default: true
+      logLevel:
+        description: "PyInstaller log level"
+        required: true
+        default: "INFO"
+        type: string
+      unit_test_args:
+        description: "CLI args to pass verbatim to pytest (unit tests)."
+        required: false
+        type: string
+        default: ""
+      executable_name:
+        description: Template parameter.
+        required: true
+        type: string
+      pyinstaller_dir:
+        description: Template parameter.
+        required: true
+        type: string
+
+jobs:
+  status:
+    name: Get Git Information
+    runs-on: ubuntu-latest # Fastest and cheapest
+    outputs:
+      version: ${{ steps.info.outputs.vers }}
+      sha: ${{ steps.info.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # get all history and tags
+      - name: Get executable version name and store git SHA
+        id: info
+        run: |
+          CUR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
+          echo "CUR_TAG is: $CUR_TAG"
+          echo "cur_tag=$CUR_TAG" >> $GITHUB_OUTPUT
+          vers=$(git describe --tags)
+          echo "vers is: $vers"
+          echo "vers=$vers" >> $GITHUB_OUTPUT
+          sha=$(git rev-parse HEAD)
+          echo "sha is: $sha"
+          echo "sha=$sha" >> $GITHUB_OUTPUT
+
+  windows:
+    name: Build Windows Executables
+    if: inputs.build_windows == 'true'
+    needs: status
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+      - uses: ./.github/actions/init-cache
+        with:
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install dependencies
+        run: poetry install --without dev
+
+      - name: Build with pyinstaller for Windows (file)
+        id: win_onefile
+        if: inputs.build_onefile == 'true'
+        working-directory: ${{ inputs.pyinstaller_dir }}
+        run: ./make.ps1 -ExeName "${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win" -LogLevel ${{ inputs.logLevel }} -BuildType 'onefile'
+
+      - name: Build with pyinstaller for Windows (folder)
+        id: win_onedir
+        if: inputs.build_onedir == 'true'
+        working-directory: ${{ inputs.pyinstaller_dir }}
+        run: ./make.ps1 -ExeName "${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir" -LogLevel ${{ inputs.logLevel }} -BuildType 'onedir'
+
+      - name: Upload executable artifact (file)
+        if: steps.win_onefile.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.exe
+          path: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.exe
+
+      - name: Upload executable artifact (folder)
+        if: steps.win_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir
+          path: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir
+
+      - name: Upload spec file
+        if: steps.win_onefile.outcome == 'success' || steps.win_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.spec
+          path: ${{ inputs.pyinstaller_dir }}/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.spec
+
+      - name: Upload build directory
+        if: steps.win_onefile.outcome == 'success' || steps.win_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-build
+          path: ${{ inputs.pyinstaller_dir }}/build/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win
+
+      - name: Set demo data GitHub URL using current git SHA (file) # instead of default which is current version tag
+        if: steps.win_onefile.outcome == 'success'
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.exe config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+      - name: Set demo data GitHub URL using current git SHA (folder) # instead of default which is current version tag
+        if: steps.win_onedir.outcome == 'success'
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir.exe config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+      - name: Run test suite on the frozen app (file)
+        if: steps.win_onefile.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win.exe test ${{ inputs.unit_test_args }}
+
+      - name: Run test suite on the frozen app (folder)
+        if: steps.win_onedir.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-win-dir.exe test ${{ inputs.unit_test_args }}
+
+  macos:
+    name: Build macOS Executables
+    if: inputs.build_macos == 'true'
+    needs: status
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+      - uses: ./.github/actions/init-cache
+        with:
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install dependencies
+        run: poetry install --without dev
+
+      - name: Build with pyinstaller for macOS (file)
+        id: mac_onefile
+        if: inputs.build_onefile == 'true'
+        working-directory: ${{ inputs.pyinstaller_dir }}
+        run: ./make.sh ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS ${{ inputs.logLevel }} 'onefile'
+
+      - name: Build with pyinstaller for macOS (folder)
+        id: mac_onedir
+        if: inputs.build_onedir == 'true'
+        working-directory: ${{ inputs.pyinstaller_dir }}
+        run: ./make.sh ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir ${{ inputs.logLevel }} 'onedir'
+
+      - name: Upload executable artifact (file)
+        if: steps.mac_onefile.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS
+          path: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS
+
+      - name: Upload executable artifact (folder)
+        if: steps.mac_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir
+          path: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir
+
+      - name: Upload spec file
+        if: steps.mac_onefile.outcome == 'success' || steps.mac_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS.spec
+          path: ${{ inputs.pyinstaller_dir }}/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS.spec
+
+      - name: Upload build directory
+        if: steps.mac_onefile.outcome == 'success' || steps.mac_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-build
+          path: ${{ inputs.pyinstaller_dir }}/build/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS
+
+      - name: Set demo data GitHub URL using current git SHA (file) # instead of default which is current version tag
+        if: steps.mac_onefile.outcome == 'success'
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+      - name: Set demo data GitHub URL using current git SHA (folder) # instead of default which is current version tag
+        if: steps.mac_onedir.outcome == 'success'
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+      - name: Run test suite on the frozen app (file)
+        if: steps.mac_onefile.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS test ${{ inputs.unit_test_args }}
+
+      - name: Run test suite on the frozen app (folder)
+        if: steps.mac_onedir.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-macOS-dir test ${{ inputs.unit_test_args }}
+
+  linux:
+    name: Build Linux (CentOS 7) Executables
+    if: inputs.build_linux == 'true'
+    needs: status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/init-cache
+        with:
+          name: build-exe
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+
+      - name: Build executable (file) within Docker
+        id: linux_onefile
+        if: inputs.build_onefile == 'true'
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/hpcflow/centos7-poetry:latest
+          options: -v ${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          run: |
+            # set up poetry
+            cd /home
+            poetry config virtualenvs.in-project true
+            poetry config installer.modern-installation false
+            poetry install --without dev
+
+            # build with pyinstaller for CentOS (file)
+            cd ${{ inputs.pyinstaller_dir }}
+            ./make.sh ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux ${{ inputs.logLevel }} onefile
+            cd ..
+
+            # set demo data GitHub URL using current git SHA (file), instead of default which is current version tag
+            ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+            # run test suite on the frozen app (file)
+            ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux test ${{ inputs.unit_test_args }}
+
+      - name: Build executable (folder) within Docker
+        id: linux_onedir
+        if: inputs.build_onedir == 'true'
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/hpcflow/centos7-poetry:latest
+          options: -v ${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          run: |
+            # set up poetry
+            cd /home
+            poetry config virtualenvs.in-project true
+            poetry config installer.modern-installation false
+            poetry install --without dev
+
+            # build with pyinstaller for CentOS (folder)
+            cd ${{ inputs.pyinstaller_dir }}
+            ./make.sh ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir ${{ inputs.logLevel }} onedir
+            cd ..
+
+            # set demo data GitHub URL using current git SHA (folder), instead of default which is current version tag
+            ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir config set-github-demo-data-dir ${{ needs.status.outputs.sha }}
+
+            # run test suite on the frozen app (folder)
+            ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir test ${{ inputs.unit_test_args }}
+
+      - name: Upload executable artifact (file)
+        if: steps.linux_onefile.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux
+          path: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux
+
+      - name: Upload executable artifact (folder)
+        if: steps.linux_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir
+          path: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-dir
+
+      - name: Upload spec file
+        if: steps.linux_onefile.outcome == 'success' || steps.linux_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux.spec
+          path: ${{ inputs.pyinstaller_dir }}/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux.spec
+
+      - name: Upload build directory
+        if: steps.linux_onefile.outcome == 'success' || steps.linux_onedir.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux-build
+          path: ${{ inputs.pyinstaller_dir }}/build/${{ inputs.executable_name }}-${{ needs.status.outputs.version }}-linux
