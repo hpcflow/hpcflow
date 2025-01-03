@@ -61,11 +61,11 @@ on:
         description: "Template parameter: {{ docs_url_prefix }}"
       gh-run-attempt:
         required: true
-        type: number
+        type: string
         description: "Attribute: github.run_attempt"
       pr-merged:
         required: true
-        type: boolean
+        type: string
         description: "Attribute: github.event.pull_request.merged"
       pr-title:
         required: true

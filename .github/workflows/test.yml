@@ -38,23 +38,7 @@ on:
     branches: [main, develop] # have to manually change these
 
 jobs:
-  check-state:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          cat <<EOF
-            pre_commit: ${{ github.event_name == 'pull_request' || github.event.inputs.pre_commit == 'true' }}
-            unit_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.unit_tests == 'true' }}
-            integration_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.integration_tests == 'true' }}
-            invocation_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.invocation_tests == 'true' }}
-            unit_test_args: ${{ github.event.inputs.unit_test_args }}
-            integration_test_args: ${{ github.event.inputs.integration_test_args }}
-            ref: ${{ github.ref }}
-            head-ref: ${{ github.head_ref }}
-            full-repo-name: ${{ github.event.pull_request.head.repo.full_name }}
-          EOF
   test:
-    needs: check-state
     uses: ./.github/workflows/test-impl.yml
     with:
       pre_commit: ${{ github.event_name == 'pull_request' || github.event.inputs.pre_commit == 'true' }}

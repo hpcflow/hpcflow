@@ -10,28 +10,23 @@ on:
       build_linux:
         description: "Build executables for linux?"
         required: true
-        type: boolean
-        default: true
+        type: string
       build_macos:
         description: "Build executables for macOS?"
         required: true
-        type: boolean
-        default: true
+        type: string
       build_windows:
         description: "Build executables for Windows?"
         required: true
-        type: boolean
-        default: true
+        type: string
       build_onedir:
         description: "Build one-dir?"
         required: true
-        type: boolean
-        default: true
+        type: string
       build_onefile:
         description: "Build one-file?"
         required: true
-        type: boolean
-        default: true
+        type: string
       logLevel:
         description: "PyInstaller log level"
         required: true
