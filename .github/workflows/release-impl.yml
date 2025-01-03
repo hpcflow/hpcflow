@@ -96,6 +96,9 @@ on:
       new-version:
         description: The new version created.
         value: ${{ jobs.bump-version.outputs.new_tag }}
+      changelog-url:
+        description: URL to the generated CHANGELOG.
+        value: ${{ jobs.bump-version.outputs.changelog }}
       pypi-published:
         description: Whether the release was successfully published to PyPI.
         value: ${{ jobs.release-github-PyPI.outputs.publish-state == 'success' }}
@@ -110,6 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_tag: ${{ steps.new_tag.outputs.tag }}
+      changelog: ${{ steps.upload-changelog.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -225,6 +229,7 @@ jobs:
           new_tag: ${{ steps.new_tag.outputs.tag }}
 
       - uses: actions/upload-artifact@v4
+        id: upload-changelog
         with:
           name: CHANGELOG_increment
           path: CHANGELOG_increment.md
