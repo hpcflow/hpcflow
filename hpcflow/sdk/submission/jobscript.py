@@ -23,6 +23,7 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.jobscript_info import JobscriptElementState
 from hpcflow.sdk.submission.schedulers import Scheduler
 from hpcflow.sdk.submission.shells import get_shell
+from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
 
 
 def is_jobscript_array(resources, num_elements, store):
@@ -579,12 +580,9 @@ class Jobscript(JSONLike):
         is_array: bool,
         resources: app.ElementResources,
         blocks: List,
-        submit_time: Optional[datetime] = None,
+        at_submit_metadata: Union[Dict[str, Any], None] = None,
         submit_hostname: Optional[str] = None,
         submit_machine: Optional[str] = None,
-        submit_cmdline: Optional[str] = None,
-        scheduler_job_ID: Optional[str] = None,
-        process_ID: Optional[int] = None,
         version_info: Optional[Tuple[str]] = None,
     ):
 
@@ -593,17 +591,16 @@ class Jobscript(JSONLike):
 
         self._index = index
         self._blocks = blocks
+        self._at_submit_metadata = at_submit_metadata or {
+            k: None for k in JOBSCRIPT_SUBMIT_TIME_KEYS
+        }
         self._is_array = is_array
         self._resources = resources
 
         # assigned on parent `Submission.submit` (or retrieved form persistent store):
-        self._submit_time = submit_time
         self._submit_hostname = submit_hostname
         self._submit_machine = submit_machine
-        self._submit_cmdline = submit_cmdline
 
-        self._scheduler_job_ID = scheduler_job_ID
-        self._process_ID = process_ID
         self._version_info = version_info
 
         self._submission = None  # assigned by parent Submission
@@ -650,6 +647,14 @@ class Jobscript(JSONLike):
     @property
     def blocks(self):
         return self._blocks
+
+    @property
+    def at_submit_metadata(self) -> Dict[str, Any]:
+        return self.workflow._store.get_jobscript_at_submit_metadata(
+            sub_idx=self.submission.index,
+            js_idx=self.index,
+            metadata_attr=self._at_submit_metadata,
+        )
 
     @property
     def all_EAR_IDs(self) -> NDArray:
@@ -705,12 +710,13 @@ class Jobscript(JSONLike):
 
     @property
     def submit_time(self):
-        if self._submit_time_obj is None and self._submit_time:
-            self._submit_time_obj = (
-                datetime.strptime(self._submit_time, self.workflow.ts_fmt)
-                .replace(tzinfo=timezone.utc)
-                .astimezone()
-            )
+        if self._submit_time_obj is None:
+            if _submit_time := self.at_submit_metadata["submit_time"]:
+                self._submit_time_obj = (
+                    datetime.strptime(_submit_time, self.workflow.ts_fmt)
+                    .replace(tzinfo=timezone.utc)
+                    .astimezone()
+                )
         return self._submit_time_obj
 
     @property
@@ -723,15 +729,15 @@ class Jobscript(JSONLike):
 
     @property
     def submit_cmdline(self):
-        return self._submit_cmdline
+        return self.at_submit_metadata["submit_cmdline"]
 
     @property
     def scheduler_job_ID(self):
-        return self._scheduler_job_ID
+        return self.at_submit_metadata["scheduler_job_ID"]
 
     @property
     def process_ID(self):
-        return self._process_ID
+        return self.at_submit_metadata["process_ID"]
 
     @property
     def version_info(self):
@@ -906,14 +912,38 @@ class Jobscript(JSONLike):
     def is_scheduled(self) -> bool:
         return self.scheduler_name not in ("direct", "direct_posix")
 
-    def _set_submit_time(self, submit_time: datetime) -> None:
-        submit_time = submit_time.strftime(self.workflow.ts_fmt)
-        self._submit_time = submit_time
+    def _update_at_submit_metadata(
+        self,
+        submit_cmdline=None,
+        scheduler_job_ID=None,
+        process_ID=None,
+        submit_time=None,
+    ):
+        """Update persistent store and in-memory record of at-submit metadata for this
+        jobscript.
+
+        """
         self.workflow._store.set_jobscript_metadata(
             sub_idx=self.submission.index,
             js_idx=self.index,
+            submit_cmdline=submit_cmdline,
+            scheduler_job_ID=scheduler_job_ID,
+            process_ID=process_ID,
             submit_time=submit_time,
         )
+
+        if submit_cmdline is not None:
+            self._at_submit_metadata["submit_cmdline"] = submit_cmdline
+        if scheduler_job_ID is not None:
+            self._at_submit_metadata["scheduler_job_ID"] = scheduler_job_ID
+        if process_ID is not None:
+            self._at_submit_metadata["process_ID"] = process_ID
+        if submit_time is not None:
+            self._at_submit_metadata["submit_time"] = submit_time
+
+    def _set_submit_time(self, submit_time: datetime) -> None:
+        submit_time = submit_time.strftime(self.workflow.ts_fmt)
+        self._update_at_submit_metadata(submit_time=submit_time)
 
     def _set_submit_hostname(self, submit_hostname: str) -> None:
         self._submit_hostname = submit_hostname
@@ -932,30 +962,15 @@ class Jobscript(JSONLike):
         )
 
     def _set_submit_cmdline(self, submit_cmdline: List[str]) -> None:
-        self._submit_cmdline = submit_cmdline
-        self.workflow._store.set_jobscript_metadata(
-            sub_idx=self.submission.index,
-            js_idx=self.index,
-            submit_cmdline=submit_cmdline,
-        )
+        self._update_at_submit_metadata(submit_cmdline=submit_cmdline)
 
     def _set_scheduler_job_ID(self, job_ID: str) -> None:
         """For scheduled submission only."""
-        self._scheduler_job_ID = job_ID
-        self.workflow._store.set_jobscript_metadata(
-            sub_idx=self.submission.index,
-            js_idx=self.index,
-            scheduler_job_ID=job_ID,
-        )
+        self._update_at_submit_metadata(scheduler_job_ID=job_ID)
 
     def _set_process_ID(self, process_ID: str) -> None:
         """For direct submission only."""
-        self._process_ID = process_ID
-        self.workflow._store.set_jobscript_metadata(
-            sub_idx=self.submission.index,
-            js_idx=self.index,
-            process_ID=process_ID,
-        )
+        self._update_at_submit_metadata(process_ID=process_ID)
 
     def _set_version_info(self, version_info: Dict) -> None:
         self._version_info = version_info
@@ -1200,7 +1215,7 @@ class Jobscript(JSONLike):
         return self.jobscript_path
 
     @TimeIt.decorator
-    def _launch_direct_js_win(self):
+    def _launch_direct_js_win(self, submit_cmd: List[str]):
         # this is a "trick" to ensure we always get a fully detached new process (with no
         # parent); the `powershell.exe -Command` process exits after running the inner
         # `Start-Process`, which is where the jobscript is actually invoked. I could not
@@ -1209,7 +1224,7 @@ class Jobscript(JSONLike):
 
         # Note we need powershell.exe for this "launcher process", but the shell used for
         # the jobscript itself need not be powershell.exe
-        exe_path, arg_list = self.submit_cmdline[0], self.submit_cmdline[1:]
+        exe_path, arg_list = submit_cmd[0], submit_cmd[1:]
 
         # note powershell-escaped quotes, in case of spaces in arguments (this seems to
         # work okay even though we might have switch like arguments in this list, like
@@ -1244,14 +1259,14 @@ class Jobscript(JSONLike):
         return process_ID
 
     @TimeIt.decorator
-    def _launch_direct_js_posix(self) -> int:
+    def _launch_direct_js_posix(self, submit_cmd: List[str]) -> int:
         # direct submission; submit jobscript asynchronously:
         # detached process, avoid interrupt signals propagating to the subprocess:
 
         def _launch(fp_stdout, fp_stderr):
             # note: Popen copies the file objects, so this works!
             proc = subprocess.Popen(
-                args=self.submit_cmdline,
+                args=submit_cmd,
                 stdout=fp_stdout,
                 stderr=fp_stderr,
                 cwd=str(self.workflow.path),
@@ -1312,9 +1327,6 @@ class Jobscript(JSONLike):
         self.app.submission_logger.info(
             f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"
         )
-        self._set_submit_cmdline(submit_cmd)
-        self._set_submit_hostname(socket.gethostname())
-        self._set_submit_machine(self.app.config.get("machine"))
 
         err_args = {
             "js_idx": self.index,
@@ -1344,9 +1356,9 @@ class Jobscript(JSONLike):
                     print(stderr)
             else:
                 if os.name == "nt":
-                    process_ID = self._launch_direct_js_win()
+                    process_ID = self._launch_direct_js_win(submit_cmd)
                 else:
-                    process_ID = self._launch_direct_js_posix()
+                    process_ID = self._launch_direct_js_posix(submit_cmd)
 
         except Exception as subprocess_exc:
             err_args["message"] = f"Failed to execute submit command."
@@ -1382,12 +1394,14 @@ class Jobscript(JSONLike):
         else:
             # direct submission
             self._set_process_ID(process_ID)
-            # a downstream direct jobscript might need to wait for this jobscript, which
-            # means this jobscript's process ID must be committed:
-            self.workflow._store._pending.commit_all()
             ref = process_ID
 
+        self._set_submit_cmdline(submit_cmd)
         self._set_submit_time(datetime.utcnow())
+
+        # a downstream direct jobscript might need to wait for this jobscript, which
+        # means this jobscript's process ID must be committed:
+        self.workflow._store._pending.commit_all()
 
         return ref
 

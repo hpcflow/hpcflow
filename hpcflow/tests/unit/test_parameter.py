@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.errors import ParametersMetadataReadOnlyError
 from hpcflow.sdk.core.parameters import ParameterValue
 
 
@@ -219,3 +220,12 @@ def test_demo_data_substitution_value_sequence_class_method(new_null_config, tmp
         "9",
         "10",
     ]
+
+
+def test_json_store_parameters_metadata_cache_raises_on_modify(null_config, tmp_path):
+    wk = hf.make_demo_workflow("workflow_1", path=tmp_path, store="json")
+    num_params = len(wk.get_all_parameters())
+    with pytest.raises(ParametersMetadataReadOnlyError):
+        with wk._store.parameters_metadata_cache():
+            wk._add_unset_parameter_data(source="UNSET-FOR-THIS-TEST")
+    assert len(wk.get_all_parameters()) == num_params

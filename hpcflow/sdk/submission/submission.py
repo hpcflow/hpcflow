@@ -3,9 +3,9 @@ from collections import defaultdict
 
 from datetime import datetime, timedelta, timezone
 import enum
-import os
 import shutil
 from pathlib import Path
+import socket
 from textwrap import indent
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import warnings
@@ -27,6 +27,22 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ObjectListMultipleMatchError
 from hpcflow.sdk.core import RUN_DIR_ARR_DTYPE
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.strings import shorten_list_str
+
+
+# jobscript attributes that are set persistently just after the jobscript has been
+# submitted to the scheduler:
+JOBSCRIPT_SUBMIT_TIME_KEYS = (
+    "submit_cmdline",
+    "scheduler_job_ID",
+    "process_ID",
+    "submit_time",
+)
+# submission attributes that are set persistently just after all of a submission's
+# jobscripts have been submitted:
+SUBMISSION_SUBMIT_TIME_KEYS = {
+    "submission_parts": dict,
+}
 
 
 def timedelta_format(td: timedelta) -> str:
@@ -77,14 +93,16 @@ class Submission(JSONLike):
         self,
         index: int,
         jobscripts: List[app.Jobscript],
+        at_submit_metadata: Union[Dict, None] = None,
         workflow: Optional[app.Workflow] = None,
-        submission_parts: Optional[Dict] = None,
         JS_parallelism: Optional[Union[bool, Literal["direct", "scheduled"]]] = None,
         environments: Optional[app.EnvironmentsList] = None,
     ):
         self._index = index
         self._jobscripts = jobscripts
-        self._submission_parts = submission_parts or {}
+        self._at_submit_metadata = at_submit_metadata or {
+            k: v() for k, v in SUBMISSION_SUBMIT_TIME_KEYS.items()
+        }
         self._JS_parallelism = JS_parallelism
         self._environments = environments  # assigned by _set_environments
 
@@ -178,10 +196,17 @@ class Submission(JSONLike):
         return self._environments
 
     @property
-    def submission_parts(self) -> List[Dict]:
-        if not self._submission_parts:
-            return []
+    def at_submit_metadata(self) -> Dict[Dict[str, Any]]:
+        return self.workflow._store.get_submission_at_submit_metadata(
+            sub_idx=self.index, metadata_attr=self._at_submit_metadata
+        )
 
+    @property
+    def _submission_parts(self) -> Dict[str, List[int]]:
+        return self.at_submit_metadata["submission_parts"] or {}
+
+    @property
+    def submission_parts(self) -> List[Dict[str, Any]]:
         if self._submission_parts_lst is None:
             self._submission_parts_lst = [
                 {
@@ -232,7 +257,7 @@ class Submission(JSONLike):
             if start_i:
                 all_start_times.append(start_i)
         if all_start_times:
-            return max(all_start_times)
+            return max(all_start_times)  # FIXME: should be min?
         else:
             return None
 
@@ -808,13 +833,30 @@ class Submission(JSONLike):
 
         raise SubmissionFailure(message=msg)
 
-    def _append_submission_part(self, submit_time: str, submitted_js_idx: List[int]):
-        self._submission_parts[submit_time] = submitted_js_idx
-        self.workflow._store.add_submission_part(
+    def _update_at_submit_metadata(self, submission_parts: Dict[str, List[int]]):
+        """Update persistent store and in-memory record of at-submit metadata.
+
+        Notes
+        -----
+        Currently there is only one type of at-submit metadata, which is the
+        submission-parts: a mapping between a string submit-time, and the list of
+        jobscript indices that were submitted at that submit-time. This method updates
+        the recorded submission parts to include those passed here.
+
+        """
+
+        self.workflow._store.update_at_submit_metadata(
             sub_idx=self.index,
-            dt_str=submit_time,
-            submitted_js_idx=submitted_js_idx,
+            submission_parts=submission_parts,
         )
+
+        self._at_submit_metadata["submission_parts"].update(submission_parts)
+
+        # cache is now invalid:
+        self._submission_parts_lst = None
+
+    def _append_submission_part(self, submit_time: str, submitted_js_idx: List[int]):
+        self._update_at_submit_metadata(submission_parts={submit_time: submitted_js_idx})
 
     @TimeIt.decorator
     def submit(
@@ -875,12 +917,14 @@ class Submission(JSONLike):
                         js_vers_info[js_idx] = {}
                     js_vers_info[js_idx].update(vers_info)
 
+        hostname = socket.gethostname()
+        machine = self.app.config.get("machine")
         for js_idx, vers_info_i in js_vers_info.items():
-            self.jobscripts[js_idx]._set_version_info(vers_info_i)
+            js = self.jobscripts[js_idx]
+            js._set_version_info(vers_info_i)
+            js._set_submit_hostname(hostname)
+            js._set_submit_machine(machine)
 
-        # for direct submission, it's important that os_name/shell_name/scheduler_name
-        # are made persistent now, because `Workflow.write_commands`, which might be
-        # invoked in a new process before submission has completed, needs to know these:
         self.workflow._store._pending.commit_all()
 
         # map jobscript `index` to (scheduler job ID or process ID, is_array):
@@ -925,6 +969,9 @@ class Submission(JSONLike):
                 submit_time=dt_str,
                 submitted_js_idx=submitted_js_idx,
             )
+            # ensure `_submission_parts` is committed
+            self.workflow._store._pending.commit_all()
+
             # add a record of the submission part to the known-submissions file
             if add_to_known:
                 self.app._add_to_known_submissions(

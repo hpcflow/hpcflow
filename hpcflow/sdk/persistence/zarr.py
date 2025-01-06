@@ -40,6 +40,10 @@ from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.submission.submission import (
+    JOBSCRIPT_SUBMIT_TIME_KEYS,
+    SUBMISSION_SUBMIT_TIME_KEYS,
+)
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 
@@ -328,11 +332,13 @@ class ZarrPersistentStore(PersistentStore):
     _param_sources_arr_name = "sources"
     _param_user_arr_grp_name = "arrays"
     _param_data_arr_grp_name = lambda _, param_idx: f"param_{param_idx}"
+    _subs_md_group_name = "submissions"
     _task_arr_name = "tasks"
     _elem_arr_name = "elements"
     _iter_arr_name = "iters"
     _EAR_arr_name = "runs"
     _run_dir_arr_name = "run_dirs"
+    _js_md_arr_name = "jobscripts"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -344,6 +350,7 @@ class ZarrPersistentStore(PersistentStore):
                 app, name="attrs", open_call=self._get_root_group
             ),
         }
+        self._jobscript_at_submit_metadata = None  # this is a cache
         super().__init__(app, workflow, path, fs)
 
     @contextmanager
@@ -492,6 +499,9 @@ class ZarrPersistentStore(PersistentStore):
         )
         parameter_data.create_group(name=cls._param_user_arr_grp_name)
 
+        # for storing submission metadata that should not be stored in the root group:
+        md.create_group(name=cls._subs_md_group_name)
+
     def _append_tasks(self, tasks: List[ZarrStoreTask]):
         elem_IDs_arr = self._get_tasks_arr(mode="r+")
         elem_IDs = []
@@ -526,6 +536,26 @@ class ZarrPersistentStore(PersistentStore):
         with self.using_resource("attrs", action="update") as attrs:
             for sub_idx, sub_i in subs.items():
                 attrs["submissions"].append(sub_i)
+
+        for sub_idx, sub_i in subs.items():
+
+            # add a new metadata array for jobscripts of this submission:
+            sub_grp = self._get_all_submissions_metadata_group(mode="r+").create_group(
+                sub_idx
+            )
+            num_js = len(sub_i["jobscripts"])
+            sub_grp.create_dataset(
+                name=self._js_md_arr_name,
+                shape=num_js,
+                dtype=object,
+                object_codec=MsgPack(),
+                chunks=1,
+                write_empty_chunks=False,
+            )
+
+            # add attributes for at-submit-time submission metadata:
+            grp = self._get_submission_metadata_group(sub_idx, mode="r+")
+            grp.attrs["submission_parts"] = {}
 
     def _append_task_element_IDs(self, task_ID: int, elem_IDs: List[int]):
         # I don't think there's a way to "append" to an existing array in a zarr ragged
@@ -590,11 +620,15 @@ class ZarrPersistentStore(PersistentStore):
             attrs
         )  # attrs shouldn't be mutated (TODO: test!)
 
-    def _append_submission_parts(self, sub_parts: Dict[int, Dict[str, List[int]]]):
-        with self.using_resource("attrs", action="update") as attrs:
-            for sub_idx, sub_i_parts in sub_parts.items():
-                for dt_str, parts_j in sub_i_parts.items():
-                    attrs["submissions"][sub_idx]["submission_parts"][dt_str] = parts_j
+    def _update_at_submit_metadata(
+        self,
+        at_submit_metadata: Dict[int, Dict[str, Any]],
+    ):
+        for sub_idx, metadata_i in at_submit_metadata.items():
+            grp = self._get_submission_metadata_group(sub_idx, mode="r+")
+            attrs = grp.attrs.asdict()
+            attrs["submission_parts"].update(metadata_i["submission_parts"])
+            grp.attrs.put(attrs)
 
     def _update_loop_index(self, loop_indices: Dict[int, Dict[str, int]]):
 
@@ -751,12 +785,43 @@ class ZarrPersistentStore(PersistentStore):
             arr.attrs.put(attrs)
 
     def _update_js_metadata(self, js_meta: Dict):
-        with self.using_resource("attrs", action="update") as attrs:
-            for sub_idx, all_js_md in js_meta.items():
-                for js_idx, js_meta_i in all_js_md.items():
-                    attrs["submissions"][sub_idx]["jobscripts"][js_idx].update(
-                        **js_meta_i
+
+        arr_keys = JOBSCRIPT_SUBMIT_TIME_KEYS  # these items go to the Zarr array
+
+        # split into attributes to save to the root group metadata, and those to save to
+        # the submit-time jobscript metadata array
+
+        grp_dat = {}  # keys are tuples of (sub_idx, js_idx), values are metadata dicts
+
+        for sub_idx, all_js_md in js_meta.items():
+            js_arr = None
+            for js_idx, js_meta_i in all_js_md.items():
+
+                grp_dat_i = {k: v for k, v in js_meta_i.items() if k not in arr_keys}
+                if grp_dat_i:
+                    grp_dat[(sub_idx, js_idx)] = grp_dat_i
+                arr_dat = [js_meta_i.get(k) for k in arr_keys]
+
+                if any(arr_dat):
+                    # we are updating the at-sumbmit metadata, so clear the cache:
+                    self.clear_jobscript_at_submit_metadata_cache()
+
+                    js_arr = js_arr or self._get_jobscripts_metadata_arr(
+                        mode="r+", sub_idx=sub_idx
                     )
+                    self.logger.info(
+                        f"updating submit-time jobscript metadata array: {arr_dat!r}."
+                    )
+                    js_arr[js_idx] = arr_dat
+
+        if grp_dat:
+            with self.using_resource("attrs", action="update") as attrs:
+                for (sub_idx, js_idx), js_meta_i in grp_dat.items():
+                    self.logger.info(
+                        f"updating jobscript metadata in the root group for "
+                        f"(sub={sub_idx}, js={js_idx}): {js_meta_i!r}."
+                    )
+                    attrs["submissions"][sub_idx]["jobscripts"][js_idx].update(js_meta_i)
 
     def _append_parameters(self, params: List[ZarrStoreParameter]):
         """Add new persistent parameters."""
@@ -880,6 +945,13 @@ class ZarrPersistentStore(PersistentStore):
         return self._zarr_store
 
     def _get_root_group(self, mode: str = "r", **kwargs) -> zarr.Group:
+        # TODO: investigate if there are inefficiencies in how we retrieve zarr groups
+        # and arrays, e.g. opening sub groups sequentially would open the root group
+        # multiple times, and so read the root group attrs file multiple times?
+        # it might make sense to define a ZarrAttrsStoreResource for each zarr group and
+        # array (or at least non-parameter groups/arrays?), there could be some built-in
+        # understanding of the hierarchy (e.g. via a `path` attribute) which would then
+        # avoid reading parent groups multiple times --- if that is happening currently.
         return zarr.open(self.zarr_store, mode=mode, **kwargs)
 
     def _get_parameter_group(self, mode: str = "r", **kwargs) -> zarr.Group:
@@ -922,6 +994,17 @@ class ZarrPersistentStore(PersistentStore):
 
     def _get_metadata_group(self, mode: str = "r") -> zarr.Group:
         return self._get_root_group(mode=mode).get("metadata")
+
+    def _get_all_submissions_metadata_group(self, mode: str = "r") -> zarr.Group:
+        return self._get_metadata_group(mode=mode).get(self._subs_md_group_name)
+
+    def _get_submission_metadata_group(self, sub_idx: int, mode: str = "r") -> zarr.Group:
+        return self._get_all_submissions_metadata_group(mode=mode).get(sub_idx)
+
+    def _get_jobscripts_metadata_arr(self, sub_idx: int, mode: str = "r") -> zarr.Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_md_arr_name
+        )
 
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._task_arr_name)
@@ -1173,6 +1256,9 @@ class ZarrPersistentStore(PersistentStore):
 
         params, id_lst = self._get_cached_persistent_parameters(id_lst)
         if id_lst:
+
+            # TODO: implement the "parameter_metadata_cache" for zarr stores, which would
+            # keep the base_arr and src_arr open
             base_arr = self._get_parameter_base_array(mode="r")
             src_arr = self._get_parameter_sources_array(mode="r")
 
@@ -1229,6 +1315,67 @@ class ZarrPersistentStore(PersistentStore):
         # we assume the row index is equivalent to ID, might need to revisit in future
         base_arr = self._get_parameter_base_array(mode="r")
         return list(range(len(base_arr)))
+
+    def get_submission_at_submit_metadata(
+        self, sub_idx: int, metadata_attr: Union[Dict, None]
+    ) -> Dict[str, Any]:
+        """Retrieve the values of submission attributes that are stored at submit-time."""
+        grp = self._get_submission_metadata_group(sub_idx)
+        attrs = grp.attrs.asdict()
+        return {k: attrs[k] for k in SUBMISSION_SUBMIT_TIME_KEYS}
+
+    def clear_jobscript_at_submit_metadata_cache(self):
+        """Clear the cache of at-submit-time jobscript metadata."""
+        self._jobscript_at_submit_metadata = None
+
+    def get_jobscript_at_submit_metadata(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        metadata_attr: Union[Dict, None],
+    ) -> Dict[int, Dict[str, Any]]:
+        """For the specified jobscript, retrieve the values of jobscript-submit-time
+        attributes.
+
+        Notes
+        -----
+        If the cache does not exist, this method will retrieve and cache metadata for
+        all jobscripts for which metadata has been set. If the cache does exist, but not
+        for the requested jobscript, then this method will retrieve and cache metadata for
+        all non-cached jobscripts for which metadata has been set. If metadata has not
+        yet been set for the specified jobscript, and dict with all `None` values will be
+        returned.
+
+        The cache can be cleared using the method
+        `clear_jobscript_at_submit_metadata_cache`.
+
+        """
+        if self._jobscript_at_submit_metadata:
+            # cache exists, but might not include data for the requested jobscript:
+            if js_idx in self._jobscript_at_submit_metadata:
+                return self._jobscript_at_submit_metadata[js_idx]
+        else:
+            self._jobscript_at_submit_metadata = {}
+
+        arr = self._get_jobscripts_metadata_arr(sub_idx)
+        non_cached = set(range(len(arr))) - set(self._jobscript_at_submit_metadata.keys())
+
+        # populate cache:
+        arr_non_cached = arr.get_coordinate_selection((list(non_cached),))
+        for js_idx_i, arr_item in zip(non_cached, arr_non_cached):
+            try:
+                self._jobscript_at_submit_metadata[js_idx_i] = {
+                    i: arr_item[i_idx]
+                    for i_idx, i in enumerate(JOBSCRIPT_SUBMIT_TIME_KEYS)
+                }
+            except TypeError:
+                # data for this jobscript is not set
+                pass
+
+        if js_idx not in self._jobscript_at_submit_metadata:
+            return {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
+
+        return self._jobscript_at_submit_metadata[js_idx]
 
     def get_ts_fmt(self):
         with self.using_resource("attrs", action="read") as attrs:

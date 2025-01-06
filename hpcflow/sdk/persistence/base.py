@@ -7,9 +7,9 @@ import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import enum
+from functools import wraps
 import os
 from pathlib import Path
-import re
 import shutil
 import socket
 import time
@@ -23,8 +23,9 @@ from hpcflow.sdk.core.utils import (
     get_relative_path,
     reshape,
     set_in_container,
-    JSONLikeDirSnapShot,
 )
+from hpcflow.sdk.core.errors import ParametersMetadataReadOnlyError
+from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence.pending import PendingChanges
@@ -54,6 +55,28 @@ PARAM_DATA_NOT_SET = 0
 
 def update_param_source_dict(source, update):
     return dict(sorted({**source, **update}.items()))
+
+
+def writes_parameter_data(func):
+    """Decorator function that should wrap `PersistentStore` methods that write
+    parameter-associated data.
+
+    Notes
+    -----
+    This decorator checks that the parameters-metadata cache is not in use, which should
+    not be used during writing of parameter-associated data.
+    """
+
+    @wraps(func)
+    def inner(self, *args, **kwargs):
+        if self._use_parameters_metadata_cache:
+            raise ParametersMetadataReadOnlyError(
+                "Cannot use the `parameters_metadata_cache` when writing parameter-"
+                "associated data!"
+            )
+        return func(self, *args, **kwargs)
+
+    return inner
 
 
 @dataclass
@@ -716,6 +739,8 @@ class PersistentStore(ABC):
         self._cache = None
         self._reset_cache()
 
+        self._use_parameters_metadata_cache = None  # subclass-specific cache
+
     @property
     def logger(self):
         return self.app.persistence_logger
@@ -768,6 +793,10 @@ class PersistentStore(ABC):
         return self._cache["num_EARs"]
 
     @property
+    def num_params_cache(self):
+        return self._cache["num_params"]
+
+    @property
     def param_sources_cache(self):
         """Cache for persistent parameter sources."""
         return self._cache["param_sources"]
@@ -785,6 +814,10 @@ class PersistentStore(ABC):
     def num_EARs_cache(self, value):
         self._cache["num_EARs"] = value
 
+    @num_params_cache.setter
+    def num_params_cache(self, value):
+        self._cache["num_params"] = value
+
     def _reset_cache(self):
         self._cache = {
             "tasks": {},
@@ -795,6 +828,7 @@ class PersistentStore(ABC):
             "num_tasks": None,
             "parameters": {},
             "num_EARs": None,
+            "num_params": None,
         }
 
     @contextlib.contextmanager
@@ -806,6 +840,20 @@ class PersistentStore(ABC):
         finally:
             self._use_cache = False
             self._reset_cache()
+
+    @contextlib.contextmanager
+    def parameters_metadata_cache(self):
+        """Context manager for using the parameters-metadata cache.
+
+        Notes
+        -----
+        This method can be overridden by a subclass to provide an implementation-specific
+        cache of metadata associated with parameters, or even parameter data itself.
+
+        Using this cache precludes writing/setting parameter data.
+
+        """
+        yield
 
     @staticmethod
     def prepare_test_store_from_spec(task_spec):
@@ -1110,10 +1158,13 @@ class PersistentStore(ABC):
         if save:
             self.save()
 
-    def add_submission_part(
-        self, sub_idx: int, dt_str: str, submitted_js_idx: List[int], save: bool = True
+    def update_at_submit_metadata(
+        self, sub_idx: int, submission_parts: Dict[str, List[int]], save: bool = True
     ):
-        self._pending.add_submission_parts[sub_idx][dt_str] = submitted_js_idx
+        if submission_parts:
+            self._pending.update_at_submit_metadata[sub_idx][
+                "submission_parts"
+            ] = submission_parts
         if save:
             self.save()
 
@@ -1240,15 +1291,16 @@ class PersistentStore(ABC):
             self._pending.set_js_metadata[sub_idx][js_idx][
                 "scheduler_name"
             ] = scheduler_name
-        if scheduler_job_ID:
+        if scheduler_job_ID or process_ID:
             self._pending.set_js_metadata[sub_idx][js_idx][
                 "scheduler_job_ID"
             ] = scheduler_job_ID
-        if process_ID:
+        if process_ID or scheduler_job_ID:
             self._pending.set_js_metadata[sub_idx][js_idx]["process_ID"] = process_ID
         if save:
             self.save()
 
+    @writes_parameter_data
     def _add_parameter(
         self,
         is_set: bool,
@@ -1390,12 +1442,15 @@ class PersistentStore(ABC):
                     with dst_path.open("wt") as fp:
                         fp.write(dat["contents"])
 
+    @writes_parameter_data
     def add_set_parameter(self, data: Any, source: Dict, save: bool = True) -> int:
         return self._add_parameter(data=data, is_set=True, source=source, save=save)
 
+    @writes_parameter_data
     def add_unset_parameter(self, source: Dict, save: bool = True) -> int:
         return self._add_parameter(data=None, is_set=False, source=source, save=save)
 
+    @writes_parameter_data
     def set_parameter_value(
         self, param_id: int, value: Any, is_file: bool = False, save: bool = True
     ):
@@ -1406,6 +1461,7 @@ class PersistentStore(ABC):
         if save:
             self.save()
 
+    @writes_parameter_data
     def set_parameter_values(self, values: Dict[int, Any], save: bool = True):
         """Set multiple non-file parameter values by parameter IDs."""
         param_ids = values.keys()
@@ -1415,6 +1471,7 @@ class PersistentStore(ABC):
             self.save()
 
     @TimeIt.decorator
+    @writes_parameter_data
     def update_param_source(
         self, param_sources: Dict[int, Dict], save: bool = True
     ) -> None:
@@ -1578,6 +1635,38 @@ class PersistentStore(ABC):
         subs = dict(sorted(subs.items()))
 
         return subs
+
+    @TimeIt.decorator
+    def get_submission_at_submit_metadata(
+        self, sub_idx: int, metadata_attr: Union[Dict, None]
+    ) -> Dict[str, Any]:
+        """Retrieve the values of submission attributes that are stored at submit-time.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return metadata_attr
+
+    @TimeIt.decorator
+    def get_jobscript_at_submit_metadata(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        metadata_attr: Union[Dict, None],
+    ) -> Dict[str, Any]:
+        """For the specified jobscript, retrieve the values of jobscript-submit-time
+        attributes.
+
+        Notes
+        -----
+        This method may need to be overridden if these jobscript-submit-time attributes
+        are stored separately from the remainder of the jobscript attributes.
+
+        """
+        return metadata_attr or {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
 
     @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:
