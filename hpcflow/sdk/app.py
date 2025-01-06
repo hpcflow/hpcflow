@@ -808,7 +808,8 @@ class BaseApp(metaclass=Singleton):
             # python 3.8; `resources.contents` deprecated since 3.11
             files = resources.contents(pkg)
         for i in files:
-            if i.suffix in (".yaml", ".yml", ".json", ".jsonc"):
+            # TODO: remove `Path()`` wrapping when Python 3.8 support is dropped.
+            if Path(i).suffix in (".yaml", ".yml", ".json", ".jsonc"):
                 templates[i.stem] = i
         return templates
 
