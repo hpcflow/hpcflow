@@ -113,6 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_tag: ${{ steps.new_tag.outputs.tag }}
+      version: ${{ steps.new_tag.outputs.version }}
       changelog: ${{ steps.upload-changelog.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +176,7 @@ jobs:
           NEW_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
           echo "NEW_TAG is: $NEW_TAG"
           echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "version=${tag:1}" >> $GITHUB_OUTPUT
 
       - name: Generate CHANGELOG (stable release)
         if: inputs.pr-base-ref == inputs.release_branch
@@ -268,80 +270,80 @@ jobs:
         run: poetry install --without dev
 
       - name: Build with pyinstaller (non-Windows, file)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
         run: ./make.sh $TARGET INFO 'onefile'
         env:
           TARGET: ${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}
 
       - name: Build with pyinstaller (non-Windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
         run: ./make.sh $TARGET INFO 'onedir'
         env:
           TARGET: ${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag}}-${{ matrix.executable_os }}-dir
 
       - name: Build with pyinstaller (Windows, file)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
-        run: ./make.ps1 -ExeName '${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}' -LogLevel INFO -BuildType 'onefile'
+        run: ./make.ps1 -ExeName $Env:TARGET -LogLevel INFO -BuildType 'onefile'
+        env:
+          TARGET: ${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}
 
       - name: Build with pyinstaller (Windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
-        run: ./make.ps1 -ExeName '${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir' -LogLevel INFO -BuildType 'onedir'
+        run: ./make.ps1 -ExeName $Env:TARGET -LogLevel INFO -BuildType 'onedir'
+        env:
+          TARGET: ${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir
 
       - name: Version check (windows, file)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         run: |
-          $tag = "${{ needs.bump-version.outputs.new_tag }}"
-          $tagNoV = $tag.trim('v')
-          $vers = ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }} --version
-          $vers_expected = "${{ inputs.app_name }}, version $tagNoV"
+          $vers = $Env:TARGET --version
           echo $vers
-          echo "$vers_expected"
-          if ($vers -ne $vers_expected) {
+          echo "$Env:EXPECTED"
+          if ($vers -ne $Env:EXPECTED) {
             exit 1
           }
+        env:
+          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
+          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }}
 
       - name: Version check (windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         run: |
-          $tag = "${{ needs.bump-version.outputs.new_tag }}"
-          $tagNoV = $tag.trim('v')
-          $vers = ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}  --version
-          $vers_expected = "${{ inputs.app_name }}, version $tagNoV"
+          $vers = $Env:TARGET --version
           echo $vers
-          echo "$vers_expected"
-          if ($vers -ne $vers_expected) {
+          echo $Env:EXPECTED
+          if ($vers -ne $Env:EXPECTED) {
             exit 1
           }
-
+        env:
+          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
+          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}
+  
       - name: Version check (non-windows, file)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         run: |
           vers=$($TARGET --version)
-          vers_expected="$APP, version ${TAG:1}"
           echo $vers
-          echo $vers_expected
-          [ "$vers" = "$vers_expected" ]
+          echo $EXPECTED
+          [ "$vers" = "$EXPECTED" ]
         env:
-          APP: ${{ inputs.app_name }}
-          TAG: ${{ needs.bump-version.outputs.new_tag }}
+          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
           TARGET: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }}
 
       - name: Version check (non-windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         run: |
           vers=$($TARGET --version)
-          vers_expected="$APP, version ${TAG:1}"
           echo $vers
-          echo $vers_expected
-          [ "$vers" = "$vers_expected" ]
+          echo $EXPECTED
+          [ "$vers" = "$EXPECTED" ]
         env:
-          APP: ${{ inputs.app_name }}
-          TAG: ${{ needs.bump-version.outputs.new_tag }}
-          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${TAG}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${tag}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}
+          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
+          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${TAG}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}
 
       - name: Run test suite on the frozen app (folder)
         env:
@@ -350,12 +352,12 @@ jobs:
           ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }} test
 
       - name: Compress folder (windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
         run: ./compress.ps1 -ExeName '${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir' -BuildType 'onedir'
 
       - name: Compress folder (non-windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: ${{ inputs.pyinstaller_dir }}
         run: ./compress.sh $TARGET 'onedir'
         env:
@@ -396,42 +398,40 @@ jobs:
             poetry config virtualenvs.in-project true
             poetry config installer.modern-installation false
             poetry install --without dev
-            tag=${{ needs.bump-version.outputs.new_tag }}
-            tagNoV=${tag:1}
+            base="${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}"
+            vers_expected="${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
 
             # build with pyinstaller for CentOS (file)
             cd ${{ inputs.pyinstaller_dir }}
-            ./make.sh ${{ inputs.executable_name }}-${tag}-linux INFO onefile
+            ./make.sh ${base}-linux INFO onefile
             cd ..
 
             # version check (file)
-            vers=$(${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${tag}-linux --version)
-            vers_expected="${{ inputs.app_name }}, version $tagNoV"
+            vers=$(${{ inputs.pyinstaller_dir }}/dist/onefile/${base}-linux --version)
             echo $vers
             echo $vers_expected
             [ "$vers" = "$vers_expected" ]
 
             # run test suite on the frozen app (file)
-            ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${tag}-linux test
+            ${{ inputs.pyinstaller_dir }}/dist/onefile/${base}-linux test
 
             # build with pyinstaller for CentOS (folder)
             cd ${{ inputs.pyinstaller_dir }}
-            ./make.sh ${{ inputs.executable_name }}-${tag}-linux-dir INFO onedir
+            ./make.sh ${base}-linux-dir INFO onedir
             cd ..
 
             # version check (folder)
-            vers=$(${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${tag}-linux-dir/${{ inputs.executable_name }}-${tag}-linux-dir --version)
-            vers_expected="${{ inputs.app_name }}, version $tagNoV"
+            vers=$(${{ inputs.pyinstaller_dir }}/dist/onedir/${base}-linux-dir/${base}-linux-dir --version)
             echo $vers
             echo $vers_expected
             [ "$vers" = "$vers_expected" ]
 
             # run test suite on the frozen app (folder)
-            ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${tag}-linux-dir/${{ inputs.executable_name }}-${tag}-linux-dir test
+            ${{ inputs.pyinstaller_dir }}/dist/onedir/${base}-linux-dir/${base}-linux-dir test
 
             # Compress folder (folder)
             cd ${{ inputs.pyinstaller_dir }}
-            ./compress.sh ${{ inputs.executable_name }}-${tag}-linux-dir 'onedir'
+            ./compress.sh ${base}-linux-dir 'onedir'
             cd ..
 
       - name: Upload executable artifact (file)
@@ -582,10 +582,11 @@ jobs:
         run: |
           binaryYaml=$(python3 -c "
           out_yaml = ''
+          exe_base = '${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-'
+          url_base = 'https://github.com/${{ inputs.repository }}/releases/download/${{ needs.bump-version.outputs.new_tag }}/'
           for i in ['win.exe', 'macOS', 'linux', 'win-dir.zip', 'macOS-dir.zip', 'linux-dir.zip']:
-            exe_name = '${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-' + i
-            url = 'https://github.com/${{ inputs.repository }}/releases/download/${{ needs.bump-version.outputs.new_tag }}/' + exe_name
-            out_yaml += exe_name + ': ' + url + '\n'
+            exe_name = f'{exe_base}{i}'
+            out_yaml += f'{exe_name}: {url_base}{exe_name}\n'
           print(out_yaml)
           ")
           # Save multiline output
@@ -699,8 +700,10 @@ jobs:
 
       - name: Update doc version switcher
         run: |
-          curl https://raw.githubusercontent.com/${{ inputs.repository }}/${{ github.ref_name }}/docs/make_vers_switcher.py --output docs/make_vers_switcher.py
+          curl $URL --output docs/make_vers_switcher.py
           python docs/make_vers_switcher.py ${{ inputs.docs_url_prefix }}
+        env:
+          URL: https://raw.githubusercontent.com/${{ inputs.repository }}/${{ github.ref_name }}/docs/make_vers_switcher.py
 
       - name: Push changes
         id: publish

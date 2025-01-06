@@ -49,32 +49,32 @@ jobs:
         run: poetry install --without dev
 
       - name: Build with pyinstaller (non Windows, file)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }} INFO 'onefile'
 
       - name: Build with pyinstaller (non Windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir INFO 'onedir'
 
       - name: Build with pyinstaller (Windows, file)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./make.ps1 -ExeName "hpcflow-release-test-build-${{ matrix.executable_os }}" -LogLevel INFO -BuildType 'onefile'
 
       - name: Build with pyinstaller (Windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./make.ps1 -ExeName "hpcflow-release-test-build-${{ matrix.executable_os }}-dir" -LogLevel INFO -BuildType 'onedir'
 
       - name: Compress folder (Windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./compress.ps1 -ExeName 'hpcflow-release-test-build-${{ matrix.executable_os }}-dir' -BuildType 'onedir'
 
       - name: Compress folder (non-windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./compress.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir onedir
 
