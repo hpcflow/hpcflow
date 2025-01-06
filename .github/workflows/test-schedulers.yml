@@ -1,4 +1,4 @@
-name: test-schedulers
+name: Test schedulers
 concurrency:
   | # e.g. don't run simultaneously on the same branch (since we may commit to that branch)
   ci-test-schedulers-${{ format('{0}github.head_ref', 'refs/heads') || github.ref }}

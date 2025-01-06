@@ -1,4 +1,4 @@
-name: build-exes Implementation
+name: ⚙️ Build executables
 
 env:
   PYTHON_VERSION_BUILD_EXES: "3.12"

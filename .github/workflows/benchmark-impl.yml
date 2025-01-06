@@ -1,4 +1,4 @@
-name: Benchmark shared implementation
+name: ⚙️ Benchmark
 
 env:
   POETRY_VERSION: "1.4"

@@ -1,4 +1,4 @@
-name: test-pre-python Implementation
+name: ⚙️ Test pre-python
 
 on:
   workflow_call:

@@ -1,4 +1,4 @@
-name: Release Implementation Workflow
+name: ⚙️ Release
 
 env:
   PYTHON_VERSION_BUMP: "3.12"

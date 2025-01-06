@@ -1,4 +1,4 @@
-name: bump-downstream
+name: Bump downstream project version
 concurrency: bump-downstream
 
 on:

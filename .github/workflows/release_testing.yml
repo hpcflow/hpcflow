@@ -1,4 +1,4 @@
-name: release_testing
+name: Release testing
 
 env:
   PYTHON_VERSION_BUMP: "3.12"

@@ -1,4 +1,4 @@
-name: test Implementation
+name: ⚙️ test
 on:
   workflow_call:
     inputs:

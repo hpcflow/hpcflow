@@ -1,10 +1,10 @@
-name: typecheck
+name: Type check
 env:
   POETRY_VERSION: "1.4"
 on: push
 jobs:
   run-mypy:
-    # Note that we only do this on one platform and with the earliest reasonable Python
+    # Note that we only do this on one platform and with one reasonable version of Python
     runs-on: ubuntu-latest
     strategy:
       matrix:

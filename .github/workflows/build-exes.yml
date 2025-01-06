@@ -1,4 +1,4 @@
-name: build-exes
+name: Build executables
 
 on:
   workflow_dispatch:
