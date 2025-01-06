@@ -1623,62 +1623,66 @@ class Workflow:
         self, id_lst: Iterable[int], as_dict: Optional[bool] = False
     ) -> List[app.ElementActionRun]:
         """Return element action run objects from a list of IDs."""
-        self.app.persistence_logger.debug(f"get_EARs_from_IDs: id_lst={id_lst!r}")
 
-        store_EARs = self._store.get_EARs(id_lst)
+        with self._store.cached_load():
 
-        elem_iter_IDs = [i.elem_iter_ID for i in store_EARs]
-        store_iters = self._store.get_element_iterations(elem_iter_IDs)
-
-        elem_IDs = [i.element_ID for i in store_iters]
-        store_elems = self._store.get_elements(elem_IDs)
-
-        task_IDs = [i.task_ID for i in store_elems]
-        store_tasks = self._store.get_tasks_by_IDs(task_IDs)
-
-        # to allow for bulk retrieval of elements/iterations
-        element_idx_by_task = defaultdict(set)
-        iter_idx_by_task_elem = defaultdict(lambda: defaultdict(set))
-
-        index_paths = []
-        for rn, it, el, tk in zip(store_EARs, store_iters, store_elems, store_tasks):
-            act_idx = rn.action_idx
-            run_idx = it.EAR_IDs[act_idx].index(rn.id_)
-            iter_idx = el.iteration_IDs.index(it.id_)
-            elem_idx = tk.element_IDs.index(el.id_)
-            index_paths.append(
-                {
-                    "run_idx": run_idx,
-                    "action_idx": act_idx,
-                    "iter_idx": iter_idx,
-                    "elem_idx": elem_idx,
-                    "task_idx": tk.index,
-                }
+            self.app.persistence_logger.debug(
+                f"get_EARs_from_IDs: {len(id_lst)} EARs: {shorten_list_str(id_lst)}."
             )
-            element_idx_by_task[tk.index].add(elem_idx)
-            iter_idx_by_task_elem[tk.index][elem_idx].add(iter_idx)
+            store_EARs = self._store.get_EARs(id_lst)
 
-        # retrieve elements/iterations:
-        iters_by_task_elem = defaultdict(lambda: defaultdict(dict))
-        for task_idx, elem_idx in element_idx_by_task.items():
-            elements = self.tasks[task_idx].elements[list(elem_idx)]
-            for elem_i in elements:
-                elem_i_iters_idx = iter_idx_by_task_elem[task_idx][elem_i.index]
-                elem_iters = [elem_i.iterations[j] for j in elem_i_iters_idx]
-                iters_by_task_elem[task_idx][elem_i.index].update(
-                    dict(zip(elem_i_iters_idx, elem_iters))
+            elem_iter_IDs = [i.elem_iter_ID for i in store_EARs]
+            store_iters = self._store.get_element_iterations(elem_iter_IDs)
+
+            elem_IDs = [i.element_ID for i in store_iters]
+            store_elems = self._store.get_elements(elem_IDs)
+
+            task_IDs = [i.task_ID for i in store_elems]
+            store_tasks = self._store.get_tasks_by_IDs(task_IDs)
+
+            # to allow for bulk retrieval of elements/iterations
+            element_idx_by_task = defaultdict(set)
+            iter_idx_by_task_elem = defaultdict(lambda: defaultdict(set))
+
+            index_paths = []
+            for rn, it, el, tk in zip(store_EARs, store_iters, store_elems, store_tasks):
+                act_idx = rn.action_idx
+                run_idx = it.EAR_IDs[act_idx].index(rn.id_)
+                iter_idx = el.iteration_IDs.index(it.id_)
+                elem_idx = tk.element_IDs.index(el.id_)
+                index_paths.append(
+                    {
+                        "run_idx": run_idx,
+                        "action_idx": act_idx,
+                        "iter_idx": iter_idx,
+                        "elem_idx": elem_idx,
+                        "task_idx": tk.index,
+                    }
                 )
+                element_idx_by_task[tk.index].add(elem_idx)
+                iter_idx_by_task_elem[tk.index][elem_idx].add(iter_idx)
 
-        objs = {} if as_dict else []
-        for idx_dat in index_paths:
-            iter_ = iters_by_task_elem[idx_dat["task_idx"]][idx_dat["elem_idx"]][
-                idx_dat["iter_idx"]
-            ]
-            run = iter_.actions[idx_dat["action_idx"]].runs[idx_dat["run_idx"]]
-            if as_dict:
-                objs[run.id_] = run
-            else:
-                objs.append(run)
+            # retrieve elements/iterations:
+            iters_by_task_elem = defaultdict(lambda: defaultdict(dict))
+            for task_idx, elem_idx in element_idx_by_task.items():
+                elements = self.tasks[task_idx].elements[list(elem_idx)]
+                for elem_i in elements:
+                    elem_i_iters_idx = iter_idx_by_task_elem[task_idx][elem_i.index]
+                    elem_iters = [elem_i.iterations[j] for j in elem_i_iters_idx]
+                    iters_by_task_elem[task_idx][elem_i.index].update(
+                        dict(zip(elem_i_iters_idx, elem_iters))
+                    )
+
+            objs = {} if as_dict else []
+            for idx_dat in index_paths:
+                iter_ = iters_by_task_elem[idx_dat["task_idx"]][idx_dat["elem_idx"]][
+                    idx_dat["iter_idx"]
+                ]
+                run = iter_.actions[idx_dat["action_idx"]].runs[idx_dat["run_idx"]]
+                if as_dict:
+                    objs[run.id_] = run
+                else:
+                    objs.append(run)
 
         return objs
 
