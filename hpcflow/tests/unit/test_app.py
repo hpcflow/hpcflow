@@ -120,6 +120,6 @@ def test_get_demo_workflows():
     # keys should be those in the list:
     assert sorted(list(lst)) == sorted(list(demo_paths.keys()))
 
-    # values should be distinct paths:
-    assert all(isinstance(i, Path) for i in demo_paths.values())
+    # values should be distinct, absolute paths:
+    assert all(isinstance(i, Path) and i.is_absolute() for i in demo_paths.values())
     assert len(set(demo_paths.values())) == len(demo_paths)
