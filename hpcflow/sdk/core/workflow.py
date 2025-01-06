@@ -2138,7 +2138,11 @@ class Workflow:
 
     @property
     def num_submissions(self):
-        return self._store._get_num_total_submissions()
+        return (
+            len(self._submissions)
+            if self._submissions is not None
+            else self._store._get_num_total_submissions()
+        )
 
     @property
     def num_elements(self):
