@@ -353,6 +353,10 @@ class MissingParameterData(_MissingStoreItemError):
         super().__init__(id_lst, self._item_type)
 
 
+class ParametersMetadataReadOnlyError(RuntimeError):
+    pass
+
+
 class NotSubmitMachineError(RuntimeError):
     pass
 
