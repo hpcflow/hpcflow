@@ -1465,7 +1465,9 @@ class PersistentStore(ABC):
         """Get all template components, including pending."""
         tc = copy.deepcopy(self._get_persistent_template_components())
         for typ in TEMPLATE_COMP_TYPES:
-            for hash_i, dat_i in self._pending.add_template_components[typ].items():
+            for hash_i, dat_i in self._pending.add_template_components.get(
+                typ, {}
+            ).items():
                 if typ not in tc:
                     tc[typ] = {}
                 tc[typ][hash_i] = dat_i
