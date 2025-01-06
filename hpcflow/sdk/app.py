@@ -808,9 +808,9 @@ class BaseApp(metaclass=Singleton):
             # python 3.8; `resources.contents` deprecated since 3.11
             files = resources.contents(pkg)
         for i in files:
-            # TODO: remove two `Path()` wrappings when Python 3.8 support is dropped.
+            # TODO: remove three `Path()` wrappings when Python 3.8 support is dropped.
             if Path(i).suffix in (".yaml", ".yml", ".json", ".jsonc"):
-                templates[Path(i).stem] = i
+                templates[Path(i).stem] = Path(i)
         return templates
 
     def list_demo_workflows(self) -> Tuple[str]:
