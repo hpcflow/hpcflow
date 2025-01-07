@@ -30,7 +30,9 @@ def test_zarr_metadata_file_modification_times_many_jobscripts(null_config, tmp_
     mtime_meta_group = Path(wk.path).joinpath(".zattrs").stat().st_mtime
     mtime_mid_jobscript_chunk = (
         Path(wk._store.path)
-        .joinpath(wk._store._get_jobscripts_metadata_arr(0).path, str(int(num_js / 2)))
+        .joinpath(
+            wk._store._get_jobscripts_at_submit_metadata_arr(0).path, str(int(num_js / 2))
+        )
         .stat()
         .st_mtime
     )
