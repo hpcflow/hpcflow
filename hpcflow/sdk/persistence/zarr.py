@@ -338,7 +338,7 @@ class ZarrPersistentStore(PersistentStore):
     _iter_arr_name = "iters"
     _EAR_arr_name = "runs"
     _run_dir_arr_name = "run_dirs"
-    _js_md_arr_name = "jobscripts"
+    _js_at_submit_md_arr_name = "js_at_submit_md"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -545,7 +545,7 @@ class ZarrPersistentStore(PersistentStore):
             )
             num_js = len(sub_i["jobscripts"])
             sub_grp.create_dataset(
-                name=self._js_md_arr_name,
+                name=self._js_at_submit_md_arr_name,
                 shape=num_js,
                 dtype=object,
                 object_codec=MsgPack(),
@@ -806,7 +806,7 @@ class ZarrPersistentStore(PersistentStore):
                     # we are updating the at-sumbmit metadata, so clear the cache:
                     self.clear_jobscript_at_submit_metadata_cache()
 
-                    js_arr = js_arr or self._get_jobscripts_metadata_arr(
+                    js_arr = js_arr or self._get_jobscripts_at_submit_metadata_arr(
                         mode="r+", sub_idx=sub_idx
                     )
                     self.logger.info(
@@ -1001,9 +1001,11 @@ class ZarrPersistentStore(PersistentStore):
     def _get_submission_metadata_group(self, sub_idx: int, mode: str = "r") -> zarr.Group:
         return self._get_all_submissions_metadata_group(mode=mode).get(sub_idx)
 
-    def _get_jobscripts_metadata_arr(self, sub_idx: int, mode: str = "r") -> zarr.Array:
+    def _get_jobscripts_at_submit_metadata_arr(
+        self, sub_idx: int, mode: str = "r"
+    ) -> zarr.Array:
         return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
-            self._js_md_arr_name
+            self._js_at_submit_md_arr_name
         )
 
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
@@ -1357,7 +1359,7 @@ class ZarrPersistentStore(PersistentStore):
         else:
             self._jobscript_at_submit_metadata = {}
 
-        arr = self._get_jobscripts_metadata_arr(sub_idx)
+        arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
         non_cached = set(range(len(arr))) - set(self._jobscript_at_submit_metadata.keys())
 
         # populate cache:
