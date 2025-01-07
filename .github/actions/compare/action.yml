@@ -1,0 +1,46 @@
+name: Compare program output to a string
+description: >
+  Compare the output of a program to a string given as a parameter.
+  A single trailing newline will be ignored.
+inputs:
+  command:
+    description: The command to get the output of for comparison.
+    required: true
+  expected:
+    description: The string that the output is expected to equal.
+    required: true
+  init:
+    description: Extra initialisation code to run before the command to compare.
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      if: runner.os != 'Windows'
+      run: |
+        eval $INIT
+        actual=`$COMMAND`
+        echo "actual:   $actual"
+        echo "expected: $EXPECTED"
+        [ "$actual" = "$EXPECTED" ]
+      env:
+        COMMAND: ${{ inputs.command }}
+        EXPECTED: ${{ inputs.expected }}
+        INIT: ${{ inputs.init }}
+    - shell: pwsh
+      if: runner.os == 'Windows'
+      run: |
+        if ($Env:INIT) {
+          Invoke-Expression $Env:INIT
+        }
+        $actual = (Invoke-Expression $Env:COMMAND)
+        Write-Host "actual:   $actual"
+        Write-Host "expected: $Env:EXPECTED"
+        if ($actual -ne $Env:EXPECTED) {
+          exit 1
+        }
+      env:
+        COMMAND: ${{ inputs.command }}
+        EXPECTED: ${{ inputs.expected }}
+        INIT: ${{ inputs.init }}
