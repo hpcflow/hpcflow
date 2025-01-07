@@ -23,7 +23,7 @@ def test_zarr_metadata_file_modification_times_many_jobscripts(null_config, tmp_
         template_name="test_zarr_metadata_attrs_modified_times",
         path=tmp_path,
         tasks=[t1],
-        store="zarr",  # do zarr and json
+        store="zarr",
     )
     wk.submit(add_to_known=False, status=False, cancel=True)
 
@@ -41,3 +41,31 @@ def test_zarr_metadata_file_modification_times_many_jobscripts(null_config, tmp_
         .st_mtime
     )
     assert mtime_meta_group < mtime_mid_jobscript_chunk < mtime_submission_group
+
+
+@pytest.mark.integration
+def test_json_metadata_file_modification_times_many_jobscripts(null_config, tmp_path):
+    """Test that the metadata.json file is modified first, then the submissions.json
+    file."""
+
+    num_js = 30
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        inputs={"p1": 100},
+        sequences=[
+            hf.ValueSequence(
+                path="resources.any.resources_id", values=list(range(num_js))
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_zarr_metadata_attrs_modified_times",
+        path=tmp_path,
+        tasks=[t1],
+        store="json",
+    )
+    wk.submit(add_to_known=False, status=False, cancel=True)
+
+    mtime_meta = Path(wk.path).joinpath("metadata.json").stat().st_mtime
+    mtime_subs = Path(wk.path).joinpath("submissions.json").stat().st_mtime
+    assert mtime_meta < mtime_subs
