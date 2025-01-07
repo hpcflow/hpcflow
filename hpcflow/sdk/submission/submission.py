@@ -113,6 +113,31 @@ class Submission(JSONLike):
 
         self._set_parent_refs()
 
+    def _ensure_JS_parallelism_set(self):
+        """Ensure that the JS_parallelism attribute is one of `True`, `False`, `'direct'`
+        or `'scheduled'`.
+
+        Notes
+        -----
+        This method is called when the Submission object is first created in
+        `Workflow._add_submission`.
+
+        """
+        # if JS_parallelism explicitly requested but store doesn't support, raise:
+        supports_JS_para = self.workflow._store._features.jobscript_parallelism
+        if self.JS_parallelism:
+            # could be: True | "direct" | "scheduled"
+            if not supports_JS_para:
+                # if status:
+                #     status.stop()
+                raise ValueError(
+                    f"Store type {self.workflow._store!r} does not support jobscript "
+                    f"parallelism."
+                )
+        elif self.JS_parallelism is None:
+            # by default only use JS parallelism for scheduled jobscripts:
+            self._JS_parallelism = "scheduled" if supports_JS_para else False
+
     @TimeIt.decorator
     def _set_environments(self):
         filterable = ElementResources.get_env_instance_filterable_attributes()
@@ -868,21 +893,9 @@ class Submission(JSONLike):
     ) -> List[int]:
         """Generate and submit the jobscripts of this submission."""
 
-        # if JS_parallelism explicitly requested but store doesn't support, raise:
-        supports_JS_para = self.workflow._store._features.jobscript_parallelism
-        if self.JS_parallelism:
-            # could be: True | "direct" | "scheduled"
-            if not supports_JS_para:
-                if status:
-                    status.stop()
-                raise ValueError(
-                    f"Store type {self.workflow._store!r} does not support jobscript "
-                    f"parallelism."
-                )
-        elif self.JS_parallelism is None:
-            # by default only use JS parallelism for scheduled jobscripts:
-            self._JS_parallelism = "scheduled" if supports_JS_para else False
-            # TODO: is this value saved?
+        # TODO: support passing list of jobscript indices to submit; this will allow us
+        # to test a submision with multiple "submission parts". would also need to check
+        # dependencies if this customised list is passed
 
         outstanding = self.outstanding_jobscripts
 

@@ -3068,6 +3068,7 @@ class Workflow:
                         sub_idx=new_idx,
                     )
 
+        sub_obj._ensure_JS_parallelism_set()
         sub_obj_js, _ = sub_obj.to_json_like()
         self._submissions.append(sub_obj)
         self._pending["submissions"].append(new_idx)

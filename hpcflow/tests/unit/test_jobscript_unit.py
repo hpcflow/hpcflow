@@ -492,3 +492,39 @@ def test_combine_scripts_unset_False_jobscript_hash_equivalence(null_config, tmp
     assert res_1.get_jobscript_hash() == res_2.get_jobscript_hash()
 
     assert len(sub.jobscripts) == 1
+
+
+def test_JS_parallelism_default_zarr(null_config, tmp_path):
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        inputs={"p1": 100},
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_JS_parallelism_default_set_zarr",
+        path=tmp_path,
+        tasks=[t1],
+        store="zarr",
+    )
+
+    wk.add_submission()  # do not set JS_parallelism
+
+    # zarr supports JS parallelism, so by default should be set to "scheduled":
+    assert wk.submissions[0].JS_parallelism == "scheduled"
+
+
+def test_JS_parallelism_default_json(null_config, tmp_path):
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        inputs={"p1": 100},
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_JS_parallelism_default_set_json",
+        path=tmp_path,
+        tasks=[t1],
+        store="json",
+    )
+
+    wk.add_submission()  # do not set JS_parallelism
+
+    # json does not support JS parallelism, so by default should be set to False:
+    assert wk.submissions[0].JS_parallelism is False
