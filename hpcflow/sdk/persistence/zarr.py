@@ -339,6 +339,7 @@ class ZarrPersistentStore(PersistentStore):
     _EAR_arr_name = "runs"
     _run_dir_arr_name = "run_dirs"
     _js_at_submit_md_arr_name = "js_at_submit_md"
+    _js_run_IDs_arr_name = "js_run_IDs"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -351,6 +352,11 @@ class ZarrPersistentStore(PersistentStore):
             ),
         }
         self._jobscript_at_submit_metadata = None  # this is a cache
+
+        # this is a cache; keys are submission index and then tuples of
+        # (jobscript index, jobscript-block index):
+        self._jobscript_run_ID_arrays = {}
+
         super().__init__(app, workflow, path, fs)
 
     @contextmanager
@@ -532,17 +538,70 @@ class ZarrPersistentStore(PersistentStore):
                 )
                 attrs["template"]["loops"].append(loop["loop_template"])
 
+    @staticmethod
+    def _extract_submission_run_IDs_array(sub_js):
+        """For a JSON-like representation of a Submission object, remove and combine all
+        jobscript-block run ID lists into a single array with a fill value.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `EAR_ID` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_run_IDs
+            Integer Numpy array that contains a concatenation of all 2D run ID arrays
+            from each jobscript-block. Technically a "jagged"/"ragged" array that is made
+            square with a large fill value.
+        block_shapes
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of run ID shapes (as a two-item list:
+            `[num_actions, num_elements]`) of the constituent blocks of that jobscript.
+
+        """
+        arrs = []
+        max_acts, max_elems = 0, 0
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+        block_shapes = []
+        for js in sub_js["jobscripts"]:
+            blocks_i = []
+            for blk in js["blocks"]:
+                run_IDs_i = np.array(blk["EAR_ID"])
+                blk["EAR_ID"] = None
+                blocks_i.append(list(run_IDs_i.shape))
+                if run_IDs_i.shape[0] > max_acts:
+                    max_acts = run_IDs_i.shape[0]
+                if run_IDs_i.shape[1] > max_elems:
+                    max_elems = run_IDs_i.shape[1]
+                arrs.append(run_IDs_i)
+            block_shapes.append(blocks_i)
+
+        combined_run_IDs = np.full(
+            (len(arrs), max_acts, max_elems),
+            dtype=np.uint32,
+            fill_value=np.iinfo(np.uint32).max,
+        )
+        for arr_idx, arr in enumerate(arrs):
+            combined_run_IDs[arr_idx][: arr.shape[0], : arr.shape[1]] = arr
+
+        return combined_run_IDs, block_shapes
+
     def _append_submissions(self, subs: Dict[int, Dict]):
-        with self.using_resource("attrs", action="update") as attrs:
-            for sub_idx, sub_i in subs.items():
-                attrs["submissions"].append(sub_i)
 
         for sub_idx, sub_i in subs.items():
 
-            # add a new metadata array for jobscripts of this submission:
+            # add a new metadata group for this submission:
             sub_grp = self._get_all_submissions_metadata_group(mode="r+").create_group(
                 sub_idx
             )
+
+            # add a new at-submit metadata array for jobscripts of this submission:
             num_js = len(sub_i["jobscripts"])
             sub_grp.create_dataset(
                 name=self._js_at_submit_md_arr_name,
@@ -553,9 +612,22 @@ class ZarrPersistentStore(PersistentStore):
                 write_empty_chunks=False,
             )
 
+            # add a new array to store run IDs for each jobscript
+            combined_run_IDs, block_shapes = self._extract_submission_run_IDs_array(sub_i)
+            run_IDs_arr = sub_grp.create_dataset(
+                name=self._js_run_IDs_arr_name,
+                data=combined_run_IDs,
+                chunks=(None, None, None),  # single chunk for the whole array
+            )
+            run_IDs_arr.attrs["block_shapes"] = block_shapes
+
             # add attributes for at-submit-time submission metadata:
             grp = self._get_submission_metadata_group(sub_idx, mode="r+")
             grp.attrs["submission_parts"] = {}
+
+        with self.using_resource("attrs", action="update") as attrs:
+            for sub_idx, sub_i in subs.items():
+                attrs["submissions"].append(sub_i)
 
     def _append_task_element_IDs(self, task_ID: int, elem_IDs: List[int]):
         # I don't think there's a way to "append" to an existing array in a zarr ragged
@@ -1008,6 +1080,11 @@ class ZarrPersistentStore(PersistentStore):
             self._js_at_submit_md_arr_name
         )
 
+    def _get_jobscripts_run_ID_arr(self, sub_idx: int, mode: str = "r") -> zarr.Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_run_IDs_arr_name
+        )
+
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._task_arr_name)
 
@@ -1378,6 +1455,53 @@ class ZarrPersistentStore(PersistentStore):
             return {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
 
         return self._jobscript_at_submit_metadata[js_idx]
+
+    def get_jobscript_block_run_ID_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        run_ID_arr: Union[np.ndarray, None],
+    ) -> Dict[int, Dict[str, Any]]:
+        """For the specified jobscript-block, retrieve the run ID array."""
+
+        if run_ID_arr is not None:
+            self.logger.debug("jobscript-block run IDs are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # run ID arrays will not yet be persistent.
+            return run_ID_arr
+
+        # otherwise, `append_submissions` has been called, the run IDs have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_run_ID_arrays:
+
+            self.logger.debug(
+                f"retrieving jobscript-block run IDs for submission {sub_idx} from disk,"
+                f" and caching."
+            )
+
+            # for a given submission, run IDs are stored for all jobscript-blocks in the
+            # same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_run_ID_arr(sub_idx)
+            block_shapes = arr.attrs["block_shapes"]
+
+            self._jobscript_run_ID_arrays[sub_idx] = {}  # keyed by (js_idx, blk_idx)
+            arr_idx = 0
+            for js_idx_i, js_blk_shapes in enumerate(block_shapes):
+                for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
+                    self._jobscript_run_ID_arrays[sub_idx][(js_idx_i, blk_idx_j)] = arr[
+                        arr_idx, : blk_shape_j[0], : blk_shape_j[1]
+                    ]
+                    arr_idx += 1
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block run IDs for submission {sub_idx} from cache."
+            )
+
+        return self._jobscript_run_ID_arrays[sub_idx][(js_idx, blk_idx)]
 
     def get_ts_fmt(self):
         with self.using_resource("attrs", action="read") as attrs:

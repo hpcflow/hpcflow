@@ -463,12 +463,14 @@ class JobscriptBlock(JSONLike):
         task_insert_IDs: List[int],
         task_actions: List[Tuple],
         task_elements: Dict[int, List[int]],
-        EAR_ID: NDArray,
+        EAR_ID: Union[NDArray, None],
         task_loop_idx: List[Dict],
         dependencies: Dict[int, Dict],
+        index: int,
         jobscript: Optional[Any] = None,
     ):
         self.jobscript = jobscript
+        self._index = index
         self._task_insert_IDs = task_insert_IDs
         self._task_actions = task_actions
         self._task_elements = task_elements
@@ -477,6 +479,14 @@ class JobscriptBlock(JSONLike):
         self._dependencies = dependencies
 
         self._all_EARs = None  # assigned on first access to `all_EARs` property
+
+    @property
+    def index(self):
+        return self._index
+
+    @property
+    def submission(self):
+        return self.jobscript.submission
 
     @property
     def task_insert_IDs(self):
@@ -492,7 +502,12 @@ class JobscriptBlock(JSONLike):
 
     @property
     def EAR_ID(self):
-        return self._EAR_ID
+        return self.workflow._store.get_jobscript_block_run_ID_array(
+            sub_idx=self.submission.index,
+            js_idx=self.jobscript.index,
+            blk_idx=self.index,
+            run_ID_arr=self._EAR_ID,
+        )
 
     @property
     def task_loop_idx(self):
@@ -529,7 +544,9 @@ class JobscriptBlock(JSONLike):
 
     @classmethod
     def from_json_like(cls, json_like, shared_data=None):
-        json_like["EAR_ID"] = np.array(json_like["EAR_ID"])
+        json_like["EAR_ID"] = (
+            np.array(json_like["EAR_ID"]) if json_like["EAR_ID"] is not None else None
+        )
         json_like["dependencies"] = {tuple(i[0]): i[1] for i in json_like["dependencies"]}
         return super().from_json_like(json_like, shared_data)
 
@@ -587,7 +604,10 @@ class Jobscript(JSONLike):
     ):
 
         if not isinstance(blocks[0], JobscriptBlock):
-            blocks = [JobscriptBlock(**i, jobscript=self) for i in blocks]
+            blocks = [
+                JobscriptBlock(**i, index=idx, jobscript=self)
+                for idx, i in enumerate(blocks)
+            ]
 
         self._index = index
         self._blocks = blocks

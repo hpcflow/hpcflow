@@ -1,3 +1,4 @@
+import numpy as np
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.test_utils import make_schemas, make_workflow
 from hpcflow.sdk.submission.jobscript import is_jobscript_array, resolve_jobscript_blocks
@@ -528,3 +529,50 @@ def test_JS_parallelism_default_json(null_config, tmp_path):
 
     # json does not support JS parallelism, so by default should be set to False:
     assert wk.submissions[0].JS_parallelism is False
+
+
+def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(null_config, tmp_path):
+    """The zarr store keeps jobscript-block run IDs in separate arrays, so test
+    equivalence."""
+
+    s1, s2, s3, s4 = make_schemas(
+        [
+            [{"p1": None}, ("p2", "p3"), "t1"],
+            [{"p2": None}, ("p4",), "t2"],
+            [{"p4": None}, ("p5",), "t3"],
+            [{"p3": None, "p5": None}, (), "t4"],
+        ]
+    )
+    tasks_zarr = [
+        hf.Task(schema=s1, inputs={"p1": 101}),
+        hf.Task(schema=s2, resources={"any": {"num_cores": 2}}),
+        hf.Task(schema=s3),
+        hf.Task(schema=s4),
+    ]
+    wk_zarr = hf.Workflow.from_template_data(
+        template_name="test_js_blocks_zarr",
+        tasks=tasks_zarr,
+        path=tmp_path,
+        store="zarr",
+    )
+    sub_zarr = wk_zarr.add_submission()
+
+    tasks_json = [
+        hf.Task(schema=s1, inputs={"p1": 101}),
+        hf.Task(schema=s2, resources={"any": {"num_cores": 2}}),
+        hf.Task(schema=s3),
+        hf.Task(schema=s4),
+    ]
+    wk_json = hf.Workflow.from_template_data(
+        template_name="test_js_blocks_json",
+        tasks=tasks_json,
+        path=tmp_path,
+        store="json",
+    )
+    sub_json = wk_json.add_submission()
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        js_json = sub_json.jobscripts[js_idx]
+        assert np.array_equal(js_zarr.all_EAR_IDs, js_json.all_EAR_IDs)

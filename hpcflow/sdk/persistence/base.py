@@ -1669,6 +1669,20 @@ class PersistentStore(ABC):
         return metadata_attr or {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
 
     @TimeIt.decorator
+    def get_jobscript_block_run_ID_array(
+        self, sub_idx: int, js_idx: int, blk_idx: int, run_ID_arr: Union[np.ndarray, None]
+    ) -> np.ndarray:
+        """For the specified jobscript-block, retrieve the run ID array.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return run_ID_arr
+
+    @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:
         # separate pending and persistent IDs:
         id_set = set(id_lst)
