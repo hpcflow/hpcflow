@@ -21,8 +21,10 @@ runs:
       run: |
         eval $INIT
         actual=`$COMMAND`
-        echo "actual:   $actual"
-        echo "expected: $EXPECTED"
+        C='\033[0;33m'
+        NC='\033[0m'
+        echo -e "${C}actual:${NC}   $actual"
+        echo -e "${C}expected:${NC} $EXPECTED"
         [ "$actual" = "$EXPECTED" ]
       env:
         COMMAND: ${{ inputs.command }}
@@ -35,8 +37,10 @@ runs:
           Invoke-Expression $Env:INIT
         }
         $actual = (Invoke-Expression $Env:COMMAND)
-        Write-Host "actual:   $actual"
-        Write-Host "expected: $Env:EXPECTED"
+        $C = "$([char] 27)[0;33m"                       
+        $NC = "$([char] 27)[0m"
+        Write-Host "${C}actual:${NC}   $actual"
+        Write-Host "${C}expected:${NC} $Env:EXPECTED"
         if ($actual -ne $Env:EXPECTED) {
           exit 1
         }
