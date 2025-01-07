@@ -279,6 +279,14 @@ jobs:
           poetry install --without dev,pyinstaller
           poetry run pip install ipython
 
+      - name: Prepare test data
+        id: prep-test-data
+        run: |
+          echo "exe-path=${PY//python/$EXE_NAME}" >> $GITHUB_OUTPUT
+        env:
+          EXE_NAME: ${{ inputs.executable_name }}
+          PY: ${{ steps.python.outputs.python-path }}
+
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
         uses: ./.github/actions/compare
         with:
@@ -298,7 +306,7 @@ jobs:
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
-          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.executable_name }}')"
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
         uses: ./.github/actions/compare
@@ -364,6 +372,14 @@ jobs:
           poetry install --without dev,pyinstaller
           poetry run pip install ipython
 
+      - name: Prepare test data
+        id: prep-test-data
+        run: |
+          echo "exe-path=${PY//python/$EXE_NAME}" >> $GITHUB_OUTPUT
+        env:
+          EXE_NAME: ${{ inputs.executable_name }}
+          PY: ${{ steps.python.outputs.python-path }}
+
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
         uses: ./.github/actions/compare
         with:
@@ -383,7 +399,7 @@ jobs:
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
-          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.executable_name }}')"
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
         uses: ./.github/actions/compare
@@ -453,7 +469,7 @@ jobs:
         run: |
           ("python-path=" + $Env:PY.Replace('\', '\\')) | Out-File $Env:GITHUB_OUTPUT -Append
           ("cli-path=$Env:GITHUB_WORKSPACE\$Env:CLI_PATH".Replace('\', '\\')) | Out-File $Env:GITHUB_OUTPUT -Append
-          ("exe-path=$Env:GITHUB_WORKSPACE\$Env:PY".Replace('python.exe', $Env:EXE_NAME)) | Out-File $Env:GITHUB_OUTPUT -Append
+          ("exe-path=$Env:PY".Replace('python.exe', $Env:EXE_NAME).Replace('\', '\\')) | Out-File $Env:GITHUB_OUTPUT -Append
         env:
           CLI_PATH: ${{ inputs.CLI_path_win }}
           EXE_NAME: ${{ inputs.executable_name }}
