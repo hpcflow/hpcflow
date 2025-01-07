@@ -325,3 +325,30 @@ def test_write_app_logs_false(null_config, tmp_path):
     assert not wk.submissions[0].app_log_path.is_dir()
     assert not run_0_log_path.is_file()
     assert not run_1_log_path.is_file()
+
+
+@pytest.mark.integration
+def test_jobscript_start_end_times_equal_to_first_and_last_run_start_end_times(
+    null_config, tmp_path
+):
+
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        sequences=[hf.ValueSequence(path="inputs.p1", values=list(range(2)))],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_jobscript_start_end_times",
+        path=tmp_path,
+        tasks=[t1],
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    js = wk.submissions[0].jobscripts[0]
+    runs = wk.get_all_EARs()
+    assert len(runs) == 2
+
+    # jobsript has two runs, so start time should be start time of first run:
+    assert js.start_time == runs[0].start_time
+
+    # ...and end time should be end time of second run:
+    assert js.end_time == runs[1].end_time

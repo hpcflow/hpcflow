@@ -257,7 +257,7 @@ class Submission(JSONLike):
             if start_i:
                 all_start_times.append(start_i)
         if all_start_times:
-            return max(all_start_times)  # FIXME: should be min?
+            return min(all_start_times)
         else:
             return None
 

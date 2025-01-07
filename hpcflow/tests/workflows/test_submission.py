@@ -69,3 +69,36 @@ def test_json_metadata_file_modification_times_many_jobscripts(null_config, tmp_
     mtime_meta = Path(wk.path).joinpath("metadata.json").stat().st_mtime
     mtime_subs = Path(wk.path).joinpath("submissions.json").stat().st_mtime
     assert mtime_meta < mtime_subs
+
+
+@pytest.mark.integration
+def test_subission_start_end_times_equal_to_first_and_last_jobscript_start_end_times(
+    null_config, tmp_path
+):
+    num_js = 2
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        inputs={"p1": 100},
+        sequences=[
+            hf.ValueSequence(
+                path="resources.any.resources_id", values=list(range(num_js))
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_subission_start_end_times",
+        path=tmp_path,
+        tasks=[t1],
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    sub = wk.submissions[0]
+    jobscripts = sub.jobscripts
+
+    assert len(jobscripts) == num_js
+
+    # submission has two jobscripts, so start time should be start time of first jobscript:
+    assert sub.start_time == jobscripts[0].start_time
+
+    # ...and end time should be end time of second jobscript:
+    assert sub.end_time == jobscripts[1].end_time
