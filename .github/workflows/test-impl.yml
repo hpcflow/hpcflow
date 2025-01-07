@@ -298,7 +298,7 @@ jobs:
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
-          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.executable_name }}')"
 
       - name: Test invocation command within a python script
         uses: ./.github/actions/compare
@@ -383,7 +383,7 @@ jobs:
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
-          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.executable_name }}')"
 
       - name: Test invocation command within a python script
         uses: ./.github/actions/compare
@@ -453,8 +453,10 @@ jobs:
         run: |
           ("python-path=" + $Env:PY.Replace('\', '\\')) | Out-File $Env:GITHUB_OUTPUT -Append
           ("cli-path=$Env:GITHUB_WORKSPACE\$Env:CLI_PATH".Replace('\', '\\')) | Out-File $Env:GITHUB_OUTPUT -Append
+          ("exe-path=$Env:GITHUB_WORKSPACE\$Env:PY".Replace('python.exe', $Env:EXE_NAME)) | Out-File $Env:GITHUB_OUTPUT -Append
         env:
           CLI_PATH: ${{ inputs.CLI_path_win }}
+          EXE_NAME: ${{ inputs.executable_name }}
           PY: ${{ steps.poetry.outputs.python-path }}
 
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
@@ -476,7 +478,7 @@ jobs:
         with:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
-          expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
+          expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
         uses: ./.github/actions/compare
