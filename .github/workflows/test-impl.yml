@@ -285,59 +285,41 @@ jobs:
           init: source $(poetry env info --path)/bin/activate
           command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
-      - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`python ./${{ inputs.CLI_path }} internal get-invoc-cmd`
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`python -m ${{ inputs.CLI_module }} internal get-invoc-cmd`
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`${{ inputs.executable_name }} internal get-invoc-cmd`
-          expected="('`command -v python`', '`command -v ${{ inputs.executable_name }}`')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: ${{ inputs.executable_name }} internal get-invoc-cmd
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command within a python script
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive python
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive ipython
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test direct workflow submission within a python script
         run: |
@@ -369,6 +351,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - uses: ./.github/actions/setup-poetry
+        id: python
         with:
           version: ${{ env.POETRY_VERSION }}
       - uses: ./.github/actions/init-cache
@@ -382,58 +365,46 @@ jobs:
           poetry run pip install ipython
 
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`python ./${{ inputs.CLI_path }} internal get-invoc-cmd`
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`python -m ${{ inputs.CLI_module }} internal get-invoc-cmd`
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=`${{ inputs.executable_name }} internal get-invoc-cmd`
-          expected="('`command -v python`', '`command -v ${{ inputs.executable_name }}`')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: ${{ inputs.executable_name }} internal get-invoc-cmd
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command within a python script
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive python
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive ipython
-        run: |
-          source $(poetry env info --path)/bin/activate
-          actual=$(python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }})
-          expected="('`command -v python`', '$GITHUB_WORKSPACE/${{ inputs.CLI_path }}')"
-          echo actual: $actual
-          echo expected: $expected
-          [ "$actual" = "$expected" ]
+        uses: ./.github/actions/compare
+        with:
+          init: source $(poetry env info --path)/bin/activate
+          command: python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }}
+          expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test direct workflow submission within a python script
         run: |
@@ -492,49 +463,27 @@ jobs:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
           expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
-      - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        run: |
-          ."$(poetry env info --path)\Scripts\activate.ps1"
-          $actual = $(python ./${{ inputs.CLI_path }} internal get-invoc-cmd)
-          $expected = "('" + ((Get-Command python).source | Resolve-Path).Path.Replace('\', '\\') + "', '" + "$env:GITHUB_WORKSPACE\${{ inputs.CLI_path_win }}".Replace('\', '\\') + "')"
-          Write-Host actual: $actual
-          Write-Host expected: $expected
-          if ($actual -ne $expected) {
-            exit 1
-          }
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        run: |
-          ."$(poetry env info --path)\Scripts\activate.ps1"
-          $actual = $(python -m ${{ inputs.CLI_module }} internal get-invoc-cmd)
-          $expected = "('" + ((Get-Command python).source | Resolve-Path).Path.Replace('\', '\\') + "', '" + "$env:GITHUB_WORKSPACE\${{ inputs.CLI_path_win }}".Replace('\', '\\') + "')"
-          Write-Host actual: $actual
-          Write-Host expected: $expected
-          if ($actual -ne $expected) {
-            exit 1
-          }
+        uses: ./.github/actions/compare
+        with:
+          init: ."$(poetry env info --path)\Scripts\activate.ps1"
+          command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
+          expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        run: |
-          ."$(poetry env info --path)\Scripts\activate.ps1"
-          $actual = $(${{ inputs.executable_name }} internal get-invoc-cmd)
-          $expected = "('" + ((Get-Command python).source | Resolve-Path).Path.Replace('\', '\\') + "', '" + ((Get-Command ${{ inputs.executable_name }}).source | Resolve-Path).Path.Replace('\', '\\').Trim('.cmd') + "')"
-          Write-Host actual: $actual
-          Write-Host expected: $expected
-          if ($actual -ne $expected) {
-            exit 1
-          }
+        uses: ./.github/actions/compare
+        with:
+          init: ."$(poetry env info --path)\Scripts\activate.ps1"
+          command: ${{ inputs.executable_name }} internal get-invoc-cmd
+          expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
 
       - name: Test invocation command within a python script
-        run: |
-          ."$(poetry env info --path)\Scripts\activate.ps1"
-          $actual = $(python .\.github\workflows\get_invoc_cmd.py ${{ inputs.app_package }})
-          $expected = "('" + ((Get-Command python).source | Resolve-Path).Path.Replace('\', '\\') + "', '" + "$env:GITHUB_WORKSPACE\${{ inputs.CLI_path_win }}".Replace('\', '\\') + "')"
-          Write-Host actual: $actual
-          Write-Host expected: $expected
-          if ($actual -ne $expected) {
-            exit 1
-          }
+        uses: ./.github/actions/compare
+        with:
+          init: ."$(poetry env info --path)\Scripts\activate.ps1"
+          command: python .\.github\workflows\get_invoc_cmd.py ${{ inputs.app_package }}
+          expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
 
       - name: Test direct workflow submission within a python script
         run: |

@@ -297,53 +297,17 @@ jobs:
         env:
           TARGET: ${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir
 
-      - name: Version check (windows, file)
-        if: runner.os == 'Windows'
-        run: |
-          $vers = $Env:TARGET --version
-          echo $vers
-          echo "$Env:EXPECTED"
-          if ($vers -ne $Env:EXPECTED) {
-            exit 1
-          }
-        env:
-          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
-          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }}
+      - name: Version check (file)
+        uses: ./.github/actions/compare
+        with:
+          expected: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
+          command: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }} --version
 
-      - name: Version check (windows, folder)
-        if: runner.os == 'Windows'
-        run: |
-          $vers = $Env:TARGET --version
-          echo $vers
-          echo $Env:EXPECTED
-          if ($vers -ne $Env:EXPECTED) {
-            exit 1
-          }
-        env:
-          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
-          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}
-  
-      - name: Version check (non-windows, file)
-        if: runner.os != 'Windows'
-        run: |
-          vers=$($TARGET --version)
-          echo $vers
-          echo $EXPECTED
-          [ "$vers" = "$EXPECTED" ]
-        env:
-          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
-          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onefile/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}${{ matrix.executable_ext }}
-
-      - name: Version check (non-windows, folder)
-        if: runner.os != 'Windows'
-        run: |
-          vers=$($TARGET --version)
-          echo $vers
-          echo $EXPECTED
-          [ "$vers" = "$EXPECTED" ]
-        env:
-          EXPECTED: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
-          TARGET: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${TAG}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }}
+      - name: Version check (folder)
+        uses: ./.github/actions/compare
+        with:
+          expected: "${{ inputs.app_name }}, version ${{ needs.bump-version.outputs.version }}"
+          command: ${{ inputs.pyinstaller_dir }}/dist/onedir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir/${{ inputs.executable_name }}-${{ needs.bump-version.outputs.new_tag }}-${{ matrix.executable_os }}-dir${{ matrix.executable_ext }} --version
 
       - name: Run test suite on the frozen app (folder)
         env:
