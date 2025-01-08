@@ -498,7 +498,12 @@ class JobscriptBlock(JSONLike):
 
     @property
     def task_elements(self):
-        return self._task_elements
+        return self.workflow._store.get_jobscript_block_task_elements_map(
+            sub_idx=self.submission.index,
+            js_idx=self.jobscript.index,
+            blk_idx=self.index,
+            task_elems_arr=self._task_elements,
+        )
 
     @property
     def EAR_ID(self):

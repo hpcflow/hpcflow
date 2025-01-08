@@ -524,7 +524,7 @@ class JSONPersistentStore(PersistentStore):
                     if id_lst is None or idx in id_lst
                 }
             )
-            # cast jobscript submit-times and jobscript `task_elements` keys:
+            # cast jobscript `task_elements` keys:
             for sub_idx, sub in subs_dat.items():
                 for js_idx, js in enumerate(sub["jobscripts"]):
                     for block_idx, block in enumerate(js["blocks"]):

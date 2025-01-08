@@ -1683,6 +1683,24 @@ class PersistentStore(ABC):
         return run_ID_arr
 
     @TimeIt.decorator
+    def get_jobscript_block_task_elements_map(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_elems_arr: Union[np.ndarray, None],
+    ) -> Dict[int, Dict[str, Any]]:
+        """For the specified jobscript-block, retrieve the task-elements mapping.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return task_elems_arr
+
+    @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:
         # separate pending and persistent IDs:
         id_set = set(id_lst)

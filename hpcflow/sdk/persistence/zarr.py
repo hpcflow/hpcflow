@@ -340,6 +340,7 @@ class ZarrPersistentStore(PersistentStore):
     _run_dir_arr_name = "run_dirs"
     _js_at_submit_md_arr_name = "js_at_submit_md"
     _js_run_IDs_arr_name = "js_run_IDs"
+    _js_task_elems_arr_name = "js_task_elems"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -353,9 +354,10 @@ class ZarrPersistentStore(PersistentStore):
         }
         self._jobscript_at_submit_metadata = None  # this is a cache
 
-        # this is a cache; keys are submission index and then tuples of
+        # these are caches; keys are submission index and then tuples of
         # (jobscript index, jobscript-block index):
         self._jobscript_run_ID_arrays = {}
+        self._jobscript_task_element_maps = {}
 
         super().__init__(app, workflow, path, fs)
 
@@ -560,7 +562,7 @@ class ZarrPersistentStore(PersistentStore):
             square with a large fill value.
         block_shapes
             List of length equal to the number of jobscripts in the submission. Each
-            sub-list contains a list of run ID shapes (as a two-item list:
+            sub-list contains a list of shapes (as a two-item list:
             `[num_actions, num_elements]`) of the constituent blocks of that jobscript.
 
         """
@@ -570,17 +572,17 @@ class ZarrPersistentStore(PersistentStore):
         # a list for each jobscript, containing shapes of run ID arrays in each block:
         block_shapes = []
         for js in sub_js["jobscripts"]:
-            blocks_i = []
+            block_shapes_js_i = []
             for blk in js["blocks"]:
                 run_IDs_i = np.array(blk["EAR_ID"])
                 blk["EAR_ID"] = None
-                blocks_i.append(list(run_IDs_i.shape))
+                block_shapes_js_i.append(list(run_IDs_i.shape))
                 if run_IDs_i.shape[0] > max_acts:
                     max_acts = run_IDs_i.shape[0]
                 if run_IDs_i.shape[1] > max_elems:
                     max_elems = run_IDs_i.shape[1]
                 arrs.append(run_IDs_i)
-            block_shapes.append(blocks_i)
+            block_shapes.append(block_shapes_js_i)
 
         combined_run_IDs = np.full(
             (len(arrs), max_acts, max_elems),
@@ -591,6 +593,69 @@ class ZarrPersistentStore(PersistentStore):
             combined_run_IDs[arr_idx][: arr.shape[0], : arr.shape[1]] = arr
 
         return combined_run_IDs, block_shapes
+
+    @staticmethod
+    def _extract_submission_task_elements_array(sub_js):
+        """For a JSON-like representation of a Submission object, remove and combine all
+        jobscript-block task-element mappings into a single array with a fill value.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `task_elements` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_task_elems
+            Integer Numpy array that contains a concatenation of each task-element,
+            mapping, where each mapping is expressed as a 2D array whose first column
+            corresponds to the keys of the mappings, and whose remaining columns
+            correspond to the values of the mappings. Technically a "jagged"/"ragged"
+            array that is made square with a large fill value.
+        block_shapes
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of shapes (as a two-item list:
+            `[num_actions, num_elements]`) of the constituent blocks of that jobscript.
+
+        """
+        arrs = []
+        max_x, max_y = 0, 0
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+        block_shapes = []
+        for js in sub_js["jobscripts"]:
+            block_shapes_js_i = []
+            for blk in js["blocks"]:
+
+                task_elems_lst = []
+                for k, v in blk["task_elements"].items():
+                    task_elems_lst.append([k] + v)
+                task_elems_i = np.array(task_elems_lst)
+
+                block_shape_j = [task_elems_i.shape[1] - 1, task_elems_i.shape[0]]
+                block_shapes_js_i.append(block_shape_j)
+
+                blk["task_elements"] = None
+                if task_elems_i.shape[1] > max_x:
+                    max_x = task_elems_i.shape[1]
+                if task_elems_i.shape[0] > max_y:
+                    max_y = task_elems_i.shape[0]
+                arrs.append(task_elems_i)
+            block_shapes.append(block_shapes_js_i)
+
+        combined_task_elems = np.full(
+            (len(arrs), max_y, max_x),
+            dtype=np.uint32,
+            fill_value=np.iinfo(np.uint32).max,
+        )
+        for arr_idx, arr in enumerate(arrs):
+            combined_task_elems[arr_idx][: arr.shape[0], : arr.shape[1]] = arr
+
+        return combined_task_elems, block_shapes
 
     def _append_submissions(self, subs: Dict[int, Dict]):
 
@@ -612,7 +677,7 @@ class ZarrPersistentStore(PersistentStore):
                 write_empty_chunks=False,
             )
 
-            # add a new array to store run IDs for each jobscript
+            # add a new array to store run IDs for each jobscript:
             combined_run_IDs, block_shapes = self._extract_submission_run_IDs_array(sub_i)
             run_IDs_arr = sub_grp.create_dataset(
                 name=self._js_run_IDs_arr_name,
@@ -620,6 +685,21 @@ class ZarrPersistentStore(PersistentStore):
                 chunks=(None, None, None),  # single chunk for the whole array
             )
             run_IDs_arr.attrs["block_shapes"] = block_shapes
+
+            # add a new array to store task-element map for each jobscript:
+            (
+                combined_task_elems,
+                block_shapes,
+            ) = self._extract_submission_task_elements_array(sub_i)
+            task_elems_arr = sub_grp.create_dataset(
+                name=self._js_task_elems_arr_name,
+                data=combined_task_elems,
+                chunks=(None, None, None),
+            )
+            task_elems_arr.attrs["block_shapes"] = block_shapes
+
+            # TODO: store block shapes in `grp.attrs` since it is defined at the
+            # submission level
 
             # add attributes for at-submit-time submission metadata:
             grp = self._get_submission_metadata_group(sub_idx, mode="r+")
@@ -1085,6 +1165,13 @@ class ZarrPersistentStore(PersistentStore):
             self._js_run_IDs_arr_name
         )
 
+    def _get_jobscripts_task_elements_arr(
+        self, sub_idx: int, mode: str = "r"
+    ) -> zarr.Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_task_elems_arr_name
+        )
+
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._task_arr_name)
 
@@ -1243,22 +1330,6 @@ class ZarrPersistentStore(PersistentStore):
                     if id_lst is None or idx in id_lst
                 }
             )
-            # cast jobscript submit-times and jobscript `task_elements` keys:
-            for sub_idx, sub in subs_dat.items():
-                for js_idx, js in enumerate(sub["jobscripts"]):
-                    for block_idx, block in enumerate(js["blocks"]):
-                        for key in list(block["task_elements"].keys()):
-                            subs_dat[sub_idx]["jobscripts"][js_idx]["blocks"][block_idx][
-                                "task_elements"
-                            ][int(key)] = subs_dat[sub_idx]["jobscripts"][js_idx][
-                                "blocks"
-                            ][
-                                block_idx
-                            ][
-                                "task_elements"
-                            ].pop(
-                                key
-                            )
 
         return subs_dat
 
@@ -1502,6 +1573,55 @@ class ZarrPersistentStore(PersistentStore):
             )
 
         return self._jobscript_run_ID_arrays[sub_idx][(js_idx, blk_idx)]
+
+    def get_jobscript_block_task_elements_map(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_elems_arr: Union[np.ndarray, None],
+    ) -> Dict[int, Dict[str, Any]]:
+        """For the specified jobscript-block, retrieve the run ID array."""
+
+        if task_elems_arr is not None:
+            self.logger.debug("jobscript-block task elements are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # task elements arrays will not yet be persistent.
+            return task_elems_arr
+
+        # otherwise, `append_submissions` has been called, the task elements have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_task_element_maps:
+
+            self.logger.debug(
+                f"retrieving jobscript-block task elements for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+
+            # for a given submission, task elements are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_task_elements_arr(sub_idx)
+            block_shapes = arr.attrs["block_shapes"]
+
+            self._jobscript_task_element_maps[sub_idx] = {}  # keys: (js_idx, blk_idx)
+            arr_idx = 0
+            for js_idx_i, js_blk_shapes in enumerate(block_shapes):
+                for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
+                    arr_i = arr[arr_idx, : blk_shape_j[1], : blk_shape_j[0] + 1]
+                    self._jobscript_task_element_maps[sub_idx][(js_idx_i, blk_idx_j)] = {
+                        k[0]: list(k[1:]) for k in arr_i
+                    }
+                    arr_idx += 1
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block task elements for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_task_element_maps[sub_idx][(js_idx, blk_idx)]
 
     def get_ts_fmt(self):
         with self.using_resource("attrs", action="read") as attrs:
