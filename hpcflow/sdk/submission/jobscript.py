@@ -1711,7 +1711,9 @@ class Jobscript(JSONLike):
                                                      
                         if block_act_run_IDs_non_skipped:
                             set_start_multi_tic = time.perf_counter()
+                            app.logger.info("setting run starts.")
                             wk.set_multi_run_starts(block_act_run_IDs_non_skipped, block_act_run_dirs_non_skipped, port)
+                            app.logger.info("finished setting run starts.")
                             set_start_multi_toc = time.perf_counter()
                             set_start_multi_time = set_start_multi_toc - set_start_multi_tic
                             print(f"{{set_start_multi_time:.4f}}", file=set_start_multi_times_fp, flush=True)
@@ -1725,7 +1727,7 @@ class Jobscript(JSONLike):
 
                         app.logger.info(
                             f"run_ID is {{run_ID}}; block element index: {{block_elem_idx}}; "
-                            f"block action index: {{block_act_idx}}; in block {{block_idx}})."
+                            f"block action index: {{block_act_idx}}; in block {{block_idx}}."
                         )
 
                         if run_ID == -1:                            
@@ -1809,7 +1811,7 @@ class Jobscript(JSONLike):
                                 os.chdir(os.environ["{app_caps}_SUB_TMP_DIR"])
 
                             if {write_app_logs!r}:
-                                app.logger.info(f"run_ID: {{run_ID}}; moving log path back to " + {sub_log_path!r})                            
+                                app.logger.info(f"run_ID: {{run_ID}}; moving log path back to " + {sub_log_path!r})
                                 app.config.log_path = {sub_log_path}
 
                         run_toc = time.perf_counter()
