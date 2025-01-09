@@ -1654,20 +1654,26 @@ class Jobscript(JSONLike):
             requires_dir = {requires_dir!r}
             run_dirs = wk.get_run_directories()
 
-            JS_IDX = os.environ["{app_caps}_JS_IDX"]
-            get_ins_time_fp = open(f"js_{{JS_IDX}}_get_inputs_times.txt", "wt")
-            func_time_fp = open(f"js_{{JS_IDX}}_func_times.txt", "wt")
-            run_time_fp = open(f"js_{{JS_IDX}}_run_times.txt", "wt")
-            set_start_multi_times_fp = open(f"js_{{JS_IDX}}_set_start_multi_times.txt", "wt")
-            set_end_multi_times_fp = open(f"js_{{JS_IDX}}_set_end_multi_times.txt", "wt")
-            save_multi_times_fp = open(f"js_{{JS_IDX}}_save_multi_times.txt", "wt")
-            loop_term_times_fp = open(f"js_{{JS_IDX}}_loop_term_times.txt", "wt")
+            get_ins_time_fp = open(f"js_{js_idx}_get_inputs_times.txt", "wt")
+            func_time_fp = open(f"js_{js_idx}_func_times.txt", "wt")
+            run_time_fp = open(f"js_{js_idx}_run_times.txt", "wt")
+            set_start_multi_times_fp = open(f"js_{js_idx}_set_start_multi_times.txt", "wt")
+            set_end_multi_times_fp = open(f"js_{js_idx}_set_end_multi_times.txt", "wt")
+            save_multi_times_fp = open(f"js_{js_idx}_save_multi_times.txt", "wt")
+            loop_term_times_fp = open(f"js_{js_idx}_loop_term_times.txt", "wt")
 
             get_all_runs_time = get_all_runs_toc - get_all_runs_tic
             print(f"get_all_runs_time: {{get_all_runs_time:.4f}}")
  
+            app.logger.info(
+                f"running {num_blocks} jobscript block(s) in combined jobscript index "
+                f"{js_idx}."
+            )
+
             block_start_elem_idx = 0
             for block_idx in range({num_blocks}):
+
+                app.logger.info(f"running block index {{block_idx}}.")
 
                 os.environ["{app_caps}_BLOCK_IDX"] = str(block_idx)
 
@@ -1678,6 +1684,11 @@ class Jobscript(JSONLike):
 
                 for block_act_idx in range(num_actions[block_idx]):
                 
+                    app.logger.info(
+                        f"running block action index {{block_act_idx}} "
+                        f"(in block {{block_idx}})."
+                    )
+
                     os.environ["{app_caps}_BLOCK_ACT_IDX"] = str(block_act_idx)
 
                     block_act_run_IDs = [i[block_act_idx] for i in block_run_IDs]
@@ -1711,13 +1722,20 @@ class Jobscript(JSONLike):
 
                         js_elem_idx = block_start_elem_idx + block_elem_idx
                         run_ID = block_act_run_IDs[block_elem_idx]                        
-                        if run_ID == -1:
+
+                        app.logger.info(
+                            f"run_ID is {{run_ID}}; block element index: {{block_elem_idx}}; "
+                            f"block action index: {{block_act_idx}}; in block {{block_idx}})."
+                        )
+
+                        if run_ID == -1:                            
                             continue
 
                         run = runs[run_ID]
 
                         skip = run_skips[run_ID]
                         if skip:
+                            app.logger.info(f"run_ID: {{run_ID}}; run is set to skip; skipping.")
                             # set run end
                             block_act_key=({js_idx}, block_idx, block_act_idx)
                             run_end_dat[block_act_key].append((run, {skipped_exit_code}))
@@ -1733,14 +1751,20 @@ class Jobscript(JSONLike):
                         with app.redirect_std_to_file(std_path):
 
                             if {write_app_logs!r}:
-                                app.config.log_path = Path(
+                                new_log_path = Path(
                                     os.environ["{app_caps}_SUB_LOG_DIR"],
                                     f"{run_log_name}",
                                 )
+                                # TODO: this doesn't work!
+                                app.logger.info(
+                                    f"run_ID: {{run_ID}}; moving log path to {{new_log_path}}"
+                                )
+                                app.config.log_path = new_log_path
 
                             run_dir = run_dirs[run_ID]
 
                             # retrieve script inputs:
+                            app.logger.info(f"run_ID: {{run_ID}}; retrieving script inputs.")
                             get_ins_tic = time.perf_counter()
                             func_kwargs = run.get_py_script_func_kwargs()
                             get_ins_toc = time.perf_counter()
@@ -1748,19 +1772,24 @@ class Jobscript(JSONLike):
                             script_idx = script_indices[block_idx][block_act_idx]
                             req_dir = requires_dir[script_idx]
                             func = action_scripts[script_idx]
+                            app.logger.info(f"run_ID: {{run_ID}}; function to run is: {{func.__name__}}")
 
                             if req_dir:
+                                app.logger.info(f"run_ID: {{run_ID}}; changing to run directory: {{run_dir}}")
                                 os.chdir(run_dir)
 
                         try:
                             func_tic = time.perf_counter()
+                            app.logger.info(f"run_ID: {{run_ID}}; invoking function.")
             {func_invoc_lines}
+                            
                             func_toc = time.perf_counter()
                         except Exception:
                             print(f"Exception caught during execution of script function {{func.__name__}}.")
                             traceback.print_exc()
                             exit_code = 1
                         else:
+                            app.logger.info(f"run_ID: {{run_ID}}; finished function invocation.")
                             exit_code = 0
 
                         with app.redirect_std_to_file(std_path):
@@ -1769,14 +1798,18 @@ class Jobscript(JSONLike):
                             run_end_dat[block_act_key].append((run, exit_code))
 
                             # save outputs
+                            app.logger.info(f"run_ID: {{run_ID}}; saving outputs.")
                             for name_i, out_i in outputs.items():
                                 p_id = run.data_idx[f"outputs.{{name_i}}"]
                                 all_act_outputs[p_id] = out_i
-
+                            app.logger.info(f"run_ID: {{run_ID}}; finished saving outputs.")
+                                
                             if req_dir:
+                                app.logger.info(f"run_ID: {{run_ID}}; changing directory back")
                                 os.chdir(os.environ["{app_caps}_SUB_TMP_DIR"])
 
                             if {write_app_logs!r}:
+                                app.logger.info(f"run_ID: {{run_ID}}; moving log path back to " + {sub_log_path!r})                            
                                 app.config.log_path = {sub_log_path}
 
                         run_toc = time.perf_counter()
@@ -1800,21 +1833,25 @@ class Jobscript(JSONLike):
                             print(f"{{save_all_time_i:.4f}}", file=save_multi_times_fp, flush=True)
 
                         all_loop_term_tic = time.perf_counter()
+                        app.logger.info(f"run_ID: {{run_ID}}; checking for loop terminations")
                         for run_i in block_act_runs:
                             if not run_skips[run_i.id_]:
                                 skipped_IDs_i = wk._check_loop_termination(run_i)
                                 for skip_ID in skipped_IDs_i:
                                     run_skips[skip_ID] = True
-                        
+                        app.logger.info(f"run_ID: {{run_ID}}; finished checking for loop terminations.")
+                                    
                         all_loop_term_toc = time.perf_counter()
                         all_loop_term_time_i = all_loop_term_toc - all_loop_term_tic
                         print(f"{{all_loop_term_time_i:.4f}}", file=loop_term_times_fp, flush=True)
 
                         # set run end for all elements of this action
+                        app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
                         wk.set_multi_run_ends(run_end_dat, block_act_run_dirs)
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
+                        app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
                         print(f"{{set_multi_end_time:.4f}}", file=set_end_multi_times_fp, flush=True)
 
                 block_start_elem_idx += num_elements[block_idx]
