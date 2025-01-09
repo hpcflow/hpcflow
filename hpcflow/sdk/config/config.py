@@ -299,7 +299,7 @@ class Config:
     @contextlib.contextmanager
     def _without_callbacks(self, *callbacks):
         """Context manager to temporarily exclude named get, set, and unset callbacks."""
-        get_cb, set_cb, unset_cb = self._disable_callbacks(*callbacks)
+        get_cb, set_cb, unset_cb = self._disable_callbacks(callbacks)
         try:
             yield
         finally:
