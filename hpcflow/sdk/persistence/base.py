@@ -1688,7 +1688,7 @@ class PersistentStore(ABC):
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_elems_arr: Union[np.ndarray, None],
+        task_elems_map: Union[np.ndarray, None],
     ) -> Dict[int, Dict[str, Any]]:
         """For the specified jobscript-block, retrieve the task-elements mapping.
 
@@ -1698,7 +1698,25 @@ class PersistentStore(ABC):
         from the remainder of the submission attributes.
 
         """
-        return task_elems_arr
+        return task_elems_map
+
+    @TimeIt.decorator
+    def get_jobscript_block_task_actions_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_actions_arr: Union[np.ndarray, None],
+    ) -> np.ndarray:
+        """For the specified jobscript-block, retrieve the task-actions array.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return task_actions_arr
 
     @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:

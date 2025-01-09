@@ -341,6 +341,7 @@ class ZarrPersistentStore(PersistentStore):
     _js_at_submit_md_arr_name = "js_at_submit_md"
     _js_run_IDs_arr_name = "js_run_IDs"
     _js_task_elems_arr_name = "js_task_elems"
+    _js_task_acts_arr_name = "js_task_acts"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -358,6 +359,7 @@ class ZarrPersistentStore(PersistentStore):
         # (jobscript index, jobscript-block index):
         self._jobscript_run_ID_arrays = {}
         self._jobscript_task_element_maps = {}
+        self._jobscript_task_actions_arrays = {}
 
         super().__init__(app, workflow, path, fs)
 
@@ -657,6 +659,53 @@ class ZarrPersistentStore(PersistentStore):
 
         return combined_task_elems, block_shapes
 
+    @staticmethod
+    def _extract_submission_task_actions_array(sub_js):
+        """For a JSON-like representation of a Submission object, remove and concatenate
+        all jobscript-block task-action arrays into a single array.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `task_actions` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_task_acts
+            Integer 2D Numpy array which is a concatenation along the first axis of
+            task-action actions from all jobscript blocks. The second dimension is of
+            length three.
+        block_num_acts
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of `num_actions` of the constituent blocks of that
+            jobscript.
+
+        """
+        arrs = []
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+
+        blk_num_acts = []
+        for js in sub_js["jobscripts"]:
+
+            blk_num_acts_js_i = []
+            for blk in js["blocks"]:
+
+                blk_acts = np.array(blk["task_actions"])
+                blk["task_actions"] = None
+                blk_num_acts_js_i.append(blk_acts.shape[0])
+                arrs.append(blk_acts)
+
+            blk_num_acts.append(blk_num_acts_js_i)
+
+        combined_task_acts = np.vstack(arrs)
+
+        return combined_task_acts, blk_num_acts
+
     def _append_submissions(self, subs: Dict[int, Dict]):
 
         for sub_idx, sub_i in subs.items():
@@ -697,6 +746,18 @@ class ZarrPersistentStore(PersistentStore):
                 chunks=(None, None, None),
             )
             task_elems_arr.attrs["block_shapes"] = block_shapes
+
+            # add a new array to store task-actions for each jobscript:
+            (
+                combined_task_acts,
+                block_num_acts,
+            ) = self._extract_submission_task_actions_array(sub_i)
+            task_acts_arr = sub_grp.create_dataset(
+                name=self._js_task_acts_arr_name,
+                data=combined_task_acts,
+                chunks=(None, None),
+            )
+            task_acts_arr.attrs["block_num_acts"] = block_num_acts
 
             # TODO: store block shapes in `grp.attrs` since it is defined at the
             # submission level
@@ -1172,6 +1233,13 @@ class ZarrPersistentStore(PersistentStore):
             self._js_task_elems_arr_name
         )
 
+    def _get_jobscripts_task_actions_arr(
+        self, sub_idx: int, mode: str = "r"
+    ) -> zarr.Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_task_acts_arr_name
+        )
+
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._task_arr_name)
 
@@ -1579,15 +1647,15 @@ class ZarrPersistentStore(PersistentStore):
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_elems_arr: Union[np.ndarray, None],
+        task_elems_map: Union[np.ndarray, None],
     ) -> Dict[int, Dict[str, Any]]:
-        """For the specified jobscript-block, retrieve the run ID array."""
+        """For the specified jobscript-block, retrieve the task-elements mapping."""
 
-        if task_elems_arr is not None:
+        if task_elems_map is not None:
             self.logger.debug("jobscript-block task elements are still in memory.")
             # in the special case when the Submission object has just been created, the
             # task elements arrays will not yet be persistent.
-            return task_elems_arr
+            return task_elems_map
 
         # otherwise, `append_submissions` has been called, the task elements have been
         # removed from the JSON-representation of the submission object, and have been
@@ -1622,6 +1690,56 @@ class ZarrPersistentStore(PersistentStore):
             )
 
         return self._jobscript_task_element_maps[sub_idx][(js_idx, blk_idx)]
+
+    @TimeIt.decorator
+    def get_jobscript_block_task_actions_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_actions_arr: Union[np.ndarray, None],
+    ) -> np.ndarray:
+        """For the specified jobscript-block, retrieve the task-actions array."""
+
+        if task_actions_arr is not None:
+            self.logger.debug("jobscript-block task actions are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # task actions arrays will not yet be persistent.
+            return task_actions_arr
+
+        # otherwise, `append_submissions` has been called, the task actions have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_task_actions_arrays:
+
+            self.logger.debug(
+                f"retrieving jobscript-block task actions for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+
+            # for a given submission, task actions are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_task_actions_arr(sub_idx)
+            block_num_acts = arr.attrs["block_num_acts"]
+
+            num_acts_count = 0
+            self._jobscript_task_actions_arrays[sub_idx] = {}  # keys: (js_idx, blk_idx)
+            for js_idx_i, js_blk_num_acts in enumerate(block_num_acts):
+                for blk_idx_j, blk_num_acts_j in enumerate(js_blk_num_acts):
+                    arr_i = arr[num_acts_count : num_acts_count + blk_num_acts_j]
+                    num_acts_count += blk_num_acts_j
+                    self._jobscript_task_actions_arrays[sub_idx][
+                        (js_idx_i, blk_idx_j)
+                    ] = arr_i
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block task actions for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_task_actions_arrays[sub_idx][(js_idx, blk_idx)]
 
     def get_ts_fmt(self):
         with self.using_resource("attrs", action="read") as attrs:

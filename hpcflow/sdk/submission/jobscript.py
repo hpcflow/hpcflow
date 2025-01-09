@@ -494,7 +494,12 @@ class JobscriptBlock(JSONLike):
 
     @property
     def task_actions(self):
-        return self._task_actions
+        return self.workflow._store.get_jobscript_block_task_actions_array(
+            sub_idx=self.submission.index,
+            js_idx=self.jobscript.index,
+            blk_idx=self.index,
+            task_actions_arr=self._task_actions,
+        )
 
     @property
     def task_elements(self):
@@ -502,7 +507,7 @@ class JobscriptBlock(JSONLike):
             sub_idx=self.submission.index,
             js_idx=self.jobscript.index,
             blk_idx=self.index,
-            task_elems_arr=self._task_elements,
+            task_elems_map=self._task_elements,
         )
 
     @property
