@@ -1654,13 +1654,14 @@ class Jobscript(JSONLike):
             requires_dir = {requires_dir!r}
             run_dirs = wk.get_run_directories()
 
-            get_ins_time_fp = open("get_inputs_times.txt", "wt")
-            func_time_fp = open("func_times.txt", "wt")
-            run_time_fp = open("run_times.txt", "wt")
-            set_start_multi_times_fp = open("set_start_multi_times.txt", "wt")
-            set_end_multi_times_fp = open("set_end_multi_times.txt", "wt")
-            save_multi_times_fp = open("save_multi_times.txt", "wt")
-            loop_term_times_fp = open("loop_term_times.txt", "wt")
+            JS_IDX = os.environ["{app_caps}_JS_IDX"]
+            get_ins_time_fp = open(f"js_{{JS_IDX}}_get_inputs_times.txt", "wt")
+            func_time_fp = open(f"js_{{JS_IDX}}_func_times.txt", "wt")
+            run_time_fp = open(f"js_{{JS_IDX}}_run_times.txt", "wt")
+            set_start_multi_times_fp = open(f"js_{{JS_IDX}}_set_start_multi_times.txt", "wt")
+            set_end_multi_times_fp = open(f"js_{{JS_IDX}}_set_end_multi_times.txt", "wt")
+            save_multi_times_fp = open(f"js_{{JS_IDX}}_save_multi_times.txt", "wt")
+            loop_term_times_fp = open(f"js_{{JS_IDX}}_loop_term_times.txt", "wt")
 
             get_all_runs_time = get_all_runs_toc - get_all_runs_tic
             print(f"get_all_runs_time: {{get_all_runs_time:.4f}}")
