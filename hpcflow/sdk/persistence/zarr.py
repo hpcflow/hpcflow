@@ -1407,6 +1407,10 @@ class ZarrPersistentStore(PersistentStore):
     ) -> Dict[int, ZarrStoreElement]:
         elems, id_lst = self._get_cached_persistent_elements(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent element(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_elements_arr()
             attrs = arr.attrs.asdict()
             try:
@@ -1427,6 +1431,10 @@ class ZarrPersistentStore(PersistentStore):
     ) -> Dict[int, ZarrStoreElementIter]:
         iters, id_lst = self._get_cached_persistent_element_iters(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent element iteration(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_iters_arr()
             attrs = arr.attrs.asdict()
             try:
@@ -1445,13 +1453,13 @@ class ZarrPersistentStore(PersistentStore):
     def _get_persistent_EARs(self, id_lst: Iterable[int]) -> Dict[int, ZarrStoreEAR]:
         runs, id_lst = self._get_cached_persistent_EARs(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent EAR(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
             try:
-                self.logger.debug(
-                    f"_get_persistent_EARs: {len(id_lst)} EARs: "
-                    f"{shorten_list_str(id_lst)}."
-                )
                 EAR_arr_dat = _zarr_get_coord_selection(arr, id_lst, self.logger)
             except zarr.errors.BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
@@ -1474,6 +1482,11 @@ class ZarrPersistentStore(PersistentStore):
 
         params, id_lst = self._get_cached_persistent_parameters(id_lst)
         if id_lst:
+
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent parameter(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
 
             # TODO: implement the "parameter_metadata_cache" for zarr stores, which would
             # keep the base_arr and src_arr open
