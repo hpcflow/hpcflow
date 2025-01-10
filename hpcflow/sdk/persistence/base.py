@@ -1230,6 +1230,7 @@ class PersistentStore(ABC):
         successes: List[bool],
         save: bool = True,
     ) -> datetime:
+        self.logger.info("PersistentStore.set_multi_run_ends.")
         dt = datetime.utcnow()
         run_end_data = {}
         for id_i, dir_i, ex_i, sc_i in zip(run_ids, run_dirs, exit_codes, successes):
@@ -1239,6 +1240,7 @@ class PersistentStore(ABC):
         self._pending.set_EAR_ends.update(run_end_data)
         if save:
             self.save()
+        self.logger.info("PersistentStore.set_multi_run_ends finished.")
         return dt
 
     def set_EAR_skip(self, skip_reasons: Dict[int, int], save: bool = True) -> None:

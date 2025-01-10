@@ -2345,6 +2345,7 @@ class Workflow:
         skipped. Also save any generated input/output files."""
 
         self.app.logger.debug(f"Setting end for multiple run IDs.")
+        self.app.logger.info(f"Setting end for multiple run IDs.")
         with self._store.cached_load():
             with self.batch_update():
                 run_ids = []
@@ -2352,17 +2353,28 @@ class Workflow:
                 successes = []
                 for block_act_key, run_dat in runs.items():
                     for run, exit_code in run_dat:
+
                         success = (
                             exit_code == 0
                         )  # TODO  more sophisticated success heuristics
+                        self.app.logger.info(
+                            f"setting end for run {run.id_} with exit code {exit_code} "
+                            f"and success {success}."
+                        )
                         if not run.skip:
+                            self.app.logger.info(f"run was not skipped.")
                             run_dir = run.get_directory()
                             if run.action.abortable and exit_code == ABORT_EXIT_CODE:
                                 # the point of aborting an EAR is to continue with the
                                 # workflow:
+                                self.app.logger.info(
+                                    "run was abortable and exit code was ABORT_EXIT_CODE,"
+                                    " so setting success to True."
+                                )
                                 success = True
 
                             for IFG_i in run.action.input_file_generators:
+                                self.app.logger.info(f"setting IFG file {IFG_i!r}")
                                 inp_file = IFG_i.input_file
                                 self.app.logger.debug(
                                     f"Saving EAR input file: {inp_file.label!r} for EAR "
@@ -2383,10 +2395,16 @@ class Workflow:
                                     )
 
                             if run.action.script_data_out_has_files:
+                                self.app.logger.info(
+                                    f"saving script-generated parameters."
+                                )
                                 run._param_save(block_act_key)
 
                             # Save action-level files: (TODO: refactor with below for OFPs)
                             for save_file_j in run.action.save_files:
+                                self.app.logger.info(
+                                    f"saving action-level file {save_file_j!r}."
+                                )
                                 self.app.logger.debug(
                                     f"Saving file: {save_file_j.label!r} for EAR ID "
                                     f"{run.id_!r}."
@@ -2418,6 +2436,7 @@ class Workflow:
                                     )
 
                             for OFP_i in run.action.output_file_parsers:
+                                self.app.logger.info(f"saving files from OFP: {OFP_i!r}.")
                                 for save_file_j in OFP_i.save_files:
                                     self.app.logger.debug(
                                         f"Saving EAR output file: {save_file_j.label!r} "
@@ -2448,15 +2467,21 @@ class Workflow:
                                             path=run_dir.joinpath(path_i),
                                             clean_up=(save_file_j in OFP_i.clean_up),
                                         )
+                        else:
+                            self.app.logger.info(f"run was skipped.")
 
                         if (
                             not success
                             and run.skip_reason is not SkipReason.LOOP_TERMINATION
                         ):
+                            self.app.logger.info(
+                                "run was not succcess and skip reason was not "
+                                "LOOP_TERMINATION."
+                            )
                             # loop termination skips are already propagated
                             for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
                                 # TODO: this needs to be recursive?
-                                self.app.logger.debug(
+                                self.app.logger.info(
                                     f"Setting EAR ID {EAR_dep_ID!r} to skip because it "
                                     f"depends on EAR ID {run.id_!r}, which exited with a "
                                     f"non-zero exit code: {exit_code!r}."
@@ -2464,6 +2489,10 @@ class Workflow:
                                 self._store.set_EAR_skip(
                                     {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                                 )
+                        else:
+                            self.app.logger.info(
+                                "run was succcess or skip reason was LOOP_TERMINATION."
+                            )
 
                         run_ids.append(run.id_)
                         exit_codes.append(exit_code)
