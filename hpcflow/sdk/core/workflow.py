@@ -2361,8 +2361,9 @@ class Workflow:
                             exit_code == 0
                         )  # TODO  more sophisticated success heuristics
                         self.app.logger.info(
-                            f"setting end for run {run.id_} with exit code {exit_code} "
-                            f"and success {success}."
+                            f"setting end for run {run.id_} with exit_code={exit_code}, "
+                            f"success={success}, skip={run.skip!r}, and skip_reason="
+                            f"{run.skip_reason!r}."
                         )
                         if not run.skip:
                             self.app.logger.info(f"run was not skipped.")
@@ -2471,18 +2472,23 @@ class Workflow:
                                             clean_up=(save_file_j in OFP_i.clean_up),
                                         )
                         else:
-                            self.app.logger.info(f"run was skipped.")
+                            self.app.logger.info(
+                                f"run was skipped: reason: {run.skip_reason!r}."
+                            )
 
                         if (
                             not success
                             and run.skip_reason is not SkipReason.LOOP_TERMINATION
                         ):
+                            # run failed
                             self.app.logger.info(
                                 "run was not succcess and skip reason was not "
                                 "LOOP_TERMINATION."
                             )
                             # loop termination skips are already propagated
                             for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
+                                # TODO: `get_dependent_EARs` seems to be stuck in a
+                                # recursion for some workflows
                                 # TODO: this needs to be recursive?
                                 self.app.logger.info(
                                     f"Setting EAR ID {EAR_dep_ID!r} to skip because it "
@@ -3411,7 +3417,7 @@ class Workflow:
 
     def _check_loop_termination(self, run) -> set[int]:
         """Check if we need to terminate a loop if this is the last action of the loop
-        iteration for this element."""
+        iteration for this element, and set downstream iteration runs to skip."""
 
         elem_iter = run.element_iteration
         task = elem_iter.task

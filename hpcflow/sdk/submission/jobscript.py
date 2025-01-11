@@ -1840,7 +1840,8 @@ class Jobscript(JSONLike):
                             if not run_skips[run_i.id_]:
                                 skipped_IDs_i = wk._check_loop_termination(run_i)
                                 for skip_ID in skipped_IDs_i:
-                                    run_skips[skip_ID] = True
+                                    run_skips[skip_ID] =  2 # SkipReason.LOOP_TERMINATION
+                                    runs[skip_ID]._skip = 2 # mutates runs within `run_end_dat`
                         app.logger.info(f"run_ID: {{run_ID}}; finished checking for loop terminations.")
                                     
                         all_loop_term_toc = time.perf_counter()
@@ -1850,7 +1851,7 @@ class Jobscript(JSONLike):
                         # set run end for all elements of this action
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
-                        wk.set_multi_run_ends(run_end_dat, block_act_run_dirs)
+                        wk.set_multi_run_ends(run_end_dat, block_act_run_dirs) # check: are runs here set to skip appropriately?
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
                         app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
