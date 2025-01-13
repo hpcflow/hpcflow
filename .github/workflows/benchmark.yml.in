@@ -15,7 +15,7 @@ on:
 
 jobs:
   workflow-benchmark:
-    uses: ./.github/workflows/benchmark-impl.yml
+    uses: hpcflow/github-support/.github/workflows/benchmark-impl.yml@main
     with:
       executable_name: {{ executable_name }}
       benchmark_make_workflow: {{ benchmark_make_workflow }}

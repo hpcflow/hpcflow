@@ -40,7 +40,7 @@ on:
 
 jobs:
   build-exes:
-    uses: ./.github/workflows/build-exes-impl.yml
+    uses: hpcflow/github-support/.github/workflows/build-exes-impl.yml@main
     with:
 {% raw %}
       build_linux: ${{ github.event.inputs.build_linux }}

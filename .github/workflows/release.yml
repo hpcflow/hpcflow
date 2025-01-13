@@ -8,7 +8,7 @@ on:
 
 jobs:
   release:
-    uses: ./.github/workflows/release-impl.yml
+    uses: hpcflow/github-support/.github/workflows/release-impl.yml@main
     with:
       gh-run-attempt: ${{ github.run_attempt }}
       pr-merged: ${{ github.event.pull_request.merged }}

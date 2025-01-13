@@ -3,7 +3,7 @@ on:
   workflow_dispatch: # manual invocation
 jobs:
   test:
-    uses: ./.github/workflows/test-pre-python-impl.yml
+    uses: hpcflow/github-support/.github/workflows/test-pre-python-impl.yml@main
     with:
       ref: ${{ github.ref }}
       head-ref: ${{ github.head_ref }}
