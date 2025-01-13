@@ -1695,7 +1695,7 @@ class Jobscript(JSONLike):
 
                     block_act_std_path = Path(
                         os.environ["{app_caps}_SUB_STD_DIR"],
-                        f"blk_{{block_idx}}_blk_act_{{block_act_idx}}.txt",
+                        f"js_{js_idx}_blk_{{block_idx}}_blk_act_{{block_act_idx}}.txt",
                     )
                     with app.redirect_std_to_file(block_act_std_path):
                         # set run starts for all runs of the block/action:
@@ -1841,7 +1841,8 @@ class Jobscript(JSONLike):
                                 skipped_IDs_i = wk._check_loop_termination(run_i)
                                 for skip_ID in skipped_IDs_i:
                                     run_skips[skip_ID] =  2 # SkipReason.LOOP_TERMINATION
-                                    runs[skip_ID]._skip = 2 # mutates runs within `run_end_dat`
+                                    if skip_ID in runs:
+                                        runs[skip_ID]._skip = 2 # mutates runs within `run_end_dat`
                         app.logger.info(f"run_ID: {{run_ID}}; finished checking for loop terminations.")
                                     
                         all_loop_term_toc = time.perf_counter()
