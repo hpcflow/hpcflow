@@ -90,7 +90,7 @@ jobs:
           # checkout PR source branch (head_ref) if event is pull_request:
           ref: ${{ inputs.head-ref || inputs.ref }}
           repository: ${{ inputs.full-repo-name }}
-      - uses: ./.github/actions/configure-git
+      - uses: hpcflow/github-support/configure-git@0.1
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_PRE_COMMIT }}
@@ -137,10 +137,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test
           version: ${{ matrix.python-version }}
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test
           version: CentOS
@@ -204,10 +204,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test-integration
           version: ${{ matrix.python-version }}
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test-integration
           version: CentOS
@@ -265,11 +265,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         id: python
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test-invocation
           version: ${{ matrix.python-version }}
@@ -288,42 +288,42 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
 
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }}
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive python
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }}
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive ipython
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }}
@@ -358,11 +358,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         id: python
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test-invocation
           version: ${{ matrix.python-version }}
@@ -381,42 +381,42 @@ jobs:
           PY: ${{ steps.python.outputs.python-path }}
 
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
           expected: "('${{ steps.python.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd.py ${{ inputs.app_package }}
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive python
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd_interactive.py python ${{ inputs.app_package }}
           expected: "('${{ steps.python.outputs.python-path }}', '${{ github.workspace }}/${{ inputs.CLI_path }}')"
 
       - name: Test invocation command with interactive ipython
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: source $(poetry env info --path)/bin/activate
           command: python ./.github/workflows/get_invoc_cmd_interactive.py ipython ${{ inputs.app_package }}
@@ -451,11 +451,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         id: poetry
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test-invocation
           version: ${{ matrix.python-version }}
@@ -476,28 +476,28 @@ jobs:
           PY: ${{ steps.poetry.outputs.python-path }}
 
       - name: Test invocation command with `python ./${{ inputs.CLI_path }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: python ./${{ inputs.CLI_path }} internal get-invoc-cmd
           expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
 
       - name: Test invocation command with `python -m ${{ inputs.CLI_module }}`
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: python -m ${{ inputs.CLI_module }} internal get-invoc-cmd
           expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.cli-path }}')"
 
       - name: Test invocation command with `${{ inputs.executable_name }}` entry point script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: ${{ inputs.executable_name }} internal get-invoc-cmd
           expected: "('${{ steps.prep-test-data.outputs.python-path }}', '${{ steps.prep-test-data.outputs.exe-path }}')"
 
       - name: Test invocation command within a python script
-        uses: ./.github/actions/compare
+        uses: hpcflow/github-support/compare@0.1
         with:
           init: ."$(poetry env info --path)\Scripts\activate.ps1"
           command: python .\.github\workflows\get_invoc_cmd.py ${{ inputs.app_package }}
