@@ -1,0 +1,58 @@
+name: ⚙️ Test pre-python
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git commit reference.
+        required: true
+        type: string
+      head-ref:
+        description: Git HEAD commit reference (branch name).
+        required: false
+        type: string
+        default: ""
+      pytest-args:
+        description: Raw arguments to pass to pytest.
+        required: true
+        type: string
+
+# Don't run simultaneously on the same branch (since we may commit to that branch)
+concurrency: ci-${{ inputs.head-ref && format('refs/heads/{0}', inputs.head-ref) || inputs.ref }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.13-dev"
+        os:
+          - ubuntu-latest
+          - macos-13
+          - windows-latest
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+      - uses: ./.github/actions/init-cache
+        with:
+          name: test
+          version: ${{ matrix.python-version }}
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: 1.4
+
+      - name: Install dependencies
+        run: |
+          poetry install --without dev,pyinstaller
+
+      - name: Run tests
+        run: |
+          poetry run python -m pytest ${{ inputs.pytest-args }}

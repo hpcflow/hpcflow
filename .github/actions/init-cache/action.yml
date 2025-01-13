@@ -1,0 +1,19 @@
+name: Set up Python Virtual Environment cache
+description: >
+  Sets up the caching of the virtual environment for a Python project controlled
+  by Poetry.
+inputs:
+  name:
+    description: The short name of the task having its environment cached.
+    required: true 
+  version:
+    description: The version of Python this is for.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache Virtual Environment
+      uses: actions/cache@v4
+      with:
+        path: ./.venv
+        key: ${{ inputs.name }}.${{ runner.os }}-${{ inputs.version }}-venv.${{ hashFiles('**/poetry.lock') }}

@@ -1,4 +1,4 @@
-name: release_testing
+name: Release testing
 
 env:
   PYTHON_VERSION_BUMP: "3.12"
@@ -34,53 +34,47 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0 # get all history and tags
-
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v3
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-${{ matrix.os }}-${{ hashFiles('**/poetry.lock') }}
-
-      - name: Install poetry
-        run: python -m pip install poetry==1.2.2
-
-      - name: Configure poetry
-        run: poetry config virtualenvs.in-project true
+          name: build
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: 1.2.2
 
       - name: Install dependencies
         run: poetry install --without dev
 
       - name: Build with pyinstaller (non Windows, file)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }} INFO 'onefile'
-        
+
       - name: Build with pyinstaller (non Windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./make.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir INFO 'onedir'
 
       - name: Build with pyinstaller (Windows, file)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./make.ps1 -ExeName "hpcflow-release-test-build-${{ matrix.executable_os }}" -LogLevel INFO -BuildType 'onefile'
 
       - name: Build with pyinstaller (Windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./make.ps1 -ExeName "hpcflow-release-test-build-${{ matrix.executable_os }}-dir" -LogLevel INFO -BuildType 'onedir'
 
       - name: Compress folder (Windows, folder)
-        if: contains(matrix.os, 'windows')
+        if: runner.os == 'Windows'
         working-directory: pyinstaller
         run: ./compress.ps1 -ExeName 'hpcflow-release-test-build-${{ matrix.executable_os }}-dir' -BuildType 'onedir'
 
       - name: Compress folder (non-windows, folder)
-        if: ${{ !contains(matrix.os, 'windows') }}
+        if: runner.os != 'Windows'
         working-directory: pyinstaller
         run: ./compress.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir onedir
 
@@ -100,19 +94,17 @@ jobs:
           fetch-depth: 0
 
       - name: Set ownership
+        # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
+        # this is to fix GIT not liking owner of the checkout dir
         run: |
-          # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
-          # this is to fix GIT not liking owner of the checkout dir
           chown -R $(id -u):$(id -g) $PWD
 
       - name: Configure poetry
         run: poetry config virtualenvs.in-project true
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v3
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-build-CentOS-${{ hashFiles('**/poetry.lock') }}
+          name: build
+          version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
 
       - name: Install dependencies
         run: poetry install --without dev
@@ -140,8 +132,6 @@ jobs:
   release-github:
     needs: [build-executables, build-executables-linux]
     runs-on: ubuntu-latest
-    outputs:
-      binary_download_links: ${{ steps.get_binary_download_links.outputs.binary_download_links }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -153,7 +143,6 @@ jobs:
         id: download_executables_I
         with:
           name: hpcflow-release-test-build-macOS-dir.zip
-
       - uses: actions/download-artifact@v3
         id: download_executables_II
         with:
@@ -161,18 +150,13 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION_RELEASE }}
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v3
+      - uses: ./.github/actions/init-cache
         with:
-          path: ./.venv
-          key: venv-release-${{ hashFiles('**/poetry.lock') }}
-
-      - name: Install poetry
-        run: python -m pip install poetry==1.2.2
-
-      - name: Configure poetry
-        run: poetry config virtualenvs.in-project true
+          name: release
+          version: ${{ env.PYTHON_VERSION_RELEASE }}
+      - uses: ./.github/actions/setup-poetry
+        with:
+          version: 1.2.2
 
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller

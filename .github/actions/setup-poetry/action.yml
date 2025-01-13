@@ -1,0 +1,27 @@
+name: Set up Poetry
+description: >
+  Sets up Poetry, assuming Python is already set up.
+inputs:
+  version:
+    description: The version of Poetry to install.
+    required: true
+outputs:
+  python-path:
+    description: The path to Python in the virtual environment.
+    value: ${{ steps.code.outputs.python }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: code
+      run: |
+        python -m pip install poetry==$VERSION
+        poetry config virtualenvs.in-project true
+        poetry config installer.modern-installation false
+        echo "python=${GITHUB_WORKSPACE}${SEP}.venv${SEP}${LOC}${SEP}python${SUFFIX}" >> $GITHUB_OUTPUT
+      env:
+        VERSION: ${{ inputs.version }}
+        SEP: ${{ runner.os == 'Windows' && '\' || '/' }}
+        LOC: ${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}
+        SUFFIX: ${{ runner.os == 'Windows' && '.exe' || '' }}
