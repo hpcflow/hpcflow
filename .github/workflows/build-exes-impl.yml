@@ -80,11 +80,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: build-exe
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
           version: ${{ env.POETRY_VERSION }}
 
@@ -165,11 +165,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: build-exe
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
           version: ${{ env.POETRY_VERSION }}
 
@@ -247,7 +247,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: build-exe
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}

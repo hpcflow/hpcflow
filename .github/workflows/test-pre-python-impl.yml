@@ -41,11 +41,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
-      - uses: ./.github/actions/init-cache
+      - uses: hpcflow/github-support/init-cache@0.1
         with:
           name: test
           version: ${{ matrix.python-version }}
-      - uses: ./.github/actions/setup-poetry
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
           version: 1.4
 
