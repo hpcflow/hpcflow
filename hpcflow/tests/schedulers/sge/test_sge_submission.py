@@ -1,6 +1,7 @@
 import pytest
 from hpcflow.app import app as hf
 
+
 def test_SGE_process_resources_multi_core_with_parallel_env(null_config):
 
     scheduler_config = {
