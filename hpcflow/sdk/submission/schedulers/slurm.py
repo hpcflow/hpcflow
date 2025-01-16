@@ -473,7 +473,7 @@ class SlurmPosix(Scheduler):
             "--me",
             "--noheader",
             "--format",
-            r"%40i %30T",
+            r"%200i %30T",  # job ID (<base_job_id>_<index> for array job) and job state
             "--jobs",
             ",".join(job_IDs),
         ]
