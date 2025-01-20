@@ -42,6 +42,7 @@ from hpcflow.sdk.cli_common import (
     rechunk_backup_opt,
     rechunk_chunk_size_opt,
     rechunk_status_opt,
+    cancel_status_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -866,14 +867,15 @@ def _make_cancel_CLI(app):
     @click.command()
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
-    def cancel(workflow_ref, ref_type):
+    @cancel_status_opt
+    def cancel(workflow_ref, ref_type, status):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
         workflow path.
 
         """
-        app.cancel(workflow_ref, ref_type)
+        app.cancel(workflow_ref=workflow_ref, ref_is_path=ref_type, status=status)
 
     return cancel
 

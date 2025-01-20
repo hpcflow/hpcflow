@@ -2258,7 +2258,12 @@ class BaseApp(metaclass=Singleton):
                 )
         return path.resolve()
 
-    def _cancel(self, workflow_ref: Union[int, str, PathLike], ref_is_path=None):
+    def _cancel(
+        self,
+        workflow_ref: Union[int, str, PathLike],
+        ref_is_path=None,
+        status: Optional[bool] = True,
+    ):
         """Cancel the execution of a workflow submission.
 
         Parameters
@@ -2267,7 +2272,7 @@ class BaseApp(metaclass=Singleton):
             One of "id", "path" or "assume-id" (the default)
         """
         path = self._resolve_workflow_reference(workflow_ref, ref_is_path)
-        self.Workflow(path).cancel()
+        self.Workflow(path).cancel(status=status)
 
     @staticmethod
     def redirect_std_to_file(*args, **kwargs):

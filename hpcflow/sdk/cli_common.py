@@ -228,3 +228,8 @@ rechunk_status_opt = click.option(
     default=True,
     help="If True, display a live status to track rechunking progress.",
 )
+cancel_status_opt = click.option(
+    "--status/--no-status",
+    default=True,
+    help="If True, display a live status to track cancel progress.",
+)
