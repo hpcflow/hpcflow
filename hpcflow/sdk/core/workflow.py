@@ -2993,11 +2993,19 @@ class Workflow:
         self._abort_run(run)
 
     @TimeIt.decorator
-    def cancel(self, hard=False):
+    def cancel(self, status: Optional[bool] = None, hard: Optional[bool] = False):
         """Cancel any running jobscripts."""
-        with self._store.cached_load():
-            for sub in self.submissions:
-                sub.cancel()
+        if status:
+            console = rich.console.Console()
+            status = console.status(f"Cancelling jobscripts of workflow {self.path!r}")
+            status.start()
+        try:
+            with self._store.cached_load():
+                for sub in self.submissions:
+                    sub.cancel()
+        finally:
+            if status:
+                status.stop()
 
     def add_submission(
         self,
