@@ -2993,7 +2993,7 @@ class Workflow:
         self._abort_run(run)
 
     @TimeIt.decorator
-    def cancel(self, status: Optional[bool] = None, hard: Optional[bool] = False):
+    def cancel(self, status: Optional[bool] = False, hard: Optional[bool] = False):
         """Cancel any running jobscripts."""
         if status:
             console = rich.console.Console()
