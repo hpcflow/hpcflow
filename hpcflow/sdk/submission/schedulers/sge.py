@@ -131,7 +131,7 @@ class SGEPosix(QueuedScheduler):
         if resources.SGE_parallel_env is not None:
             # check user-specified `parallel_env` is valid and compatible with
             # `num_cores`:
-            if resources.num_cores and resources.num_cores > 1:
+            if resources.num_cores and resources.num_cores == 1:
                 raise ValueError(
                     f"An SGE parallel environment should not be specified if `num_cores` "
                     f"is 1 (`SGE_parallel_env` was specified as "
