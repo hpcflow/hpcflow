@@ -63,7 +63,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self, TypeAlias
     from numpy.typing import NDArray
     from zarr import Array, Group  # type: ignore
-    from zarr.attrs import Attributes  # type: ignore
     from zarr.storage import Store  # type: ignore
     from .types import TypeLookup
     from ..app import BaseApp
@@ -632,15 +631,15 @@ class ZarrPersistentStore(
         arr[task_ID] = elem_IDs_new
 
     @staticmethod
-    def __as_dict(attrs: Attributes) -> ZarrAttrs:
+    def __attrs(arr: Array) -> ZarrAttrs:
         """
         Type thunk to work around incomplete typing in zarr.
         """
-        return cast("ZarrAttrs", attrs.asdict())
+        return cast("ZarrAttrs", arr.attrs.asdict())
 
     @contextmanager
     def __mutate_attrs(self, arr: Array) -> Iterator[ZarrAttrs]:
-        attrs_orig = self.__as_dict(arr.attrs)
+        attrs_orig = self.__attrs(arr)
         attrs = copy.deepcopy(attrs_orig)
         yield attrs
         if attrs != attrs_orig:
@@ -660,7 +659,7 @@ class ZarrPersistentStore(
 
     def _append_elem_iter_IDs(self, elem_ID: int, iter_IDs: Iterable[int]):
         arr = self._get_elements_arr(mode="r+")
-        attrs = self.__as_dict(arr.attrs)
+        attrs = self.__attrs(arr)
         elem_dat = cast("list", arr[elem_ID])
         store_elem = ZarrStoreElement.decode(elem_dat, attrs)
         store_elem = store_elem.append_iteration_IDs(iter_IDs)
@@ -678,7 +677,7 @@ class ZarrPersistentStore(
         self, iter_ID: int, act_idx: int, EAR_IDs: Sequence[int]
     ):
         arr = self._get_iters_arr(mode="r+")
-        attrs = self.__as_dict(arr.attrs)
+        attrs = self.__attrs(arr)
         iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.append_EAR_IDs(pend_IDs={act_idx: EAR_IDs})
@@ -687,7 +686,7 @@ class ZarrPersistentStore(
 
     def _update_elem_iter_EARs_initialised(self, iter_ID: int):
         arr = self._get_iters_arr(mode="r+")
-        attrs = self.__as_dict(arr.attrs)
+        attrs = self.__attrs(arr)
         iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.set_EARs_initialised()
@@ -703,7 +702,7 @@ class ZarrPersistentStore(
 
     def _update_loop_index(self, iter_ID: int, loop_idx: Mapping[str, int]):
         arr = self._get_iters_arr(mode="r+")
-        attrs = self.__as_dict(arr.attrs)
+        attrs = self.__attrs(arr)
         iter_dat = cast("list", arr[iter_ID])
         store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
         store_iter = store_iter.update_loop_idx(loop_idx)
