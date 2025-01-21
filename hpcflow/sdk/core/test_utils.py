@@ -24,7 +24,7 @@ def make_schemas(ins_outs, ret_list=False):
                     + " + ".join(f"<<parameter:{i}>> + {100 + out_idx}" for i in ins_i)
                     + "))"
                 ),
-                stdout=f"<<parameter:{out_j}>>",
+                stdout=f"<<int(parameter:{out_j})>>",
             )
             cmds_lst.append(cmd)
 
