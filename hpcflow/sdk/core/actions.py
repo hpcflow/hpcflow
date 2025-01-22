@@ -541,6 +541,7 @@ class ElementActionRun:
         self,
         inputs: Optional[Union[List[str], Dict[str, Dict]]] = None,
         label_dict: bool = True,
+        raise_on_unset: Optional[bool] = False,
     ) -> Dict[str, Any]:
         """Get a dict of (optionally a subset of) inputs values for this run.
 
@@ -575,12 +576,14 @@ class ElementActionRun:
                 val_i = {
                     f"iteration_{run_i.element_iteration.index}": {
                         "loop_idx": run_i.element_iteration.loop_idx,
-                        "value": run_i.get(f"inputs.{inp_name}"),
+                        "value": run_i.get(
+                            f"inputs.{inp_name}", raise_on_unset=raise_on_unset
+                        ),
                     }
                     for run_i in all_runs
                 }
             else:
-                val_i = self.get(f"inputs.{inp_name}")
+                val_i = self.get(f"inputs.{inp_name}", raise_on_unset=raise_on_unset)
 
             key = inp_name
             if label_dict and label_i:
@@ -602,24 +605,29 @@ class ElementActionRun:
 
         return out
 
-    def get_input_values_direct(self, label_dict: bool = True):
+    def get_input_values_direct(
+        self, label_dict: bool = True, raise_on_unset: Optional[bool] = False
+    ):
         """Get a dict of input values that are to be passed directly to a Python script
         function."""
         inputs = self.action.script_data_in_grouped.get("direct", {})
-        return self.get_input_values(inputs=inputs, label_dict=label_dict)
+        return self.get_input_values(
+            inputs=inputs, label_dict=label_dict, raise_on_unset=raise_on_unset
+        )
 
-    def get_IFG_input_values(self) -> Dict[str, Any]:
+    def get_IFG_input_values(
+        self, raise_on_unset: Optional[bool] = False
+    ) -> Dict[str, Any]:
         if not self.action._from_expand:
             raise RuntimeError(
                 f"Cannot get input file generator inputs from this EAR because the "
                 f"associated action is not expanded, meaning multiple IFGs might exists."
             )
         input_types = [i.typ for i in self.action.input_file_generators[0].inputs]
-        inputs = {}
-        for i in self.inputs:
-            typ = i.path[len("inputs.") :]
-            if typ in input_types:
-                inputs[typ] = i.value
+        inputs = {
+            typ_i: self.get(f"inputs.{typ_i}", raise_on_unset=raise_on_unset)
+            for typ_i in input_types
+        }
 
         if self.action.script_pass_env_spec:
             inputs["env_spec"] = self.env_spec
@@ -638,7 +646,9 @@ class ElementActionRun:
             out_files[file_spec.label] = Path(file_spec.name.value())
         return out_files
 
-    def get_OFP_inputs(self) -> Dict[str, Union[str, List[str]]]:
+    def get_OFP_inputs(
+        self, raise_on_unset: Optional[bool] = False
+    ) -> Dict[str, Union[str, List[str]]]:
         if not self.action._from_expand:
             raise RuntimeError(
                 f"Cannot get output file parser inputs from this from EAR because the "
@@ -646,14 +656,16 @@ class ElementActionRun:
             )
         inputs = {}
         for inp_typ in self.action.output_file_parsers[0].inputs or []:
-            inputs[inp_typ] = self.get(f"inputs.{inp_typ}")
+            inputs[inp_typ] = self.get(f"inputs.{inp_typ}", raise_on_unset=raise_on_unset)
 
         if self.action.script_pass_env_spec:
             inputs["env_spec"] = self.env_spec
 
         return inputs
 
-    def get_OFP_outputs(self) -> Dict[str, Union[str, List[str]]]:
+    def get_OFP_outputs(
+        self, raise_on_unset: Optional[bool] = False
+    ) -> Dict[str, Union[str, List[str]]]:
         if not self.action._from_expand:
             raise RuntimeError(
                 f"Cannot get output file parser outputs from this from EAR because the "
@@ -661,29 +673,34 @@ class ElementActionRun:
             )
         outputs = {}
         for out_typ in self.action.output_file_parsers[0].outputs or []:
-            outputs[out_typ] = self.get(f"outputs.{out_typ}")
+            outputs[out_typ] = self.get(
+                f"outputs.{out_typ}", raise_on_unset=raise_on_unset
+            )
         return outputs
 
     def get_py_script_func_kwargs(
-        self, inp_files: Optional[Dict] = None, out_files: Optional[Dict] = None
+        self,
+        inp_files: Optional[Dict] = None,
+        out_files: Optional[Dict] = None,
+        raise_on_unset: Optional[bool] = False,
     ) -> Dict[str, Any]:
         # TODO: use this in compose_source as well?
         kwargs = {}
         if self.action.is_IFG:
             ifg = self.action.input_file_generators[0]
             kwargs["path"] = Path(ifg.input_file.name.value())
-            kwargs.update(self.get_IFG_input_values())
+            kwargs.update(self.get_IFG_input_values(raise_on_unset=raise_on_unset))
 
         elif self.action.is_OFP:
             kwargs.update(self.get_OFP_output_files())
-            kwargs.update(self.get_OFP_inputs())
-            kwargs.update(self.get_OFP_outputs())
+            kwargs.update(self.get_OFP_inputs(raise_on_unset=raise_on_unset))
+            kwargs.update(self.get_OFP_outputs(raise_on_unset=raise_on_unset))
 
         if (
             not any((self.action.is_IFG, self.action.is_OFP))
             and self.action.script_data_in_has_direct
         ):
-            kwargs.update(self.get_input_values_direct())
+            kwargs.update(self.get_input_values_direct(raise_on_unset=raise_on_unset))
 
         if inp_files is not None:
             kwargs["_inputs"] = inp_files
@@ -696,7 +713,9 @@ class ElementActionRun:
 
         for fmt, ins in self.action.script_data_in_grouped.items():
             if fmt == "json":
-                in_vals = self.get_input_values(inputs=ins, label_dict=False)
+                in_vals = self.get_input_values(
+                    inputs=ins, label_dict=False, raise_on_unset=True
+                )
                 dump_path = self.action.get_param_dump_file_path_JSON(block_act_key)
                 in_vals_processed = {}
                 for k, v in in_vals.items():
@@ -712,7 +731,9 @@ class ElementActionRun:
             elif fmt == "hdf5":
                 import h5py
 
-                in_vals = self.get_input_values(inputs=ins, label_dict=False)
+                in_vals = self.get_input_values(
+                    inputs=ins, label_dict=False, raise_on_unset=True
+                )
                 dump_path = self.action.get_param_dump_file_path_HDF5(block_act_key)
                 with h5py.File(dump_path, mode="w") as f:
                     for k, v in in_vals.items():
