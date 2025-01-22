@@ -1574,6 +1574,7 @@ class Jobscript(JSONLike):
             from pathlib import Path
             import traceback
             import time
+            from typing import Dict
 
             import {app_module} as app
 
@@ -1632,7 +1633,7 @@ class Jobscript(JSONLike):
             get_all_runs_tic = time.perf_counter()
             run_IDs_flat = [j for i in run_IDs for j in i]
             runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
-            run_skips : dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
+            run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
             get_all_runs_toc = time.perf_counter()
 
             with open(os.environ["{app_caps}_SCRIPT_INDICES_FILE"], mode="r") as fp:
