@@ -207,6 +207,7 @@ class ElementResources(JSONLike):
     os_name: Optional[str] = None
     environments: Optional[Dict] = None
     resources_id: Optional[int] = None
+    skip_downstream_on_failure: Optional[bool] = True
 
     # SGE scheduler specific:
     SGE_parallel_env: str = None

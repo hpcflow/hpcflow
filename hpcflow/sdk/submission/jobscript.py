@@ -1577,6 +1577,8 @@ class Jobscript(JSONLike):
 
             import {app_module} as app
 
+            from hpcflow.sdk.core.errors import UnsetParameterDataError
+
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
             """
@@ -1768,7 +1770,21 @@ class Jobscript(JSONLike):
                             # retrieve script inputs:
                             app.logger.info(f"run_ID: {{run_ID}}; retrieving script inputs.")
                             get_ins_tic = time.perf_counter()
-                            func_kwargs = run.get_py_script_func_kwargs()
+                            try:
+                                func_kwargs = run.get_py_script_func_kwargs(raise_on_unset=True)
+                            except UnsetParameterDataError:
+                                # upstream run dependency with `skip_downstream_on_failure==False`
+                                # may have failed, meaning this run wasn't skipped, so fail this
+                                # run:
+                                exit_code = 1
+                                block_act_key=({js_idx}, block_idx, block_act_idx)
+                                run_end_dat[block_act_key].append((run, exit_code))
+                                app.logger.info(
+                                    f"run_ID: {{run_ID}}; some parameter data is unset, "
+                                    f"so cannot run; setting exit code to 1."
+                                )
+                                continue # don't run the function
+
                             get_ins_toc = time.perf_counter()
 
                             script_idx = script_indices[block_idx][block_act_idx]

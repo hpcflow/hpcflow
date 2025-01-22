@@ -1374,6 +1374,7 @@ class ResourceSpec(JSONLike):
         "os_name",
         "environments",
         "resources_id",
+        "skip_downstream_on_failure",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -1413,6 +1414,7 @@ class ResourceSpec(JSONLike):
         os_name: Optional[str] = None,
         environments: Optional[Dict] = None,
         resources_id: Optional[int] = None,
+        skip_downstream_on_failure: Optional[bool] = None,
         SGE_parallel_env: Optional[str] = None,
         SLURM_partition: Optional[str] = None,
         SLURM_num_tasks: Optional[str] = None,
@@ -1443,6 +1445,7 @@ class ResourceSpec(JSONLike):
         self._os_name = self._process_string(os_name)
         self._environments = environments
         self._resources_id = resources_id
+        self._skip_downstream_on_failure = skip_downstream_on_failure
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
         self._write_app_logs = write_app_logs
@@ -1585,6 +1588,7 @@ class ResourceSpec(JSONLike):
             self._os_name = None
             self._environments = None
             self._resources_id = None
+            self._skip_downstream_on_failure = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -1703,6 +1707,10 @@ class ResourceSpec(JSONLike):
     @property
     def resources_id(self):
         return self._get_value("resources_id")
+
+    @property
+    def skip_downstream_on_failure(self):
+        return self._get_value("skip_downstream_on_failure")
 
     @property
     def SGE_parallel_env(self):

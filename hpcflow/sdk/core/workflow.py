@@ -71,6 +71,7 @@ from hpcflow.sdk.core.errors import (
     OutputFileParserNoOutputError,
     RunNotAbortableError,
     SubmissionFailure,
+    UnsetParameterDataError,
     WorkflowSubmissionFailure,
 )
 
@@ -2197,7 +2198,7 @@ class Workflow:
         ]
 
     def set_EAR_start(
-        self, run_id: int, run_dir: Union[Path, None], port_number: int
+        self, run_id: int, run_dir: Union[Path, None], port_number: Union[int, None]
     ) -> None:
         """Set the start time on an EAR."""
         self.app.logger.debug(f"Setting start for EAR ID {run_id!r}")
@@ -2321,7 +2322,11 @@ class Workflow:
                                     clean_up=(save_file_j in OFP_i.clean_up),
                                 )
 
-                if not success and run.skip_reason is not SkipReason.LOOP_TERMINATION:
+                if (
+                    run.resources.skip_downstream_on_failure
+                    and not success
+                    and run.skip_reason is not SkipReason.LOOP_TERMINATION
+                ):
                     # loop termination skips are already propagated
                     for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
                         self.app.logger.debug(
@@ -2477,7 +2482,8 @@ class Workflow:
                             )
 
                         if (
-                            not success
+                            run.resources.skip_downstream_on_failure
+                            and not success
                             and run.skip_reason is not SkipReason.LOOP_TERMINATION
                         ):
                             # run failed
@@ -2500,7 +2506,8 @@ class Workflow:
                                 )
                         else:
                             self.app.logger.info(
-                                "run was succcess or skip reason was LOOP_TERMINATION."
+                                "`skip_downstream_on_failure` is False, run was "
+                                "succcess, or skip reason was LOOP_TERMINATION."
                             )
 
                         run_ids.append(run.id_)
@@ -3322,10 +3329,26 @@ class Workflow:
 
                 # check if we should skip:
                 if not run.skip:
-                    if run.action.script:
-                        run.write_script_input_files(block_act_key)
-                    # write the command file that will be executed:
-                    cmd_file_path = self.ensure_commands_file(submission_idx, js_idx, run)
+                    try:
+                        if run.action.script:
+                            run.write_script_input_files(block_act_key)
+
+                        # write the command file that will be executed:
+                        cmd_file_path = self.ensure_commands_file(
+                            submission_idx, js_idx, run
+                        )
+                    except UnsetParameterDataError:
+                        # upstream run dependency with `skip_downstream_on_failure==False`
+                        # may have failed, meaning this run wasn't skipped, so fail this
+                        # run:
+                        self.set_EAR_start(run_ID, run_dir, port_number=None)
+                        self._check_loop_termination(run)  # not sure if this is required
+                        self.set_EAR_end(
+                            block_act_key=block_act_key,
+                            run=run,
+                            exit_code=1,
+                        )
+                        return
                     has_commands = bool(cmd_file_path)
                     if has_commands:
 
