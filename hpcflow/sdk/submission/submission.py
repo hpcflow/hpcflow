@@ -1023,3 +1023,19 @@ class Submission(JSONLike):
                 sched.cancel_jobs(js_refs=sched_refs, jobscripts=jobscripts)
             else:
                 print("No active jobscripts to cancel.")
+
+    @TimeIt.decorator
+    def get_scheduler_job_IDs(self) -> Tuple[str]:
+        """Return jobscript scheduler job IDs."""
+        return tuple(
+            js_i.scheduler_job_ID
+            for js_i in self.jobscripts
+            if js_i.scheduler_job_ID is not None
+        )
+
+    @TimeIt.decorator
+    def get_process_IDs(self) -> Tuple[int]:
+        """Return jobscript process IDs."""
+        return tuple(
+            js_i.process_ID for js_i in self.jobscripts if js_i.process_ID is not None
+        )

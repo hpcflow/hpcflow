@@ -354,6 +354,22 @@ def _make_workflow_submission_CLI(app):
         """Show active jobscripts and their jobscript-element states."""
         pprint(ctx.obj["submission"].get_active_jobscripts(as_json=True))
 
+    @submission.command()
+    @click.pass_context
+    def get_scheduler_job_IDs(ctx):
+        """Print jobscript scheduler job IDs."""
+        job_IDs = ctx.obj["submission"].get_scheduler_job_IDs()
+        if job_IDs:
+            print("\n".join(job_IDs))
+
+    @submission.command()
+    @click.pass_context
+    def get_process_IDs(ctx):
+        """Print jobscript process IDs."""
+        proc_IDs = ctx.obj["submission"].get_process_IDs()
+        if proc_IDs:
+            print("\n".join(str(i) for i in proc_IDs))
+
     submission.help = submission.help.format(app_name=app.name)
     submission.add_command(_make_workflow_submission_jobscript_CLI(app))
 
@@ -559,6 +575,22 @@ def _make_workflow_CLI(app):
         ctx.obj["workflow"].rechunk_parameter_base(
             backup=backup, chunk_size=chunk_size, status=status
         )
+
+    @workflow.command()
+    @click.pass_context
+    def get_scheduler_job_IDs(ctx):
+        """Print jobscript scheduler job IDs from all submissions of this workflow."""
+        job_IDs = ctx.obj["workflow"].get_scheduler_job_IDs()
+        if job_IDs:
+            print("\n".join(job_IDs))
+
+    @workflow.command()
+    @click.pass_context
+    def get_process_IDs(ctx):
+        """Print jobscript process IDs from all submissions of this workflow."""
+        proc_IDs = ctx.obj["workflow"].get_process_IDs()
+        if proc_IDs:
+            print("\n".join(str(i) for i in proc_IDs))
 
     workflow.help = workflow.help.format(app_name=app.name)
 

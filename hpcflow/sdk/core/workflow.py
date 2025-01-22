@@ -3773,6 +3773,20 @@ class Workflow:
 
         return dirs
 
+    @TimeIt.decorator
+    def get_scheduler_job_IDs(self) -> Tuple[str]:
+        """Return jobscript scheduler job IDs from all submissions of this workflow."""
+        return tuple(
+            IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_scheduler_job_IDs()
+        )
+
+    @TimeIt.decorator
+    def get_process_IDs(self) -> Tuple[int]:
+        """Return jobscript process IDs from all submissions of this workflow."""
+        return tuple(
+            IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_process_IDs()
+        )
+
 
 @dataclass
 class WorkflowBlueprint:
