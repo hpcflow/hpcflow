@@ -1790,6 +1790,7 @@ class Jobscript(JSONLike):
                             print(f"Exception caught during execution of script function {{func.__name__}}.")
                             traceback.print_exc()
                             exit_code = 1
+                            outputs = {{}}
                         else:
                             app.logger.info(f"run_ID: {{run_ID}}; finished function invocation.")
                             exit_code = 0
@@ -1799,12 +1800,12 @@ class Jobscript(JSONLike):
                             block_act_key=({js_idx}, block_idx, block_act_idx)
                             run_end_dat[block_act_key].append((run, exit_code))
 
-                            # save outputs
-                            app.logger.info(f"run_ID: {{run_ID}}; saving outputs.")
+                            # store outputs to save at end:
+                            app.logger.info(f"run_ID: {{run_ID}}; setting outputs to save.")
                             for name_i, out_i in outputs.items():
                                 p_id = run.data_idx[f"outputs.{{name_i}}"]
                                 all_act_outputs[p_id] = out_i
-                            app.logger.info(f"run_ID: {{run_ID}}; finished saving outputs.")
+                            app.logger.info(f"run_ID: {{run_ID}}; finished setting outputs to save.")
                                 
                             if req_dir:
                                 app.logger.info(f"run_ID: {{run_ID}}; changing directory back")
@@ -1829,7 +1830,15 @@ class Jobscript(JSONLike):
                         if all_act_outputs:
                             # save outputs of all elements of this action
                             save_all_tic = time.perf_counter()
+                            app.logger.info(
+                                f"saving outputs of block action index {{block_act_idx}} "
+                                f"in block {{block_idx}}."
+                            )                            
                             wk.set_parameter_values(all_act_outputs)
+                            app.logger.info(
+                                f"finished saving outputs of block action index {{block_act_idx}} "
+                                f"in block {{block_idx}}."
+                            )
                             save_all_toc = time.perf_counter()
                             save_all_time_i = save_all_toc - save_all_tic
                             print(f"{{save_all_time_i:.4f}}", file=save_multi_times_fp, flush=True)
