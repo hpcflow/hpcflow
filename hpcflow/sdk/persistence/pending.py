@@ -70,7 +70,7 @@ class PendingChanges:
         self.set_EARs_initialised: List[int] = None
         self.set_EAR_submission_data: Dict[int, Tuple[int, int]] = None
         self.set_EAR_skips: Dict[int, int] = None
-        self.set_EAR_starts: Dict[int, Tuple[datetime, Dict], str] = None
+        self.set_EAR_starts: Dict[int, Tuple[datetime, Dict, str, int]] = None
         self.set_EAR_ends: Dict[int, Tuple[datetime, Dict, int, bool]] = None
         self.set_run_dirs: List[Tuple] = None
 
