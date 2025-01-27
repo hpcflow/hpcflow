@@ -23,6 +23,7 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import parse_timestamp, current_timestamp
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.shells import get_shell, DEFAULT_SHELL_NAMES
 
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     from ..core.workflow import WorkflowTask, Workflow
     from .submission import Submission
     from .shells.base import Shell
-    from .schedulers import Scheduler, QueuedScheduler
+    from .schedulers import Scheduler
     from .enums import JobscriptElementState
     from .types import (
         JobScriptCreationArguments,
@@ -392,10 +393,6 @@ class Jobscript(JSONLike):
             class_name="ElementResources",
         ),
     )
-
-    @classmethod
-    def __is_QueuedScheduler(cls, value) -> TypeIs[QueuedScheduler]:
-        return isinstance(value, cls._app.QueuedScheduler)
 
     def __init__(
         self,
@@ -1059,7 +1056,7 @@ class Jobscript(JSONLike):
         )
         header = shell.JS_HEADER.format(**header_args)
 
-        if self.__is_QueuedScheduler(scheduler):
+        if isinstance(scheduler, QueuedScheduler):
             header = shell.JS_SCHEDULER_HEADER.format(
                 shebang=shebang,
                 scheduler_options=scheduler.format_options(
@@ -1096,7 +1093,7 @@ class Jobscript(JSONLike):
         out = header
 
         if self.is_array:
-            if not self.__is_QueuedScheduler(scheduler):
+            if not isinstance(scheduler, QueuedScheduler):
                 raise Exception("can only schedule arrays of jobs to a queue")
             out += shell.JS_ELEMENT_ARRAY.format(
                 scheduler_command=scheduler.js_cmd,
@@ -1305,7 +1302,7 @@ class Jobscript(JSONLike):
         job_ID: str | None = None
         process_ID: int | None = None
         try:
-            if self.__is_QueuedScheduler(self.scheduler):
+            if isinstance(self.scheduler, QueuedScheduler):
                 # scheduled submission, wait for submission so we can parse the job ID:
                 stdout, stderr = self._launch_queued(submit_cmd, print_stdout)
                 err_args["stdout"] = stdout
@@ -1321,7 +1318,7 @@ class Jobscript(JSONLike):
                 "Failed to execute submit command.", **err_args
             )
 
-        if self.__is_QueuedScheduler(self.scheduler):
+        if isinstance(self.scheduler, QueuedScheduler):
             # scheduled submission
             if stderr:
                 raise JobscriptSubmissionFailure(
@@ -1367,7 +1364,7 @@ class Jobscript(JSONLike):
         """
         The reference to the submitted job for the jobscript.
         """
-        if self.__is_QueuedScheduler(self.scheduler):
+        if isinstance(self.scheduler, QueuedScheduler):
             return self.scheduler_job_ID
         else:
             return (self.process_ID, self.submit_cmdline)
