@@ -30,6 +30,13 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
     """
     Abstract base class for schedulers.
 
+    Note
+    ----
+    Do not make immediate subclasses of this class other than
+    :py:class:`DirectScheduler` and :py:class:`QueuedScheduler`;
+    subclass those two instead. Code (e.g., in :py:class:`Jobscript`)
+    assumes that this model is followed and does not check it.
+
     Parameters
     ----------
     shell_args: str
