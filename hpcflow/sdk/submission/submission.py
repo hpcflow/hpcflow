@@ -436,7 +436,12 @@ class Submission(JSONLike):
 
     @property
     @TimeIt.decorator
-    def all_EARs_by_jobscript(self) -> List:
+    def all_EARs_IDs_by_jobscript(self) -> List[int]:
+        return [i.all_EAR_IDs for i in self.jobscripts]
+
+    @property
+    @TimeIt.decorator
+    def all_EARs_by_jobscript(self) -> List[List[int]]:
         ids = [i.all_EAR_IDs for i in self.jobscripts]
         all_EARs = {i.id_: i for i in self.workflow.get_EARs_from_IDs(self.all_EAR_IDs)}
         return [[all_EARs[i] for i in js_ids] for js_ids in ids]
@@ -499,11 +504,12 @@ class Submission(JSONLike):
             status.update(f"Adding new submission: processing run 1/{num_runs_tot}.")
 
         all_runs = cache.runs
+        runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
         with self.workflow.cached_merged_parameters():
             for js in self.jobscripts:
                 js_idx = js.index
-                js_run_0 = all_runs[0]
+                js_run_0 = all_runs[runs_ids_by_js[js.index][0]]
 
                 if js.resources.combine_scripts:
                     # this will be one or more snippet scripts that needs to be combined into

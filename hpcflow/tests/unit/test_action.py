@@ -876,3 +876,91 @@ def test_get_commands_file_hash_distinct_cmd_rule_resources_path(null_config):
     h1 = act.get_commands_file_hash(data_idx=di_1, action_idx=0)
     h2 = act.get_commands_file_hash(data_idx=di_2, action_idx=0)
     assert h1 != h2
+
+
+def test_get_script_input_output_file_paths_json_in_json_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_json_in_json_out.py>>",
+        script_data_in="json",
+        script_data_out="json",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    assert s1.actions[0].get_script_input_output_file_paths(0, 1, 2) == {
+        "inputs": {"json": Path("js_0_block_1_act_2_inputs.json")},
+        "outputs": {"json": Path("js_0_block_1_act_2_outputs.json")},
+    }
+
+
+def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_hdf5_in_obj_2.py>>",
+        script_data_in="hdf5",
+        script_data_out="direct",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    assert s1.actions[0].get_script_input_output_file_paths(0, 1, 2) == {
+        "inputs": {"hdf5": Path("js_0_block_1_act_2_inputs.h5")},
+        "outputs": {},
+    }
+
+
+def test_get_script_input_output_file_command_args_json_in_json_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_json_in_json_out.py>>",
+        script_data_in="json",
+        script_data_out="json",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
+    assert s1.actions[0].get_script_input_output_file_command_args() == [
+        "--inputs-json",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.json",
+        "--outputs-json",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_outputs.json",
+    ]
+
+
+def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_hdf5_in_obj_2.py>>",
+        script_data_in="hdf5",
+        script_data_out="direct",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
+    assert s1.actions[0].get_script_input_output_file_command_args() == [
+        "--inputs-hdf5",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.h5",
+    ]

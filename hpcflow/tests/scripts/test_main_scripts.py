@@ -14,7 +14,8 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_in_direct_out(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_in_direct_out(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -32,7 +33,10 @@ def test_script_direct_in_direct_out(null_config, tmp_path):
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -43,7 +47,8 @@ def test_script_direct_in_direct_out(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_sub_param_in_direct_out(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_sub_param_in_direct_out(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -61,7 +66,10 @@ def test_script_direct_sub_param_in_direct_out(null_config, tmp_path):
     p1_val = {"a": 101}
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -72,7 +80,8 @@ def test_script_direct_sub_param_in_direct_out(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_in_direct_out_single_label(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_in_direct_out_single_label(null_config, tmp_path, combine_scripts):
     """This uses the same test script as the `test_script_direct_in_direct_out` test;
     single labels are trivial and need not be referenced in the script."""
     p1_label = "one"
@@ -93,7 +102,10 @@ def test_script_direct_in_direct_out_single_label(null_config, tmp_path):
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={f"p1[{p1_label}]": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -104,7 +116,8 @@ def test_script_direct_in_direct_out_single_label(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_in_direct_out_labels(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_in_direct_out_labels(null_config, tmp_path, combine_scripts):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -137,7 +150,10 @@ def test_script_direct_in_direct_out_labels(null_config, tmp_path):
         },
     )
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -148,7 +164,8 @@ def test_script_direct_in_direct_out_labels(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_in_json_out(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_in_json_out(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -160,13 +177,17 @@ def test_script_json_in_json_out(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
     )
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -177,7 +198,8 @@ def test_script_json_in_json_out(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_in_json_out_labels(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_in_json_out_labels(null_config, tmp_path, combine_scripts):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -197,6 +219,7 @@ def test_script_json_in_json_out_labels(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
     )
@@ -210,7 +233,10 @@ def test_script_json_in_json_out_labels(null_config, tmp_path):
         },
     )
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -221,7 +247,8 @@ def test_script_json_in_json_out_labels(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path, combine_scripts):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -241,6 +268,7 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
     )
@@ -254,7 +282,10 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path):
         },
     )
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -265,7 +296,8 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_and_direct_in_json_out(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_and_direct_in_json_out(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[
@@ -280,6 +312,7 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
     )
@@ -287,7 +320,10 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path):
     p2_val = 201
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val, "p2": p2_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -298,7 +334,8 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_in_json_and_direct_out(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_in_json_and_direct_out(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -313,13 +350,17 @@ def test_script_json_in_json_and_direct_out(null_config, tmp_path):
                 script_data_out={"p2": "json", "p3": "direct"},
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
     )
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -331,7 +372,8 @@ def test_script_json_in_json_and_direct_out(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_in_obj(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_in_obj(null_config, tmp_path, combine_scripts):
     """Use a custom JSON dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -344,6 +386,7 @@ def test_script_json_in_obj(null_config, tmp_path):
                 script_data_out="direct",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
         parameter_class_modules=["hpcflow.sdk.core.test_utils"],
@@ -351,7 +394,10 @@ def test_script_json_in_obj(null_config, tmp_path):
     a_val = 1
     t1 = hf.Task(schema=s1, inputs={"p1c": P1(a=a_val)})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -362,7 +408,8 @@ def test_script_json_in_obj(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_hdf5_in_obj(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_hdf5_in_obj(null_config, tmp_path, combine_scripts):
     """Use a custom HDF5 dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -375,6 +422,7 @@ def test_script_hdf5_in_obj(null_config, tmp_path):
                 script_data_out="direct",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
         parameter_class_modules=["hpcflow.sdk.core.test_utils"],
@@ -382,7 +430,10 @@ def test_script_hdf5_in_obj(null_config, tmp_path):
     a_val = 1
     t1 = hf.Task(schema=s1, inputs={"p1c": P1(a=a_val)})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -393,7 +444,8 @@ def test_script_hdf5_in_obj(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_json_out_obj(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_json_out_obj(null_config, tmp_path, combine_scripts):
     """Use a custom JSON saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -406,6 +458,7 @@ def test_script_json_out_obj(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
         parameter_class_modules=["hpcflow.sdk.core.test_utils"],
@@ -413,7 +466,10 @@ def test_script_json_out_obj(null_config, tmp_path):
     p1_val = 1
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -424,7 +480,8 @@ def test_script_json_out_obj(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_hdf5_out_obj(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_hdf5_out_obj(null_config, tmp_path, combine_scripts):
     """Use a custom HDF5 saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -437,6 +494,7 @@ def test_script_hdf5_out_obj(null_config, tmp_path):
                 script_data_out="hdf5",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             )
         ],
         parameter_class_modules=["hpcflow.sdk.core.test_utils"],
@@ -444,7 +502,10 @@ def test_script_hdf5_out_obj(null_config, tmp_path):
     p1_val = 1
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -455,7 +516,8 @@ def test_script_hdf5_out_obj(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_in_pass_env_spec(new_null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_in_pass_env_spec(new_null_config, tmp_path, combine_scripts):
 
     vers_spec = {"version": "1.2"}
     env = hf.Environment(
@@ -502,6 +564,7 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -516,7 +579,10 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_std_stream_redirect_on_exception(new_null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_std_stream_redirect_on_exception(
+    new_null_config, tmp_path, combine_scripts
+):
     """Test exceptions raised by the app during execution of a script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
 
@@ -563,7 +629,10 @@ def test_script_std_stream_redirect_on_exception(new_null_config, tmp_path):
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -574,8 +643,11 @@ def test_script_std_stream_redirect_on_exception(new_null_config, tmp_path):
     assert not wk.submissions[0].jobscripts[0].direct_stderr_path.read_text()
 
     # std stream file has workflow not found traceback
-    run = wk.get_all_EARs()[0]
-    std_stream_path = run.get_app_std_path()
+    if combine_scripts:
+        std_stream_path = wk.submissions[0].jobscripts[0].get_app_std_path()
+    else:
+        run = wk.get_all_EARs()[0]
+        std_stream_path = run.get_app_std_path()
     assert std_stream_path.is_file()
     assert "WorkflowNotFoundError" in std_stream_path.read_text()
 
@@ -584,7 +656,8 @@ def test_script_std_stream_redirect_on_exception(new_null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_std_out_std_err_not_redirected(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_std_out_std_err_not_redirected(null_config, tmp_path, combine_scripts):
     """Test that standard error and output streams from a script are written to the jobscript
     standard error and output files."""
     s1 = hf.TaskSchema(
@@ -607,7 +680,10 @@ def test_script_std_out_std_err_not_redirected(null_config, tmp_path):
     stderr_msg = "hello stderr!"
     t1 = hf.Task(schema=s1, inputs={"stdout_msg": stdout_msg, "stderr_msg": stderr_msg})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -626,7 +702,8 @@ def test_script_std_out_std_err_not_redirected(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_pass_env_spec(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_pass_env_spec(null_config, tmp_path, combine_scripts):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -645,7 +722,10 @@ def test_script_pass_env_spec(null_config, tmp_path):
     p1_val = 101
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test_pass_env_spec", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test_pass_env_spec",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -658,7 +738,8 @@ def test_script_pass_env_spec(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_env_specifier_in_main_script_path(new_null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_env_specifier_in_main_script_path(new_null_config, tmp_path, combine_scripts):
     py_env = hf.Environment(
         name="python_env",
         specifiers={"version": "v1"},
@@ -699,7 +780,10 @@ def test_env_specifier_in_main_script_path(new_null_config, tmp_path):
         environments={"python_env": {"version": "v1"}},
     )
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test_env_spec_script_path", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test_env_spec_script_path",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -712,7 +796,10 @@ def test_env_specifier_in_main_script_path(new_null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_env_specifier_in_main_script_path_multiple_scripts(new_null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_env_specifier_in_main_script_path_multiple_scripts(
+    new_null_config, tmp_path, combine_scripts
+):
     """Test two elements with different environment specifiers use two distinct scripts"""
     py_env_v1 = hf.Environment(
         name="python_env",
@@ -779,6 +866,7 @@ def test_env_specifier_in_main_script_path_multiple_scripts(new_null_config, tmp
         tasks=[t1],
         template_name="main_script_test_multiple_env_spec_script",
         path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -795,7 +883,10 @@ def test_env_specifier_in_main_script_path_multiple_scripts(new_null_config, tmp
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_script_direct_in_direct_out_multi_element(null_config, tmp_path):
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_direct_in_direct_out_multi_element(
+    null_config, tmp_path, combine_scripts
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -815,7 +906,10 @@ def test_script_direct_in_direct_out_multi_element(null_config, tmp_path):
         schema=s1, sequences=[hf.ValueSequence(path="inputs.p1", values=p1_vals)]
     )
     wk = hf.Workflow.from_template_data(
-        tasks=[t1], template_name="main_script_test_multi_element", path=tmp_path
+        tasks=[t1],
+        template_name="main_script_test_multi_element",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
@@ -830,7 +924,7 @@ def test_script_direct_in_direct_out_multi_element(null_config, tmp_path):
     script_name, _ = t1.schema.actions[0].get_script_artifact_name(env_spec={}, act_idx=0)
     script_files = list(i.name for i in wk.submissions[0].scripts_path.glob("*"))
     assert len(script_files) == 1
-    assert script_files[0] == script_name
+    assert script_files[0] == script_name if not combine_scripts else "js_0.py"
 
 
 @pytest.mark.integration
@@ -989,6 +1083,7 @@ def test_main_script_two_actions_same_schema(null_config, tmp_path):
                 script_data_out="json",
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
             ),
         ],
     )
@@ -1118,3 +1213,58 @@ def test_shell_env_vars(null_config, tmp_path):
 
         assert env_dat["HPCFLOW_ELEMENT_ITER_ID"] == str(run.element_iteration.id_)
         assert env_dat["HPCFLOW_ELEMENT_ITER_IDX"] == str(run.element_iteration.index)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("hf.run_time_info.is_frozen")
+def test_combine_scripts_script_data_multiple_input_file_formats(null_config, tmp_path):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_json_in_json_out.py>>",
+                script_data_in="json",
+                script_data_out="json",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            ),
+        ],
+    )
+    s2 = hf.TaskSchema(
+        objective="t2",
+        inputs=[
+            hf.SchemaInput(parameter=hf.Parameter("p2")),
+            hf.SchemaInput(parameter=hf.Parameter("p1c")),
+        ],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p3"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_hdf5_in_obj_2.py>>",
+                script_data_in={"p2": "direct", "p1c": "hdf5"},
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            ),
+        ],
+        parameter_class_modules=["hpcflow.sdk.core.test_utils"],
+    )
+    p1_val = 101
+    t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
+    t2 = hf.Task(schema=s2, inputs={"p1c": P1(a=p1_val)})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1, t2],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": True}},
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+    # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
+    # to be later Python versions):
+    time.sleep(10)
+
+    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    assert wk.tasks[1].elements[0].outputs.p3.value == p1_val + 100

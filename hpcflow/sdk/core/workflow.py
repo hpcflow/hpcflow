@@ -2344,8 +2344,10 @@ class Workflow:
 
     def set_multi_run_ends(
         self,
-        runs: Dict[Tuple[int, int, int], List[Tuple[app.ElementActionRun, int]]],
-        run_dirs: List[Union[Path, None]],
+        runs: Dict[
+            Tuple[int, int, int],
+            List[Tuple[app.ElementActionRun, int, Union[Path, None]]],
+        ],
     ) -> None:
         """Set end times and exit codes on multiple runs.
 
@@ -2357,10 +2359,11 @@ class Workflow:
         with self._store.cached_load():
             with self.batch_update():
                 run_ids = []
+                run_dirs = []
                 exit_codes = []
                 successes = []
                 for block_act_key, run_dat in runs.items():
-                    for run, exit_code in run_dat:
+                    for run, exit_code, run_dir in run_dat:
 
                         success = (
                             exit_code == 0
@@ -2372,7 +2375,6 @@ class Workflow:
                         )
                         if not run.skip:
                             self.app.logger.info(f"run was not skipped.")
-                            run_dir = run.get_directory()
                             if run.action.abortable and exit_code == ABORT_EXIT_CODE:
                                 # the point of aborting an EAR is to continue with the
                                 # workflow:
@@ -2407,7 +2409,7 @@ class Workflow:
                                 self.app.logger.info(
                                     f"saving script-generated parameters."
                                 )
-                                run._param_save(block_act_key)
+                                run._param_save(block_act_key, run_dir)
 
                             # Save action-level files: (TODO: refactor with below for OFPs)
                             for save_file_j in run.action.save_files:
@@ -2511,6 +2513,7 @@ class Workflow:
                             )
 
                         run_ids.append(run.id_)
+                        run_dirs.append(run_dir)
                         exit_codes.append(exit_code)
                         successes.append(success)
 
@@ -3496,6 +3499,10 @@ class Workflow:
             f"{app_caps}_SCRIPT_INDICES_FILE": str(js.combined_script_indices_file_path),
         }
         env = {**dict(os.environ), **add_env}
+
+        # note: unlike in `Workflow.execute_run`, here we can be reasonably sure the
+        # commands file already exists, because we call `Action.try_write_commands` with
+        # `raise_on_unset=True` in `Workflow._add_submission` during submission.
 
         # TODO: refactor cmd file name:
         cmd_file_path = sub.commands_path / f"js_{jobscript_idx}{js.shell.JS_EXT}"

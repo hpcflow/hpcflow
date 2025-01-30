@@ -680,11 +680,27 @@ class ElementActionRun:
 
     def get_py_script_func_kwargs(
         self,
-        inp_files: Optional[Dict] = None,
-        out_files: Optional[Dict] = None,
         raise_on_unset: Optional[bool] = False,
+        add_script_files: Optional[bool] = False,
+        js_blk_act_key: Optional[tuple[int]] = None,
     ) -> Dict[str, Any]:
-        # TODO: use this in compose_source as well?
+        """Get function arguments to run the Python script associated with this action.
+
+        Parameters
+        ----------
+        raise_on_unset
+            If True, raise if unset parameter data is found when trying to retrieve input
+            data.
+        add_script_files
+            If True, include additional keys "_input_files" and "_output_files" that will
+            be dicts mapping file formats to file names for script input and output files.
+            If True, `js_blk_act_key` must be provided.
+        js_blk_act_key
+            A three-tuple of integers corresponding to the jobscript index, block index,
+            and block-action index.
+        """
+        # TODO: use this in compose_source as well.
+        # TODO: can add a track_unset_parameters context manager here
         kwargs = {}
         if self.action.is_IFG:
             ifg = self.action.input_file_generators[0]
@@ -702,10 +718,13 @@ class ElementActionRun:
         ):
             kwargs.update(self.get_input_values_direct(raise_on_unset=raise_on_unset))
 
-        if inp_files is not None:
-            kwargs["_inputs"] = inp_files
-        if out_files is not None:
-            kwargs["_outputs"] = out_files
+        if add_script_files:
+            in_out_names = self.action.get_script_input_output_file_paths(*js_blk_act_key)
+            in_names, out_names = in_out_names["inputs"], in_out_names["outputs"]
+            if in_names:
+                kwargs["_input_files"] = in_names
+            if out_names:
+                kwargs["_output_files"] = out_names
 
         return kwargs
 
@@ -745,13 +764,17 @@ class ElementActionRun:
                             # `ParameterValue` objects):
                             v[0].dump_element_group_to_HDF5_group(v, grp_k)
 
-    def _param_save(self, block_act_key: Tuple[int, int, int]):
+    def _param_save(
+        self, block_act_key: Tuple[int, int, int], run_dir: Optional[Path] = None
+    ):
         """Save script-generated parameters that are stored within the supported script
         data output formats (HDF5, JSON, etc)."""
 
-        for fmt in self.action.script_data_out_grouped:
+        in_out_names = self.action.get_script_input_output_file_paths(
+            *block_act_key, directory=run_dir
+        )
+        for fmt, load_path in in_out_names["outputs"].items():
             if fmt == "json":
-                load_path = self.action.get_param_load_file_path_JSON(block_act_key)
                 with load_path.open(mode="rt") as f:
                     file_data = json.load(f)
                     for param_name, param_dat in file_data.items():
@@ -766,11 +789,9 @@ class ElementActionRun:
                         self.workflow.set_parameter_value(
                             param_id=param_id, value=param_dat
                         )
-
             elif fmt == "hdf5":
                 import h5py
 
-                load_path = self.action.get_param_load_file_path_HDF5(block_act_key)
                 with h5py.File(load_path, mode="r") as f:
                     for param_name, h5_grp in f.items():
                         param_id = self.data_idx[f"outputs.{param_name}"]
@@ -1454,12 +1475,14 @@ class Action(JSONLike):
     def script_data_in_has_files(self) -> bool:
         """Return True if the script requires some inputs to be passed via an
         intermediate file format."""
+        # TODO: should set `requires_dir` to True if this is True?
         return bool(set(self.script_data_in_grouped.keys()) - {"direct"})  # TODO: test
 
     @property
     def script_data_out_has_files(self) -> bool:
         """Return True if the script produces some outputs via an intermediate file
         format."""
+        # TODO: should set `requires_dir` to True if this is True?
         return bool(set(self.script_data_out_grouped.keys()) - {"direct"})  # TODO: test
 
     @property
@@ -1818,24 +1841,36 @@ class Action(JSONLike):
             return path
 
     @staticmethod
-    def get_param_dump_file_stem(block_act_key: Tuple[int, int, int]):
+    def get_param_dump_file_stem(block_act_key: Tuple[int, int, int]) -> str:
         return RunDirAppFiles.get_run_param_dump_file_prefix(block_act_key)
 
     @staticmethod
-    def get_param_load_file_stem(block_act_key: Tuple[int, int, int]):
+    def get_param_load_file_stem(block_act_key: Tuple[int, int, int]) -> str:
         return RunDirAppFiles.get_run_param_load_file_prefix(block_act_key)
 
-    def get_param_dump_file_path_JSON(self, block_act_key: Tuple[int, int, int]):
-        return Path(self.get_param_dump_file_stem(block_act_key) + ".json")
+    def get_param_dump_file_path_JSON(
+        self, block_act_key: Tuple[int, int, int], directory: Optional[Path] = None
+    ) -> Path:
+        directory = directory or Path()
+        return directory.joinpath(self.get_param_dump_file_stem(block_act_key) + ".json")
 
-    def get_param_dump_file_path_HDF5(self, block_act_key: Tuple[int, int, int]):
-        return Path(self.get_param_dump_file_stem(block_act_key) + ".h5")
+    def get_param_dump_file_path_HDF5(
+        self, block_act_key: Tuple[int, int, int], directory: Optional[Path] = None
+    ) -> Path:
+        directory = directory or Path()
+        return directory.joinpath(self.get_param_dump_file_stem(block_act_key) + ".h5")
 
-    def get_param_load_file_path_JSON(self, block_act_key: Tuple[int, int, int]):
-        return Path(self.get_param_load_file_stem(block_act_key) + ".json")
+    def get_param_load_file_path_JSON(
+        self, block_act_key: Tuple[int, int, int], directory: Optional[Path] = None
+    ) -> Path:
+        directory = directory or Path()
+        return directory.joinpath(self.get_param_load_file_stem(block_act_key) + ".json")
 
-    def get_param_load_file_path_HDF5(self, block_act_key: Tuple[int, int, int]):
-        return Path(self.get_param_load_file_stem(block_act_key) + ".h5")
+    def get_param_load_file_path_HDF5(
+        self, block_act_key: Tuple[int, int, int], directory: Optional[Path] = None
+    ) -> Path:
+        directory = directory or Path()
+        return directory.joinpath(self.get_param_load_file_stem(block_act_key) + ".h5")
 
     def expand(self):
         if self._from_expand:
@@ -1926,32 +1961,7 @@ class Action(JSONLike):
             if self.script:
                 exe = f"<<executable:{self.script_exe}>>"
                 variables = script_cmd_vars if self.script else {}
-                args = []
-                fn_args = (
-                    f"${{{app_caps}_JS_IDX}}",
-                    f"${{{app_caps}_BLOCK_IDX}}",
-                    f"${{{app_caps}_BLOCK_ACT_IDX}}",
-                )
-                for fmt in self.script_data_in_grouped:
-                    if fmt == "json":
-                        if self.script_data_files_use_opt:
-                            args.append("--inputs-json")
-                        args.append(str(self.get_param_dump_file_path_JSON(fn_args)))
-                    elif fmt == "hdf5":
-                        if self.script_data_files_use_opt:
-                            args.append("--inputs-hdf5")
-                        args.append(str(self.get_param_dump_file_path_HDF5(fn_args)))
-
-                for fmt in self.script_data_out_grouped:
-                    if fmt == "json":
-                        if self.script_data_files_use_opt:
-                            args.append("--outputs-json")
-                        args.append(str(self.get_param_load_file_path_JSON(fn_args)))
-                    elif fmt == "hdf5":
-                        if self.script_data_files_use_opt:
-                            args.append("--outputs-hdf5")
-                        args.append(str(self.get_param_load_file_path_HDF5(fn_args)))
-
+                args = self.get_script_input_output_file_command_args()
                 commands += [
                     self.app.Command(executable=exe, arguments=args, variables=variables)
                 ]
@@ -2065,6 +2075,8 @@ class Action(JSONLike):
         )
         if is_script:
             params = self.task_schema.input_types
+            # TODO: refine this according to `script_data_in`, since this can be used
+            # to control the inputs/outputs of a script.
         else:
             params = list(self.get_command_input_types(sub_parameters))
             for i in self.input_file_generators:
@@ -2083,6 +2095,8 @@ class Action(JSONLike):
         )
         if is_script:
             params = self.task_schema.output_types
+            # TODO: refine this according to `script_data_out`, since this can be used
+            # to control the inputs/outputs of a script.
         else:
             params = list(self.get_command_output_types())
             for i in self.output_file_parsers:
@@ -2357,19 +2371,19 @@ class Action(JSONLike):
             not any((self.is_IFG, self.is_OFP))
             and "direct" in self.script_data_in_grouped
         ):
-            double_splat_lns.append("**EAR.get_input_values_direct()")
+            double_splat_lns.append("**EAR.get_input_values_direct(raise_on_unset=True)")
 
         elif self.is_IFG:
             new_file_path = self.input_file_generators[0].input_file.name.value()
-            double_splat_lns.append("**EAR.get_IFG_input_values()")
+            double_splat_lns.append("**EAR.get_IFG_input_values(raise_on_unset=True)")
             kwargs_lns.append(f'"path": Path("{new_file_path}")')
 
         elif self.is_OFP:
             double_splat_lns.extend(
                 (
                     "**EAR.get_OFP_output_files()",
-                    "**EAR.get_OFP_inputs()",
-                    "**EAR.get_OFP_outputs()",
+                    "**EAR.get_OFP_inputs(raise_on_unset=True)",
+                    "**EAR.get_OFP_outputs(raise_on_unset=True)",
                 )
             )
 
@@ -2590,3 +2604,70 @@ class Action(JSONLike):
                 relevant_data_idx,
             )
         )
+
+    @classmethod
+    def get_block_act_idx_shell_vars(cls):
+        """Return a the jobscript index, block index, and block action idx shell
+        environment variable names formatted for shell substitution.
+
+        Notes
+        -----
+        This seem so be shell-agnostic, at least for those currently supported.
+
+        """
+        app_caps = cls.app.package_name.upper()
+        return (
+            f"${{{app_caps}_JS_IDX}}",
+            f"${{{app_caps}_BLOCK_IDX}}",
+            f"${{{app_caps}_BLOCK_ACT_IDX}}",
+        )
+
+    def get_script_input_output_file_paths(
+        self,
+        js_idx: Union[int, str],
+        block_idx: Union[int, str],
+        block_act_idx: Union[int, str],
+        directory: Optional[Path] = None,
+    ) -> dict[str, dict[str, Path]]:
+        """Get the names (as `Path`s) of script input and output files for this action."""
+        in_out_paths = {
+            "inputs": {},
+            "outputs": {},
+        }
+        key = (js_idx, block_idx, block_act_idx)
+        for fmt in self.script_data_in_grouped:
+            if fmt == "json":
+                path = self.get_param_dump_file_path_JSON(key, directory=directory)
+            elif fmt == "hdf5":
+                path = self.get_param_dump_file_path_HDF5(key, directory=directory)
+            else:
+                continue
+            in_out_paths["inputs"][fmt] = path
+
+        for fmt in self.script_data_out_grouped:
+            if fmt == "json":
+                path = self.get_param_load_file_path_JSON(key, directory=directory)
+            elif fmt == "hdf5":
+                path = self.get_param_load_file_path_HDF5(key, directory=directory)
+            else:
+                continue
+            in_out_paths["outputs"][fmt] = path
+
+        return in_out_paths
+
+    def get_script_input_output_file_command_args(self) -> list[str]:
+        """Get the script input and output file names as command line arguments."""
+        in_out_names = self.get_script_input_output_file_paths(
+            *self.get_block_act_idx_shell_vars()
+        )
+        args = []
+        for fmt, path in in_out_names["inputs"].items():
+            if self.script_data_files_use_opt:
+                args.append(f"--inputs-{fmt}")
+            args.append(str(path))
+        for fmt, path in in_out_names["outputs"].items():
+            if self.script_data_files_use_opt:
+                args.append(f"--outputs-{fmt}")
+            args.append(str(path))
+
+        return args

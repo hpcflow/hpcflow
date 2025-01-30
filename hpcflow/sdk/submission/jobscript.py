@@ -1623,50 +1623,52 @@ class Jobscript(JSONLike):
         main = dedent(
             """\
             {py_imports}
-
+            
+            sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
+            with app.redirect_std_to_file(sub_std_path):
             {py_main_block_workflow_load}
 
-            with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
-                lns = fp.read().strip().split("\\n")
-                run_IDs = [[int(i) for i in ln.split("{run_ID_delim}")] for ln in lns]
+                with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
+                    lns = fp.read().strip().split("\\n")
+                    run_IDs = [[int(i) for i in ln.split("{run_ID_delim}")] for ln in lns]
 
-            get_all_runs_tic = time.perf_counter()
-            run_IDs_flat = [j for i in run_IDs for j in i]
-            runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
-            run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
-            get_all_runs_toc = time.perf_counter()
+                get_all_runs_tic = time.perf_counter()
+                run_IDs_flat = [j for i in run_IDs for j in i]
+                runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
+                run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
+                get_all_runs_toc = time.perf_counter()
 
-            with open(os.environ["{app_caps}_SCRIPT_INDICES_FILE"], mode="r") as fp:
-                lns = fp.read().strip().split("\\n")
-                section_idx = -1
-                script_indices = []
-                for ln in lns:
-                    if ln.startswith("#"):
-                        section_idx += 1
-                        continue
-                    ln_parsed = [int(i) for i in ln.split("{script_idx_delim}")]
-                    if section_idx == 0:
-                        num_elements = ln_parsed
-                    elif section_idx == 1:
-                        num_actions = ln_parsed
-                    else:
-                        script_indices.append(ln_parsed)
+                with open(os.environ["{app_caps}_SCRIPT_INDICES_FILE"], mode="r") as fp:
+                    lns = fp.read().strip().split("\\n")
+                    section_idx = -1
+                    script_indices = []
+                    for ln in lns:
+                        if ln.startswith("#"):
+                            section_idx += 1
+                            continue
+                        ln_parsed = [int(i) for i in ln.split("{script_idx_delim}")]
+                        if section_idx == 0:
+                            num_elements = ln_parsed
+                        elif section_idx == 1:
+                            num_actions = ln_parsed
+                        else:
+                            script_indices.append(ln_parsed)
 
-            port = int(os.environ["{app_caps}_RUN_PORT"])
-            action_scripts = {script_names}
-            requires_dir = {requires_dir!r}
-            run_dirs = wk.get_run_directories()
+                port = int(os.environ["{app_caps}_RUN_PORT"])
+                action_scripts = {script_names}
+                requires_dir = {requires_dir!r}
+                run_dirs = wk.get_run_directories()
 
-            get_ins_time_fp = open(f"js_{js_idx}_get_inputs_times.txt", "wt")
-            func_time_fp = open(f"js_{js_idx}_func_times.txt", "wt")
-            run_time_fp = open(f"js_{js_idx}_run_times.txt", "wt")
-            set_start_multi_times_fp = open(f"js_{js_idx}_set_start_multi_times.txt", "wt")
-            set_end_multi_times_fp = open(f"js_{js_idx}_set_end_multi_times.txt", "wt")
-            save_multi_times_fp = open(f"js_{js_idx}_save_multi_times.txt", "wt")
-            loop_term_times_fp = open(f"js_{js_idx}_loop_term_times.txt", "wt")
+                get_ins_time_fp = open(f"js_{js_idx}_get_inputs_times.txt", "wt")
+                func_time_fp = open(f"js_{js_idx}_func_times.txt", "wt")
+                run_time_fp = open(f"js_{js_idx}_run_times.txt", "wt")
+                set_start_multi_times_fp = open(f"js_{js_idx}_set_start_multi_times.txt", "wt")
+                set_end_multi_times_fp = open(f"js_{js_idx}_set_end_multi_times.txt", "wt")
+                save_multi_times_fp = open(f"js_{js_idx}_save_multi_times.txt", "wt")
+                loop_term_times_fp = open(f"js_{js_idx}_loop_term_times.txt", "wt")
 
-            get_all_runs_time = get_all_runs_toc - get_all_runs_tic
-            print(f"get_all_runs_time: {{get_all_runs_time:.4f}}")
+                get_all_runs_time = get_all_runs_toc - get_all_runs_tic
+                print(f"get_all_runs_time: {{get_all_runs_time:.4f}}")
  
             app.logger.info(
                 f"running {num_blocks} jobscript block(s) in combined jobscript index "
@@ -1723,10 +1725,12 @@ class Jobscript(JSONLike):
 
                     all_act_outputs = {{}}
                     run_end_dat = defaultdict(list)
+                    block_act_key=({js_idx}, block_idx, block_act_idx)
+
                     for block_elem_idx in range(num_elements[block_idx]):
 
                         js_elem_idx = block_start_elem_idx + block_elem_idx
-                        run_ID = block_act_run_IDs[block_elem_idx]                        
+                        run_ID = block_act_run_IDs[block_elem_idx]
 
                         app.logger.info(
                             f"run_ID is {{run_ID}}; block element index: {{block_elem_idx}}; "
@@ -1742,8 +1746,7 @@ class Jobscript(JSONLike):
                         if skip:
                             app.logger.info(f"run_ID: {{run_ID}}; run is set to skip; skipping.")
                             # set run end
-                            block_act_key=({js_idx}, block_idx, block_act_idx)
-                            run_end_dat[block_act_key].append((run, {skipped_exit_code}))
+                            run_end_dat[block_act_key].append((run, {skipped_exit_code}, None))
                             continue
                             
                         run_tic = time.perf_counter()
@@ -1768,18 +1771,34 @@ class Jobscript(JSONLike):
 
                             run_dir = run_dirs[run_ID]
 
+                            script_idx = script_indices[block_idx][block_act_idx]
+                            req_dir = requires_dir[script_idx]
+                            if req_dir:
+                                app.logger.info(f"run_ID: {{run_ID}}; changing to run directory: {{run_dir}}")
+                                os.chdir(run_dir)
+                            
                             # retrieve script inputs:
                             app.logger.info(f"run_ID: {{run_ID}}; retrieving script inputs.")
                             get_ins_tic = time.perf_counter()
                             try:
-                                func_kwargs = run.get_py_script_func_kwargs(raise_on_unset=True)
+                                app.logger.info(f"run_ID: {{run_ID}}; writing script input files.")
+                                run.write_script_input_files(block_act_key)
+                                app.logger.info(f"run_ID: {{run_ID}}; retrieving funcion kwargs.")
+                                func_kwargs = run.get_py_script_func_kwargs(
+                                    raise_on_unset=True,
+                                    add_script_files=True,
+                                    js_blk_act_key=block_act_key,
+                                )
+                                app.logger.info(
+                                    f"run_ID: {{run_ID}}; script inputs have keys: "
+                                    f"{{tuple(func_kwargs.keys())!r}}."
+                                )                                
                             except UnsetParameterDataError:
                                 # upstream run dependency with `skip_downstream_on_failure==False`
                                 # may have failed, meaning this run wasn't skipped, so fail this
                                 # run:
                                 exit_code = 1
-                                block_act_key=({js_idx}, block_idx, block_act_idx)
-                                run_end_dat[block_act_key].append((run, exit_code))
+                                run_end_dat[block_act_key].append((run, exit_code, None))
                                 app.logger.info(
                                     f"run_ID: {{run_ID}}; some parameter data is unset, "
                                     f"so cannot run; setting exit code to 1."
@@ -1788,14 +1807,9 @@ class Jobscript(JSONLike):
 
                             get_ins_toc = time.perf_counter()
 
-                            script_idx = script_indices[block_idx][block_act_idx]
-                            req_dir = requires_dir[script_idx]
                             func = action_scripts[script_idx]
                             app.logger.info(f"run_ID: {{run_ID}}; function to run is: {{func.__name__}}")
 
-                            if req_dir:
-                                app.logger.info(f"run_ID: {{run_ID}}; changing to run directory: {{run_dir}}")
-                                os.chdir(run_dir)
 
                         try:
                             func_tic = time.perf_counter()
@@ -1815,7 +1829,7 @@ class Jobscript(JSONLike):
                         with app.redirect_std_to_file(std_path):
                             # set run end
                             block_act_key=({js_idx}, block_idx, block_act_idx)
-                            run_end_dat[block_act_key].append((run, exit_code))
+                            run_end_dat[block_act_key].append((run, exit_code, run_dir))
 
                             # store outputs to save at end:
                             app.logger.info(f"run_ID: {{run_ID}}; setting outputs to save.")
@@ -1878,7 +1892,7 @@ class Jobscript(JSONLike):
                         # set run end for all elements of this action
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
-                        wk.set_multi_run_ends(run_end_dat, block_act_run_dirs) # check: are runs here set to skip appropriately?
+                        wk.set_multi_run_ends(run_end_dat)
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
                         app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
@@ -1896,7 +1910,7 @@ class Jobscript(JSONLike):
         """
         ).format(
             py_imports=py_imports,
-            py_main_block_workflow_load=py_main_block_workflow_load,
+            py_main_block_workflow_load=indent(py_main_block_workflow_load, tab_indent),
             app_caps=self.app.package_name.upper(),
             script_idx_delim=",",  # TODO
             script_names=script_names_str,
@@ -1938,3 +1952,10 @@ class Jobscript(JSONLike):
             fp.write("# script indices:\n")
             for block in indices:
                 fp.write(delim.join(str(i) for i in block) + "\n")
+
+    def get_app_std_path(self) -> Path:
+        std_dir = self.submission.get_app_std_path(
+            self.workflow.submissions_path,
+            self.submission.index,
+        )
+        return std_dir / f"js_{self.index}.txt"  # TODO: refactor
