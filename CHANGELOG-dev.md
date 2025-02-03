@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a191"></a>
+## [v0.2.0a191](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a190...v0.2.0a191) - 2025.02.03
+
+### 🐛 Bug Fixes
+
+* correct logic for sge_parallel_env with 1 core
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a190"></a>
 ## [v0.2.0a190](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a189...v0.2.0a190) - 2024.12.13
 
