@@ -863,8 +863,9 @@ class WorkflowLoop:
             for elem in task.elements:
                 for param_typ, param_out_task_iID in self.output_parameters.items():
                     if param_typ in task.template.all_schema_input_types:
-                        # this element's input *might* need updating, only if it has a task input
-                        # source type that is this loop's output task for this parameter
+                        # this element's input *might* need updating, only if it has a
+                        # task input source type that is this loop's output task for this
+                        # parameter:
                         elem_src = elem.input_sources[f"inputs.{param_typ}"]
                         if (
                             elem_src.source_type is InputSourceType.TASK
@@ -978,7 +979,12 @@ class WorkflowLoop:
                             # themselves had their data indices updated:
                             ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
 
-                            if not ups_i:
+                            if ups_i:
+                                # if a further-downstream task has a task-input source
+                                # that points to this task, this will also need updating:
+                                all_updates[param_typ][task.insert_ID].update(ups_i)
+
+                            else:
                                 continue
 
                             for iter_i in elem.iterations:

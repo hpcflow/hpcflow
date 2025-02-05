@@ -1726,6 +1726,151 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_t
     assert t2_di["outputs.p2"] == t3_di["inputs.p2"]
 
 
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_twice(
+    new_null_config, tmp_path
+):
+    # tasks `t3/t4` inputs `p1` have `InputSource.task(task_ref=1/2, task_source_type="input")`,
+    # so `t3/t4` elements needs to have data indices updated, since task `t2/t3` (i.e.
+    # `task_ref=1/2`) will have had their data indices updated:
+
+    s1, s2, s3, s4 = make_schemas(
+        [
+            [{"p1": None}, ("p1",), "t1"],
+            [{"p1": None}, ("p2",), "t2"],
+            [{"p1": None, "p2": None}, ("p3",), "t3"],
+            [{"p1": None, "p3": None}, ("p4",), "t4"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+        hf.Task(s4),
+    ]
+    loops = [hf.Loop(tasks=[0], num_iterations=2)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_task_input_source",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    t1_i0_di = wk.tasks.t1.elements[0].iterations[0].get_data_idx()
+    t1_i1_di = wk.tasks.t1.elements[0].iterations[1].get_data_idx()
+    t2_di = wk.tasks.t2.elements[0].get_data_idx()
+    t3_di = wk.tasks.t3.elements[0].get_data_idx()
+    t4_di = wk.tasks.t4.elements[0].get_data_idx()
+
+    assert t1_i0_di["outputs.p1"] == t1_i1_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t2_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t3_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t4_di["inputs.p1"]
+    assert t2_di["outputs.p2"] == t3_di["inputs.p2"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_thrice(
+    new_null_config, tmp_path
+):
+    # tasks `t3/t4/t5` inputs `p1` have `InputSource.task(task_ref=1/2/3, task_source_type="input")`,
+    # so `t3/t4/t5` elements needs to have data indices updated, since task `t2/t3/t4` (i.e.
+    # `task_ref=1/2/3`) will have had their data indices updated:
+
+    s1, s2, s3, s4, s5 = make_schemas(
+        [
+            [{"p1": None}, ("p1",), "t1"],
+            [{"p1": None}, ("p2",), "t2"],
+            [{"p1": None, "p2": None}, ("p3",), "t3"],
+            [{"p1": None, "p3": None}, ("p4",), "t4"],
+            [{"p1": None, "p4": None}, ("p5",), "t5"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}),
+        hf.Task(s2),
+        hf.Task(s3),
+        hf.Task(s4),
+        hf.Task(s5),
+    ]
+    loops = [hf.Loop(tasks=[0], num_iterations=2)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_task_input_source",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    t1_i0_di = wk.tasks.t1.elements[0].iterations[0].get_data_idx()
+    t1_i1_di = wk.tasks.t1.elements[0].iterations[1].get_data_idx()
+    t2_di = wk.tasks.t2.elements[0].get_data_idx()
+    t3_di = wk.tasks.t3.elements[0].get_data_idx()
+    t4_di = wk.tasks.t4.elements[0].get_data_idx()
+    t5_di = wk.tasks.t5.elements[0].get_data_idx()
+
+    assert t1_i0_di["outputs.p1"] == t1_i1_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t2_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t3_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t4_di["inputs.p1"]
+    assert t1_i1_di["outputs.p1"] == t5_di["inputs.p1"]
+    assert t2_di["outputs.p2"] == t3_di["inputs.p2"]
+
+
+def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_thrice_multi_element(
+    new_null_config, tmp_path
+):
+    # tasks `t3/t4/t5` inputs `p1` have `InputSource.task(task_ref=1/2/3, task_source_type="input")`,
+    # so `t3/t4/t5` elements needs to have data indices updated, since task `t2/t3/t4` (i.e.
+    # `task_ref=1/2/3`) will have had their data indices updated:
+
+    s1, s2, s3, s4, s5 = make_schemas(
+        [
+            [{"p1": None}, ("p1",), "t1"],
+            [{"p1": None}, ("p2",), "t2"],
+            [{"p1": None, "p2": None}, ("p3",), "t3"],
+            [{"p1": None, "p3": None}, ("p4",), "t4"],
+            [{"p1": None, "p4": None}, ("p5",), "t5"],
+        ],
+    )
+    tasks = [
+        hf.Task(s1, inputs={"p1": 100}, repeats=2),
+        hf.Task(s2),
+        hf.Task(s3),
+        hf.Task(s4),
+        hf.Task(s5),
+    ]
+    loops = [hf.Loop(tasks=[0], num_iterations=2)]
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_param_update_task_input_source",
+        tasks=tasks,
+        loops=loops,
+        path=tmp_path,
+    )
+    t1_e0_i0_di = wk.tasks.t1.elements[0].iterations[0].get_data_idx()
+    t1_e0_i1_di = wk.tasks.t1.elements[0].iterations[1].get_data_idx()
+    t2_e0_di = wk.tasks.t2.elements[0].get_data_idx()
+    t3_e0_di = wk.tasks.t3.elements[0].get_data_idx()
+    t4_e0_di = wk.tasks.t4.elements[0].get_data_idx()
+    t5_e0_di = wk.tasks.t5.elements[0].get_data_idx()
+
+    t1_e1_i0_di = wk.tasks.t1.elements[1].iterations[0].get_data_idx()
+    t1_e1_i1_di = wk.tasks.t1.elements[1].iterations[1].get_data_idx()
+    t2_e1_di = wk.tasks.t2.elements[1].get_data_idx()
+    t3_e1_di = wk.tasks.t3.elements[1].get_data_idx()
+    t4_e1_di = wk.tasks.t4.elements[1].get_data_idx()
+    t5_e1_di = wk.tasks.t5.elements[1].get_data_idx()
+
+    assert t1_e0_i0_di["outputs.p1"] == t1_e0_i1_di["inputs.p1"]
+    assert t1_e0_i1_di["outputs.p1"] == t2_e0_di["inputs.p1"]
+    assert t1_e0_i1_di["outputs.p1"] == t3_e0_di["inputs.p1"]
+    assert t1_e0_i1_di["outputs.p1"] == t4_e0_di["inputs.p1"]
+    assert t1_e0_i1_di["outputs.p1"] == t5_e0_di["inputs.p1"]
+    assert t2_e0_di["outputs.p2"] == t3_e0_di["inputs.p2"]
+
+    assert t1_e1_i0_di["outputs.p1"] == t1_e1_i1_di["inputs.p1"]
+    assert t1_e1_i1_di["outputs.p1"] == t2_e1_di["inputs.p1"]
+    assert t1_e1_i1_di["outputs.p1"] == t3_e1_di["inputs.p1"]
+    assert t1_e1_i1_di["outputs.p1"] == t4_e1_di["inputs.p1"]
+    assert t1_e1_i1_di["outputs.p1"] == t5_e1_di["inputs.p1"]
+    assert t2_e1_di["outputs.p2"] == t3_e1_di["inputs.p2"]
+
+
 def test_adjacent_loops_iteration_pathway(null_config, tmp_path):
     ts1 = hf.TaskSchema(
         objective="t1",
