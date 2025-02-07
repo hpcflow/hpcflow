@@ -2621,6 +2621,13 @@ class WorkflowTask:
                                 f"Element data path {path!r} resolves to unset data for "
                                 f"(at least) data-index path: {path_i!r}."
                             )
+                        if not is_set_i and self.workflow._is_tracking_unset:
+                            self.workflow._tracked_unset[path_i].run_ids.add(
+                                param_j.source.get("EAR_ID")
+                            )
+                            self.workflow._tracked_unset[path_i].group_size = len(
+                                data_idx_i
+                            )
                     if is_multi:
                         data_i.append(data_j)
                         methods_i.append(meth_i)

@@ -718,6 +718,10 @@ class Workflow:
         # store indices of updates during batch update, so we can revert on failure:
         self._pending = self._get_empty_pending()
 
+        # reassigned within `ElementActionRun.raise_on_failure_threshold` context manager:
+        self._is_tracking_unset = False
+        self._tracked_unset = None
+
     def reload(self):
         """Reload the workflow from disk."""
         return self.__class__(self.url)
@@ -2235,8 +2239,10 @@ class Workflow:
                 success = exit_code == 0  # TODO  more sophisticated success heuristics
                 if not run.skip:
                     run_dir = run.get_directory()
+                    is_aborted = False
                     if run.action.abortable and exit_code == ABORT_EXIT_CODE:
                         # the point of aborting an EAR is to continue with the workflow:
+                        is_aborted = True
                         success = True
 
                     for IFG_i in run.action.input_file_generators:
@@ -2252,15 +2258,40 @@ class Workflow:
                             file_paths = [file_paths]
 
                         for path_i in file_paths:
-                            self._set_file(
-                                param_id=param_id,
-                                store_contents=True,  # TODO: make optional according to IFG
-                                is_input=False,
-                                path=run_dir.joinpath(path_i),
-                            )
+                            full_path = run_dir.joinpath(path_i)
+                            if not full_path.exists():
+                                self.app.logger.debug(
+                                    f"expected input file {path_i!r} does not "
+                                    f"exist, so setting run to an error state "
+                                    f"(if not aborted)."
+                                )
+                                if not is_aborted and success is True:
+                                    # this is unlikely to happen, but could happen
+                                    # if the input file is deleted in between
+                                    # the input file generator completing and this
+                                    # code being run
+                                    success = False
+                                    exit_code = 1  # TODO more custom exit codes?
+                            else:
+                                self._set_file(
+                                    param_id=param_id,
+                                    store_contents=True,  # TODO: make optional according to IFG
+                                    is_input=False,
+                                    path=full_path,
+                                )
 
                     if run.action.script_data_out_has_files:
-                        run._param_save(block_act_key)
+                        try:
+                            run._param_save(block_act_key)
+                        except FileNotFoundError:
+                            self.app.logger.debug(
+                                f"script did not generate an expected output parameter "
+                                f"file (block_act_key={block_act_key!r}), so setting run "
+                                f"to an error state (if not aborted)."
+                            )
+                            if not is_aborted and success is True:
+                                success = False
+                                exit_code = 1  # TODO more custom exit codes?
 
                     # Save action-level files: (TODO: refactor with below for OFPs)
                     for save_file_j in run.action.save_files:
@@ -2282,13 +2313,28 @@ class Workflow:
                             file_paths = [file_paths]
 
                         for path_i in file_paths:
-                            self._set_file(
-                                param_id=param_id,
-                                store_contents=True,
-                                is_input=False,
-                                path=run_dir.joinpath(path_i),
-                                clean_up=(save_file_j in run.action.clean_up),
-                            )
+                            full_path = run_dir.joinpath(path_i)
+                            if not full_path.exists():
+                                self.app.logger.debug(
+                                    f"expected file to save {path_i!r} does not "
+                                    f"exist, so setting run to an error state "
+                                    f"(if not aborted)."
+                                )
+                                if not is_aborted and success is True:
+                                    # this is unlikely to happen, but could happen
+                                    # if the input file is deleted in between
+                                    # the input file generator completing and this
+                                    # code being run
+                                    success = False
+                                    exit_code = 1  # TODO more custom exit codes?
+                            else:
+                                self._set_file(
+                                    param_id=param_id,
+                                    store_contents=True,
+                                    is_input=False,
+                                    path=full_path,
+                                    clean_up=(save_file_j in run.action.clean_up),
+                                )
 
                     for OFP_i in run.action.output_file_parsers:
                         for save_file_j in OFP_i.save_files:
@@ -2314,13 +2360,24 @@ class Workflow:
                                 file_paths = [file_paths]
 
                             for path_i in file_paths:
-                                self._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,  # TODO: make optional according to OFP
-                                    is_input=False,
-                                    path=run_dir.joinpath(path_i),
-                                    clean_up=(save_file_j in OFP_i.clean_up),
-                                )
+                                full_path = run_dir.joinpath(path_i)
+                                if not full_path.exists():
+                                    self.app.logger.debug(
+                                        f"expected output file parser `save_files` file "
+                                        f"{path_i!r} does not exist, so setting run "
+                                        f"to an error state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
+                                else:
+                                    self._set_file(
+                                        param_id=param_id,
+                                        store_contents=True,  # TODO: make optional according to OFP
+                                        is_input=False,
+                                        path=full_path,
+                                        clean_up=(save_file_j in OFP_i.clean_up),
+                                    )
 
                 if (
                     run.resources.skip_downstream_on_failure
@@ -2375,6 +2432,7 @@ class Workflow:
                         )
                         if not run.skip:
                             self.app.logger.info(f"run was not skipped.")
+                            is_aborted = False
                             if run.action.abortable and exit_code == ABORT_EXIT_CODE:
                                 # the point of aborting an EAR is to continue with the
                                 # workflow:
@@ -2382,6 +2440,7 @@ class Workflow:
                                     "run was abortable and exit code was ABORT_EXIT_CODE,"
                                     " so setting success to True."
                                 )
+                                is_aborted = True
                                 success = True
 
                             for IFG_i in run.action.input_file_generators:
@@ -2398,18 +2457,46 @@ class Workflow:
                                     file_paths = [file_paths]
 
                                 for path_i in file_paths:
-                                    self._set_file(
-                                        param_id=param_id,
-                                        store_contents=True,  # TODO: make optional according to IFG
-                                        is_input=False,
-                                        path=run_dir.joinpath(path_i),
-                                    )
+                                    full_path = run_dir.joinpath(path_i)
+                                    if not full_path.exists():
+                                        self.app.logger.debug(
+                                            f"expected input file {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
+                                        )
+                                        if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
+                                            success = False
+                                            exit_code = 1  # TODO more custom exit codes?
+                                    else:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,  # TODO: make optional according to IFG
+                                            is_input=False,
+                                            path=full_path,
+                                        )
 
                             if run.action.script_data_out_has_files:
                                 self.app.logger.info(
                                     f"saving script-generated parameters."
                                 )
-                                run._param_save(block_act_key, run_dir)
+                                try:
+                                    run._param_save(block_act_key, run_dir)
+                                except FileNotFoundError:
+                                    # script did not generate the output parameter file, so
+                                    # set a failed exit code (if we did not abort the run):
+                                    self.app.logger.debug(
+                                        f"script did not generate an expected output "
+                                        f"parameter file (block_act_key="
+                                        f"{block_act_key!r}), so setting run to an error "
+                                        f"state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
 
                             # Save action-level files: (TODO: refactor with below for OFPs)
                             for save_file_j in run.action.save_files:
@@ -2438,13 +2525,28 @@ class Workflow:
                                     file_paths = [file_paths]
 
                                 for path_i in file_paths:
-                                    self._set_file(
-                                        param_id=param_id,
-                                        store_contents=True,
-                                        is_input=False,
-                                        path=run_dir.joinpath(path_i),
-                                        clean_up=(save_file_j in run.action.clean_up),
-                                    )
+                                    full_path = run_dir.joinpath(path_i)
+                                    if not full_path.exists():
+                                        self.app.logger.debug(
+                                            f"expected file to save {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
+                                        )
+                                        if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
+                                            success = False
+                                            exit_code = 1  # TODO more custom exit codes?
+                                    else:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,
+                                            is_input=False,
+                                            path=full_path,
+                                            clean_up=(save_file_j in run.action.clean_up),
+                                        )
 
                             for OFP_i in run.action.output_file_parsers:
                                 self.app.logger.info(f"saving files from OFP: {OFP_i!r}.")
@@ -2471,13 +2573,27 @@ class Workflow:
                                         file_paths = [file_paths]
 
                                     for path_i in file_paths:
-                                        self._set_file(
-                                            param_id=param_id,
-                                            store_contents=True,  # TODO: make optional according to OFP
-                                            is_input=False,
-                                            path=run_dir.joinpath(path_i),
-                                            clean_up=(save_file_j in OFP_i.clean_up),
-                                        )
+                                        full_path = run_dir.joinpath(path_i)
+                                        if not full_path.exists():
+                                            self.app.logger.debug(
+                                                f"expected output file parser `save_files` file "
+                                                f"{path_i!r} does not exist, so setting run "
+                                                f"to an error state (if not aborted)."
+                                            )
+                                            if not is_aborted and success is True:
+                                                success = False
+                                                exit_code = (
+                                                    1  # TODO more custom exit codes?
+                                                )
+                                        else:
+                                            self._set_file(
+                                                param_id=param_id,
+                                                store_contents=True,  # TODO: make optional according to OFP
+                                                is_input=False,
+                                                path=full_path,
+                                                clean_up=(save_file_j in OFP_i.clean_up),
+                                            )
+
                         else:
                             self.app.logger.info(
                                 f"run was skipped: reason: {run.skip_reason!r}."
@@ -3332,18 +3448,24 @@ class Workflow:
 
                 # check if we should skip:
                 if not run.skip:
-                    try:
-                        if run.action.script:
-                            run.write_script_input_files(block_act_key)
 
-                        # write the command file that will be executed:
-                        cmd_file_path = self.ensure_commands_file(
-                            submission_idx, js_idx, run
-                        )
+                    try:
+                        with run.raise_on_failure_threshold() as unset_params:
+                            if run.action.script:
+                                run.write_script_input_files(block_act_key)
+
+                            # write the command file that will be executed:
+                            cmd_file_path = self.ensure_commands_file(
+                                submission_idx, js_idx, run
+                            )
+
                     except UnsetParameterDataError:
-                        # upstream run dependency with `skip_downstream_on_failure==False`
-                        # may have failed, meaning this run wasn't skipped, so fail this
-                        # run:
+                        # not all required parameter data is set, so fail this run:
+                        self.app.submission_logger.debug(
+                            f"unset parameter threshold satisfied (or any unset "
+                            f"parameters found when trying to write commands file), so "
+                            f"not attempting run. unset_params={unset_params!r}."
+                        )
                         self.set_EAR_start(run_ID, run_dir, port_number=None)
                         self._check_loop_termination(run)  # not sure if this is required
                         self.set_EAR_end(
@@ -3352,6 +3474,19 @@ class Workflow:
                             exit_code=1,
                         )
                         return
+
+                    # sufficient parameter data is set so far, but need to pass `unset_params`
+                    # on as an environment variable so it can be appended to and failure
+                    # thresholds can be rechecked if necessary (i.e. in a Python script
+                    # where we also load input parameters "directly")
+                    if unset_params:
+                        self.app.submission_logger.debug(
+                            f"some unset parameters found, but no unset-thresholds met: "
+                            f"unset_params={unset_params!r}."
+                        )
+
+                    # TODO: pass on unset_params to script as environment variable
+
                     has_commands = bool(cmd_file_path)
                     if has_commands:
 

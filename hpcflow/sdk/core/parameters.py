@@ -240,6 +240,13 @@ class SchemaInput(SchemaParameter):
         Determines the name of the element group from which this input should be sourced.
         This is a default value that will be applied to all `labels` if a "group" key
         does not exist.
+    allow_failed_dependencies
+        This controls whether failure to retrieve inputs (i.e. an
+        `UnsetParameterDataError` is raised for one of the input sources) should be
+        allowed. By default, the unset value, which is equivalent to `False`, means no
+        failures are allowed. If set to `True`, any number of failures are allowed. If an
+        integer is specified, that number of failures are permitted. Finally, if a float
+        is specified, that proportion of failures are allowed.
     """
 
     _task_schema = None  # assigned by parent TaskSchema
@@ -261,6 +268,7 @@ class SchemaInput(SchemaParameter):
         default_value: Optional[Union[app.InputValue, NullDefault]] = NullDefault.NULL,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
         group: Optional[str] = None,
+        allow_failed_dependencies: Optional[Union[bool, float, int, None]] = False,
     ):
         # TODO: can we define elements groups on local inputs as well, or should these be
         # just for elements from other tasks?
@@ -274,9 +282,15 @@ class SchemaInput(SchemaParameter):
             except ValueError:
                 parameter = self.app.Parameter(parameter)
 
+        if allow_failed_dependencies is None:
+            allow_failed_dependencies = 0.0
+        elif isinstance(allow_failed_dependencies, bool):
+            allow_failed_dependencies = float(allow_failed_dependencies)
+
         self.parameter = parameter
         self.multiple = multiple
         self.labels = labels
+        self.allow_failed_dependencies = allow_failed_dependencies
 
         if self.labels is None:
             if self.multiple:
@@ -392,6 +406,7 @@ class SchemaInput(SchemaParameter):
             "parameter": self.parameter,
             "multiple": self.multiple,
             "labels": self.labels,
+            "allow_failed_dependencies": self.allow_failed_dependencies,
         }
         obj = self.__class__(**copy.deepcopy(kwargs, memo))
         obj._task_schema = self._task_schema

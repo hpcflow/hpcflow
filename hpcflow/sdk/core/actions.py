@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import enum
 import json
+import contextlib
+from collections import defaultdict
 import pprint
 from pathlib import Path
 import re
@@ -39,6 +41,29 @@ from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
 
 ACTION_SCOPE_REGEX = r"(\w*)(?:\[(.*)\])?"
+
+
+@dataclass
+class UnsetParamTracker:
+    """Class to track run IDs that are the sources of unset parameter data for some input
+    parameter type.
+
+    Attributes
+    ----------
+    run_ids
+        Set of integer run IDs that have been tracked.
+    group_size
+        The size of the group, if the associated SchemaInput in question is a group.
+
+    Notes
+    -----
+    Objects of this class are instantiated within
+    `WorkflowTask._get_merged_parameter_data` when we are tracking unset parameters.
+
+    """
+
+    run_ids: Set[int]
+    group_size: int
 
 
 class ActionScopeType(enum.Enum):
@@ -699,8 +724,6 @@ class ElementActionRun:
             A three-tuple of integers corresponding to the jobscript index, block index,
             and block-action index.
         """
-        # TODO: use this in compose_source as well.
-        # TODO: can add a track_unset_parameters context manager here
         kwargs = {}
         if self.action.is_IFG:
             ifg = self.action.input_file_generators[0]
@@ -733,7 +756,7 @@ class ElementActionRun:
         for fmt, ins in self.action.script_data_in_grouped.items():
             if fmt == "json":
                 in_vals = self.get_input_values(
-                    inputs=ins, label_dict=False, raise_on_unset=True
+                    inputs=ins, label_dict=False, raise_on_unset=False
                 )
                 dump_path = self.action.get_param_dump_file_path_JSON(block_act_key)
                 in_vals_processed = {}
@@ -751,7 +774,7 @@ class ElementActionRun:
                 import h5py
 
                 in_vals = self.get_input_values(
-                    inputs=ins, label_dict=False, raise_on_unset=True
+                    inputs=ins, label_dict=False, raise_on_unset=False
                 )
                 dump_path = self.action.get_param_dump_file_path_HDF5(block_act_key)
                 with h5py.File(dump_path, mode="w") as f:
@@ -919,6 +942,57 @@ class ElementActionRun:
             fp.write(commands_fmt)
 
         return cmd_file_path
+
+    @contextlib.contextmanager
+    def raise_on_failure_threshold(self):
+        """Context manager to track parameter types and associated run IDs for which those
+        parameters were found to be unset when acccessed via
+        `WorkflowTask._get_merged_parameter_data`.
+
+        """
+        self.workflow._is_tracking_unset = True
+        self.workflow._tracked_unset = defaultdict(
+            lambda: UnsetParamTracker(run_ids=set(), group_size=None)
+        )
+        try:
+            yield dict(self.workflow._tracked_unset)
+        except:
+            raise
+        else:
+            try:
+                for schema_inp in self.task.template.schema.inputs:
+                    inp_path = f"inputs.{schema_inp.typ}"
+                    if inp_path in self.workflow._tracked_unset:
+                        unset_tracker = self.workflow._tracked_unset[inp_path]
+                        unset_num = len(unset_tracker.run_ids)
+                        unset_fraction = unset_num / unset_tracker.group_size
+                        if isinstance(schema_inp.allow_failed_dependencies, float):
+                            # `True` is converted to 1.0 on SchemaInput init
+                            if unset_fraction > schema_inp.allow_failed_dependencies:
+                                msg = (
+                                    f"Input {schema_inp.parameter.typ!r} of task "
+                                    f"{self.task.name!r}: higher proportion of "
+                                    f"dependencies failed ({unset_fraction!r}) than "
+                                    f"allowed ({schema_inp.allow_failed_dependencies!r})."
+                                )
+                                self.app.submission_logger.info(msg)
+                                raise UnsetParameterDataError(msg)
+                        elif isinstance(schema_inp.allow_failed_dependencies, int):
+                            if unset_num > schema_inp.allow_failed_dependencies:
+                                msg = (
+                                    f"Input {schema_inp.parameter.typ!r} of task "
+                                    f"{self.task.name!r}: higher number of "
+                                    f"dependencies failed ({unset_num!r}) than allowed "
+                                    f"({schema_inp.allow_failed_dependencies!r})."
+                                )
+                                self.app.submission_logger.info(msg)
+                                raise UnsetParameterDataErrormsg()
+            finally:
+                self.workflow._is_tracking_unset = False
+                self.workflow._tracked_unset = None
+        finally:
+            self.workflow._is_tracking_unset = False
+            self.workflow._tracked_unset = None
 
 
 class ElementAction:
@@ -2336,102 +2410,47 @@ class Action(JSONLike):
 
             with app.redirect_std_to_file(std_path):
 
-                parser = argparse.ArgumentParser()
-                parser.add_argument("--inputs-json")
-                parser.add_argument("--inputs-hdf5")
-                parser.add_argument("--outputs-json")
-                parser.add_argument("--outputs-hdf5")
-                args = parser.parse_args()
             """
         ).format(app_module=self.app.module, app_caps=app_caps)
 
-        # if any direct inputs/outputs, we must load the workflow (must be python):
-        if self.script_data_in_has_direct or self.script_data_out_has_direct:
-            py_main_block_workflow_load = dedent(
-                """\
-                    app.load_config(
-                        log_file_path=Path(log_path),
-                        config_dir=r"{cfg_dir}",
-                        config_key=r"{cfg_invoc_key}",
-                    )
-                    wk = app.Workflow(wk_path)
-                    EAR = wk.get_EARs_from_IDs([run_id])[0]
-                """
-            ).format(
-                cfg_dir=self.app.config.config_directory,
-                cfg_invoc_key=self.app.config.config_key,
-                app_caps=app_caps,
-            )
-        else:
-            py_main_block_workflow_load = ""
-
-        kwargs_lns = []
-        double_splat_lns = []
-        if (
-            not any((self.is_IFG, self.is_OFP))
-            and "direct" in self.script_data_in_grouped
-        ):
-            double_splat_lns.append("**EAR.get_input_values_direct(raise_on_unset=True)")
-
-        elif self.is_IFG:
-            new_file_path = self.input_file_generators[0].input_file.name.value()
-            double_splat_lns.append("**EAR.get_IFG_input_values(raise_on_unset=True)")
-            kwargs_lns.append(f'"path": Path("{new_file_path}")')
-
-        elif self.is_OFP:
-            double_splat_lns.extend(
-                (
-                    "**EAR.get_OFP_output_files()",
-                    "**EAR.get_OFP_inputs(raise_on_unset=True)",
-                    "**EAR.get_OFP_outputs(raise_on_unset=True)",
+        # we must load the workflow (must be python):
+        # (note: we previously only loaded the workflow if there were any direct inputs
+        # or outputs; now we always load so we can use the method
+        # `get_py_script_func_kwargs`)
+        py_main_block_workflow_load = dedent(
+            """\
+                app.load_config(
+                    log_file_path=Path(log_path),
+                    config_dir=r"{cfg_dir}",
+                    config_key=r"{cfg_invoc_key}",
                 )
-            )
-
-        if self.script_data_in_has_files:
-            # TODO: add parser.add_argument s here
-            # need to pass "_input_files" keyword argument to script main function:
-            input_files_str = dedent(
-                """\
-                inp_files = {}
-                if args.inputs_json:
-                    inp_files["json"] = Path(args.inputs_json)
-                if args.inputs_hdf5:
-                    inp_files["hdf5"] = Path(args.inputs_hdf5)
+                wk = app.Workflow(wk_path)
+                EAR = wk.get_EARs_from_IDs([run_id])[0]
             """
-            )
-            kwargs_lns.append('"_input_files": inp_files')
-        else:
-            input_files_str = ""
-
-        if self.script_data_out_has_files:
-            # TODO: add parser.add_argument s here
-            # need to pass "_output_files" keyword argument to script main function:
-            output_files_str = dedent(
-                """\
-                out_files = {}
-                if args.outputs_json:
-                    out_files["json"] = Path(args.outputs_json)
-                if args.outputs_hdf5:
-                    out_files["hdf5"] = Path(args.outputs_hdf5)
-            """
-            )
-            kwargs_lns.append('"_output_files": out_files')
-
-        else:
-            output_files_str = ""
+        ).format(
+            cfg_dir=self.app.config.config_directory,
+            cfg_invoc_key=self.app.config.config_key,
+            app_caps=app_caps,
+        )
 
         tab_indent = "    "
         tab_indent_2 = 2 * tab_indent
 
-        all_kwargs_lns = kwargs_lns + double_splat_lns
-        all_kwargs_str = ",\n".join(all_kwargs_lns) + ","
         func_kwargs_str = dedent(
             """\
-            func_kwargs = {{
-            {kwargs_str}
-            }}
+            js_blk_act_key = (
+                os.environ["{app_caps}_JS_IDX"],
+                os.environ["{app_caps}_BLOCK_IDX"],
+                os.environ["{app_caps}_BLOCK_ACT_IDX"],
+            )
+            with EAR.raise_on_failure_threshold() as unset_params:
+                func_kwargs = EAR.get_py_script_func_kwargs(
+                    raise_on_unset=False,
+                    add_script_files=True,
+                    js_blk_act_key=js_blk_act_key,
+                )            
         """
-        ).format(kwargs_str=indent(all_kwargs_str, tab_indent))
+        ).format(app_caps=app_caps)
 
         script_main_func = Path(script_name).stem
         func_invoke_str = f"{script_main_func}(**func_kwargs)"
@@ -2456,10 +2475,6 @@ class Action(JSONLike):
             py_main_block_invoke = func_invoke_str
             py_main_block_outputs = ""
 
-        in_files = "\n" + indent(input_files_str, tab_indent_2) if input_files_str else ""
-        out_files = (
-            "\n" + indent(output_files_str, tab_indent_2) if output_files_str else ""
-        )
         wk_load = (
             "\n" + indent(py_main_block_workflow_load, tab_indent_2)
             if py_main_block_workflow_load
@@ -2468,7 +2483,7 @@ class Action(JSONLike):
         py_main_block = dedent(
             """\
             if __name__ == "__main__":
-            {py_imports}{wk_load}{in_files}{out_files}
+            {py_imports}{wk_load}
             {func_kwargs}
             {invoke}
             {outputs}
@@ -2476,8 +2491,6 @@ class Action(JSONLike):
         ).format(
             py_imports=indent(py_imports, tab_indent),
             wk_load=wk_load,
-            in_files=in_files,
-            out_files=out_files,
             func_kwargs=indent(func_kwargs_str, tab_indent_2),
             invoke=indent(py_main_block_invoke, tab_indent),
             outputs=indent(py_main_block_outputs, tab_indent),

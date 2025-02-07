@@ -1781,22 +1781,22 @@ class Jobscript(JSONLike):
                             app.logger.info(f"run_ID: {{run_ID}}; retrieving script inputs.")
                             get_ins_tic = time.perf_counter()
                             try:
-                                app.logger.info(f"run_ID: {{run_ID}}; writing script input files.")
-                                run.write_script_input_files(block_act_key)
-                                app.logger.info(f"run_ID: {{run_ID}}; retrieving funcion kwargs.")
-                                func_kwargs = run.get_py_script_func_kwargs(
-                                    raise_on_unset=True,
-                                    add_script_files=True,
-                                    js_blk_act_key=block_act_key,
-                                )
-                                app.logger.info(
-                                    f"run_ID: {{run_ID}}; script inputs have keys: "
-                                    f"{{tuple(func_kwargs.keys())!r}}."
-                                )                                
+                                with run.raise_on_failure_threshold() as unset_params:
+                                    app.logger.info(f"run_ID: {{run_ID}}; writing script input files.")
+                                    run.write_script_input_files(block_act_key)
+
+                                    app.logger.info(f"run_ID: {{run_ID}}; retrieving funcion kwargs.")
+                                    func_kwargs = run.get_py_script_func_kwargs(
+                                        raise_on_unset=False,
+                                        add_script_files=True,
+                                        js_blk_act_key=block_act_key,
+                                    )
+                                    app.logger.info(
+                                        f"run_ID: {{run_ID}}; script inputs have keys: "
+                                        f"{{tuple(func_kwargs.keys())!r}}."
+                                    )                                
                             except UnsetParameterDataError:
-                                # upstream run dependency with `skip_downstream_on_failure==False`
-                                # may have failed, meaning this run wasn't skipped, so fail this
-                                # run:
+                                # not all required parameter data is set, so fail this run:
                                 exit_code = 1
                                 run_end_dat[block_act_key].append((run, exit_code, None))
                                 app.logger.info(
@@ -1816,7 +1816,6 @@ class Jobscript(JSONLike):
                             app.logger.info(f"run_ID: {{run_ID}}; invoking function.")
             {func_invoc_lines}
                             
-                            func_toc = time.perf_counter()
                         except Exception:
                             print(f"Exception caught during execution of script function {{func.__name__}}.")
                             traceback.print_exc()
@@ -1825,7 +1824,9 @@ class Jobscript(JSONLike):
                         else:
                             app.logger.info(f"run_ID: {{run_ID}}; finished function invocation.")
                             exit_code = 0
-
+                        finally:
+                            func_toc = time.perf_counter()
+                            
                         with app.redirect_std_to_file(std_path):
                             # set run end
                             block_act_key=({js_idx}, block_idx, block_act_idx)

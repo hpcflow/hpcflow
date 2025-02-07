@@ -437,7 +437,7 @@ class PendingChanges:
             self.logger.debug(
                 f"commit: registering {len(updates)} run(s) as ended: "
                 f"{shorten_list_str(updates)}, with exit codes: "
-                f"{shorten_list_str([i[3] for i in updates.values()])}."
+                f"{shorten_list_str([i[2] for i in updates.values()])}."
             )
             self.store._update_EAR_end(updates)
             for run_id in updates:

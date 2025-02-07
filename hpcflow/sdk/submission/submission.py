@@ -546,6 +546,9 @@ class Submission(JSONLike):
 
                     if js.resources.combine_scripts:
                         if idx == 0:
+                            # the commands file for a combined jobscript won't have
+                            # any parameter data in the command line, so should raise
+                            # if something is found to be unset:
                             run.try_write_commands(
                                 environments=self.environments,
                                 jobscript=js,
