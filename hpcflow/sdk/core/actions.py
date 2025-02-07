@@ -986,7 +986,7 @@ class ElementActionRun:
                                     f"({schema_inp.allow_failed_dependencies!r})."
                                 )
                                 self.app.submission_logger.info(msg)
-                                raise UnsetParameterDataErrormsg()
+                                raise UnsetParameterDataError(msg)
             finally:
                 self.workflow._is_tracking_unset = False
                 self.workflow._tracked_unset = None
