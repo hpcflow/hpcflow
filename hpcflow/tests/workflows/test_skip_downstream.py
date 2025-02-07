@@ -1,3 +1,4 @@
+import os
 from hpcflow.sdk.core.test_utils import make_schemas
 import pytest
 
@@ -555,18 +556,15 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
 
 @pytest.mark.integration
 def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
+    cmd_ps = "echo <<parameter:p1>>; exit 1"
+    cmd_bash = "exit; echo <<parameter:p1>>"
+    cmd = cmd_ps if os.name == "nt" else cmd_bash
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
         outputs=[hf.SchemaInput("p2")],
         actions=[
-            hf.Action(
-                commands=[
-                    hf.Command(
-                        command="echo <<parameter:p1>>; exit 1", stdout="<<parameter:p2>>"
-                    )
-                ]
-            )
+            hf.Action(commands=[hf.Command(command=cmd, stdout="<<parameter:p2>>")])
         ],  # will fail
     )
     s2 = make_schemas(
@@ -575,7 +573,7 @@ def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
         ]
     )
     tasks = [
-        hf.Task(s1, inputs={"p1": "exit"}),  # will fail, and not set p2 for next task
+        hf.Task(s1, inputs={"p1": 123}),  # will fail, and not set p2 for next task
         hf.Task(s2),  # will fail when writing commands
     ]
 
@@ -598,18 +596,15 @@ def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
 
 @pytest.mark.integration
 def test_unset_parameters_found_when_writing_script_input_file(null_config, tmp_path):
+    cmd_ps = "echo <<parameter:p0>>; exit 1"
+    cmd_bash = "exit; echo <<parameter:p0>>"
+    cmd = cmd_ps if os.name == "nt" else cmd_bash
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p0")],
         outputs=[hf.SchemaInput("p1")],
         actions=[
-            hf.Action(
-                commands=[
-                    hf.Command(
-                        command="echo <<parameter:p0>>; exit 1", stdout="<<parameter:p1>>"
-                    )
-                ]
-            )
+            hf.Action(commands=[hf.Command(command=cmd, stdout="<<parameter:p1>>")])
         ],  # will fail
     )
 
@@ -630,7 +625,7 @@ def test_unset_parameters_found_when_writing_script_input_file(null_config, tmp_
     )
 
     tasks = [
-        hf.Task(s1, inputs={"p0": "exit"}),  # will fail, and not set p2 for next task
+        hf.Task(s1, inputs={"p0": 123}),  # will fail, and not set p2 for next task
         hf.Task(s2),  # will fail when writing input JSON file
     ]
 
@@ -656,18 +651,15 @@ def test_unset_parameters_found_when_writing_script_input_file(null_config, tmp_
 def test_unset_parameters_found_when_py_script_gets_direct_inputs(
     null_config, tmp_path, combine_scripts
 ):
+    cmd_ps = "echo <<parameter:p0>>; exit 1"
+    cmd_bash = "exit; echo <<parameter:p0>>"
+    cmd = cmd_ps if os.name == "nt" else cmd_bash
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p0")],
         outputs=[hf.SchemaInput("p1")],
         actions=[
-            hf.Action(
-                commands=[
-                    hf.Command(
-                        command="echo <<parameter:p0>>; exit 1", stdout="<<parameter:p1>>"
-                    )
-                ]
-            )
+            hf.Action(commands=[hf.Command(command=cmd, stdout="<<parameter:p1>>")])
         ],  # will fail
     )
 
@@ -688,7 +680,7 @@ def test_unset_parameters_found_when_py_script_gets_direct_inputs(
     )
 
     tasks = [
-        hf.Task(s1, inputs={"p0": "exit"}),  # will fail, and not set p2 for next task
+        hf.Task(s1, inputs={"p0": 123}),  # will fail, and not set p2 for next task
         hf.Task(s2),  # will fail when retrieving input p2 within generated script
     ]
 
