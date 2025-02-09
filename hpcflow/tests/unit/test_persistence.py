@@ -262,10 +262,10 @@ def test_zarr_rechunk_data_equivalent(null_config, tmp_path):
     arr = wk._store._get_EARs_arr()
     assert arr.chunks == arr.shape
 
-    bak_path = (Path(wk.path) / arr.path).with_suffix(".bak")
+    bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     arr_bak = zarr.open(bak_path)
 
-    assert arr_bak.chunks == (1,)
+    assert arr_bak.chunks == (1, 1)  # runs array is 2D
 
     # check backup and new runs data are equal:
     assert np.all(arr[:] == arr_bak[:])
@@ -291,12 +291,12 @@ def test_zarr_rechunk_data_equivalent_custom_chunk_size(null_config, tmp_path):
     wk.rechunk_runs(backup=True, status=False, chunk_size=2)
 
     arr = wk._store._get_EARs_arr()
-    assert arr.chunks == (2,)
+    assert arr.chunks == (2, 2)  # runs array is 2D
 
-    bak_path = (Path(wk.path) / arr.path).with_suffix(".bak")
+    bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     arr_bak = zarr.open(bak_path)
 
-    assert arr_bak.chunks == (1,)
+    assert arr_bak.chunks == (1, 1)  # runs array is 2D
 
     # check backup and new runs data are equal:
     assert np.all(arr[:] == arr_bak[:])
@@ -320,7 +320,7 @@ def test_zarr_rechunk_data_no_backup_load_runs(null_config, tmp_path):
 
     arr = wk._store._get_EARs_arr()
 
-    bak_path = (Path(wk.path) / arr.path).with_suffix(".bak")
+    bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     assert not bak_path.is_file()
 
     # check we can load runs:
@@ -344,11 +344,17 @@ def test_zarr_rechunk_data_no_backup_load_parameter_base(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, status=False, add_to_known=False)
+
+    params_old = wk.get_all_parameter_data()
     wk.rechunk_parameter_base(backup=False, status=False)
+
+    wk = wk.reload()
+    params_new = wk.get_all_parameter_data()
+    assert params_new == params_old
 
     arr = wk._store._get_parameter_base_array()
 
-    bak_path = (Path(wk.path) / arr.path).with_suffix(".bak")
+    bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     assert not bak_path.is_file()
 
     # check we can load parameters:

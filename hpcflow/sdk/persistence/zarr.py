@@ -44,6 +44,7 @@ from hpcflow.sdk.submission.submission import (
     JOBSCRIPT_SUBMIT_TIME_KEYS,
     SUBMISSION_SUBMIT_TIME_KEYS,
 )
+from hpcflow.sdk.utils.arrays import get_2D_idx
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 
@@ -474,13 +475,13 @@ class ZarrPersistentStore(PersistentStore):
 
         EARs_arr = md.create_dataset(
             name=cls._EAR_arr_name,
-            shape=0,
+            shape=(0, 1000),
             dtype=object,
             object_codec=MsgPack(),
             chunks=1,  # single-chunk rows for multiprocess writing
             compressor=cmp,
         )
-        EARs_arr.attrs.update({"parameter_paths": []})
+        EARs_arr.attrs.update({"parameter_paths": [], "num_runs": 0})
 
         # array for storing indices that can be used to reproduce run directory paths:
         run_dir_arr = md.create_dataset(
@@ -892,16 +893,35 @@ class ZarrPersistentStore(PersistentStore):
         arr = self._get_EARs_arr(mode="r+")
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
-        arr_add = np.empty((len(EARs)), dtype=object)
+        num_existing = attrs["num_runs"]
+        num_add = len(EARs)
+        num_tot = num_existing + num_add
+        arr_add = np.empty(num_add, dtype=object)
         arr_add[:] = [i.encode(attrs, self.ts_fmt) for i in EARs]
-        arr.append(arr_add)
 
-        if attrs != attrs_orig:
-            arr.attrs.put(attrs)
+        # get new 1D indices:
+        new_idx = np.arange(num_existing, num_tot)
+
+        # transform to 2D indices:
+        r_idx, c_idx = get_2D_idx(new_idx, num_cols=arr.shape[1])
+
+        # add rows to accomodate new runs:
+        max_r_idx = np.max(r_idx)
+        if max_r_idx + 1 > arr.shape[0]:
+            arr.resize(max_r_idx + 1, arr.shape[1])
+
+        # fill in new data:
+        for arr_add_idx_i, (r_idx_i, c_idx_i) in enumerate(zip(r_idx, c_idx)):
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[r_idx_i, c_idx_i] = arr_add[arr_add_idx_i]
+
+        attrs["num_runs"] = num_tot
+        arr.attrs.put(attrs)
 
         # add more rows to run dirs array:
         dirs_arr = self._get_dirs_arr(mode="r+")
-        dirs_arr.resize(arr.size)
+        dirs_arr.resize(num_tot)
 
     def _set_run_dirs(self, run_dir_arr, run_idx):
         dirs_arr = self._get_dirs_arr(mode="r+")
@@ -917,11 +937,14 @@ class ZarrPersistentStore(PersistentStore):
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        for run_ID_i, update_i in updates.items():
-            new_run_i = runs[run_ID_i].update(**update_i)
+        # convert to 2D array indices:
+        r_idx, c_idx = get_2D_idx(np.array(list(updates.keys())), num_cols=arr.shape[1])
+
+        for ri, ci, rID_i, upd_i in zip(r_idx, c_idx, updates.keys(), updates.values()):
+            new_run_i = runs[rID_i].update(**upd_i)
             # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
             # object array, so set one-by-one:
-            arr[run_ID_i] = new_run_i.encode(attrs, self.ts_fmt)
+            arr[ri, ci] = new_run_i.encode(attrs, self.ts_fmt)
 
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
@@ -1106,7 +1129,7 @@ class ZarrPersistentStore(PersistentStore):
         if self.use_cache and self.num_EARs_cache is not None:
             num = self.num_EARs_cache
         else:
-            num = len(self._get_EARs_arr())
+            num = self._get_EARs_arr().attrs["num_runs"]
         if self.use_cache and self.num_EARs_cache is None:
             self.num_EARs_cache = num
         return num
@@ -1185,12 +1208,20 @@ class ZarrPersistentStore(PersistentStore):
     def _get_submission_metadata_group(self, sub_idx: int, mode: str = "r") -> zarr.Group:
         return self._get_all_submissions_metadata_group(mode=mode).get(sub_idx)
 
+    def _get_submission_metadata_group_path(self, sub_idx: int) -> Path:
+        grp = self._get_submission_metadata_group(sub_idx)
+        return Path(grp.store.path).joinpath(grp.path)
+
     def _get_jobscripts_at_submit_metadata_arr(
         self, sub_idx: int, mode: str = "r"
     ) -> zarr.Array:
         return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
             self._js_at_submit_md_arr_name
         )
+
+    def _get_jobscripts_at_submit_metadata_arr_path(self, sub_idx: int) -> Path:
+        arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
+        return Path(arr.store.path).joinpath(arr.path)
 
     def _get_jobscripts_run_ID_arr(self, sub_idx: int, mode: str = "r") -> zarr.Array:
         return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
@@ -1430,8 +1461,10 @@ class ZarrPersistentStore(PersistentStore):
             )
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
+            # convert to 2D array indices:
+            r_idx, c_idx = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
             try:
-                EAR_arr_dat = _zarr_get_coord_selection(arr, id_lst, self.logger)
+                EAR_arr_dat = _zarr_get_coord_selection(arr, (r_idx, c_idx), self.logger)
             except zarr.errors.BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
             EAR_dat = dict(zip(id_lst, EAR_arr_dat))
@@ -1808,7 +1841,7 @@ class ZarrPersistentStore(PersistentStore):
         backup: Optional[bool] = True,
         status: Optional[bool] = True,
     ):
-        arr_path = Path(self.workflow.path) / arr.path
+        arr_path = Path(arr.store.path) / arr.path
         arr_name = arr.path.split("/")[-1]
 
         if status:
@@ -1831,16 +1864,24 @@ class ZarrPersistentStore(PersistentStore):
 
         tic = time.perf_counter()
         arr_rc_path = arr_path.with_suffix(".rechunked")
-        arr = zarr.open(arr_path)
         if status:
             status.update("Creating new array...")
+
+        # use the same store:
+        try:
+            arr_rc_store = arr.store.__class__(path=arr_rc_path)
+        except TypeError:
+            # FSStore
+            arr_rc_store = arr.store.__class__(url=str(arr_rc_path))
+
         arr_rc = zarr.create(
-            store=arr_rc_path,
+            store=arr_rc_store,
             shape=arr.shape,
             chunks=arr.shape if chunk_size is None else chunk_size,
             dtype=object,
             object_codec=MsgPack(),
         )
+
         if status:
             status.update("Copying data...")
         data = np.empty(shape=arr.shape, dtype=object)
