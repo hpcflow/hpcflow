@@ -880,18 +880,9 @@ class ZarrPersistentStore(PersistentStore):
             arr[iter_ID_i] = new_iter_i.encode(attrs)
 
     def _update_run_data_indices(self, run_data_indices: Dict[int, Dict[str, int]]):
-
-        arr = self._get_EARs_arr(mode="r+")
-        attrs = arr.attrs.asdict()
-        run_IDs = list(run_data_indices.keys())
-        run_dat = arr.get_coordinate_selection(run_IDs)
-        store_runs = [ZarrStoreEAR.decode(i, attrs, ts_fmt=self.ts_fmt) for i in run_dat]
-
-        for idx, run_ID_i in enumerate(run_IDs):
-            new_run_i = store_runs[idx].update(data_idx=run_data_indices[run_ID_i])
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[run_ID_i] = new_run_i.encode(attrs, ts_fmt=self.ts_fmt)
+        self._update_runs(
+            updates={k: {"data_idx": v} for k, v in run_data_indices.items()}
+        )
 
     def _append_EARs(self, EARs: List[ZarrStoreEAR]):
         arr = self._get_EARs_arr(mode="r+")
@@ -913,89 +904,61 @@ class ZarrPersistentStore(PersistentStore):
         dirs_arr[run_idx] = run_dir_arr
 
     @TimeIt.decorator
-    def _update_EAR_submission_data(self, sub_data: Dict[int, Tuple[int, int]]):
-        EAR_IDs = list(sub_data.keys())
-        EARs = self._get_persistent_EARs(EAR_IDs)
+    def _update_runs(self, updates: Dict[int, Dict[str, Any]]):
+        """Update the provided EAR attribute values in the specified existing runs."""
+        run_IDs = list(updates.keys())
+        runs = self._get_persistent_EARs(run_IDs)
 
         arr = self._get_EARs_arr(mode="r+")
         attrs_orig = arr.attrs.asdict()
         attrs = copy.deepcopy(attrs_orig)
 
-        for EAR_ID_i, (sub_idx_i, cmd_file_ID_i) in sub_data.items():
-            new_EAR_i = EARs[EAR_ID_i].update(
-                submission_idx=sub_idx_i,
-                commands_file_ID=cmd_file_ID_i,
-            )
+        for run_ID_i, update_i in updates.items():
+            new_run_i = runs[run_ID_i].update(**update_i)
             # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
             # object array, so set one-by-one:
-            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
+            arr[run_ID_i] = new_run_i.encode(attrs, self.ts_fmt)
 
         if attrs != attrs_orig:
             arr.attrs.put(attrs)
+
+    @TimeIt.decorator
+    def _update_EAR_submission_data(self, sub_data: Dict[int, Tuple[int, int]]):
+        self._update_runs(
+            updates={
+                k: {"submission_idx": v[0], "commands_file_ID": v[1]}
+                for k, v in sub_data.items()
+            }
+        )
 
     def _update_EAR_start(self, run_starts: Dict[int, Tuple[datetime, Dict, str, int]]):
-
-        EAR_IDs = list(run_starts.keys())
-        EARs = self._get_persistent_EARs(EAR_IDs)
-
-        arr = self._get_EARs_arr(mode="r+")
-        attrs_orig = arr.attrs.asdict()
-        attrs = copy.deepcopy(attrs_orig)
-
-        for EAR_ID_i, (s_time, s_snap, s_hn, port_number) in run_starts.items():
-            new_EAR_i = EARs[EAR_ID_i].update(
-                start_time=s_time,
-                snapshot_start=s_snap,
-                run_hostname=s_hn,
-                port_number=port_number,
-            )
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
-
-        if attrs != attrs_orig:
-            arr.attrs.put(attrs)
+        self._update_runs(
+            updates={
+                k: {
+                    "start_time": v[0],
+                    "snapshot_start": v[1],
+                    "run_hostname": v[2],
+                    "port_number": v[3],
+                }
+                for k, v in run_starts.items()
+            }
+        )
 
     def _update_EAR_end(self, run_ends: Dict[int, Tuple[datetime, Dict, int, bool]]):
-
-        EAR_IDs = list(run_ends.keys())
-        EARs = self._get_persistent_EARs(EAR_IDs)
-
-        arr = self._get_EARs_arr(mode="r+")
-        attrs_orig = arr.attrs.asdict()
-        attrs = copy.deepcopy(attrs_orig)
-
-        for EAR_ID_i, (e_time, e_snap, ext_code, success) in run_ends.items():
-            new_EAR_i = EARs[EAR_ID_i].update(
-                end_time=e_time,
-                snapshot_end=e_snap,
-                exit_code=ext_code,
-                success=success,
-            )
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
-
-        if attrs != attrs_orig:
-            arr.attrs.put(attrs)
+        self._update_runs(
+            updates={
+                k: {
+                    "end_time": v[0],
+                    "snapshot_end": v[1],
+                    "exit_code": v[2],
+                    "success": v[3],
+                }
+                for k, v in run_ends.items()
+            }
+        )
 
     def _update_EAR_skip(self, skips: Dict[int, int]):
-
-        EAR_IDs = list(skips.keys())
-        EARs = self._get_persistent_EARs(EAR_IDs)
-
-        arr = self._get_EARs_arr(mode="r+")
-        attrs_orig = arr.attrs.asdict()
-        attrs = copy.deepcopy(attrs_orig)
-
-        for EAR_ID_i, reason in skips.items():
-            new_EAR_i = EARs[EAR_ID_i].update(skip=reason)
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[EAR_ID_i] = new_EAR_i.encode(attrs, self.ts_fmt)
-
-        if attrs != attrs_orig:
-            arr.attrs.put(attrs)
+        self._update_runs(updates={k: {"skip": v} for k, v in skips.items()})
 
     def _update_js_metadata(self, js_meta: Dict):
 
