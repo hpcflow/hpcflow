@@ -423,7 +423,11 @@ class ZarrPersistentStore(PersistentStore):
         root = zarr.group(store=store, overwrite=False)
         root.attrs.update(attrs)
 
-        md = root.create_group("metadata")
+        # use a nested directory store for the metadata group so the runs array
+        # can be stored as a 2D array in nested directories, thereby limiting the maximum
+        # number of files stored in a given directory:
+        md_store = zarr.NestedDirectoryStore(Path(root.store.path).joinpath("metadata"))
+        md = zarr.group(store=md_store)
 
         compressor_lookup = {
             "blosc": Blosc,
@@ -1169,7 +1173,11 @@ class ZarrPersistentStore(PersistentStore):
         return group, f"arr_{arr_idx}"
 
     def _get_metadata_group(self, mode: str = "r") -> zarr.Group:
-        return self._get_root_group(mode=mode).get("metadata")
+        root_grp = self._get_root_group()
+        md_store = zarr.NestedDirectoryStore(
+            Path(root_grp.store.path).joinpath("metadata")
+        )
+        return zarr.open_group(store=md_store, mode=mode)
 
     def _get_all_submissions_metadata_group(self, mode: str = "r") -> zarr.Group:
         return self._get_metadata_group(mode=mode).get(self._subs_md_group_name)
