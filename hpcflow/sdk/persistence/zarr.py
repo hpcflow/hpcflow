@@ -480,6 +480,7 @@ class ZarrPersistentStore(PersistentStore):
             object_codec=MsgPack(),
             chunks=1,  # single-chunk rows for multiprocess writing
             compressor=cmp,
+            dimension_separator="/",
         )
         EARs_arr.attrs.update({"parameter_paths": [], "num_runs": 0})
 
@@ -1196,11 +1197,13 @@ class ZarrPersistentStore(PersistentStore):
         return group, f"arr_{arr_idx}"
 
     def _get_metadata_group(self, mode: str = "r") -> zarr.Group:
-        root_grp = self._get_root_group()
-        md_store = zarr.NestedDirectoryStore(
-            Path(root_grp.store.path).joinpath("metadata")
-        )
-        return zarr.open_group(store=md_store, mode=mode)
+        try:
+            path = Path(self.workflow.url).joinpath("metadata")
+            md_store = zarr.NestedDirectoryStore(path)
+            return zarr.open_group(store=md_store, mode=mode)
+        except (FileNotFoundError, zarr.errors.GroupNotFoundError):
+            # zip store?
+            return zarr.open_group(self.zarr_store, path="metadata", mode=mode)
 
     def _get_all_submissions_metadata_group(self, mode: str = "r") -> zarr.Group:
         return self._get_metadata_group(mode=mode).get(self._subs_md_group_name)
