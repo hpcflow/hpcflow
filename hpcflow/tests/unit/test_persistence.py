@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 import numpy as np
 import zarr
 import pytest
@@ -244,6 +245,9 @@ def test_make_zarr_store_no_compressor(null_config, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(
+    sys.version_info < (3, 9), reason="Python 3.8 support is being removed anyway."
+)
 def test_zarr_rechunk_data_equivalent(null_config, tmp_path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
@@ -275,6 +279,9 @@ def test_zarr_rechunk_data_equivalent(null_config, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(
+    sys.version_info < (3, 9), reason="Python 3.8 support is being removed anyway."
+)
 def test_zarr_rechunk_data_equivalent_custom_chunk_size(null_config, tmp_path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
