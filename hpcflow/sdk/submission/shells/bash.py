@@ -272,16 +272,30 @@ class WSLBash(Bash):
 
     JS_FUNCS = dedent(
         """\
-        {workflow_app_alias} () {{
+        {{workflow_app_alias}} () {{{{
         (
-        {env_setup}{app_invoc}\\
-                --with-config log_file_path "$(wslpath -m ${app_caps}_LOG_PATH)"\\
-                --config-dir "{config_dir}"\\
-                --config-key "{config_invoc_key}"\\
+        {log_path_block}
+        {{env_setup}}{{app_invoc}}\\
+                --with-config log_file_path "$LOG_FILE_PATH"\\
+                --config-dir "{{config_dir}}"\\
+                --config-key "{{config_invoc_key}}"\\
                 "$@"
         )
-        }}
+        }}}}
     """
+    ).format(
+        log_path_block=indent(
+            dedent(
+                """\
+                    if [ -z "${app_caps}_LOG_PATH" ] || [ "${app_caps}_LOG_PATH" = " " ]; then                    
+                        LOG_FILE_PATH=" "
+                    else
+                        LOG_FILE_PATH="$(wslpath -m ${app_caps}_LOG_PATH)"
+                    fi                    
+                """
+            ),
+            prefix=Bash.JS_ENV_SETUP_INDENT,
+        )
     )
     JS_HEADER = Bash.JS_HEADER.replace(
         'WK_PATH_ARG="$WK_PATH"',
