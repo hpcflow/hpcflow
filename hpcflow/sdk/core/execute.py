@@ -85,7 +85,7 @@ class Executor:
         self.app.logger.info(f"server thread started")
 
         # block until port number received:
-        port_number = self.q.get()  # TODO is this failing rarely?
+        port_number = self.q.get(timeout=5)  # TODO is this failing rarely?
         self.app.logger.info(f"received port number from server thread: {port_number}")
 
         self.port_number = port_number
