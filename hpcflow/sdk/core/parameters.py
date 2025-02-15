@@ -512,6 +512,23 @@ class BuiltinSchemaParameter:
 
 
 class ValueSequence(JSONLike):
+
+    # def __new__(
+    #     cls,
+    #     path: str,
+    #     values: List[Any],
+    #     nesting_order: Optional[int] = 0,
+    #     label: Optional[str] = None,
+    #     value_class_method: Optional[str] = None,
+    # ):
+    #     if isinstance(path, list):
+    #         # generate a list of ValueSequences or a MultiValueSequence?
+    #         pass
+    #     else:
+    #         return super().__new__(
+    #             cls, path, values, nesting_order, label, value_class_method
+    #         )
+
     def __init__(
         self,
         path: str,
