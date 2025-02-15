@@ -56,4 +56,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          poetry run hpcflow config set log_file_level debug
           poetry run hpcflow test  --integration ${{ github.event.inputs.integration_test_args }}

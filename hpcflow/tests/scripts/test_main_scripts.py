@@ -956,8 +956,9 @@ def test_repeated_action_in_schema(null_config, tmp_path):
     t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
     wk = hf.Workflow.from_template_data(
         tasks=[t1],
-        template_name="main_script_test_two_equivalent_actions",
+        template_name="test_repeated_action_in_schema",
         path=tmp_path,
+        resources={"any": {"write_app_logs": True}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
     # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
