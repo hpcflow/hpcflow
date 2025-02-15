@@ -1,4 +1,6 @@
 name: debug
+env:
+  POETRY_VERSION: "1.4"
 on:
   workflow_dispatch:
     inputs:
@@ -25,8 +27,8 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Setup upterm session
-        uses: owenthereal/action-upterm@v1
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
 
       - uses: actions/setup-python@v5
         with:
