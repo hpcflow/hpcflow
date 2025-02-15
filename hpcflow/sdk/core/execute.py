@@ -52,7 +52,11 @@ class Executor:
         self.app.logger.info(f"zmq_server: started on port {port_number}")
 
         # send port number back to main thread:
-        self.q.put(port_number)  # TODO: can just set via `self.port_number`?
+        self.q.put(
+            port_number
+        )  # TODO: can just set via `self.port_number`? # TODO is this failing rarely?
+
+        self.app.logger.info(f"zmq_server: port number sent to main thread.")
 
         # TODO: exception handling
 
@@ -78,9 +82,11 @@ class Executor:
         server_thread = threading.Thread(target=self._zmq_server)
         server_thread.start()
 
+        self.app.logger.info(f"server thread started")
+
         # block until port number received:
-        port_number = self.q.get()
-        self.app.logger.info(f"received port number from child thread: {port_number}")
+        port_number = self.q.get(timeout=10)  # TODO is this failing rarely?
+        self.app.logger.info(f"received port number from server thread: {port_number}")
 
         self.port_number = port_number
         self.server_thread = server_thread
