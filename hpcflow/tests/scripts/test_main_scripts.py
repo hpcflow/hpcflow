@@ -39,9 +39,7 @@ def test_script_direct_in_direct_out(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
 
 
@@ -72,9 +70,7 @@ def test_script_direct_sub_param_in_direct_out(null_config, tmp_path, combine_sc
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val["a"] + 100
 
 
@@ -108,9 +104,7 @@ def test_script_direct_in_direct_out_single_label(null_config, tmp_path, combine
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
 
 
@@ -156,9 +150,7 @@ def test_script_direct_in_direct_out_labels(null_config, tmp_path, combine_scrip
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_1_val + p1_2_val
 
 
@@ -190,9 +182,7 @@ def test_script_json_in_json_out(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
 
 
@@ -239,9 +229,7 @@ def test_script_json_in_json_out_labels(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_1_val + p1_2_val
 
 
@@ -288,9 +276,7 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path, combine
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == a_val + p1_2_val
 
 
@@ -326,9 +312,7 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path, combine_scrip
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p3.value == p1_val + p2_val
 
 
@@ -363,9 +347,7 @@ def test_script_json_in_json_and_direct_out(null_config, tmp_path, combine_scrip
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
     assert wk.tasks[0].elements[0].outputs.p3.value == p1_val + 200
 
@@ -400,9 +382,7 @@ def test_script_json_in_obj(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == a_val + 100
 
 
@@ -436,9 +416,7 @@ def test_script_hdf5_in_obj(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == a_val + 100
 
 
@@ -472,9 +450,7 @@ def test_script_json_out_obj(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p1c.value == P1(a=p1_val + 100)
 
 
@@ -508,9 +484,7 @@ def test_script_hdf5_out_obj(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p1c.value == P1(a=p1_val + 100)
 
 
@@ -567,9 +541,7 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path, combine_scrip
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == {
         "name": "python_env_with_specifiers",
         **vers_spec,
@@ -635,9 +607,6 @@ def test_script_std_stream_redirect_on_exception(
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # jobscript stderr should be empty
     assert not wk.submissions[0].jobscripts[0].direct_stderr_path.read_text()
@@ -686,9 +655,6 @@ def test_script_std_out_std_err_not_redirected(null_config, tmp_path, combine_sc
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
@@ -728,9 +694,7 @@ def test_script_pass_env_spec(null_config, tmp_path, combine_scripts):
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text().strip()
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
     assert std_out == "{'name': 'python_env'}"
@@ -786,9 +750,7 @@ def test_env_specifier_in_main_script_path(new_null_config, tmp_path, combine_sc
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
 
     hf.reload_template_components()  # remove extra envs
@@ -869,9 +831,6 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # v1 and v2 scripts output different values:
     e1, e2 = wk.tasks.t1.elements
@@ -912,9 +871,6 @@ def test_script_direct_in_direct_out_multi_element(
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_vals[0] + 100
     assert wk.tasks[0].elements[1].outputs.p2.value == p1_vals[1] + 100
@@ -961,9 +917,6 @@ def test_repeated_action_in_schema(null_config, tmp_path):
         resources={"any": {"write_app_logs": True}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check scripts generated for act 0 and 1 have the same contents
     act_0_script, _ = wk.tasks.t1.template.schema.actions[0].get_script_artifact_name(
@@ -1030,9 +983,6 @@ def test_main_script_two_schemas_same_action(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check scripts generated for t1 and t2 have the same contents
     t1_script, _ = wk.tasks.t1.template.schema.actions[0].get_script_artifact_name(
@@ -1096,9 +1046,6 @@ def test_main_script_two_actions_same_schema(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check scripts generated for act 0 and 1 have different contents
     act_0_script, _ = wk.tasks.t1.template.schema.actions[0].get_script_artifact_name(
@@ -1160,13 +1107,8 @@ def test_shell_env_vars(null_config, tmp_path):
     )
     wk.add_submission(tasks=[0, 1])
     wk.submit(wait=True, add_to_known=False, status=False)  # first submission
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
+
     wk.submit(wait=True, add_to_known=False, status=False)  # outstanding runs
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     for run in wk.get_all_EARs():
         run_dir = run.get_directory()
@@ -1263,9 +1205,6 @@ def test_combine_scripts_script_data_multiple_input_file_formats(null_config, tm
         resources={"any": {"combine_scripts": True}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
     assert wk.tasks[1].elements[0].outputs.p3.value == p1_val + 100

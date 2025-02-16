@@ -41,9 +41,6 @@ def test_input_file_generator_creates_file(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the input file is written
     run_0 = wk.get_all_EARs()[0]
@@ -114,9 +111,6 @@ def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
         tasks=[t1], template_name="input_file_generator_test", path=tmp_path
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # jobscript stderr should be empty
     assert not wk.submissions[0].jobscripts[0].direct_stderr_path.read_text()
@@ -162,9 +156,6 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
@@ -212,9 +203,6 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the command successfully printed the env spec and file contents to stdout:
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
@@ -279,9 +267,6 @@ def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the input file is written
     run_0 = wk.get_all_EARs()[0]

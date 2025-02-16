@@ -44,9 +44,6 @@ def test_output_file_parser_parses_file(null_config, tmp_path):
     )
 
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the command successfully generated the output file:
     run_0 = wk.get_all_EARs()[0]
@@ -127,9 +124,6 @@ def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # jobscript stderr should be empty
     assert not wk.submissions[0].jobscripts[0].direct_stderr_path.read_text()
@@ -185,9 +179,6 @@ def test_OFP_std_out_std_err_not_redirected(null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
@@ -237,9 +228,6 @@ def test_output_file_parser_pass_env_spec(null_config, tmp_path):
     )
 
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text().strip()
     assert std_out == "{'name': 'python_env'}"
@@ -307,9 +295,6 @@ def test_env_specifier_in_output_file_parser_script_path(new_null_config, tmp_pa
     )
 
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the command successfully generated the output file:
     run_0 = wk.get_all_EARs()[0]
@@ -356,9 +341,6 @@ def test_no_script_no_output_saves_files(null_config, tmp_path):
     )
 
     wk.submit(wait=True, add_to_known=False, status=False)
-    # # TODO: investigate why the value is not always populated on GHA Ubuntu runners (tends
-    # # to be later Python versions):
-    # time.sleep(10)
 
     # check the output file is saved to artifacts:
     run_0 = wk.get_all_EARs()[0]

@@ -53,9 +53,7 @@ class Executor:
         self.app.logger.info(f"zmq_server: started on port {port_number}")
 
         # send port number back to main thread:
-        self.q.put(
-            port_number
-        )  # TODO: can just set via `self.port_number`? # TODO is this failing rarely?
+        self.q.put(port_number)
 
         self.app.logger.info(f"zmq_server: port number sent to main thread.")
 
@@ -85,9 +83,14 @@ class Executor:
 
         self.app.logger.info(f"server thread started")
 
+        if os.name == "nt":
+            # some sort of race condition seems to exist on Windows, where self.q.get()
+            # will occasionally hang on the Github Actions runners. This seems to resolve
+            # it.
+            time.sleep(0.1)
+
         # block until port number received:
-        time.sleep(0.5)  # for Windows?
-        port_number = self.q.get(timeout=5)  # TODO is this failing rarely?
+        port_number = self.q.get(timeout=5)
         self.app.logger.info(f"received port number from server thread: {port_number}")
 
         self.port_number = port_number

@@ -173,7 +173,6 @@ def test_workflow_template_config_set(new_null_config, tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, status=False, add_to_known=False)
-    # time.sleep(10)  # TODO: still required?
 
     # check some DEBUG messages present in the run logs
     debug_str = " DEBUG hpcflow.persistence:"

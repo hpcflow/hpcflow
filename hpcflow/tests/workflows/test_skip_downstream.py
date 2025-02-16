@@ -555,7 +555,6 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(os.name == "nt", reason="trying to identify hanging windows tests")
 def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
     cmd_ps = "echo <<parameter:p1>>; exit 1"
     cmd_bash = "exit; echo <<parameter:p1>>"
@@ -596,7 +595,6 @@ def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(os.name == "nt", reason="trying to identify hanging windows tests")
 def test_unset_parameters_found_when_writing_script_input_file(null_config, tmp_path):
     cmd_ps = "echo <<parameter:p0>>; exit 1"
     cmd_bash = "exit; echo <<parameter:p0>>"
@@ -650,7 +648,6 @@ def test_unset_parameters_found_when_writing_script_input_file(null_config, tmp_
 
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [True, False])
-@pytest.mark.skipif(os.name == "nt", reason="trying to identify hanging windows tests")
 def test_unset_parameters_found_when_py_script_gets_direct_inputs(
     null_config, tmp_path, combine_scripts
 ):
