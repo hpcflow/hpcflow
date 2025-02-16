@@ -61,9 +61,13 @@ class DirectScheduler(NullScheduler):
             except psutil.NoSuchProcess:
                 # process might have completed already
                 continue
-            if proc_i.cmdline() == p_cmdline:
-                # additional check this is the same process that we submitted
-                procs.append(proc_i)
+            try:
+                if proc_i.cmdline() == p_cmdline:
+                    # additional check this is the same process that we submitted
+                    procs.append(proc_i)
+            except psutil.ZombieProcess:
+                # on unix: process has completed but still has a record
+                continue
         return procs
 
     @classmethod
