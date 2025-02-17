@@ -1464,10 +1464,14 @@ class ZarrPersistentStore(PersistentStore):
             )
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
-            # convert to 2D array indices:
-            r_idx, c_idx = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
             try:
-                EAR_arr_dat = _zarr_get_coord_selection(arr, (r_idx, c_idx), self.logger)
+                # convert to 2D array indices:
+                sel = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
+            except IndexError:
+                # 1D runs array from before update to 2D in Feb 2025 refactor/jobscript:
+                sel = id_lst
+            try:
+                EAR_arr_dat = _zarr_get_coord_selection(arr, sel, self.logger)
             except zarr.errors.BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
             EAR_dat = dict(zip(id_lst, EAR_arr_dat))
