@@ -1226,6 +1226,7 @@ class ZarrPersistentStore(PersistentStore):
         arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
         return Path(arr.store.path).joinpath(arr.path)
 
+    @TimeIt.decorator
     def _get_jobscripts_run_ID_arr(self, sub_idx: int, mode: str = "r") -> zarr.Array:
         return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
             self._js_run_IDs_arr_name
@@ -1619,6 +1620,7 @@ class ZarrPersistentStore(PersistentStore):
 
         return self._jobscript_at_submit_metadata[js_idx]
 
+    @TimeIt.decorator
     def get_jobscript_block_run_ID_array(
         self,
         sub_idx: int,
@@ -1648,15 +1650,16 @@ class ZarrPersistentStore(PersistentStore):
             # same array (and chunk), so retrieve all of them and cache:
 
             arr = self._get_jobscripts_run_ID_arr(sub_idx)
+            arr_dat = arr[:]
             block_shapes = arr.attrs["block_shapes"]
 
             self._jobscript_run_ID_arrays[sub_idx] = {}  # keyed by (js_idx, blk_idx)
             arr_idx = 0
             for js_idx_i, js_blk_shapes in enumerate(block_shapes):
                 for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
-                    self._jobscript_run_ID_arrays[sub_idx][(js_idx_i, blk_idx_j)] = arr[
-                        arr_idx, : blk_shape_j[0], : blk_shape_j[1]
-                    ]
+                    self._jobscript_run_ID_arrays[sub_idx][
+                        (js_idx_i, blk_idx_j)
+                    ] = arr_dat[arr_idx, : blk_shape_j[0], : blk_shape_j[1]]
                     arr_idx += 1
 
         else:
@@ -1695,13 +1698,14 @@ class ZarrPersistentStore(PersistentStore):
             # the same array (and chunk), so retrieve all of them and cache:
 
             arr = self._get_jobscripts_task_elements_arr(sub_idx)
+            arr_dat = arr[:]
             block_shapes = arr.attrs["block_shapes"]
 
             self._jobscript_task_element_maps[sub_idx] = {}  # keys: (js_idx, blk_idx)
             arr_idx = 0
             for js_idx_i, js_blk_shapes in enumerate(block_shapes):
                 for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
-                    arr_i = arr[arr_idx, : blk_shape_j[1], : blk_shape_j[0] + 1]
+                    arr_i = arr_dat[arr_idx, : blk_shape_j[1], : blk_shape_j[0] + 1]
                     self._jobscript_task_element_maps[sub_idx][(js_idx_i, blk_idx_j)] = {
                         k[0]: list(k[1:]) for k in arr_i
                     }
@@ -1745,13 +1749,14 @@ class ZarrPersistentStore(PersistentStore):
             # the same array (and chunk), so retrieve all of them and cache:
 
             arr = self._get_jobscripts_task_actions_arr(sub_idx)
+            arr_dat = arr[:]
             block_num_acts = arr.attrs["block_num_acts"]
 
             num_acts_count = 0
             self._jobscript_task_actions_arrays[sub_idx] = {}  # keys: (js_idx, blk_idx)
             for js_idx_i, js_blk_num_acts in enumerate(block_num_acts):
                 for blk_idx_j, blk_num_acts_j in enumerate(js_blk_num_acts):
-                    arr_i = arr[num_acts_count : num_acts_count + blk_num_acts_j]
+                    arr_i = arr_dat[num_acts_count : num_acts_count + blk_num_acts_j]
                     num_acts_count += blk_num_acts_j
                     self._jobscript_task_actions_arrays[sub_idx][
                         (js_idx_i, blk_idx_j)
