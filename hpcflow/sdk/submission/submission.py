@@ -1048,3 +1048,19 @@ class Submission(JSONLike):
         return tuple(
             js_i.process_ID for js_i in self.jobscripts if js_i.process_ID is not None
         )
+
+    @TimeIt.decorator
+    def list_jobscripts(self, max_js: int = None, jobscripts: List[int] = None) -> None:
+        """Print a table listing jobscripts and associated information.
+
+        Parameters
+        ----------
+        max_js
+            Maximum jobscript index to display. This cannot be specified with `jobscripts`.
+        jobscripts
+            A list of jobscripts to display. This cannot be specified with `max_js`.
+
+        """
+        self.workflow.list_jobscripts(
+            sub_idx=self.index, max_js=max_js, jobscripts=jobscripts
+        )

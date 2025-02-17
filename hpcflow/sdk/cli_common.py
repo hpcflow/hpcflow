@@ -233,3 +233,10 @@ cancel_status_opt = click.option(
     default=True,
     help="If True, display a live status to track cancel progress.",
 )
+
+list_js_max_js_opt = click.option(
+    "--max-js", type=click.INT, help="Display up to this jobscript only."
+)
+list_js_jobscripts_opt = click.option(
+    "--jobscripts", help="Comma-separated list of jobscript indices to show."
+)

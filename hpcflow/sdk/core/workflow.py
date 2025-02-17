@@ -20,7 +20,12 @@ from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.zip import ZipFileSystem
 import numpy as np
 from fsspec.core import url_to_fs
+from rich import print as rich_print
 import rich.console
+import rich.panel
+import rich.table
+import rich.text
+
 
 from hpcflow.sdk import app
 from hpcflow.sdk.config.errors import (
@@ -3928,6 +3933,93 @@ class Workflow:
         return tuple(
             IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_process_IDs()
         )
+
+    def list_jobscripts(
+        self, sub_idx: int = 0, max_js: int = None, jobscripts: List[int] = None
+    ) -> None:
+        """Print a table listing jobscripts and associated information from the specified
+        submission.
+
+        Parameters
+        ----------
+        sub_idx
+            The submission index whose jobscripts are to be displayed.
+        max_js
+            Maximum jobscript index to display. This cannot be specified with `jobscripts`.
+        jobscripts
+            A list of jobscripts to display. This cannot be specified with `max_js`.
+
+        """
+
+        if max_js is not None and jobscripts is not None:
+            raise ValueError("Do not specify both `max_js` and `jobscripts`.")
+
+        loop_names = [i.name for i in self.loops][::-1]
+        if loop_names:
+            loop_names_panel = rich.panel.Panel(
+                "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
+                title="[b]Loops[/b]",
+                title_align="left",
+                box=box.SIMPLE,
+            )
+        else:
+            loop_names_panel = ""
+
+        table = rich.table.Table()
+
+        table.add_column("JS-BLK", justify="right", style="cyan", no_wrap=True)
+        table.add_column("Acts, Elems", justify="right", style="green")
+        table.add_column("Deps.", style="orange3")
+        table.add_column("Tasks")
+        table.add_column("Loops")
+
+        sub_js = self.submissions[sub_idx].jobscripts
+        max_js = max_js if max_js is not None else len(sub_js)
+        for js in sub_js:
+            if jobscripts is not None and js.index not in jobscripts:
+                continue
+            if js.index > max_js:
+                break
+            for blk in js.blocks:
+                if blk.index == 0:
+                    c1 = f"{js.index} - {blk.index}"
+                else:
+                    c1 = f"{blk.index}"
+                c3 = f"{blk.num_actions}, {blk.num_elements}"
+
+                deps = "; ".join(f"{i[0],i[1]}" for i in blk.dependencies)
+
+                for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
+
+                    # loop indices are the same for all actions within a task, so get the
+                    # first `task_action` for this task insert ID:
+                    for i in blk.task_actions:
+                        if i[0] == t_iID:
+                            loop_idx = [
+                                blk.task_loop_idx[i[2]].get(loop_name_i, "-")
+                                for loop_name_i in loop_names
+                            ]
+                            break
+
+                    c2 = self.tasks.get(insert_ID=t_iID).unique_name
+
+                    if blk_t_idx > 0:
+                        c1 = ""
+                        c3 = ""
+                        deps = ""
+
+                    table.add_row(
+                        c1, c3, deps, c2, (" | ".join(f"{i}" for i in loop_idx))
+                    )
+            table.add_section()
+
+        group = rich.console.Group(
+            rich.text.Text(f"Workflow: {self.name}"),
+            rich.text.Text(f"Submission: {sub_idx}" + ("\n" if loop_names_panel else "")),
+            loop_names_panel,
+            table,
+        )
+        rich_print(group)
 
 
 @dataclass

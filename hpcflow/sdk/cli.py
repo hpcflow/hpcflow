@@ -43,6 +43,8 @@ from hpcflow.sdk.cli_common import (
     rechunk_chunk_size_opt,
     rechunk_status_opt,
     cancel_status_opt,
+    list_js_max_js_opt,
+    list_js_jobscripts_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -370,6 +372,16 @@ def _make_workflow_submission_CLI(app):
         if proc_IDs:
             print("\n".join(str(i) for i in proc_IDs))
 
+    @submission.command()
+    @list_js_max_js_opt
+    @list_js_jobscripts_opt
+    @click.pass_context
+    def list_jobscripts(ctx, max_js=None, jobscripts=None):
+        """Print a table listing jobscripts and associated information."""
+        if jobscripts:
+            jobscripts = [int(i) for i in jobscripts.split(",")]
+        ctx.obj["submission"].list_jobscripts(max_js=max_js, jobscripts=jobscripts)
+
     submission.help = submission.help.format(app_name=app.name)
     submission.add_command(_make_workflow_submission_jobscript_CLI(app))
 
@@ -591,6 +603,25 @@ def _make_workflow_CLI(app):
         proc_IDs = ctx.obj["workflow"].get_process_IDs()
         if proc_IDs:
             print("\n".join(str(i) for i in proc_IDs))
+
+    @workflow.command()
+    @click.option(
+        "--sub-idx",
+        type=click.INT,
+        default=0,
+        help="Submission index whose jobscripts are to be shown.",
+    )
+    @list_js_max_js_opt
+    @list_js_jobscripts_opt
+    @click.pass_context
+    def list_jobscripts(ctx, sub_idx=None, max_js=None, jobscripts=None):
+        """Print a table listing jobscripts and associated information from the specified
+        submission"""
+        if jobscripts:
+            jobscripts = [int(i) for i in jobscripts.split(",")]
+        ctx.obj["workflow"].list_jobscripts(
+            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts
+        )
 
     workflow.help = workflow.help.format(app_name=app.name)
 
