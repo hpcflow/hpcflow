@@ -25,6 +25,7 @@ import rich.console
 import rich.panel
 import rich.table
 import rich.text
+import rich.box
 
 
 from hpcflow.sdk import app
@@ -3960,7 +3961,7 @@ class Workflow:
                 "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
                 title="[b]Loops[/b]",
                 title_align="left",
-                box=box.SIMPLE,
+                box=rich.box.SIMPLE,
             )
         else:
             loop_names_panel = ""
