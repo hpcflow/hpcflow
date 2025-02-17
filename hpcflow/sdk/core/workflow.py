@@ -1438,6 +1438,7 @@ class Workflow:
         return self._template
 
     @property
+    @TimeIt.decorator
     def tasks(self) -> app.WorkflowTaskList:
         if self._tasks is None:
             with self._store.cached_load():
@@ -1478,6 +1479,7 @@ class Workflow:
         return self._loops
 
     @property
+    @TimeIt.decorator
     def submissions(self) -> List[app.Submission]:
         if self._submissions is None:
             self.app.persistence_logger.debug("loading workflow submissions")
@@ -3935,6 +3937,7 @@ class Workflow:
             IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_process_IDs()
         )
 
+    @TimeIt.decorator
     def list_jobscripts(
         self, sub_idx: int = 0, max_js: int = None, jobscripts: List[int] = None
     ) -> None:
@@ -3952,67 +3955,73 @@ class Workflow:
 
         """
 
-        if max_js is not None and jobscripts is not None:
-            raise ValueError("Do not specify both `max_js` and `jobscripts`.")
+        with self._store.cached_load():
 
-        loop_names = [i.name for i in self.loops][::-1]
-        if loop_names:
-            loop_names_panel = rich.panel.Panel(
-                "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
-                title="[b]Loops[/b]",
-                title_align="left",
-                box=rich.box.SIMPLE,
-            )
-        else:
-            loop_names_panel = ""
+            if max_js is not None and jobscripts is not None:
+                raise ValueError("Do not specify both `max_js` and `jobscripts`.")
 
-        table = rich.table.Table()
+            loop_names = [i.name for i in self.loops][::-1]
+            if loop_names:
+                loop_names_panel = rich.panel.Panel(
+                    "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
+                    title="[b]Loops[/b]",
+                    title_align="left",
+                    box=rich.box.SIMPLE,
+                )
+            else:
+                loop_names_panel = ""
 
-        table.add_column("JS-BLK", justify="right", style="cyan", no_wrap=True)
-        table.add_column("Acts, Elems", justify="right", style="green")
-        table.add_column("Deps.", style="orange3")
-        table.add_column("Tasks")
-        table.add_column("Loops")
+            table = rich.table.Table()
 
-        sub_js = self.submissions[sub_idx].jobscripts
-        max_js = max_js if max_js is not None else len(sub_js)
-        for js in sub_js:
-            if jobscripts is not None and js.index not in jobscripts:
-                continue
-            if js.index > max_js:
-                break
-            for blk in js.blocks:
-                if blk.index == 0:
-                    c1 = f"{js.index} - {blk.index}"
-                else:
-                    c1 = f"{blk.index}"
-                c3 = f"{blk.num_actions}, {blk.num_elements}"
+            table.add_column("JS-BLK", justify="right", style="cyan", no_wrap=True)
+            table.add_column("Acts, Elems", justify="right", style="green")
+            table.add_column("Deps.", style="orange3")
+            table.add_column("Tasks")
+            table.add_column("Loops")
 
-                deps = "; ".join(f"{i[0],i[1]}" for i in blk.dependencies)
+            sub_js = self.submissions[sub_idx].jobscripts
+            max_js = max_js if max_js is not None else len(sub_js)
+            for js in sub_js:
+                if jobscripts is not None and js.index not in jobscripts:
+                    continue
+                if js.index > max_js:
+                    break
+                for blk in js.blocks:
+                    blk_task_actions = blk.task_actions
+                    num_actions = blk_task_actions.shape[0]
 
-                for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
+                    if blk.index == 0:
+                        c1 = f"{js.index} - {blk.index}"
+                    else:
+                        c1 = f"{blk.index}"
+                    c3 = f"{num_actions}, {blk.num_elements}"
 
-                    # loop indices are the same for all actions within a task, so get the
-                    # first `task_action` for this task insert ID:
-                    for i in blk.task_actions:
-                        if i[0] == t_iID:
-                            loop_idx = [
-                                blk.task_loop_idx[i[2]].get(loop_name_i, "-")
-                                for loop_name_i in loop_names
-                            ]
-                            break
+                    deps = "; ".join(f"{i[0],i[1]}" for i in blk.dependencies)
 
-                    c2 = self.tasks.get(insert_ID=t_iID).unique_name
+                    for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
 
-                    if blk_t_idx > 0:
-                        c1 = ""
-                        c3 = ""
-                        deps = ""
+                        # loop indices are the same for all actions within a task, so get the
+                        # first `task_action` for this task insert ID:
+                        for i in blk_task_actions:
+                            if i[0] == t_iID:
+                                loop_idx = [
+                                    blk.task_loop_idx[i[2]].get(loop_name_i, "-")
+                                    for loop_name_i in loop_names
+                                ]
+                                break
 
-                    table.add_row(
-                        c1, c3, deps, c2, (" | ".join(f"{i}" for i in loop_idx))
-                    )
-            table.add_section()
+                        c2 = self.tasks.get(insert_ID=t_iID).unique_name
+
+                        if blk_t_idx > 0:
+                            c1 = ""
+                            c3 = ""
+                            deps = ""
+
+                        table.add_row(
+                            c1, c3, deps, c2, (" | ".join(f"{i}" for i in loop_idx))
+                        )
+
+                table.add_section()
 
         group = rich.console.Group(
             rich.text.Text(f"Workflow: {self.name}"),

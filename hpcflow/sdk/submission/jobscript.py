@@ -493,6 +493,7 @@ class JobscriptBlock(JSONLike):
         return self._task_insert_IDs
 
     @property
+    @TimeIt.decorator
     def task_actions(self):
         return self.workflow._store.get_jobscript_block_task_actions_array(
             sub_idx=self.submission.index,
@@ -502,6 +503,7 @@ class JobscriptBlock(JSONLike):
         )
 
     @property
+    @TimeIt.decorator
     def task_elements(self):
         return self.workflow._store.get_jobscript_block_task_elements_map(
             sub_idx=self.submission.index,
@@ -511,6 +513,7 @@ class JobscriptBlock(JSONLike):
         )
 
     @property
+    @TimeIt.decorator
     def EAR_ID(self):
         return self.workflow._store.get_jobscript_block_run_ID_array(
             sub_idx=self.submission.index,
@@ -524,14 +527,17 @@ class JobscriptBlock(JSONLike):
         return self._task_loop_idx
 
     @property
+    @TimeIt.decorator
     def dependencies(self):
         return self._dependencies
 
     @property
+    @TimeIt.decorator
     def num_actions(self):
         return self.EAR_ID.shape[0]
 
     @property
+    @TimeIt.decorator
     def num_elements(self):
         return self.EAR_ID.shape[1]
 
@@ -703,6 +709,7 @@ class Jobscript(JSONLike):
         return self._resources
 
     @property
+    @TimeIt.decorator
     def dependencies(self) -> Dict[int, Dict]:
         deps = {}
         for block in self.blocks:
