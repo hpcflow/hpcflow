@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import zarr
 import pytest
-from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow
+from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow, make_workflow
 from hpcflow.sdk.persistence.base import StoreEAR, StoreElement, StoreElementIter
 from hpcflow.sdk.persistence.json import JSONPersistentStore
 
@@ -369,3 +369,16 @@ def test_zarr_rechunk_data_no_backup_load_parameter_base(null_config, tmp_path):
     param_IDs = []
     for i in params:
         param_IDs.append(i.id_)
+
+
+def test_get_parameter_sources_duplicate_ids(null_config, tmp_path):
+    wk = make_workflow(
+        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        local_inputs={0: ("p1",)},
+        path=tmp_path,
+    )
+    id_lst = [0, 1, 1, 2, 0]
+    src = wk._store.get_parameter_sources(id_lst)
+    assert len(src) == len(id_lst)
+    assert src[0] == src[4]
+    assert src[1] == src[2]

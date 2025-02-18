@@ -1954,12 +1954,11 @@ class PersistentStore(ABC):
         src.update({i: self._pending.add_parameters[i].source for i in id_pend})
 
         # order as requested:
-        src = {id_: src[id_] for id_ in id_lst}
-
         src_new = []
-        for id_i, src_i in src.items():
+        for id_i in id_lst:
             # consider pending source updates:
             pend_src = self._pending.update_param_sources.get(id_i)
+            src_i = src[id_i]
             if pend_src:
                 src_i = {**src_i, **pend_src}
             src_new.append(src_i)
