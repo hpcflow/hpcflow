@@ -1634,7 +1634,7 @@ class ZarrPersistentStore(PersistentStore):
             self.logger.debug("jobscript-block run IDs are still in memory.")
             # in the special case when the Submission object has just been created, the
             # run ID arrays will not yet be persistent.
-            return run_ID_arr
+            return np.asarray(run_ID_arr)
 
         # otherwise, `append_submissions` has been called, the run IDs have been
         # removed from the JSON-representation of the submission object, and have been
@@ -1733,7 +1733,7 @@ class ZarrPersistentStore(PersistentStore):
             self.logger.debug("jobscript-block task actions are still in memory.")
             # in the special case when the Submission object has just been created, the
             # task actions arrays will not yet be persistent.
-            return task_actions_arr
+            return np.asarray(task_actions_arr)
 
         # otherwise, `append_submissions` has been called, the task actions have been
         # removed from the JSON-representation of the submission object, and have been

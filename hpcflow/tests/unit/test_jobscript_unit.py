@@ -673,4 +673,4 @@ def test_jobscript_task_actions_equivalence_JSON_Zarr(null_config, tmp_path):
         assert len(js_zarr.blocks) == len(sub_json.jobscripts[js_idx].blocks)
         for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
             js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
-            assert js_blk_zarr.task_actions == js_blk_json.task_actions
+            assert np.array_equal(js_blk_zarr.task_actions, js_blk_json.task_actions)

@@ -1682,7 +1682,7 @@ class PersistentStore(ABC):
         from the remainder of the submission attributes.
 
         """
-        return run_ID_arr
+        return np.asarray(run_ID_arr)
 
     @TimeIt.decorator
     def get_jobscript_block_task_elements_map(
@@ -1718,7 +1718,7 @@ class PersistentStore(ABC):
         from the remainder of the submission attributes.
 
         """
-        return task_actions_arr
+        return np.asarray(task_actions_arr)
 
     @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:
