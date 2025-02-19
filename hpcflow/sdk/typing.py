@@ -3,7 +3,7 @@ Common type aliases.
 """
 from __future__ import annotations
 from dataclasses import InitVar
-from typing import ClassVar, Final, TypeVar, cast, TYPE_CHECKING
+from typing import Any, ClassVar, Final, TypeVar, cast, TYPE_CHECKING
 from typing_extensions import NotRequired, TypeAlias, TypedDict
 from pathlib import Path
 import re
@@ -153,16 +153,16 @@ def hydrate(cls: type[_T]) -> type[_T]:
     Partially hydrates the annotations on fields in a class, so that a @dataclass
     annotation can recognise that ClassVar-annotated fields are class variables.
     """
-    anns = {}
+    anns: dict[str, Any] = {}
     for f, a in cls.__annotations__.items():
         if isinstance(a, str):
             m = _CLASS_VAR_RE.match(a)
             if m:
-                anns[f] = ClassVar[m[1]]
+                anns[f] = cast(Any, ClassVar[m[1]])
                 continue
             m = _INIT_VAR_RE.match(a)
             if m:
-                anns[f] = InitVar(cast(type, m[1]))
+                anns[f] = cast(Any, InitVar(cast(type, m[1])))
                 continue
         anns[f] = a
     cls.__annotations__ = anns

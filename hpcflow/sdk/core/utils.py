@@ -124,7 +124,9 @@ def check_valid_py_identifier(name: str) -> str:
 
 
 @overload
-def group_by_dict_key_values(lst: list[dict[T, T2]], key: T) -> list[list[dict[T, T2]]]:
+def group_by_dict_key_values(  # type: ignore[overload-overlap]
+    lst: list[dict[T, T2]], key: T
+) -> list[list[dict[T, T2]]]:
     ...
 
 
