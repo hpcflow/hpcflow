@@ -312,8 +312,8 @@ class JSONPersistentStore(PersistentStore):
     def _set_run_dirs(self, run_dir_arr, run_idx):
         with self.using_resource("runs", action="update") as md:
             dirs_lst = md["run_dirs"]
-            for idx in run_idx:
-                dirs_lst[idx] = run_dir_arr[idx].item()
+            for idx, r_idx in enumerate(run_idx):
+                dirs_lst[r_idx] = run_dir_arr[idx].item()
             md["run_dirs"] = dirs_lst
 
     def _update_EAR_submission_data(self, sub_data: Dict[int, Tuple[int, int]]):
@@ -657,5 +657,5 @@ class JSONPersistentStore(PersistentStore):
             dirs_arr[:] = RUN_DIR_ARR_FILL
             for idx, i in enumerate(dirs_lst):
                 if i is not None:
-                    dirs_arr[idx] = i
+                    dirs_arr[idx] = tuple(i)
         return dirs_arr

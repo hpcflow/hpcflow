@@ -9,11 +9,14 @@ from hpcflow.sdk.core.parameters import ParameterValue
 def make_schemas(ins_outs, ret_list=False):
     out = []
     for idx, info in enumerate(ins_outs):
+        act_kwargs = {}
         if len(info) == 2:
             (ins_i, outs_i) = info
             obj = f"t{idx}"
-        else:
+        elif len(info) == 3:
             (ins_i, outs_i, obj) = info
+        else:
+            (ins_i, outs_i, obj, act_kwargs) = info
 
         # distribute outputs over multiple commands' stdout:
         cmds_lst = []
@@ -40,7 +43,7 @@ def make_schemas(ins_outs, ret_list=False):
                 )
             ]
 
-        act_i = hf.Action(commands=cmds_lst)
+        act_i = hf.Action(commands=cmds_lst, **act_kwargs)
         out.append(
             hf.TaskSchema(
                 objective=obj,
