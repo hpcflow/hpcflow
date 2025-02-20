@@ -1871,7 +1871,7 @@ class ZarrPersistentStore(PersistentStore):
         # otherwise, `append_submissions` has been called, the dependencies have been
         # removed from the JSON-representation of the submission object, and have been
         # saved in separate zarr arrays:
-        if sub_idx not in self._jobscript_task_actions_arrays:
+        if sub_idx not in self._jobscript_dependencies:
             self.logger.debug(
                 f"retrieving jobscript-block dependencies for submission {sub_idx} from "
                 f"disk, and caching."
@@ -1879,7 +1879,7 @@ class ZarrPersistentStore(PersistentStore):
             # for a given submission, dependencies are stored for all jobscript-blocks in
             # the same array (and chunk), so retrieve all of them and cache:
             arr = self._get_jobscripts_dependencies_arr(sub_idx)
-            self._jobscript_task_actions_arrays[
+            self._jobscript_dependencies[
                 sub_idx
             ] = self._decode_jobscript_block_dependencies(arr)
         else:
@@ -1888,7 +1888,7 @@ class ZarrPersistentStore(PersistentStore):
                 "cache."
             )
 
-        return self._jobscript_task_actions_arrays[sub_idx][(js_idx, blk_idx)]
+        return self._jobscript_dependencies[sub_idx][(js_idx, blk_idx)]
 
     def get_ts_fmt(self):
         with self.using_resource("attrs", action="read") as attrs:
