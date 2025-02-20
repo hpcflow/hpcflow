@@ -1,11 +1,13 @@
 from pathlib import Path
 import sys
+from typing import Any, Dict, List, Tuple
 import numpy as np
 import zarr
 import pytest
 from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow, make_workflow
 from hpcflow.sdk.persistence.base import StoreEAR, StoreElement, StoreElementIter
 from hpcflow.sdk.persistence.json import JSONPersistentStore
+from hpcflow.sdk.persistence.zarr import ZarrPersistentStore
 
 from hpcflow.app import app as hf
 
@@ -382,3 +384,156 @@ def test_get_parameter_sources_duplicate_ids(null_config, tmp_path):
     assert len(src) == len(id_lst)
     assert src[0] == src[4]
     assert src[1] == src[2]
+
+
+def _transform_jobscript_dependencies_to_encodable(
+    deps: Dict[Tuple[int, int], Dict[Tuple[int, int], Dict[str, Any]]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Transform a dict of jobscript dependencies written in a more testing-friendly/
+    convenient format into the format expected by the method
+    `ZarrPersistentStore._encode_jobscript_block_dependencies`.
+
+    """
+    max_js_idx = max(i[0] for i in deps)
+    sub_js = {
+        "jobscripts": [
+            {"blocks": [], "index": js_idx} for js_idx in range(max_js_idx + 1)
+        ]
+    }
+    for (js_idx, blk_idx), deps_i in deps.items():
+        sub_js["jobscripts"][js_idx]["blocks"].append(
+            {
+                "dependencies": [[[k[0], k[1]], v] for k, v in deps_i.items()],
+                "index": blk_idx,
+            }
+        )
+    return sub_js
+
+
+def test_zarr_encode_jobscript_block_dependencies_element_mapping_array_non_array_equivalence():
+    deps_1 = {
+        (0, 0): {},
+        (1, 0): {(0, 0): {"js_element_mapping": {0: [0]}, "is_array": True}},
+    }
+    deps_2 = {
+        (0, 0): {},
+        (1, 0): {(0, 0): {"js_element_mapping": {0: np.array([0])}, "is_array": True}},
+    }
+    deps_1 = _transform_jobscript_dependencies_to_encodable(deps_1)
+    deps_2 = _transform_jobscript_dependencies_to_encodable(deps_2)
+    arr_1 = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_1)
+    arr_2 = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_2)
+    assert np.array_equal(arr_1, arr_2)
+
+
+def test_zarr_encode_decode_jobscript_block_dependencies():
+
+    deps = {
+        (0, 0): {},
+        (1, 0): {
+            (0, 0): {
+                "js_element_mapping": {0: [0], 1: [1]},
+                "is_array": True,
+            }
+        },
+        (2, 0): {
+            (1, 0): {
+                "js_element_mapping": {0: [0, 1], 1: [0, 1]},
+                "is_array": False,
+            }
+        },
+        (2, 1): {
+            (0, 0): {"js_element_mapping": {0: [0, 1]}, "is_array": False},
+            (2, 0): {"js_element_mapping": {0: [0, 1]}, "is_array": False},
+        },
+    }
+    deps_t = _transform_jobscript_dependencies_to_encodable(deps)
+    arr = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_t)
+    assert np.array_equal(
+        arr,
+        np.array(
+            [
+                2,
+                0,
+                0,
+                12,
+                1,
+                0,
+                9,
+                0,
+                0,
+                1,
+                2,
+                0,
+                0,
+                2,
+                1,
+                1,
+                14,
+                2,
+                0,
+                11,
+                1,
+                0,
+                0,
+                3,
+                0,
+                0,
+                1,
+                3,
+                1,
+                0,
+                1,
+                18,
+                2,
+                1,
+                7,
+                0,
+                0,
+                0,
+                3,
+                0,
+                0,
+                1,
+                7,
+                2,
+                0,
+                0,
+                3,
+                0,
+                0,
+                1,
+            ]
+        ),
+    )
+    deps_rt = ZarrPersistentStore._decode_jobscript_block_dependencies(arr)
+    assert deps_rt == deps
+
+
+def test_zarr_encode_decode_jobscript_block_dependencies_large_many_to_one():
+    deps = {
+        (0, 0): {},
+        (1, 0): {
+            (0, 0): {"js_element_mapping": {0: list(range(1_000_000))}, "is_array": False}
+        },
+    }
+    deps_t = _transform_jobscript_dependencies_to_encodable(deps)
+    arr = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_t)
+    deps_rt = ZarrPersistentStore._decode_jobscript_block_dependencies(arr)
+    assert deps_rt == deps
+
+
+def test_zarr_encode_decode_jobscript_block_dependencies_large_one_to_one():
+    deps = {
+        (0, 0): {},
+        (1, 0): {
+            (0, 0): {
+                "js_element_mapping": {i: [i] for i in range(1_000_000)},
+                "is_array": False,
+            }
+        },
+    }
+    deps_t = _transform_jobscript_dependencies_to_encodable(deps)
+    arr = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_t)
+    deps_rt = ZarrPersistentStore._decode_jobscript_block_dependencies(arr)
+    assert deps_rt == deps

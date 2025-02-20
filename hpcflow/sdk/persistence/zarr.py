@@ -44,7 +44,7 @@ from hpcflow.sdk.submission.submission import (
     JOBSCRIPT_SUBMIT_TIME_KEYS,
     SUBMISSION_SUBMIT_TIME_KEYS,
 )
-from hpcflow.sdk.utils.arrays import get_2D_idx
+from hpcflow.sdk.utils.arrays import get_2D_idx, split_arr
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 
@@ -343,6 +343,7 @@ class ZarrPersistentStore(PersistentStore):
     _js_run_IDs_arr_name = "js_run_IDs"
     _js_task_elems_arr_name = "js_task_elems"
     _js_task_acts_arr_name = "js_task_acts"
+    _js_deps_arr_name = "js_deps"
     _time_res = "us"  # microseconds; must not be smaller than micro!
 
     _res_map = CommitResourceMap(commit_template_components=("attrs",))
@@ -361,6 +362,7 @@ class ZarrPersistentStore(PersistentStore):
         self._jobscript_run_ID_arrays = {}
         self._jobscript_task_element_maps = {}
         self._jobscript_task_actions_arrays = {}
+        self._jobscript_dependencies = {}
 
         super().__init__(app, workflow, path, fs)
 
@@ -712,6 +714,72 @@ class ZarrPersistentStore(PersistentStore):
 
         return combined_task_acts, blk_num_acts
 
+    @staticmethod
+    def _encode_jobscript_block_dependencies(sub_js: Dict) -> np.ndarray:
+        """For a JSON-like representation of a Submission object, remove jobscript-block
+        dependencies for all jobscripts and transform to a single 1D integer array, that
+        can be transformed back by `_decode_jobscript_block_dependencies`.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `depdendencies` jobscript-block keys to `None`.
+        """
+
+        all_deps_arr = []
+        for js in sub_js["jobscripts"]:
+            for blk in js["blocks"]:
+                all_deps_i = []
+                for (dep_js_idx, dep_blk_idx), dep in blk["dependencies"]:
+                    deps_arr = []
+                    for elem_i, elements_j in dep["js_element_mapping"].items():
+                        deps_arr.extend([len(elements_j) + 1, elem_i] + list(elements_j))
+                    blk_arr = [dep_js_idx, dep_blk_idx, int(dep["is_array"])] + deps_arr
+                    blk_arr = [len(blk_arr)] + blk_arr
+                    all_deps_i.extend(blk_arr)
+                all_deps_i = [js["index"], blk["index"]] + all_deps_i
+                blk["dependencies"] = None
+                all_deps_arr.extend([len(all_deps_i)] + all_deps_i)
+
+        return np.array(all_deps_arr)
+
+    @staticmethod
+    def _decode_jobscript_block_dependencies(
+        arr: np.ndarray,
+    ) -> Dict[Tuple[int, int], Dict[Tuple[int, int], Dict[str, Any]]]:
+        """Re-generate jobscript-block dependencies that have been transformed by
+        `_encode_jobscript_block_dependencies` into a single 1D integer array.
+
+        Parameters
+        ----------
+        arr:
+            The 1D integer array to transform back to a verbose jobscript-block dependency
+            mapping.
+        """
+        # metadata is js/blk_idx for which the dependencies are stored:
+        block_arrs = split_arr(arr, metadata_size=2)
+        block_deps = {}
+        for i in block_arrs:
+            js_idx, blk_idx = i[0]
+            # metadata is js/blk_idx that this block depends on, plus whether the
+            # dependency is an array dependency:
+            deps_arrs = split_arr(i[1], metadata_size=3)
+            all_deps_ij = {}
+            for j in deps_arrs:
+                dep_js_idx, dep_blk_idx, is_array = j[0]
+                # no metadata:
+                elem_deps = split_arr(j[1], metadata_size=0)
+                all_deps_ij[(dep_js_idx, dep_blk_idx)] = {
+                    "js_element_mapping": {},
+                    "is_array": bool(is_array),
+                }
+                for k in elem_deps:
+                    all_deps_ij[(dep_js_idx, dep_blk_idx)]["js_element_mapping"].update(
+                        {k[1][0]: list(k[1][1:])}
+                    )
+
+            block_deps[(js_idx, blk_idx)] = all_deps_ij
+        return block_deps
+
     def _append_submissions(self, subs: Dict[int, Dict]):
 
         for sub_idx, sub_i in subs.items():
@@ -764,6 +832,13 @@ class ZarrPersistentStore(PersistentStore):
                 chunks=(None, None),
             )
             task_acts_arr.attrs["block_num_acts"] = block_num_acts
+
+            # add a new array to store jobscript-block dependencies for this submission:
+            sub_grp.create_dataset(
+                name=self._js_deps_arr_name,
+                data=self._encode_jobscript_block_dependencies(sub_i),
+                chunks=(None,),
+            )
 
             # TODO: store block shapes in `grp.attrs` since it is defined at the
             # submission level
@@ -1244,6 +1319,13 @@ class ZarrPersistentStore(PersistentStore):
     ) -> zarr.Array:
         return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
             self._js_task_acts_arr_name
+        )
+
+    def _get_jobscripts_dependencies_arr(
+        self, sub_idx: int, mode: str = "r"
+    ) -> zarr.Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_deps_arr_name
         )
 
     def _get_tasks_arr(self, mode: str = "r") -> zarr.Array:
@@ -1765,6 +1847,44 @@ class ZarrPersistentStore(PersistentStore):
         else:
             self.logger.debug(
                 f"retrieving jobscript-block task actions for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_task_actions_arrays[sub_idx][(js_idx, blk_idx)]
+
+    @TimeIt.decorator
+    def get_jobscript_block_dependencies(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        js_dependencies: Union[Dict, None],
+    ) -> np.ndarray:
+        """For the specified jobscript-block, retrieve the dependencies."""
+
+        if js_dependencies is not None:
+            self.logger.debug("jobscript-block dependencies are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # dependencies will not yet be persistent.
+            return js_dependencies
+
+        # otherwise, `append_submissions` has been called, the dependencies have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_task_actions_arrays:
+            self.logger.debug(
+                f"retrieving jobscript-block dependencies for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+            # for a given submission, dependencies are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+            arr = self._get_jobscripts_dependencies_arr(sub_idx)
+            self._jobscript_task_actions_arrays[
+                sub_idx
+            ] = self._decode_jobscript_block_dependencies(arr)
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block dependencies for submission {sub_idx} from "
                 "cache."
             )
 

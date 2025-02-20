@@ -523,13 +523,18 @@ class JobscriptBlock(JSONLike):
         )
 
     @property
-    def task_loop_idx(self):
-        return self._task_loop_idx
-
-    @property
     @TimeIt.decorator
     def dependencies(self):
-        return self._dependencies
+        return self.workflow._store.get_jobscript_block_dependencies(
+            sub_idx=self.submission.index,
+            js_idx=self.jobscript.index,
+            blk_idx=self.index,
+            js_dependencies=self._dependencies,
+        )
+
+    @property
+    def task_loop_idx(self):
+        return self._task_loop_idx
 
     @property
     @TimeIt.decorator
@@ -563,7 +568,20 @@ class JobscriptBlock(JSONLike):
         json_like["EAR_ID"] = (
             np.array(json_like["EAR_ID"]) if json_like["EAR_ID"] is not None else None
         )
-        json_like["dependencies"] = {tuple(i[0]): i[1] for i in json_like["dependencies"]}
+        if json_like["dependencies"] is not None:
+            # transform list to dict with tuple keys, and transform string keys in
+            # `js_element_mapping` to integers:
+            deps_processed = {}
+            for i in json_like["dependencies"]:
+                deps_processed_i = {
+                    "js_element_mapping": {
+                        int(k): v for k, v in i[1]["js_element_mapping"].items()
+                    },
+                    "is_array": i[1]["is_array"],
+                }
+                deps_processed[tuple(i[0])] = deps_processed_i
+            json_like["dependencies"] = deps_processed
+
         return super().from_json_like(json_like, shared_data)
 
     def _get_EARs_arr(self):

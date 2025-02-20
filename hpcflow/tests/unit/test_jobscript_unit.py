@@ -577,6 +577,17 @@ def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(null_config, tmp_path):
         js_json = sub_json.jobscripts[js_idx]
         assert np.array_equal(js_zarr.all_EAR_IDs, js_json.all_EAR_IDs)
 
+    # reload both workflows from disk, and check again, since above will check data from
+    # in-memory modified Submission object
+    sub_json = wk_json.reload().submissions[0]
+    sub_zarr = wk_zarr.reload().submissions[0]
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        js_json = sub_json.jobscripts[js_idx]
+        assert np.array_equal(js_zarr.all_EAR_IDs, js_json.all_EAR_IDs)
+
 
 def test_jobscript_task_element_maps_equivalence_JSON_Zarr(null_config, tmp_path):
     """The zarr store keeps jobscript-block task-element maps in separate arrays, so test
@@ -617,6 +628,19 @@ def test_jobscript_task_element_maps_equivalence_JSON_Zarr(null_config, tmp_path
         store="json",
     )
     sub_json = wk_json.add_submission()
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        assert len(js_zarr.blocks) == len(sub_json.jobscripts[js_idx].blocks)
+        for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
+            js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
+            assert js_blk_zarr.task_elements == js_blk_json.task_elements
+
+    # reload both workflows from disk, and check again, since above will check data from
+    # in-memory modified Submission object
+    sub_json = wk_json.reload().submissions[0]
+    sub_zarr = wk_zarr.reload().submissions[0]
 
     assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
 
@@ -674,3 +698,78 @@ def test_jobscript_task_actions_equivalence_JSON_Zarr(null_config, tmp_path):
         for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
             js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
             assert np.array_equal(js_blk_zarr.task_actions, js_blk_json.task_actions)
+
+    # reload both workflows from disk, and check again, since above will check data from
+    # in-memory modified Submission object
+    sub_json = wk_json.reload().submissions[0]
+    sub_zarr = wk_zarr.reload().submissions[0]
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        assert len(js_zarr.blocks) == len(sub_json.jobscripts[js_idx].blocks)
+        for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
+            js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
+            assert np.array_equal(js_blk_zarr.task_actions, js_blk_json.task_actions)
+
+
+def test_jobscript_dependencies_equivalence_JSON_Zarr(null_config, tmp_path):
+    """The zarr store keeps jobscript-block dependencies in separate arrays, so test
+    equivalence."""
+
+    s1, s2, s3, s4 = make_schemas(
+        [
+            [{"p1": None}, ("p2", "p3"), "t1"],
+            [{"p2": None}, ("p4",), "t2"],
+            [{"p4": None}, ("p5",), "t3"],
+            [{"p3": None, "p5": None}, (), "t4"],
+        ]
+    )
+    tasks_zarr = [
+        hf.Task(schema=s1, inputs={"p1": 101}),
+        hf.Task(schema=s2, resources={"any": {"num_cores": 2}}),
+        hf.Task(schema=s3),
+        hf.Task(schema=s4),
+    ]
+    wk_zarr = hf.Workflow.from_template_data(
+        template_name="test_js_blocks_zarr",
+        tasks=tasks_zarr,
+        path=tmp_path,
+        store="zarr",
+    )
+    sub_zarr = wk_zarr.add_submission()
+
+    tasks_json = [
+        hf.Task(schema=s1, inputs={"p1": 101}),
+        hf.Task(schema=s2, resources={"any": {"num_cores": 2}}),
+        hf.Task(schema=s3),
+        hf.Task(schema=s4),
+    ]
+    wk_json = hf.Workflow.from_template_data(
+        template_name="test_js_blocks_json",
+        tasks=tasks_json,
+        path=tmp_path,
+        store="json",
+    )
+    sub_json = wk_json.add_submission()
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        assert len(js_zarr.blocks) == len(sub_json.jobscripts[js_idx].blocks)
+        for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
+            js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
+            assert js_blk_zarr.dependencies == js_blk_json.dependencies
+
+    # reload both workflows from disk, and check again, since above will check data from
+    # in-memory modified Submission object
+    sub_json = wk_json.reload().submissions[0]
+    sub_zarr = wk_zarr.reload().submissions[0]
+
+    assert len(sub_zarr.jobscripts) == len(sub_json.jobscripts)
+
+    for js_idx, js_zarr in enumerate(sub_zarr.jobscripts):
+        assert len(js_zarr.blocks) == len(sub_json.jobscripts[js_idx].blocks)
+        for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
+            js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
+            assert js_blk_zarr.dependencies == js_blk_json.dependencies

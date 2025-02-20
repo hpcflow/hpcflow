@@ -1721,6 +1721,24 @@ class PersistentStore(ABC):
         return np.asarray(task_actions_arr)
 
     @TimeIt.decorator
+    def get_jobscript_block_dependencies(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        js_dependencies: Union[Dict, None],
+    ) -> np.ndarray:
+        """For the specified jobscript-block, retrieve the dependencies.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return js_dependencies
+
+    @TimeIt.decorator
     def get_submissions_by_ID(self, id_lst: Iterable[int]) -> Dict[int, Dict]:
         # separate pending and persistent IDs:
         id_set = set(id_lst)
