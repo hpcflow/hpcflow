@@ -3939,7 +3939,11 @@ class Workflow:
 
     @TimeIt.decorator
     def list_jobscripts(
-        self, sub_idx: int = 0, max_js: int = None, jobscripts: List[int] = None
+        self,
+        sub_idx: int = 0,
+        max_js: int = None,
+        jobscripts: List[int] = None,
+        width: int = None,
     ) -> None:
         """Print a table listing jobscripts and associated information from the specified
         submission.
@@ -3952,7 +3956,8 @@ class Workflow:
             Maximum jobscript index to display. This cannot be specified with `jobscripts`.
         jobscripts
             A list of jobscripts to display. This cannot be specified with `max_js`.
-
+        width
+            Width in characters of the printed table.
         """
 
         with self._store.cached_load():
@@ -3971,12 +3976,12 @@ class Workflow:
             else:
                 loop_names_panel = ""
 
-            table = rich.table.Table()
+            table = rich.table.Table(width=width)
 
-            table.add_column("JS-BLK", justify="right", style="cyan", no_wrap=True)
-            table.add_column("Acts, Elems", justify="right", style="green")
+            table.add_column("Jobscript", justify="right", style="cyan", no_wrap=True)
+            table.add_column("Acts, Elms", justify="right", style="green")
             table.add_column("Deps.", style="orange3")
-            table.add_column("Tasks")
+            table.add_column("Tasks", overflow="fold")
             table.add_column("Loops")
 
             sub_js = self.submissions[sub_idx].jobscripts
@@ -4021,6 +4026,92 @@ class Workflow:
                             c1, c3, deps, c2, (" | ".join(f"{i}" for i in loop_idx))
                         )
 
+                table.add_section()
+
+        group = rich.console.Group(
+            rich.text.Text(f"Workflow: {self.name}"),
+            rich.text.Text(f"Submission: {sub_idx}" + ("\n" if loop_names_panel else "")),
+            loop_names_panel,
+            table,
+        )
+        rich_print(group)
+
+    def list_task_jobscripts(
+        self,
+        sub_idx: int = 0,
+        task_names: List[str] = None,
+        max_js: int = None,
+        width: int = None,
+    ):
+        """Print a table listing the jobscripts associated with the specified (or all)
+        tasks for the specified submission.
+
+        Parameters
+        ----------
+        sub_idx
+            The submission index whose jobscripts are to be displayed.
+        task_names
+            List of sub-strings to match to task names. Only matching task names will be
+            included.
+        max_js
+            Maximum jobscript index to display.
+        width
+            Width in characters of the printed table.
+        """
+
+        with self._store.cached_load():
+            loop_names = [i.name for i in self.loops][::-1]
+            if loop_names:
+                loop_names_panel = rich.panel.Panel(
+                    "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
+                    title="[b]Loops[/b]",
+                    title_align="left",
+                    box=rich.box.SIMPLE,
+                )
+            else:
+                loop_names_panel = ""
+
+            sub_js = self.submissions[sub_idx].jobscripts
+            all_task_names = {i.insert_ID: i.unique_name for i in self.tasks}
+
+            # filter task names by those matching the specified names
+            matched = all_task_names
+            if task_names:
+                matched = {
+                    k: v
+                    for k, v in all_task_names.items()
+                    if any(i in v for i in task_names)
+                }
+
+            task_jobscripts = defaultdict(list)
+            for js in sub_js:
+                if max_js is not None and js.index > max_js:
+                    break
+                for blk in js.blocks:
+                    blk_task_actions = blk.task_actions
+                    for i in blk.task_insert_IDs:
+                        if i in matched:
+                            for j in blk_task_actions:
+                                if j[0] == i:
+                                    loop_idx = [
+                                        blk.task_loop_idx[j[2]].get(loop_name_i, "-")
+                                        for loop_name_i in loop_names
+                                    ]
+                                    break
+                            task_jobscripts[i].append((js.index, blk.index, loop_idx))
+
+            table = rich.table.Table(width=width)
+            table.add_column("Task")
+            table.add_column("Jobscripts", style="cyan", no_wrap=True)
+            table.add_column("Loops")
+            for insert_ID_i, jobscripts_i in task_jobscripts.items():
+                for idx, js_j in enumerate(jobscripts_i):
+                    js_idx, blk_idx, loop_idx = js_j
+                    table.add_row(
+                        matched[insert_ID_i] if idx == 0 else "",
+                        f"({js_idx}, {blk_idx})",
+                        (" | ".join(f"{i}" for i in loop_idx)),
+                    )
                 table.add_section()
 
         group = rich.console.Group(

@@ -1064,3 +1064,28 @@ class Submission(JSONLike):
         self.workflow.list_jobscripts(
             sub_idx=self.index, max_js=max_js, jobscripts=jobscripts
         )
+
+    @TimeIt.decorator
+    def list_task_jobscripts(
+        self,
+        task_names: List[str] = None,
+        max_js: int = None,
+        width: int = None,
+    ) -> None:
+        """Print a table listing the jobscripts associated with the specified (or all)
+        tasks for the specified submission.
+
+        Parameters
+        ----------
+        task_names
+            List of sub-strings to match to task names. Only matching task names will be
+            included.
+        max_js
+            Maximum jobscript index to display.
+        width
+            Width in characters of the printed table.
+
+        """
+        self.workflow.list_task_jobscripts(
+            sub_idx=self.index, max_js=max_js, task_names=task_names, width=width
+        )

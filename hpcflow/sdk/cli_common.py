@@ -240,3 +240,12 @@ list_js_max_js_opt = click.option(
 list_js_jobscripts_opt = click.option(
     "--jobscripts", help="Comma-separated list of jobscript indices to show."
 )
+list_task_js_max_js_opt = click.option(
+    "--max-js", type=click.INT, help="Include jobscripts up to this jobscript only."
+)
+list_task_js_task_names_opt = click.option(
+    "--task-names", help="Comma-separated list of task name sub-strings to show."
+)
+list_js_width_opt = click.option(
+    "--width", type=click.INT, help="Width in characters of the table to print."
+)

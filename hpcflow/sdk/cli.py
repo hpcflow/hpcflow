@@ -45,6 +45,9 @@ from hpcflow.sdk.cli_common import (
     cancel_status_opt,
     list_js_max_js_opt,
     list_js_jobscripts_opt,
+    list_task_js_max_js_opt,
+    list_task_js_task_names_opt,
+    list_js_width_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -375,12 +378,28 @@ def _make_workflow_submission_CLI(app):
     @submission.command()
     @list_js_max_js_opt
     @list_js_jobscripts_opt
+    @list_js_width_opt
     @click.pass_context
-    def list_jobscripts(ctx, max_js=None, jobscripts=None):
+    def list_jobscripts(ctx, max_js=None, jobscripts=None, width=None):
         """Print a table listing jobscripts and associated information."""
         if jobscripts:
             jobscripts = [int(i) for i in jobscripts.split(",")]
-        ctx.obj["submission"].list_jobscripts(max_js=max_js, jobscripts=jobscripts)
+        ctx.obj["submission"].list_jobscripts(
+            max_js=max_js, jobscripts=jobscripts, width=width
+        )
+
+    @submission.command()
+    @list_task_js_max_js_opt
+    @list_task_js_task_names_opt
+    @list_js_width_opt
+    @click.pass_context
+    def list_task_jobscripts(ctx, max_js=None, task_names=None, width=None):
+        """Print a table listing tasks and their associated jobscripts."""
+        if task_names:
+            task_names = list(task_names.split(","))
+        ctx.obj["submission"].list_task_jobscripts(
+            task_names=task_names, max_js=max_js, width=width
+        )
 
     submission.help = submission.help.format(app_name=app.name)
     submission.add_command(_make_workflow_submission_jobscript_CLI(app))
@@ -613,14 +632,35 @@ def _make_workflow_CLI(app):
     )
     @list_js_max_js_opt
     @list_js_jobscripts_opt
+    @list_js_width_opt
     @click.pass_context
-    def list_jobscripts(ctx, sub_idx=None, max_js=None, jobscripts=None):
+    def list_jobscripts(ctx, sub_idx=None, max_js=None, jobscripts=None, width=None):
         """Print a table listing jobscripts and associated information from the specified
-        submission"""
+        submission."""
         if jobscripts:
             jobscripts = [int(i) for i in jobscripts.split(",")]
         ctx.obj["workflow"].list_jobscripts(
-            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts
+            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts, width=width
+        )
+
+    @workflow.command()
+    @click.option(
+        "--sub-idx",
+        type=click.INT,
+        default=0,
+        help="Submission index whose tasks are to be shown.",
+    )
+    @list_task_js_max_js_opt
+    @list_task_js_task_names_opt
+    @list_js_width_opt
+    @click.pass_context
+    def list_task_jobscripts(ctx, sub_idx=None, max_js=None, task_names=None, width=None):
+        """Print a table listing tasks and their associated jobscripts from the specified
+        submission."""
+        if task_names:
+            task_names = list(task_names.split(","))
+        ctx.obj["workflow"].list_task_jobscripts(
+            sub_idx=sub_idx, task_names=task_names, max_js=max_js, width=width
         )
 
     workflow.help = workflow.help.format(app_name=app.name)
