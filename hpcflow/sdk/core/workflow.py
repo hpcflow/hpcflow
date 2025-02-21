@@ -2866,7 +2866,7 @@ class Workflow:
         status
             If True, display a live status to track submission progress.
         """
-
+        status_bool = status
         if status:
             console = rich.console.Console()
             status = console.status("Submitting workflow...")
@@ -2905,7 +2905,7 @@ class Workflow:
                 status.stop()
 
             if cancel:
-                self.cancel()
+                self.cancel(status=status_bool)
 
             elif wait:
                 self.wait(submitted_js)
