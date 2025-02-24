@@ -195,9 +195,9 @@ def test_combine_jobscript_std_true(null_config, tmp_path):
 
     assert jobscript.resources.combine_jobscript_std
 
-    out_err_path = jobscript.direct_std_out_err_path
-    out_path = jobscript._direct_stdout_path
-    err_path = jobscript._direct_stderr_path
+    out_err_path = jobscript.get_std_out_err_path()
+    out_path = jobscript._get_stdout_path()
+    err_path = jobscript._get_stderr_path()
 
     assert out_err_path.is_file()
     assert not out_path.is_file()
