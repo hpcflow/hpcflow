@@ -510,8 +510,10 @@ def test_get_text_file(null_config, tmp_path, store):
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    rel_path = "artifacts/submissions/0/js_std/0/js_0_stdout.log"
-    abs_path = f"{wk.url}/artifacts/submissions/0/js_std/0/js_0_stdout.log"
+    combine = wk.submissions[0].jobscripts[0].resources.combine_jobscript_std
+    filename = "js_0_std.log" if combine else "js_0_stdout.log"
+    rel_path = f"artifacts/submissions/0/js_std/0/{filename}"
+    abs_path = f"{wk.url}/{rel_path}"
 
     assert wk.get_text_file(rel_path) == "hi!\n"
     assert wk.get_text_file(abs_path) == "hi!\n"
@@ -528,8 +530,10 @@ def test_get_text_file_zarr_zip(null_config, tmp_path):
 
     wkz = hf.Workflow(wk.zip())
 
-    rel_path = "artifacts/submissions/0/js_std/0/js_0_stdout.log"
-    abs_path = f"{wkz.url}/artifacts/submissions/0/js_std/0/js_0_stdout.log"
+    combine = wkz.submissions[0].jobscripts[0].resources.combine_jobscript_std
+    filename = "js_0_std.log" if combine else "js_0_stdout.log"
+    rel_path = f"artifacts/submissions/0/js_std/0/{filename}"
+    abs_path = f"{wkz.url}/{rel_path}"
 
     assert wkz.get_text_file(rel_path) == "hi!\n"
     assert wkz.get_text_file(abs_path) == "hi!\n"
