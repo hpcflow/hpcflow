@@ -4122,6 +4122,10 @@ class Workflow:
         )
         rich_print(group)
 
+    def get_text_file(self, path: Union[str, Path]) -> str:
+        """Retrieve the contents of a text file stored within the workflow."""
+        return self._store.get_text_file(path)
+
 
 @dataclass
 class WorkflowBlueprint:

@@ -48,6 +48,7 @@ from hpcflow.sdk.cli_common import (
     list_task_js_max_js_opt,
     list_task_js_task_names_opt,
     list_js_width_opt,
+    jobscript_std_array_idx_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -309,6 +310,20 @@ def _make_workflow_submission_jobscript_CLI(app):
         """Show the jobscript file."""
         with ctx.obj["jobscript"].jobscript_path.open("rt") as fp:
             click.echo(fp.read())
+
+    @jobscript.command()
+    @jobscript_std_array_idx_opt
+    @click.pass_context
+    def stdout(ctx, array_idx):
+        """Print the contents of the standard output stream file."""
+        ctx.obj["jobscript"].print_stdout(array_idx=array_idx)
+
+    @jobscript.command()
+    @jobscript_std_array_idx_opt
+    @click.pass_context
+    def stderr(ctx, array_idx):
+        """Print the contents of the standard error stream file."""
+        ctx.obj["jobscript"].print_stdout(array_idx=array_idx)
 
     jobscript.help = jobscript.help.format(app_name=app.name)
 

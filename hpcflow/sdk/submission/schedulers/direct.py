@@ -138,6 +138,22 @@ class DirectScheduler(NullScheduler):
         else:
             return False
 
+    def get_std_out_err_filename(
+        self, js_idx: int, job_ID: None = None, array_idx: None = None
+    ):
+        """File name of combined standard output and error streams."""
+        return f"js_{js_idx}_std.log"
+
+    def get_stdout_filename(
+        self, js_idx: int, job_ID: None = None, array_idx: None = None
+    ):
+        return f"js_{js_idx}_stdout.log"
+
+    def get_stderr_filename(
+        self, js_idx: int, job_ID: None = None, array_idx: None = None
+    ):
+        return f"js_{js_idx}_stderr.log"
+
 
 class DirectPosix(DirectScheduler):
     _app_attr = "app"

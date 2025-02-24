@@ -498,3 +498,58 @@ def test_input_file_generator_no_errors_on_skip(null_config, tmp_path):
     std_stream_path = runs[4].get_app_std_path()
     if std_stream_path.is_file():
         assert "FileNotFoundError" not in std_stream_path.read_text()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("store", ["zarr", "json"])
+def test_get_text_file(null_config, tmp_path, store):
+
+    s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
+    wk = hf.Workflow.from_template_data(
+        tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store=store
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    rel_path = "artifacts/submissions/0/js_std/0/js_0_stdout.log"
+    abs_path = f"{wk.url}/artifacts/submissions/0/js_std/0/js_0_stdout.log"
+
+    assert wk.get_text_file(rel_path) == "hi!\n"
+    assert wk.get_text_file(abs_path) == "hi!\n"
+
+
+@pytest.mark.integration
+def test_get_text_file_zarr_zip(null_config, tmp_path):
+
+    s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
+    wk = hf.Workflow.from_template_data(
+        tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store="zarr"
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    wkz = hf.Workflow(wk.zip())
+
+    rel_path = "artifacts/submissions/0/js_std/0/js_0_stdout.log"
+    abs_path = f"{wkz.url}/artifacts/submissions/0/js_std/0/js_0_stdout.log"
+
+    assert wkz.get_text_file(rel_path) == "hi!\n"
+    assert wkz.get_text_file(abs_path) == "hi!\n"
+
+
+@pytest.mark.parametrize("store", ["zarr", "json"])
+def test_get_text_file_file_not_found(null_config, tmp_path, store):
+    s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
+    wk = hf.Workflow.from_template_data(
+        tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store=store
+    )
+    with pytest.raises(FileNotFoundError):
+        wk.get_text_file("non_existent_file.txt")
+
+
+def test_get_text_file_file_not_found_zarr_zip(null_config, tmp_path):
+    s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
+    wk = hf.Workflow.from_template_data(
+        tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store="zarr"
+    )
+    wkz = hf.Workflow(wk.zip())
+    with pytest.raises(FileNotFoundError):
+        wkz.get_text_file("non_existent_file.txt")

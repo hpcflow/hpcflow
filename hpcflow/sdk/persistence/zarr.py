@@ -2139,3 +2139,17 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
         status: Optional[bool] = True,
     ):
         raise NotImplementedError
+
+    def get_text_file(self, path: Union[str, Path]) -> str:
+        """Retrieve the contents of a text file stored within the workflow."""
+        path = Path(path)
+        if path.is_absolute():
+            path = path.relative_to(self.workflow.url)
+        path = str(path.as_posix())
+        try:
+            with self.fs.open(path, mode="rt") as fp:
+                return fp.read()
+        except KeyError:
+            raise FileNotFoundError(
+                f"File within zip at location {path!r} does not exist."
+            ) from None

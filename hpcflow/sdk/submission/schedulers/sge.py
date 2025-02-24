@@ -149,8 +149,33 @@ class SGEPosix(Scheduler):
     def format_array_request(self, num_elements):
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}"
 
+    def get_std_out_err_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of combined standard output and error streams.
+
+        Notes
+        -----
+        We use the standard output stream filename format for the combined output and
+        error streams file.
+
+        """
+        # TODO: untested, might not work!
+        return self.get_stdout_filename(js_idx=js_idx, job_ID=job_ID, array_idx=array_idx)
+
+    def get_stdout_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of the standard output stream file."""
+        # TODO: untested, might not work!
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh.o{job_ID}{array_idx_str}"
+
+    def get_stderr_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of the standard error stream file."""
+        # TODO: untested, might not work!
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh.e{job_ID}{array_idx_str}"
+
     def format_std_stream_file_option_lines(self, is_array, sub_idx, js_idx, combine_std):
-        # note: we can't modify the file names
+        # note: if we modify the file names, there is, I believe, no way to include the
+        # job ID; so we don't modify the file names:
         base = f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}"
         out = [f"{self.js_cmd} -o {base}"]
         if combine_std:

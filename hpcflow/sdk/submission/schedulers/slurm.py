@@ -330,6 +330,27 @@ class SlurmPosix(Scheduler):
         max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
+    def get_std_out_err_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of combined standard output and error streams.
+
+        Notes
+        -----
+        We use the standard output stream filename format for the combined output and
+        error streams file.
+
+        """
+        return self.get_stdout_filename(js_idx=js_idx, job_ID=job_ID, array_idx=array_idx)
+
+    def get_stdout_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of the standard output stream file."""
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh_{job_ID}{array_idx_str}.out"
+
+    def get_stderr_filename(self, js_idx: int, job_ID: str, array_idx=None) -> str:
+        """File name of the standard error stream file."""
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh_{job_ID}{array_idx_str}.err"
+
     def format_std_stream_file_option_lines(self, is_array, sub_idx, js_idx, combine_std):
         base = r"%x_"
         if is_array:

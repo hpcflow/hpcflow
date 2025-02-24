@@ -249,3 +249,10 @@ list_task_js_task_names_opt = click.option(
 list_js_width_opt = click.option(
     "--width", type=click.INT, help="Width in characters of the table to print."
 )
+jobscript_std_array_idx_opt = click.option(
+    "--array-idx",
+    type=click.INT,
+    help=(
+        "For array jobs only, the job array index whose standard stream is to be printed."
+    ),
+)

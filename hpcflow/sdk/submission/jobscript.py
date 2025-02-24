@@ -878,21 +878,6 @@ class Jobscript(JSONLike):
         return f"js_{self.index}_script_indices.txt"
 
     @property
-    def direct_std_out_err_file_name(self):
-        """For direct execution stdout and stderr combined."""
-        return f"js_{self.index}_std.log"
-
-    @property
-    def direct_stdout_file_name(self):
-        """For direct execution stdout."""
-        return f"js_{self.index}_stdout.log"
-
-    @property
-    def direct_stderr_file_name(self):
-        """For direct execution stderr."""
-        return f"js_{self.index}_stderr.log"
-
-    @property
     def direct_win_pid_file_name(self):
         return f"js_{self.index}_pid.txt"
 
@@ -927,37 +912,166 @@ class Jobscript(JSONLike):
 
     @property
     def direct_std_out_err_path(self):
-        """File path of combined standard output and error streams for direct
-        submission."""
-        return self.std_path / self.direct_std_out_err_file_name
+        """File path of combined standard output and error streams.
 
-    @property
-    def _direct_stdout_path(self):
-        return self.std_path / self.direct_stdout_file_name
+        Notes
+        -----
+        This path will only exist if `resources.combine_jobscript_std` is True. Otherwise,
+        see `direct_stdout_path` and `direct_stderr_path` for the separate stream paths.
 
-    @property
-    def _direct_stderr_path(self):
-        return self.std_path / self.direct_stderr_file_name
+        """
+        return self.get_std_out_err_path()
 
     @property
     def direct_stdout_path(self):
-        """File path to which the direct jobscript's standard output is saved. This will
-        be the same as `direct_stderr_path` if `resources.combine_jobscript_std` is
-        True."""
-        if self.resources.combine_jobscript_std:
-            return self.direct_std_out_err_path
-        else:
-            return self._direct_stdout_path
+        """File path to which the jobscript's standard output is saved.
+
+        Notes
+        -----
+        This returned path be the same as that from `get_stderr_path` if
+        `resources.combine_jobscript_std` is True.
+
+        """
+        assert self.scheduler_name == "direct"
+        return self.get_stdout_path()
 
     @property
     def direct_stderr_path(self):
-        """File path to which the direct jobscript's standard error is saved. This will
-        be the same as `direct_stdout_path` if `resources.combine_jobscript_std` is
-        True."""
+        """File path to which the jobscript's standard error is saved.
+
+        Notes
+        -----
+        This returned path be the same as that from `get_stdout_path` if
+        `resources.combine_jobscript_std` is True.
+
+        """
+        assert self.scheduler_name == "direct"
+        return self.get_stderr_path()
+
+    def __validate_get_std_path_array_idx(self, array_idx: Optional[int] = None):
+        if array_idx is None and self.is_array:
+            raise ValueError(
+                "`array_idx` must be specified, since this jobscript is an array job."
+            )
+        elif array_idx is not None and not self.is_array:
+            raise ValueError(
+                "`array_idx` should not be specified, since this jobscript is not an "
+                "array job."
+            )
+
+    def _get_stdout_path(self, array_idx: Optional[int] = None):
+        """File path to the separate standard output stream.
+
+        Notes
+        -----
+        This path will only exist if `resources.combine_jobscript_std` is False.
+        Otherwise, see `get_std_out_err_path` for the combined stream path.
+
+        """
+        self.__validate_get_std_path_array_idx(array_idx)
+        return self.std_path / self.scheduler.get_stdout_filename(
+            js_idx=self.index, job_ID=self.scheduler_job_ID, array_idx=array_idx
+        )
+
+    def _get_stderr_path(self, array_idx: Optional[int] = None):
+        """File path to the separate standard error stream.
+
+        Notes
+        -----
+        This path will only exist if `resources.combine_jobscript_std` is False.
+        Otherwise, see `get_std_out_err_path` for the combined stream path.
+
+        """
+        self.__validate_get_std_path_array_idx(array_idx)
+        return self.std_path / self.scheduler.get_stderr_filename(
+            js_idx=self.index, job_ID=self.scheduler_job_ID, array_idx=array_idx
+        )
+
+    def get_std_out_err_path(self, array_idx: Optional[int] = None):
+        """File path of combined standard output and error streams.
+
+        Notes
+        -----
+        This path will only exist if `resources.combine_jobscript_std` is True. Otherwise,
+        see `get_stdout_path` and `get_stderr_path` for the separate stream paths.
+
+        """
+        self.__validate_get_std_path_array_idx(array_idx)
+        return self.std_path / self.scheduler.get_std_out_err_filename(
+            js_idx=self.index, job_ID=self.scheduler_job_ID, array_idx=array_idx
+        )
+
+    def get_stdout_path(self, array_idx: Optional[int] = None):
+        """File path to which the jobscript's standard output is saved.
+
+        Notes
+        -----
+        This returned path be the same as that from `get_stderr_path` if
+        `resources.combine_jobscript_std` is True.
+
+        """
         if self.resources.combine_jobscript_std:
-            return self.direct_std_out_err_path
+            return self.get_std_out_err_path(array_idx=array_idx)
         else:
-            return self._direct_stderr_path
+            return self._get_stdout_path(array_idx=array_idx)
+
+    def get_stderr_path(self, array_idx: Optional[int] = None):
+        """File path to which the jobscript's standard error is saved.
+
+        Notes
+        -----
+        This returned path be the same as that from `get_stdout_path` if
+        `resources.combine_jobscript_std` is True.
+
+        """
+        if self.resources.combine_jobscript_std:
+            return self.get_std_out_err_path(array_idx=array_idx)
+        else:
+            return self._get_stderr_path(array_idx=array_idx)
+
+    def get_stdout(self, array_idx: Optional[int] = None) -> str:
+        """Retrieve the contents of the standard output stream file.
+
+        Notes
+        -----
+        In the case of non-array jobscripts, this will return the whole standard output,
+        even if that includes multiple elements/actions.
+
+        """
+        return self.workflow.get_text_file(self.get_stdout_path(array_idx))
+
+    def get_stderr(self, array_idx: Optional[int] = None) -> str:
+        """Retrieve the contents of the standard error stream file.
+
+        Notes
+        -----
+        In the case of non-array jobscripts, this will return the whole standard error,
+        even if that includes multiple elements/actions.
+
+        """
+        return self.workflow.get_text_file(self.get_stderr_path(array_idx))
+
+    def print_stdout(self, array_idx: Optional[int] = None) -> None:
+        """Print the contents of the standard output stream file.
+
+        Notes
+        -----
+        In the case of non-array jobscripts, this will print the whole standard output,
+        even if that includes multiple elements/actions.
+
+        """
+        print(self.get_stdout(array_idx))
+
+    def print_stderr(self, array_idx: Optional[int] = None) -> None:
+        """Print the contents of the standard error stream file.
+
+        Notes
+        -----
+        In the case of non-array jobscripts, this will print the whole standard error,
+        even if that includes multiple elements/actions.
+
+        """
+        print(self.get_stderr(array_idx))
 
     @property
     def direct_win_pid_file_path(self):
