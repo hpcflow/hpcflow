@@ -1,7 +1,4 @@
-from datetime import timedelta
-
 import click
-import psutil
 
 from .helper import (
     DEFAULT_TIMEOUT,
