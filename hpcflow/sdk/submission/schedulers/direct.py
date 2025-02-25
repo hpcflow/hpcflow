@@ -1,4 +1,3 @@
-from pathlib import Path
 import shutil
 import signal
 from typing import Callable, Dict, List, Optional, Tuple
@@ -8,6 +7,20 @@ from hpcflow.sdk.submission.jobscript_info import JobscriptElementState
 
 from hpcflow.sdk.submission.schedulers import NullScheduler
 from hpcflow.sdk.submission.shells.base import Shell
+
+
+def _is_process_cmdline_equal(proc: psutil.Process, cmdline: List[str]) -> bool:
+    """Check if the `cmdline` of a psutil `Process` is equal to the specified
+    `cmdline`."""
+    try:
+        if proc.cmdline() == cmdline:
+            return True
+        else:
+            return False
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        # process no longer exists or, on unix, process has completed but still has a
+        # record
+        return False
 
 
 class DirectScheduler(NullScheduler):
@@ -61,13 +74,8 @@ class DirectScheduler(NullScheduler):
             except psutil.NoSuchProcess:
                 # process might have completed already
                 continue
-            try:
-                if proc_i.cmdline() == p_cmdline:
-                    # additional check this is the same process that we submitted
-                    procs.append(proc_i)
-            except psutil.ZombieProcess:
-                # on unix: process has completed but still has a record
-                continue
+            if _is_process_cmdline_equal(proc_i, p_cmdline):
+                procs.append(proc_i)
         return procs
 
     @classmethod
@@ -132,11 +140,7 @@ class DirectScheduler(NullScheduler):
             proc = psutil.Process(process_ID)
         except psutil.NoSuchProcess:
             return False
-
-        if proc.cmdline() == process_cmdline:
-            return True
-        else:
-            return False
+        return _is_process_cmdline_equal(proc, process_cmdline)
 
     def get_std_out_err_filename(
         self, js_idx: int, job_ID: None = None, array_idx: None = None
