@@ -924,7 +924,8 @@ class Jobscript(JSONLike):
 
     @property
     def direct_stdout_path(self):
-        """File path to which the jobscript's standard output is saved.
+        """File path to which the jobscript's standard output is saved, for direct
+        execution only.
 
         Notes
         -----
@@ -932,12 +933,13 @@ class Jobscript(JSONLike):
         `resources.combine_jobscript_std` is True.
 
         """
-        assert self.scheduler_name == "direct"
+        assert not self.is_scheduled
         return self.get_stdout_path()
 
     @property
     def direct_stderr_path(self):
-        """File path to which the jobscript's standard error is saved.
+        """File path to which the jobscript's standard error is saved, for direct
+        execution only.
 
         Notes
         -----
@@ -945,7 +947,7 @@ class Jobscript(JSONLike):
         `resources.combine_jobscript_std` is True.
 
         """
-        assert self.scheduler_name == "direct"
+        assert not self.is_scheduled
         return self.get_stderr_path()
 
     def __validate_get_std_path_array_idx(self, array_idx: Optional[int] = None):
