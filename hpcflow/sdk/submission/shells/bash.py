@@ -2,7 +2,6 @@ from pathlib import Path
 import subprocess
 from textwrap import dedent, indent
 from typing import Dict, List, Optional, Union
-from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.submission.shells import Shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,

@@ -1261,6 +1261,7 @@ class PersistentStore(ABC):
         submit_time: Optional[str] = None,
         submit_hostname: Optional[str] = None,
         submit_machine: Optional[str] = None,
+        shell_idx: Optional[int] = None,
         submit_cmdline: Optional[List[str]] = None,
         os_name: Optional[str] = None,
         shell_name: Optional[str] = None,
@@ -1281,6 +1282,8 @@ class PersistentStore(ABC):
             self._pending.set_js_metadata[sub_idx][js_idx][
                 "submit_machine"
             ] = submit_machine
+        if shell_idx is not None:
+            self._pending.set_js_metadata[sub_idx][js_idx]["shell_idx"] = shell_idx
         if submit_cmdline:
             self._pending.set_js_metadata[sub_idx][js_idx][
                 "submit_cmdline"

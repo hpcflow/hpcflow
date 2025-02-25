@@ -610,7 +610,6 @@ class JobscriptBlock(JSONLike):
 class Jobscript(JSONLike):
     _app_attr = "app"
     _EAR_files_delimiter = ":"
-    _workflow_app_alias = "wkflow_app"
 
     _child_objects = (
         ChildObjectSpec(
@@ -634,6 +633,7 @@ class Jobscript(JSONLike):
         at_submit_metadata: Union[Dict[str, Any], None] = None,
         submit_hostname: Optional[str] = None,
         submit_machine: Optional[str] = None,
+        shell_idx: Optional[int] = None,
         version_info: Optional[Tuple[str]] = None,
     ):
 
@@ -654,6 +654,7 @@ class Jobscript(JSONLike):
         # assigned on parent `Submission.submit` (or retrieved form persistent store):
         self._submit_hostname = submit_hostname
         self._submit_machine = submit_machine
+        self._shell_idx = shell_idx
 
         self._version_info = version_info
 
@@ -690,7 +691,7 @@ class Jobscript(JSONLike):
 
     @property
     def workflow_app_alias(self):
-        return self._workflow_app_alias
+        return self.submission.WORKFLOW_APP_ALIAS
 
     def get_commands_file_name(self, block_act_key: Tuple[int, int, int], shell=None):
         return self.app.RunDirAppFiles.get_commands_file_name(
@@ -781,6 +782,10 @@ class Jobscript(JSONLike):
     @property
     def submit_machine(self):
         return self._submit_machine
+
+    @property
+    def shell_idx(self):
+        return self._shell_idx
 
     @property
     def submit_cmdline(self):
@@ -887,7 +892,8 @@ class Jobscript(JSONLike):
 
     @property
     def jobscript_functions_name(self):
-        return f"js_funcs_{self.index}{self.shell.JS_EXT}"
+        assert self.shell_idx is not None
+        return self.submission.get_jobscript_functions_name(self.shell, self.shell_idx)
 
     @property
     def EAR_ID_file_path(self):
@@ -903,7 +909,8 @@ class Jobscript(JSONLike):
 
     @property
     def jobscript_functions_path(self):
-        return self.submission.path / self.jobscript_functions_name
+        assert self.shell_idx is not None
+        return self.submission.get_jobscript_functions_path(self.shell, self.shell_idx)
 
     @property
     def std_path(self):
@@ -1132,6 +1139,14 @@ class Jobscript(JSONLike):
             submit_machine=submit_machine,
         )
 
+    def _set_shell_idx(self, shell_idx: int) -> None:
+        self._shell_idx = shell_idx
+        self.workflow._store.set_jobscript_metadata(
+            sub_idx=self.submission.index,
+            js_idx=self.index,
+            shell_idx=shell_idx,
+        )
+
     def _set_submit_cmdline(self, submit_cmdline: List[str]) -> None:
         self._update_at_submit_metadata(submit_cmdline=submit_cmdline)
 
@@ -1311,32 +1326,6 @@ class Jobscript(JSONLike):
 
         return out
 
-    def compose_functions_file(self, shell):
-        # TODO: refactor with write_jobscript
-
-        cfg_invocation = self.app.config._file.get_invocation(self.app.config._config_key)
-        env_setup = cfg_invocation["environment_setup"]
-        if env_setup:
-            env_setup = indent(env_setup.strip(), shell.JS_ENV_SETUP_INDENT)
-            env_setup += "\n\n" + shell.JS_ENV_SETUP_INDENT
-        else:
-            env_setup = shell.JS_ENV_SETUP_INDENT
-        app_invoc = list(self.app.run_time_info.invocation_command)
-
-        app_caps = self.app.package_name.upper()
-        func_file_args = shell.process_JS_header_args(  # TODO: rename?
-            {
-                "workflow_app_alias": self.workflow_app_alias,
-                "env_setup": env_setup,
-                "app_invoc": app_invoc,
-                "app_caps": app_caps,
-                "config_dir": str(self.app.config.config_directory),
-                "config_invoc_key": self.app.config.config_key,
-            }
-        )
-        out = shell.JS_FUNCS.format(**func_file_args)
-        return out
-
     @TimeIt.decorator
     def write_jobscript(
         self,
@@ -1375,13 +1364,8 @@ class Jobscript(JSONLike):
             scheduler_name=scheduler_name,
             scheduler_args=scheduler_args,
         )
-        js_funcs_str = self.compose_functions_file(shell)
-
         with self.jobscript_path.open("wt", newline="\n") as fp:
             fp.write(js_str)
-
-        with self.jobscript_functions_path.open("wt", newline="\n") as fp:
-            fp.write(js_funcs_str)
 
         return self.jobscript_path
 

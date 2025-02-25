@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import pytest
 from hpcflow.app import app as hf
@@ -102,3 +103,38 @@ def test_subission_start_end_times_equal_to_first_and_last_jobscript_start_end_t
 
     # ...and end time should be end time of second jobscript:
     assert sub.end_time == jobscripts[1].end_time
+
+
+@pytest.mark.integration
+def test_multiple_jobscript_functions_files(null_config, tmp_path):
+    if os.name == "nt":
+        shell_exes = ["powershell.exe", "pwsh.exe", "pwsh.exe"]
+    else:
+        shell_exes = ["/bin/bash", "bash", "bash"]
+    t1 = hf.Task(
+        schema=hf.task_schemas.test_t1_conditional_OS,
+        inputs={"p1": 100},
+        sequences=[
+            hf.ValueSequence(
+                path="resources.any.shell_args.executable",
+                values=shell_exes,
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_multi_js_funcs_files",
+        path=tmp_path,
+        tasks=[t1],
+        store="json",
+    )
+    wk.submit(add_to_known=True, status=False, cancel=True)
+
+    sub_js = wk.submissions[0].jobscripts
+    assert len(sub_js) == 2
+
+    funcs_0 = sub_js[0].jobscript_functions_path
+    funcs_1 = sub_js[1].jobscript_functions_path
+
+    assert funcs_0.is_file()
+    assert funcs_1.is_file()
+    assert funcs_0 != funcs_1

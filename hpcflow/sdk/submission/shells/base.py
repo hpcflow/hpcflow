@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from hpcflow.sdk.utils.hashing import get_hash
+
 
 class Shell(ABC):
     """Class to represent a shell and templates for jobscript composition.
@@ -22,6 +24,9 @@ class Shell(ABC):
         if self._executable == other._executable and self.os_args == other.os_args:
             return True
         return False
+
+    def __hash__(self):
+        return get_hash((self._executable, self.os_args))
 
     @property
     def executable(self) -> List[str]:

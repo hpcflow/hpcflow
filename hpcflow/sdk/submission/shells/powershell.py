@@ -1,7 +1,6 @@
 import subprocess
-from textwrap import dedent, indent
+from textwrap import dedent
 from typing import Dict, List, Optional
-from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.submission.shells import Shell
 from hpcflow.sdk.submission.shells.os_version import get_OS_info_windows
 

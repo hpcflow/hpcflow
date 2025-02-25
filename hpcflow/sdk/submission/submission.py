@@ -75,6 +75,7 @@ class Submission(JSONLike):
     JS_STD_DIR_NAME = "js_std"
     SCRIPTS_DIR_NAME = "scripts"
     COMMANDS_DIR_NAME = "commands"
+    WORKFLOW_APP_ALIAS = "wkflow_app"
 
     _child_objects = (
         ChildObjectSpec(
@@ -892,6 +893,64 @@ class Submission(JSONLike):
     def _append_submission_part(self, submit_time: str, submitted_js_idx: List[int]):
         self._update_at_submit_metadata(submission_parts={submit_time: submitted_js_idx})
 
+    def get_jobscript_functions_name(self, shell: Shell, shell_idx: int) -> str:
+        """Get the name of the jobscript functions file for the specified shell."""
+        return f"js_funcs_{shell_idx}{shell.JS_EXT}"
+
+    def get_jobscript_functions_path(self, shell: Shell, shell_idx: int) -> Path:
+        """Get the path of the jobscript functions file for the specified shell."""
+        return self.path / self.get_jobscript_functions_name(shell, shell_idx)
+
+    def _compose_functions_file(self, shell: Shell) -> str:
+        """Prepare the contents of the jobscript functions file for the specified
+        shell.
+
+        Notes
+        -----
+        The functions file includes, at a minimum, a shell function that invokes the app
+        with provided arguments. This file will be sourced/invoked within all jobscripts
+        and command files that share the specified shell.
+
+        """
+
+        cfg_invocation = self.app.config._file.get_invocation(self.app.config._config_key)
+        env_setup = cfg_invocation["environment_setup"]
+        if env_setup:
+            env_setup = indent(env_setup.strip(), shell.JS_ENV_SETUP_INDENT)
+            env_setup += "\n\n" + shell.JS_ENV_SETUP_INDENT
+        else:
+            env_setup = shell.JS_ENV_SETUP_INDENT
+        app_invoc = list(self.app.run_time_info.invocation_command)
+
+        app_caps = self.app.package_name.upper()
+        func_file_args = shell.process_JS_header_args(  # TODO: rename?
+            {
+                "workflow_app_alias": self.WORKFLOW_APP_ALIAS,
+                "env_setup": env_setup,
+                "app_invoc": app_invoc,
+                "app_caps": app_caps,
+                "config_dir": str(self.app.config.config_directory),
+                "config_invoc_key": self.app.config.config_key,
+            }
+        )
+        out = shell.JS_FUNCS.format(**func_file_args)
+        return out
+
+    def _write_functions_file(self, shell: Shell, shell_idx: int) -> None:
+        """Write the jobscript functions file for the specified shell.
+
+        Notes
+        -----
+        The functions file includes, at a minimum, a shell function that invokes the app
+        with provided arguments. This file will be sourced/invoked within all jobscripts
+        and command files that share the specified shell.
+
+        """
+        js_funcs_str = self._compose_functions_file(shell)
+        path = self.get_jobscript_functions_path(shell, shell_idx)
+        with path.open("wt", newline="\n") as fp:
+            fp.write(js_funcs_str)
+
     @TimeIt.decorator
     def submit(
         self,
@@ -925,7 +984,8 @@ class Submission(JSONLike):
                         js_vers_info[js_idx] = {}
                     js_vers_info[js_idx].update(vers_info)
 
-        for js_indices, shell in self.get_unique_shells().items():
+        js_shell_indices = {}
+        for shell_idx, (js_indices, shell) in enumerate(self.get_unique_shells().items()):
             try:
                 vers_info = shell.get_version_info()
             except Exception as err:
@@ -938,6 +998,10 @@ class Submission(JSONLike):
                     if js_idx not in js_vers_info:
                         js_vers_info[js_idx] = {}
                     js_vers_info[js_idx].update(vers_info)
+                    js_shell_indices[js_idx] = shell_idx
+
+            # write a file containing useful shell functions:
+            self._write_functions_file(shell, shell_idx)
 
         hostname = socket.gethostname()
         machine = self.app.config.get("machine")
@@ -946,6 +1010,7 @@ class Submission(JSONLike):
             js._set_version_info(vers_info_i)
             js._set_submit_hostname(hostname)
             js._set_submit_machine(machine)
+            js._set_shell_idx(js_shell_indices[js_idx])
 
         self.workflow._store._pending.commit_all()
 
