@@ -1050,7 +1050,9 @@ class Submission(JSONLike):
         )
 
     @TimeIt.decorator
-    def list_jobscripts(self, max_js: int = None, jobscripts: List[int] = None) -> None:
+    def list_jobscripts(
+        self, max_js: int = None, jobscripts: List[int] = None, width: int = None
+    ) -> None:
         """Print a table listing jobscripts and associated information.
 
         Parameters
@@ -1059,10 +1061,12 @@ class Submission(JSONLike):
             Maximum jobscript index to display. This cannot be specified with `jobscripts`.
         jobscripts
             A list of jobscripts to display. This cannot be specified with `max_js`.
+        width
+            Width in characters of the printed table.
 
         """
         self.workflow.list_jobscripts(
-            sub_idx=self.index, max_js=max_js, jobscripts=jobscripts
+            sub_idx=self.index, max_js=max_js, jobscripts=jobscripts, width=width
         )
 
     @TimeIt.decorator
