@@ -52,10 +52,10 @@ class WindowsPowerShell(Shell):
         $JS_IDX = {js_idx}
 
         $SUB_DIR = JoinMultiPath $WK_PATH artifacts submissions $SUB_IDX
-        $JS_FUNCS_PATH = Join-Path $SUB_DIR {jobscript_functions_path}
+        $JS_FUNCS_PATH = JoinMultiPath $SUB_DIR {jobscript_functions_dir} {jobscript_functions_name}
         . $JS_FUNCS_PATH
 
-        $EAR_ID_FILE = Join-Path $SUB_DIR {EAR_file_name}
+        $EAR_ID_FILE = JoinMultiPath $SUB_DIR {run_IDs_file_dir} {run_IDs_file_name}
         $SUB_TMP_DIR = Join-Path $SUB_DIR {tmp_dir_name}
         $SUB_LOG_DIR = Join-Path $SUB_DIR {log_dir_name}
         $SUB_STD_DIR = Join-Path $SUB_DIR {app_std_dir_name}

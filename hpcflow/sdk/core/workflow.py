@@ -3221,12 +3221,21 @@ class Workflow:
         sub_obj.path.mkdir(exist_ok=True)
         sub_obj.tmp_path.mkdir(exist_ok=True)
         sub_obj.app_std_path.mkdir(exist_ok=True)
-        sub_obj.js_std_path.mkdir(exist_ok=True)
+        sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
+        sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
+        sub_obj.js_funcs_path.mkdir(exist_ok=True)
+        sub_obj.js_run_ids_path.mkdir(exist_ok=True)
         sub_obj.scripts_path.mkdir(exist_ok=True)
         sub_obj.commands_path.mkdir(exist_ok=True)
 
         if sub_obj.needs_app_log_dir:
             sub_obj.app_log_path.mkdir(exist_ok=True)
+
+        if sub_obj.needs_win_pids_dir:
+            sub_obj.js_win_pids_path.mkdir(exist_ok=True)
+
+        if sub_obj.needs_script_indices_dir:
+            sub_obj.js_script_indices_path.mkdir(exist_ok=True)
 
         if status:
             status.update("Adding new submission: writing scripts and command files...")

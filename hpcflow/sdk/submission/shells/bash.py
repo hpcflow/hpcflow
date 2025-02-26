@@ -40,10 +40,10 @@ class Bash(Shell):
         APP_CAPS={app_caps}
 
         SUB_DIR="$WK_PATH/artifacts/submissions/${{SUB_IDX}}"
-        JS_FUNCS_PATH="$SUB_DIR/{jobscript_functions_path}"
+        JS_FUNCS_PATH="$SUB_DIR/{jobscript_functions_dir}/{jobscript_functions_name}"
         . "$JS_FUNCS_PATH"        
         
-        EAR_ID_FILE="$WK_PATH/artifacts/submissions/${{SUB_IDX}}/{EAR_file_name}"
+        EAR_ID_FILE="$WK_PATH/artifacts/submissions/${{SUB_IDX}}/{run_IDs_file_dir}/{run_IDs_file_name}"
         SUB_TMP_DIR="$SUB_DIR/{tmp_dir_name}"
         SUB_LOG_DIR="$SUB_DIR/{log_dir_name}"
         SUB_STD_DIR="$SUB_DIR/{app_std_dir_name}"

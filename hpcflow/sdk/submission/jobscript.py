@@ -897,15 +897,18 @@ class Jobscript(JSONLike):
 
     @property
     def EAR_ID_file_path(self):
-        return self.submission.path / self.EAR_ID_file_name
+        return self.submission.js_run_ids_path / self.EAR_ID_file_name
 
     @property
     def combined_script_indices_file_path(self):
-        return self.submission.path / self.combined_script_indices_file_name
+        return (
+            self.submission.js_script_indices_path
+            / self.combined_script_indices_file_name
+        )
 
     @property
     def jobscript_path(self):
-        return self.submission.path / self.jobscript_name
+        return self.submission.js_path / self.jobscript_name
 
     @property
     def jobscript_functions_path(self):
@@ -1084,7 +1087,7 @@ class Jobscript(JSONLike):
 
     @property
     def direct_win_pid_file_path(self):
-        return self.submission.path / self.direct_win_pid_file_name
+        return self.submission.js_win_pids_path / self.direct_win_pid_file_name
 
     @property
     def is_scheduled(self) -> bool:
@@ -1185,10 +1188,12 @@ class Jobscript(JSONLike):
         app_caps = self.app.package_name.upper()
         header_args = {
             "app_caps": app_caps,
-            "jobscript_functions_path": self.jobscript_functions_name,
+            "jobscript_functions_name": self.jobscript_functions_name,
+            "jobscript_functions_dir": self.submission.JS_FUNCS_DIR_NAME,
             "sub_idx": self.submission.index,
             "js_idx": self.index,
-            "EAR_file_name": self.EAR_ID_file_name,
+            "run_IDs_file_name": self.EAR_ID_file_name,
+            "run_IDs_file_dir": self.submission.JS_RUN_IDS_DIR_NAME,
             "tmp_dir_name": self.submission.TMP_DIR_NAME,
             "log_dir_name": self.submission.LOG_DIR_NAME,
             "app_std_dir_name": self.submission.APP_STD_DIR_NAME,

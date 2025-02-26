@@ -72,7 +72,12 @@ class Submission(JSONLike):
     TMP_DIR_NAME = "tmp"
     LOG_DIR_NAME = "app_logs"
     APP_STD_DIR_NAME = "app_std"
+    JS_DIR_NAME = "jobscripts"
     JS_STD_DIR_NAME = "js_std"
+    JS_RUN_IDS_DIR_NAME = "js_run_ids"
+    JS_FUNCS_DIR_NAME = "js_funcs"
+    JS_WIN_PIDS_DIR_NAME = "js_pids"
+    JS_SCRIPT_INDICES_DIR_NAME = "js_script_indices"
     SCRIPTS_DIR_NAME = "scripts"
     COMMANDS_DIR_NAME = "commands"
     WORKFLOW_APP_ALIAS = "wkflow_app"
@@ -356,6 +361,20 @@ class Submission(JSONLike):
                 return True
         return False
 
+    @property
+    def needs_win_pids_dir(self) -> bool:
+        for js in self.jobscripts:
+            if js.os_name == "nt":
+                return True
+        return False
+
+    @property
+    def needs_script_indices_dir(self) -> bool:
+        for js in self.jobscripts:
+            if js.resources.combine_scripts:
+                return True
+        return False
+
     @classmethod
     def get_path(cls, submissions_path: Path, sub_idx: int) -> Path:
         return submissions_path / str(sub_idx)
@@ -386,8 +405,28 @@ class Submission(JSONLike):
         return cls.get_path(submissions_path, sub_idx) / cls.APP_STD_DIR_NAME
 
     @classmethod
+    def get_js_path(cls, submissions_path: Path, sub_idx: int) -> Path:
+        return cls.get_path(submissions_path, sub_idx) / cls.JS_DIR_NAME
+
+    @classmethod
     def get_js_std_path(cls, submissions_path: Path, sub_idx: int) -> Path:
         return cls.get_path(submissions_path, sub_idx) / cls.JS_STD_DIR_NAME
+
+    @classmethod
+    def get_js_run_ids_path(cls, submissions_path: Path, sub_idx: int) -> Path:
+        return cls.get_path(submissions_path, sub_idx) / cls.JS_RUN_IDS_DIR_NAME
+
+    @classmethod
+    def get_js_funcs_path(cls, submissions_path: Path, sub_idx: int) -> Path:
+        return cls.get_path(submissions_path, sub_idx) / cls.JS_FUNCS_DIR_NAME
+
+    @classmethod
+    def get_js_win_pids_path(cls, submissions_path: Path, sub_idx: int) -> Path:
+        return cls.get_path(submissions_path, sub_idx) / cls.JS_WIN_PIDS_DIR_NAME
+
+    @classmethod
+    def get_js_script_indices_path(cls, submissions_path: Path, sub_idx: int) -> Path:
+        return cls.get_path(submissions_path, sub_idx) / cls.JS_SCRIPT_INDICES_DIR_NAME
 
     @classmethod
     def get_scripts_path(cls, submissions_path: Path, sub_idx: int) -> Path:
@@ -414,8 +453,28 @@ class Submission(JSONLike):
         return self.get_app_std_path(self.workflow.submissions_path, self.index)
 
     @property
+    def js_path(self):
+        return self.get_js_path(self.workflow.submissions_path, self.index)
+
+    @property
     def js_std_path(self):
         return self.get_js_std_path(self.workflow.submissions_path, self.index)
+
+    @property
+    def js_run_ids_path(self):
+        return self.get_js_run_ids_path(self.workflow.submissions_path, self.index)
+
+    @property
+    def js_funcs_path(self):
+        return self.get_js_funcs_path(self.workflow.submissions_path, self.index)
+
+    @property
+    def js_win_pids_path(self):
+        return self.get_js_win_pids_path(self.workflow.submissions_path, self.index)
+
+    @property
+    def js_script_indices_path(self):
+        return self.get_js_script_indices_path(self.workflow.submissions_path, self.index)
 
     @property
     def scripts_path(self):
@@ -899,7 +958,7 @@ class Submission(JSONLike):
 
     def get_jobscript_functions_path(self, shell: Shell, shell_idx: int) -> Path:
         """Get the path of the jobscript functions file for the specified shell."""
-        return self.path / self.get_jobscript_functions_name(shell, shell_idx)
+        return self.js_funcs_path / self.get_jobscript_functions_name(shell, shell_idx)
 
     def _compose_functions_file(self, shell: Shell) -> str:
         """Prepare the contents of the jobscript functions file for the specified
