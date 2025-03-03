@@ -837,6 +837,9 @@ class Submission(JSONLike):
         # directly:
         run_dirs = self.workflow.get_run_directories(dir_indices_arr=run_dir_arr)
 
+        if status:
+            status.update("Adding new submission: making execution directories...")
+
         # make directories
         for idx, run_dir in enumerate(run_dirs):
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -845,9 +848,6 @@ class Submission(JSONLike):
                 # copy (TODO: optionally symlink) any input files:
                 for path_i in inp_files_i:
                     shutil.copy(path_i, run_dir)
-
-        if status:
-            status.update("Adding new submission: making execution directories...")
 
     @staticmethod
     def get_unique_schedulers_of_jobscripts(

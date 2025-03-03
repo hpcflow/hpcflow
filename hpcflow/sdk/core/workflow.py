@@ -3872,6 +3872,7 @@ class Workflow:
             if run_ids is not None:
                 dir_indices_arr = dir_indices_arr[run_ids]
 
+        # TODO: make these configurable so easier to test!
         MAX_ELEMS_PER_DIR = 1000  # TODO: configurable (add `workflow_defaults` to Config)
         MAX_ITERS_PER_DIR = 1000
 
@@ -3885,6 +3886,9 @@ class Workflow:
         # format run directories:
         dirs = []
         for dir_data in dir_indices_arr:
+
+            # TODO: retrieve task,element,iteration,action,run dir formats from
+            # (t_iID, act_idx) combo (cached)?
 
             t_iID, e_idx, i_idx, _, r_idx, e_depth, i_depth = dir_data
             path_args = []
