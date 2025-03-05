@@ -1,4 +1,8 @@
 
+<a name="v0.2.0a194"></a>
+## [v0.2.0a194](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a193...v0.2.0a194) - 2025.03.05
+
+
 <a name="v0.2.0a193"></a>
 ## [v0.2.0a193](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a192...v0.2.0a193) - 2025.02.19
 
