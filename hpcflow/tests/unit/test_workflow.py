@@ -1,7 +1,9 @@
+from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -11,16 +13,23 @@ from hpcflow.sdk.core.errors import (
     WorkflowBatchUpdateFailedError,
     WorkflowNotFoundError,
 )
-from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.test_utils import (
     make_workflow,
     P1_parameter_cls as P1,
     make_test_data_YAML_workflow,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from hpcflow.sdk.core.actions import Action, ActionEnvironment
+    from hpcflow.sdk.core.command_files import FileSpec
+    from hpcflow.sdk.core.parameters import Parameter
+    from hpcflow.sdk.core.task_schema import TaskSchema
+    from hpcflow.sdk.core.workflow import Workflow
+
 
 @pytest.fixture
-def persistent_workflow(null_config):
+def persistent_workflow(null_config) -> Iterator[Workflow]:
     tmp_dir = hf._ensure_user_runtime_dir().joinpath("test_data")
     tmp_dir.mkdir(exist_ok=True)
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_dir, overwrite=True)
@@ -44,16 +53,18 @@ def test_workflow_zip(persistent_workflow):
     Path(zip_path).unlink()
 
 
-def modify_workflow_metadata_on_disk(workflow):
+def modify_workflow_metadata_on_disk(workflow: Workflow):
     """Make a non-sense change to the on-disk metadata."""
     assert workflow.store_format == "zarr"
-    wk_md = workflow._store.load_metadata()
+    wk_md = workflow._store.load_metadata()  # type: ignore
     changed_md = copy.deepcopy(wk_md)
     changed_md["new_key"] = "new_value"
-    workflow._store._get_root_group(mode="r+").attrs.put(changed_md)
+    workflow._store._get_root_group(mode="r+").attrs.put(changed_md)  # type: ignore
 
 
-def make_workflow_w1_with_config_kwargs(config_kwargs, path, param_p1, param_p2):
+def make_workflow_w1_with_config_kwargs(
+    config_kwargs, path, param_p1: Parameter, param_p2: Parameter
+) -> Workflow:
     hf.load_config(**config_kwargs)
     s1 = hf.TaskSchema("ts1", actions=[], inputs=[param_p1], outputs=[param_p2])
     t1 = hf.Task(schema=s1, inputs=[hf.InputValue(param_p1, 101)])
@@ -68,37 +79,37 @@ def null_config(tmp_path):
 
 
 @pytest.fixture
-def empty_workflow(null_config, tmp_path):
+def empty_workflow(null_config, tmp_path) -> Workflow:
     return hf.Workflow.from_template(hf.WorkflowTemplate(name="w1"), path=tmp_path)
 
 
 @pytest.fixture
-def param_p1(null_config):
+def param_p1(null_config) -> Parameter:
     return hf.Parameter("p1")
 
 
 @pytest.fixture
-def param_p1c(null_config):
+def param_p1c(null_config) -> Parameter:
     return hf.Parameter("p1c")
 
 
 @pytest.fixture
-def param_p2():
+def param_p2() -> Parameter:
     return hf.Parameter("p2")
 
 
 @pytest.fixture
-def param_p3(null_config):
+def param_p3(null_config) -> Parameter:
     return hf.Parameter("p3")
 
 
 @pytest.fixture
-def act_env_1(null_config):
+def act_env_1(null_config) -> ActionEnvironment:
     return hf.ActionEnvironment("env_1")
 
 
 @pytest.fixture
-def act_1(null_config, act_env_1):
+def act_1(null_config, act_env_1: ActionEnvironment) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p1>>")],
         environments=[act_env_1],
@@ -106,7 +117,7 @@ def act_1(null_config, act_env_1):
 
 
 @pytest.fixture
-def act_2(null_config, act_env_1):
+def act_2(null_config, act_env_1: ActionEnvironment) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p2>> <<parameter:p3>>")],
         environments=[act_env_1],
@@ -116,12 +127,17 @@ def act_2(null_config, act_env_1):
 @pytest.fixture
 def file_spec_fs1(
     null_config,
-):
+) -> FileSpec:
     return hf.FileSpec(label="file1", name="file1.txt")
 
 
 @pytest.fixture
-def act_3(null_config, act_env_1, param_p2, file_spec_fs1):
+def act_3(
+    null_config,
+    act_env_1: ActionEnvironment,
+    param_p2: Parameter,
+    file_spec_fs1: FileSpec,
+) -> Action:
     return hf.Action(
         commands=[hf.Command("<<parameter:p1>>")],
         output_file_parsers=[
@@ -132,25 +148,29 @@ def act_3(null_config, act_env_1, param_p2, file_spec_fs1):
 
 
 @pytest.fixture
-def schema_s1(null_config, param_p1, act_1):
+def schema_s1(null_config, param_p1: Parameter, act_1: Action) -> TaskSchema:
     return hf.TaskSchema("ts1", actions=[act_1], inputs=[param_p1])
 
 
 @pytest.fixture
-def schema_s2(null_config, param_p2, param_p3, act_2):
+def schema_s2(
+    null_config, param_p2: Parameter, param_p3: Parameter, act_2: Action
+) -> TaskSchema:
     return hf.TaskSchema("ts2", actions=[act_2], inputs=[param_p2, param_p3])
 
 
 @pytest.fixture
-def schema_s3(null_config, param_p1, param_p2, act_3):
+def schema_s3(
+    null_config, param_p1: Parameter, param_p2: Parameter, act_3: Action
+) -> TaskSchema:
     return hf.TaskSchema("ts1", actions=[act_3], inputs=[param_p1], outputs=[param_p2])
 
 
 @pytest.fixture
 def schema_s4(
     null_config,
-    param_p1,
-):
+    param_p1: Parameter,
+) -> TaskSchema:
     return hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=param_p1)],
@@ -166,8 +186,8 @@ def schema_s4(
 @pytest.fixture
 def schema_s4c(
     null_config,
-    param_p1c,
-):
+    param_p1c: Parameter,
+) -> TaskSchema:
     return hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=param_p1c)],
@@ -181,41 +201,47 @@ def schema_s4c(
 
 
 @pytest.fixture
-def workflow_w1(null_config, tmp_path, schema_s3, param_p1):
+def workflow_w1(
+    null_config, tmp_path: Path, schema_s3: TaskSchema, param_p1: Parameter
+) -> Workflow:
     t1 = hf.Task(schema=schema_s3, inputs=[hf.InputValue(param_p1, 101)])
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1])
     return hf.Workflow.from_template(wkt, path=tmp_path)
 
 
-def test_make_empty_workflow(null_config, empty_workflow):
+def test_make_empty_workflow(null_config, empty_workflow: Workflow):
     assert empty_workflow.path is not None
 
 
-def test_raise_on_missing_workflow(null_config, tmp_path):
+def test_raise_on_missing_workflow(null_config, tmp_path: Path):
     with pytest.raises(WorkflowNotFoundError):
         hf.Workflow(tmp_path)
 
 
-def test_add_empty_task(empty_workflow, schema_s1):
+def test_add_empty_task(empty_workflow: Workflow, schema_s1: TaskSchema):
     t1 = hf.Task(schema=schema_s1)
     wk_t1 = empty_workflow._add_empty_task(t1)
     assert len(empty_workflow.tasks) == 1 and wk_t1.index == 0 and wk_t1.name == "ts1"
 
 
-def test_raise_on_missing_inputs_add_first_task(empty_workflow, schema_s1, param_p1):
+def test_raise_on_missing_inputs_add_first_task(
+    empty_workflow: Workflow, schema_s1: TaskSchema, param_p1: Parameter
+):
     t1 = hf.Task(schema=schema_s1)
     with pytest.raises(MissingInputs) as exc_info:
         empty_workflow.add_task(t1)
 
-    assert exc_info.value.missing_inputs == [param_p1.typ]
+    assert exc_info.value.missing_inputs == (param_p1.typ,)
 
 
-def test_raise_on_missing_inputs_add_second_task(workflow_w1, schema_s2, param_p3):
+def test_raise_on_missing_inputs_add_second_task(
+    workflow_w1: Workflow, schema_s2: TaskSchema, param_p3: Parameter
+):
     t2 = hf.Task(schema=schema_s2)
     with pytest.raises(MissingInputs) as exc_info:
         workflow_w1.add_task(t2)
 
-    assert exc_info.value.missing_inputs == [param_p3.typ]  # p2 comes from existing task
+    assert exc_info.value.missing_inputs == (param_p3.typ,)  # p2 comes from existing task
 
 
 @pytest.mark.skip(reason="TODO: Not implemented.")
@@ -301,42 +327,45 @@ def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equival
     assert wkt_1 == wkt_2
 
 
-def test_store_has_pending_during_add_task(workflow_w1, schema_s2, param_p3):
+def test_store_has_pending_during_add_task(
+    workflow_w1: Workflow, schema_s2: TaskSchema, param_p3: Parameter
+):
     t2 = hf.Task(schema=schema_s2, inputs=[hf.InputValue(param_p3, 301)])
     with workflow_w1.batch_update():
         workflow_w1.add_task(t2)
         assert workflow_w1._store.has_pending
 
 
-def test_empty_batch_update_does_nothing(workflow_w1):
+def test_empty_batch_update_does_nothing(workflow_w1: Workflow):
     with workflow_w1.batch_update():
         assert not workflow_w1._store.has_pending
 
 
 @pytest.mark.skip("need to re-implement `is_modified_on_disk`")
-def test_is_modified_on_disk_when_metadata_changed(workflow_w1):
+def test_is_modified_on_disk_when_metadata_changed(workflow_w1: Workflow):
     # this is ZarrPersistentStore-specific; might want to consider a refactor later
     with workflow_w1._store.cached_load():
         modify_workflow_metadata_on_disk(workflow_w1)
-        assert workflow_w1._store.is_modified_on_disk()
+        assert workflow_w1._store.is_modified_on_disk()  # type: ignore
 
 
 @pytest.mark.skip("need to re-implement `is_modified_on_disk`")
-def test_batch_update_abort_if_modified_on_disk(workflow_w1, schema_s2, param_p3):
+def test_batch_update_abort_if_modified_on_disk(
+    workflow_w1: Workflow, schema_s2: TaskSchema, param_p3: Parameter
+):
     t2 = hf.Task(schema=schema_s2, inputs=[hf.InputValue(param_p3, 301)])
     with pytest.raises(WorkflowBatchUpdateFailedError):
-        with workflow_w1._store.cached_load():
-            with workflow_w1.batch_update():
-                workflow_w1.add_task(t2)
-                modify_workflow_metadata_on_disk(workflow_w1)
+        with workflow_w1._store.cached_load(), workflow_w1.batch_update():
+            workflow_w1.add_task(t2)
+            modify_workflow_metadata_on_disk(workflow_w1)
 
 
-def test_closest_task_input_source_chosen(null_config, tmp_path):
+def test_closest_task_input_source_chosen(null_config, tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p1",), "t2"],
-            [{"p1": None}, ("p1",), "t3"],
+            ({"p1": None}, ("p1",), "t1"),
+            ({"p1": None}, ("p1",), "t2"),
+            ({"p1": None}, ("p1",), "t3"),
         ],
         local_inputs={0: ("p1",)},
         path=tmp_path,
@@ -366,10 +395,10 @@ def test_WorkflowTemplate_from_JSON_string_without_element_sets(null_config):
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_equivalent_element_input_parameter_value_class_and_kwargs(
     null_config,
-    tmp_path,
-    store,
-    schema_s4c,
-    param_p1c,
+    tmp_path: Path,
+    store: str,
+    schema_s4c: TaskSchema,
+    param_p1c: Parameter,
 ):
     a_value = 101
     t1_1 = hf.Task(
@@ -395,10 +424,10 @@ def test_equivalent_element_input_parameter_value_class_and_kwargs(
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_equivalent_element_input_parameter_value_class_method_and_kwargs(
     null_config,
-    tmp_path,
-    store,
-    schema_s4c,
-    param_p1c,
+    tmp_path: Path,
+    store: str,
+    schema_s4c: TaskSchema,
+    param_p1c: Parameter,
 ):
     b_val = 50
     c_val = 51
@@ -432,7 +461,7 @@ def test_equivalent_element_input_parameter_value_class_method_and_kwargs(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_input_value_class_expected_value(
-    null_config, tmp_path, store, schema_s4c, param_p1c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema, param_p1c: Parameter
 ):
     a_value = 101
     t1_value_exp = P1(a=a_value)
@@ -459,7 +488,7 @@ def test_input_value_class_expected_value(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_input_value_class_method_expected_value(
-    null_config, tmp_path, store, schema_s4c, param_p1c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema, param_p1c: Parameter
 ):
     b_val = 50
     c_val = 51
@@ -493,10 +522,10 @@ def test_input_value_class_method_expected_value(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_equivalent_element_input_sequence_parameter_value_class_and_kwargs(
-    null_config, tmp_path, store, schema_s4c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema
 ):
     data = {"a": 101}
-    obj = P1(**data)
+    obj = P1(**data)  # type: ignore[arg-type]  # python/mypy#15317
     t1_1 = hf.Task(
         schema=[schema_s4c],
         sequences=[hf.ValueSequence(path="inputs.p1c", values=[obj], nesting_order=0)],
@@ -518,7 +547,7 @@ def test_equivalent_element_input_sequence_parameter_value_class_and_kwargs(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_equivalent_element_input_sequence_parameter_value_class_method_and_kwargs(
-    null_config, tmp_path, store, schema_s4c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema
 ):
     data = {"b": 50, "c": 51}
     obj = P1.from_data(**data)
@@ -549,9 +578,11 @@ def test_equivalent_element_input_sequence_parameter_value_class_method_and_kwar
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_sequence_value_class_expected_value(null_config, tmp_path, store, schema_s4c):
+def test_sequence_value_class_expected_value(
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema
+):
     data = {"a": 101}
-    obj = P1(**data)
+    obj = P1(**data)  # type: ignore[arg-type]  # python/mypy#15317
     t1_1 = hf.Task(
         schema=[schema_s4c],
         sequences=[hf.ValueSequence(path="inputs.p1c", values=[obj], nesting_order=0)],
@@ -574,7 +605,7 @@ def test_sequence_value_class_expected_value(null_config, tmp_path, store, schem
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_sequence_value_class_method_expected_value(
-    null_config, tmp_path, store, schema_s4c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema
 ):
     data = {"b": 50, "c": 51}
     obj = P1.from_data(**data)
@@ -607,7 +638,7 @@ def test_sequence_value_class_method_expected_value(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_expected_element_input_parameter_value_class_merge_sequence(
-    null_config, tmp_path, store, schema_s4c, param_p1c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema, param_p1c: Parameter
 ):
     a_val = 101
     d_val = 201
@@ -632,7 +663,7 @@ def test_expected_element_input_parameter_value_class_merge_sequence(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_expected_element_input_parameter_value_class_method_merge_sequence(
-    null_config, tmp_path, store, schema_s4c, param_p1c
+    null_config, tmp_path: Path, store: str, schema_s4c: TaskSchema, param_p1c: Parameter
 ):
     b_val = 50
     c_val = 51
@@ -661,14 +692,10 @@ def test_expected_element_input_parameter_value_class_method_merge_sequence(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_upstream_input_source_merge_with_current_input_modification(
-    null_config, tmp_path, store
+    null_config, tmp_path: Path, store: str, param_p2: Parameter
 ):
-    s1 = hf.TaskSchema(
-        objective="t1", inputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))]
-    )
-    s2 = hf.TaskSchema(
-        objective="t2", inputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))]
-    )
+    s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter=param_p2)])
+    s2 = hf.TaskSchema(objective="t2", inputs=[hf.SchemaInput(parameter=param_p2)])
     tasks = [
         hf.Task(schema=s1, inputs=[hf.InputValue("p2", {"a": 101})]),
         hf.Task(schema=s2, inputs=[hf.InputValue("p2", value=102, path="b")]),
@@ -679,17 +706,17 @@ def test_upstream_input_source_merge_with_current_input_modification(
         template_name="temp",
         store=store,
     )
-    assert wk.tasks[1].elements[0].inputs.p2.value == {"a": 101, "b": 102}
+    p2 = wk.tasks[1].elements[0].inputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == {"a": 101, "b": 102}
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_upstream_input_source_with_sub_parameter(null_config, tmp_path, store):
-    s1 = hf.TaskSchema(
-        objective="t1", inputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))]
-    )
-    s2 = hf.TaskSchema(
-        objective="t2", inputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))]
-    )
+def test_upstream_input_source_with_sub_parameter(
+    null_config, tmp_path: Path, store: str, param_p2: Parameter
+):
+    s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter=param_p2)])
+    s2 = hf.TaskSchema(objective="t2", inputs=[hf.SchemaInput(parameter=param_p2)])
     tasks = [
         hf.Task(
             schema=s1,
@@ -706,11 +733,13 @@ def test_upstream_input_source_with_sub_parameter(null_config, tmp_path, store):
         template_name="temp",
         store=store,
     )
-    assert wk.tasks[1].elements[0].inputs.p2.value == {"a": 101, "b": 102}
+    p2 = wk.tasks[1].elements[0].inputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == {"a": 101, "b": 102}
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_from_template_data_workflow_reload(null_config, tmp_path, store):
+def test_from_template_data_workflow_reload(null_config, tmp_path: Path, store: str):
     wk_name = "temp"
     t1 = hf.Task(schema=hf.task_schemas.test_t1_ps, inputs=[hf.InputValue("p1", 101)])
     wk = hf.Workflow.from_template_data(
@@ -727,7 +756,7 @@ def test_from_template_data_workflow_reload(null_config, tmp_path, store):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_from_template_workflow_reload(null_config, tmp_path, store):
+def test_from_template_workflow_reload(null_config, tmp_path: Path, store: str):
     wk_name = "temp"
     t1 = hf.Task(schema=hf.task_schemas.test_t1_ps, inputs=[hf.InputValue("p1", 101)])
     wkt = hf.WorkflowTemplate(name=wk_name, tasks=[t1])
@@ -744,7 +773,7 @@ def test_from_template_workflow_reload(null_config, tmp_path, store):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_from_YAML_str_template_workflow_reload(null_config, tmp_path, store):
+def test_from_YAML_str_template_workflow_reload(null_config, tmp_path: Path, store: str):
     yaml_str = dedent(
         """
     name: temp
@@ -767,7 +796,7 @@ def test_from_YAML_str_template_workflow_reload(null_config, tmp_path, store):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_from_template_workflow_add_task_reload(null_config, tmp_path, store):
+def test_from_template_workflow_add_task_reload(null_config, tmp_path: Path, store: str):
     wk_name = "temp"
     t1 = hf.Task(schema=hf.task_schemas.test_t1_ps, inputs=[hf.InputValue("p1", 101)])
     wkt = hf.WorkflowTemplate(name=wk_name)
@@ -785,7 +814,9 @@ def test_from_template_workflow_add_task_reload(null_config, tmp_path, store):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_batch_update_mode_false_after_empty_workflow_init(null_config, tmp_path, store):
+def test_batch_update_mode_false_after_empty_workflow_init(
+    null_config, tmp_path: Path, store: str
+):
     wk_name = "temp"
     wk = hf.Workflow.from_template_data(
         tasks=[],

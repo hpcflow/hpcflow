@@ -1,0 +1,33 @@
+name: Type check
+env:
+  POETRY_VERSION: "1.4"
+on: push
+jobs:
+  run-mypy:
+    # Note that we only do this on one platform and with one reasonable version of Python
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.12" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Init Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install and configure poetry ${{ env.POETRY_VERSION }}
+        uses: hpcflow/github-support/setup-poetry@0.1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+      - name: Cache Virtual Environment
+        uses: hpcflow/github-support/init-cache@0.1
+        with:
+          name: typecheck
+          version: ${{ matrix.python-version }}
+      - name: Install Dependencies
+        run: |
+          poetry install --without dev,pyinstaller --with typecheck
+      - name: Perform Type Check
+        run: |
+          poetry run mypy hpcflow

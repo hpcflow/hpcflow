@@ -9,7 +9,7 @@ from hpcflow.sdk.cli import ErrorPropagatingClickContext
 from hpcflow.sdk.cli_common import BoolOrString
 
 
-def test_version():
+def test_version() -> None:
     runner = CliRunner()
     result = runner.invoke(hf.cli, args="--version")
     assert result.output.strip() == f"hpcFlow, version {__version__}"

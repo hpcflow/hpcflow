@@ -1,4 +1,4 @@
-name: test-shells
+name: Test shells
 concurrency:
   | # e.g. don't run simultaneously on the same branch (since we may commit to that branch)
   ci-test-shells-${{ format('{0}github.head_ref', 'refs/heads') || github.ref }}
@@ -15,34 +15,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: Vampire/setup-wsl@v3 # install a WSL distribution
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install poetry
-        run: python -m pip install poetry==${{ env.POETRY_VERSION }}
-
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
-
-      - name: Cache the virtualenv
-        uses: actions/cache@v4
+      - uses: hpcflow/github-support/setup-poetry@0.1
         with:
-          path: ./.venv
-          key: venv-wsl-test-${{ hashFiles('**/poetry.lock') }}
-
+          version: ${{ env.POETRY_VERSION }}
+      - uses: hpcflow/github-support/init-cache@0.1
+        with:
+          name: wsl-test
+          version: ${{ env.PYTHON_VERSION }}
+  
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller
 
-      - name: Run WSL tests only
+      - name: Configure hpcflow for WSL
         run: |
           poetry run hpcflow config update --json shells.wsl.defaults '{\"WSL_executable\": \"wsl.exe\"}'
           poetry run hpcflow config add-scheduler direct_posix
+      - name: Run WSL tests
+        run: |
           poetry run hpcflow test --wsl

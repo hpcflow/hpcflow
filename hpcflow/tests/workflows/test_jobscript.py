@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 import pytest
 
 from hpcflow.app import app as hf
@@ -9,7 +10,7 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 
 @pytest.mark.integration
 @pytest.mark.parametrize("exit_code", [0, 1, 98, -1, -123124])
-def test_action_exit_code_parsing(null_config, tmp_path, exit_code):
+def test_action_exit_code_parsing(null_config, tmp_path: Path, exit_code: int):
     act = hf.Action(commands=[hf.Command(command=f"exit {exit_code}")])
     s1 = hf.TaskSchema(
         objective="t1",

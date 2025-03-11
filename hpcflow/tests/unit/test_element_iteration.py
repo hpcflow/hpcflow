@@ -1,9 +1,11 @@
+from __future__ import annotations
+from pathlib import Path
 import pytest
 from hpcflow.app import app as hf
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_decode(null_config, tmp_path, store):
+def test_decode(null_config, tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],

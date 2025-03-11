@@ -1,22 +1,40 @@
+"""
+Shell models based on Microsoft PowerShell.
+"""
+
+from __future__ import annotations
 import subprocess
 from textwrap import dedent
-from typing import Dict, List, Optional
-from hpcflow.sdk.submission.shells import Shell
+from typing import TYPE_CHECKING
+from typing_extensions import override
+from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.submission.shells.base import Shell
 from hpcflow.sdk.submission.shells.os_version import get_OS_info_windows
 
+if TYPE_CHECKING:
+    from typing import ClassVar
+    from .base import VersionInfo
 
+
+@hydrate
 class WindowsPowerShell(Shell):
     """Class to represent using PowerShell on Windows to generate and submit a jobscript."""
 
     # TODO: add snippets that can be used in demo task schemas?
 
-    DEFAULT_EXE = "powershell.exe"
+    #: Default for executable name.
+    DEFAULT_EXE: ClassVar[str] = "powershell.exe"
 
-    JS_EXT = ".ps1"
-    JS_INDENT = "    "
-    JS_ENV_SETUP_INDENT = 2 * JS_INDENT
-    JS_SHEBANG = ""
-    JS_FUNCS = dedent(
+    #: File extension for jobscripts.
+    JS_EXT: ClassVar[str] = ".ps1"
+    #: Basic indent.
+    JS_INDENT: ClassVar[str] = "    "
+    #: Indent for environment setup.
+    JS_ENV_SETUP_INDENT: ClassVar[str] = 2 * JS_INDENT
+    #: Template for the jobscript shebang line.
+    JS_SHEBANG: ClassVar[str] = ""
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str] = dedent(
         """\
         function {workflow_app_alias} {{
             & {{
@@ -33,7 +51,8 @@ class WindowsPowerShell(Shell):
         }}
     """
     )
-    JS_HEADER = dedent(
+    #: Template for the common part of the jobscript header.
+    JS_HEADER: ClassVar[str] = dedent(
         """\
         $ErrorActionPreference = 'Stop'
 
@@ -74,24 +93,30 @@ class WindowsPowerShell(Shell):
         $env:{app_caps}_RUN_ID_FILE = $EAR_ID_FILE
     """
     )
-    JS_DIRECT_HEADER = dedent(
+    #: Template for the jobscript header when directly executed.
+    JS_DIRECT_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
         {header}
         {wait_command}
     """
     )
-    JS_RUN_LOG_PATH_ENABLE = 'Join-Path $SUB_LOG_DIR "{run_log_file_name}"'
-    JS_RUN_LOG_PATH_DISABLE = '" "'
-    JS_RUN_CMD = (
+    #: Template for enabling writing of the app log.
+    JS_RUN_LOG_PATH_ENABLE: ClassVar[str] = 'Join-Path $SUB_LOG_DIR "{run_log_file_name}"'
+    #: Template for disabling writing of the app log.
+    JS_RUN_LOG_PATH_DISABLE: ClassVar[str] = '" "'
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str] = (
         "{workflow_app_alias} internal workflow $WK_PATH execute-run "
         "$SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
     )
-    JS_RUN_CMD_COMBINED = (
+    #: Template for the execution command for multiple combined runs.
+    JS_RUN_CMD_COMBINED: ClassVar[str] = (
         "{workflow_app_alias} internal workflow $WK_PATH execute-combined-runs "
         "$SUB_IDX $JS_IDX\n"
     )
-    JS_RUN = dedent(
+    #: Template for setting up run environment variables and executing the run.
+    JS_RUN: ClassVar[str] = dedent(
         """\
         $EAR_ID = ($elem_EAR_IDs -split "{EAR_files_delimiter}")[$block_act_idx]
         if ($EAR_ID -eq -1) {{
@@ -109,20 +134,23 @@ class WindowsPowerShell(Shell):
         {run_cmd}
         """
     )
-    JS_ACT_MULTI = dedent(
+    #: Template for the action-run processing loop in a jobscript.
+    JS_ACT_MULTI: ClassVar[str] = dedent(
         """\
         for ($block_act_idx = 0; $block_act_idx -lt {num_actions}; $block_act_idx += 1) {{        
         {run_block}
         }}
         """
     )
-    JS_ACT_SINGLE = dedent(
+    #: Template for the single-action-run execution in a jobscript.
+    JS_ACT_SINGLE: ClassVar[str] = dedent(
         """\
         $block_act_idx = 0        
         {run_block}
         """
     )
-    JS_MAIN = dedent(
+    #: Template for setting up environment variables and running one or more action-runs.
+    JS_MAIN: ClassVar[str] = dedent(
         """\
         $block_elem_idx = ($JS_elem_idx - {block_start_elem_idx})
         $elem_EAR_IDs = get_nth_line $EAR_ID_FILE $JS_elem_idx
@@ -132,27 +160,34 @@ class WindowsPowerShell(Shell):
         {action}
     """
     )
-    JS_BLOCK_HEADER = dedent(  # for single-block jobscripts only
+    #: Template for a jobscript-block header.
+    JS_BLOCK_HEADER: ClassVar[str] = dedent(  # for single-block jobscripts only
         """\
         $block_idx = 0
         $env:{app_caps}_BLOCK_IDX = 0
         """
     )
-    JS_ELEMENT_SINGLE = dedent(
+    #: Template for single-element execution.
+    JS_ELEMENT_SINGLE: ClassVar[str] = dedent(
         """\
         $JS_elem_idx = {block_start_elem_idx}
         {main}
     """
     )
-    JS_ELEMENT_MULTI_LOOP = dedent(
+    #: Template for the element processing loop in a jobscript.
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent(
         """\
         for ($JS_elem_idx = {block_start_elem_idx}; $JS_elem_idx -lt ({block_start_elem_idx} + {num_elements}); $JS_elem_idx += 1) {{            
         {main}
         }}
     """
     )
-    JS_ELEMENT_MULTI_ARRAY = None  # not implemented # TODO: add to Shell class
-    JS_BLOCK_LOOP = dedent(
+    #: Template for the array handling code in a jobscript.
+    JS_ELEMENT_MULTI_ARRAY: ClassVar[
+        None
+    ] = None  # not implemented # TODO: add to Shell class
+    #: Template for the jobscript block loop in a jobscript.
+    JS_BLOCK_LOOP: ClassVar[str] = dedent(
         """\
         $num_elements = {num_elements}
         $num_actions = {num_actions}
@@ -164,25 +199,24 @@ class WindowsPowerShell(Shell):
         }}
     """
     )
-    JS_FOOTER = dedent(
+    #: Template for the jobscript footer.
+    JS_FOOTER: ClassVar[str] = dedent(
         """\
         Set-Location $WK_PATH
     """
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def get_direct_submit_command(self, js_path: str) -> List[str]:
+    def get_direct_submit_command(self, js_path: str) -> list[str]:
         """Get the command for submitting a non-scheduled jobscript."""
-        return self.executable + ["-File", js_path]
+        return [*self.executable, "-File", js_path]
 
-    def get_command_file_launch_command(self, cmd_file_path: str) -> List[str]:
+    def get_command_file_launch_command(self, cmd_file_path: str) -> list[str]:
         """Get the command for launching the commands file for a given run."""
         # note the "-File" argument is required for the correct exit code to be recorded.
-        return self.executable + ["-File", cmd_file_path]
+        return [*self.executable, "-File", cmd_file_path]
 
-    def get_version_info(self, exclude_os: Optional[bool] = False) -> Dict:
+    @override
+    def get_version_info(self, exclude_os: bool = False) -> VersionInfo:
         """Get powershell version information.
 
         Parameters
@@ -202,37 +236,54 @@ class WindowsPowerShell(Shell):
         else:
             raise RuntimeError("Failed to parse PowerShell version information.")
 
-        out = {
+        osinfo = {} if exclude_os else get_OS_info_windows()
+        return {
             "shell_name": "powershell",
             "shell_executable": self.executable,
             "shell_version": PS_version,
+            **osinfo,
         }
 
-        if not exclude_os:
-            out.update(**get_OS_info_windows())
-
-        return out
-
     @staticmethod
-    def process_app_invoc_executable(app_invoc_exe):
+    def process_app_invoc_executable(app_invoc_exe: str) -> str:
         if " " in app_invoc_exe:
             # use call operator and single-quote the executable path:
             app_invoc_exe = f"& '{app_invoc_exe}'"
         return app_invoc_exe
 
-    def format_env_var_get(self, var: str):
+    @override
+    def format_env_var_get(self, var: str) -> str:
+        """
+        Format retrieval of a shell environment variable.
+        """
         return f"$env:{var}"
 
-    def format_array(self, lst: List) -> str:
+    @override
+    def format_array(self, lst: list) -> str:
+        """
+        Format construction of a shell array.
+        """
         return "@(" + ", ".join(str(i) for i in lst) + ")"
 
-    def format_array_get_item(self, arr_name, index) -> str:
+    @override
+    def format_array_get_item(self, arr_name: str, index: int | str) -> str:
+        """
+        Format retrieval of a shell array item at a specified index.
+        """
         return f"${arr_name}[{index}]"
 
-    def format_stream_assignment(self, shell_var_name, command):
+    @override
+    def format_stream_assignment(self, shell_var_name: str, command: str) -> str:
+        """
+        Produce code to assign the output of the command to a shell variable.
+        """
         return f"${shell_var_name} = {command}"
 
-    def format_source_functions_file(self, app_name, commands):
+    @override
+    def format_source_functions_file(self, app_name: str, commands: str) -> str:
+        """
+        Format sourcing (i.e. invocation) of the jobscript functions file.
+        """
         app_caps = app_name.upper()
         out = dedent(
             """\
@@ -265,13 +316,18 @@ class WindowsPowerShell(Shell):
 
         return out
 
-    def format_commands_file(self, app_name, commands):
+    @override
+    def format_commands_file(self, app_name: str, commands: str) -> str:
+        """
+        Format the commands file.
+        """
         return (
             self.format_source_functions_file(app_name, commands)
             + commands
             + "\nexit $LASTEXITCODE\n"
         )
 
+    @override
     def format_save_parameter(
         self,
         workflow_app_alias: str,
@@ -280,7 +336,10 @@ class WindowsPowerShell(Shell):
         cmd_idx: int,
         stderr: bool,
         app_name: str,
-    ):
+    ) -> str:
+        """
+        Produce code to save a parameter's value into the workflow persistent store.
+        """
         # TODO: quote shell_var_name as well? e.g. if it's a white-space delimited list?
         #   and test.
         stderr_str = " --stderr" if stderr else ""

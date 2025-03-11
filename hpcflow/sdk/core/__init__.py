@@ -10,8 +10,9 @@ https://tldp.org/LDP/abs/html/exitcodes.html
 
 import numpy as np
 
-
+#: Formats supported for templates.
 ALL_TEMPLATE_FORMATS = ("yaml", "json")
+#: The exit code used by an EAR when it aborts.
 ABORT_EXIT_CODE = 64
 SKIPPED_EXIT_CODE = 65
 NO_COMMANDS_EXIT_CODE = 66

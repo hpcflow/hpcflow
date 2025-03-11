@@ -1,4 +1,156 @@
 
+<a name="v0.2.0a193"></a>
+## [v0.2.0a193](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a192...v0.2.0a193) - 2025.02.19
+
+### 🐛 Bug Fixes
+
+* fix version of zarr
+
+
+<a name="v0.2.0a192"></a>
+## [v0.2.0a192](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a191...v0.2.0a192) - 2025.02.19
+
+
+<a name="v0.2.0a191"></a>
+## [v0.2.0a191](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a190...v0.2.0a191) - 2025.02.03
+
+### 🐛 Bug Fixes
+
+* correct logic for sge_parallel_env with 1 core
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a190"></a>
+## [v0.2.0a190](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a189...v0.2.0a190) - 2024.12.13
+
+### 🐛 Bug Fixes
+
+* replace call to non-existent method
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a189"></a>
+## [v0.2.0a189](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a188...v0.2.0a189) - 2024.12.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a188"></a>
+## [v0.2.0a188](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a187...v0.2.0a188) - 2024.12.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a187"></a>
+## [v0.2.0a187](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a186...v0.2.0a187) - 2024.12.08
+
+### ♻ Code Refactoring
+
+* make some util funcs reusable in MatFlow
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a186"></a>
+## [v0.2.0a186](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a185...v0.2.0a186) - 2024.12.06
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a185"></a>
+## [v0.2.0a185](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a184...v0.2.0a185) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* missing GHA updates!
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a184"></a>
+## [v0.2.0a184](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a183...v0.2.0a184) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* fix release workflow
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a183"></a>
+## [v0.2.0a183](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
+
+### 🐛 Bug Fixes
+
+* try to fix compression of centos pyinstaller directory build
+
+
+<a name="v0.2.0a182"></a>
+## [v0.2.0a182](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
+
+### 🐛 Bug Fixes
+
+* sync again with hpcflow-shared-docs
+* sync with hpcflow-shared-docs
+* sync with python-release-workflow repo
+* release workflow pyinstaller build on CentOS
+* pyinstaller build on CentOS
+* fix pytest call in centos integration tests
+* fix pytest call in centos integration tests
+* run centOS integration tests in a docker run step rather than using a job `container`
+* run centOS unit tests in a docker run step rather than using a job `container`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a181"></a>
+## [v0.2.0a181](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
+
+### 🐛 Bug Fixes
+
+* bump ruamel.yaml
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a180"></a>
+## [v0.2.0a180](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a179...v0.2.0a180) - 2024.09.24
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a179"></a>
+## [v0.2.0a179](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a178...v0.2.0a179) - 2024.09.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a178"></a>
 ## [v0.2.0a178](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a177...v0.2.0a178) - 2024.07.14
 

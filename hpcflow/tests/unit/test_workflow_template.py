@@ -1,7 +1,6 @@
 import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.test_utils import (
-    make_schemas,
     make_test_data_YAML_workflow_template,
 )
 

@@ -1,0 +1,3 @@
+"""
+Manifest for demonstration data.
+"""

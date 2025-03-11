@@ -1,5 +1,8 @@
+from __future__ import annotations
+from collections.abc import Mapping
 from pathlib import Path
 import pytest
+from typing import Any
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import (
@@ -24,137 +27,138 @@ def dummy_action_kwargs_pre_proc():
     return act_kwargs
 
 
-def test_action_equality(null_config):
+def test_action_equality(null_config) -> None:
     a1 = hf.Action(commands=[hf.Command("ls")], environments=[])
     a2 = hf.Action(commands=[hf.Command("ls")], environments=[])
     assert a1 == a2
 
 
-def test_action_scope_to_string_any():
+def test_action_scope_to_string_any() -> None:
     assert hf.ActionScope.any().to_string() == "any"
 
 
-def test_action_scope_to_string_main():
+def test_action_scope_to_string_main() -> None:
     assert hf.ActionScope.main().to_string() == "main"
 
 
-def test_action_scope_to_string_processing():
+def test_action_scope_to_string_processing() -> None:
     assert hf.ActionScope.processing().to_string() == "processing"
 
 
-def test_action_scope_to_string_input_file_generator_no_kwargs():
+def test_action_scope_to_string_input_file_generator_no_kwargs() -> None:
     assert hf.ActionScope.input_file_generator().to_string() == "input_file_generator"
 
 
-def test_action_scope_to_string_output_file_parser_no_kwargs():
+def test_action_scope_to_string_output_file_parser_no_kwargs() -> None:
     assert hf.ActionScope.output_file_parser().to_string() == "output_file_parser"
 
 
-def test_action_scope_to_string_input_file_generator_with_kwargs():
+def test_action_scope_to_string_input_file_generator_with_kwargs() -> None:
     assert (
         hf.ActionScope.input_file_generator(file="file1").to_string()
         == "input_file_generator[file=file1]"
     )
 
 
-def test_action_scope_to_string_output_file_parser_with_kwargs():
+def test_action_scope_to_string_output_file_parser_with_kwargs() -> None:
     assert (
         hf.ActionScope.output_file_parser(output="out1").to_string()
         == "output_file_parser[output=out1]"
     )
 
 
-def test_action_scope_class_method_init_scope_any():
+def test_action_scope_class_method_init_scope_any() -> None:
     assert hf.ActionScope(typ=hf.ActionScopeType.ANY) == hf.ActionScope.any()
 
 
-def test_action_scope_class_method_init_scope_main():
+def test_action_scope_class_method_init_scope_main() -> None:
     assert hf.ActionScope(typ=hf.ActionScopeType.MAIN) == hf.ActionScope.main()
 
 
-def test_action_scope_class_method_init_scope_processing():
+def test_action_scope_class_method_init_scope_processing() -> None:
     assert (
         hf.ActionScope(typ=hf.ActionScopeType.PROCESSING) == hf.ActionScope.processing()
     )
 
 
-def test_action_scope_class_method_init_scope_input_file_generator_no_kwargs():
+def test_action_scope_class_method_init_scope_input_file_generator_no_kwargs() -> None:
     assert (
         hf.ActionScope(typ=hf.ActionScopeType.INPUT_FILE_GENERATOR)
         == hf.ActionScope.input_file_generator()
     )
 
 
-def test_action_scope_class_method_init_scope_output_file_parser_no_kwargs():
+def test_action_scope_class_method_init_scope_output_file_parser_no_kwargs() -> None:
     assert (
         hf.ActionScope(typ=hf.ActionScopeType.OUTPUT_FILE_PARSER)
         == hf.ActionScope.output_file_parser()
     )
 
 
-def test_action_scope_class_method_init_scope_input_file_generator_with_kwargs():
+def test_action_scope_class_method_init_scope_input_file_generator_with_kwargs() -> None:
     assert hf.ActionScope(
         typ=hf.ActionScopeType.INPUT_FILE_GENERATOR, file="file1"
     ) == hf.ActionScope.input_file_generator(file="file1")
 
 
-def test_action_scope_class_method_init_scope_output_file_parser_with_kwargs():
+def test_action_scope_class_method_init_scope_output_file_parser_with_kwargs() -> None:
     assert hf.ActionScope(
         typ=hf.ActionScopeType.OUTPUT_FILE_PARSER, output="out1"
     ) == hf.ActionScope.output_file_parser(output="out1")
 
 
-def test_action_scope_raise_on_unknown_kwargs_type_any():
+def test_action_scope_raise_on_unknown_kwargs_type_any() -> None:
     with pytest.raises(TypeError):
         hf.ActionScope(typ=hf.ActionScopeType.ANY, bad="arg")
 
 
-def test_action_scope_raise_on_unknown_kwargs_type_main():
+def test_action_scope_raise_on_unknown_kwargs_type_main() -> None:
     with pytest.raises(TypeError):
         hf.ActionScope(typ=hf.ActionScopeType.MAIN, bad="arg")
 
 
-def test_action_scope_raise_on_unknown_kwargs_type_processing():
+def test_action_scope_raise_on_unknown_kwargs_type_processing() -> None:
     with pytest.raises(TypeError):
         hf.ActionScope(typ=hf.ActionScopeType.PROCESSING, bad="arg")
 
 
-def test_action_scope_raise_on_unknown_kwargs_type_input_file_generator():
+def test_action_scope_raise_on_unknown_kwargs_type_input_file_generator() -> None:
     with pytest.raises(TypeError):
         hf.ActionScope(typ=hf.ActionScopeType.INPUT_FILE_GENERATOR, bad="arg")
 
 
-def test_action_scope_raise_on_unknown_kwargs_type_output_file_parser():
+def test_action_scope_raise_on_unknown_kwargs_type_output_file_parser() -> None:
     with pytest.raises(TypeError):
         hf.ActionScope(typ=hf.ActionScopeType.OUTPUT_FILE_PARSER, bad="arg")
 
 
-def test_action_scope_no_raise_on_good_kwargs_type_input_file_generator():
+def test_action_scope_no_raise_on_good_kwargs_type_input_file_generator() -> None:
     hf.ActionScope(typ=hf.ActionScopeType.INPUT_FILE_GENERATOR, file="file1")
 
 
-def test_action_scope_no_raise_on_good_kwargs_type_output_file_parser():
+def test_action_scope_no_raise_on_good_kwargs_type_output_file_parser() -> None:
     hf.ActionScope(typ=hf.ActionScopeType.OUTPUT_FILE_PARSER, output="out1")
 
 
-def test_action_scope_no_raise_on_no_kwargs_type_input_file_generator():
+def test_action_scope_no_raise_on_no_kwargs_type_input_file_generator() -> None:
     hf.ActionScope(typ=hf.ActionScopeType.INPUT_FILE_GENERATOR)
 
 
-def test_action_scope_no_raise_on_no_kwargs_type_output_file_parser():
+def test_action_scope_no_raise_on_no_kwargs_type_output_file_parser() -> None:
     hf.ActionScope(typ=hf.ActionScopeType.OUTPUT_FILE_PARSER)
 
 
-def test_action_scope_json_like_round_trip():
+def test_action_scope_json_like_round_trip() -> None:
     as1 = hf.ActionScope.input_file_generator(file="file1")
     js, _ = as1.to_json_like()
+    assert isinstance(js, Mapping)
     as1_rl = hf.ActionScope.from_json_like(js)
     assert as1 == as1_rl
 
 
-def test_action_scope_from_json_like_string_and_dict_equality():
+def test_action_scope_from_json_like_string_and_dict_equality() -> None:
     as1_js = "input_file_generator[file=file1]"
-    as2_js = {
+    as2_js: Mapping[str, Any] = {
         "type": "input_file_generator",
         "kwargs": {
             "file": "file1",
@@ -163,67 +167,67 @@ def test_action_scope_from_json_like_string_and_dict_equality():
     assert hf.ActionScope.from_json_like(as1_js) == hf.ActionScope.from_json_like(as2_js)
 
 
-def test_get_command_input_types_sub_parameters_true_no_sub_parameter():
+def test_get_command_input_types_sub_parameters_true_no_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1>> + 100)")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1",)
 
 
-def test_get_command_input_types_sub_parameters_true_with_sub_parameter():
+def test_get_command_input_types_sub_parameters_true_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1.a>> + 100)")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1.a",)
 
 
-def test_get_command_input_types_sub_parameters_false_no_sub_parameter():
+def test_get_command_input_types_sub_parameters_false_no_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1>> + 100)")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1",)
 
 
-def test_get_command_input_types_sub_parameters_false_with_sub_parameter():
+def test_get_command_input_types_sub_parameters_false_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1.a>> + 100)")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1",)
 
 
-def test_get_command_input_types_sum_sub_parameters_true_no_sub_param():
+def test_get_command_input_types_sum_sub_parameters_true_no_sub_param() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output <<sum(parameter:p1)>>")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1",)
 
 
-def test_get_command_input_types_sum_sub_parameters_true_with_sub_parameter():
+def test_get_command_input_types_sum_sub_parameters_true_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output <<sum(parameter:p1.a)>>")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1.a",)
 
 
-def test_get_command_input_types_sum_sub_parameters_false_no_sub_param():
+def test_get_command_input_types_sum_sub_parameters_false_no_sub_param() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output <<sum(parameter:p1)>>")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1",)
 
 
-def test_get_command_input_types_sum_sub_parameters_false_with_sub_parameter():
+def test_get_command_input_types_sum_sub_parameters_false_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output <<sum(parameter:p1.a)>>")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1",)
 
 
-def test_get_command_input_types_label_sub_parameters_true_no_sub_param():
+def test_get_command_input_types_label_sub_parameters_true_no_sub_param() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1[one]>> + 100)")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1[one]",)
 
 
-def test_get_command_input_types_label_sub_parameters_true_with_sub_parameter():
+def test_get_command_input_types_label_sub_parameters_true_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1[one].a>> + 100)")])
     assert act.get_command_input_types(sub_parameters=True) == ("p1[one].a",)
 
 
-def test_get_command_input_types_label_sub_parameters_false_no_sub_param():
+def test_get_command_input_types_label_sub_parameters_false_no_sub_param() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1[one]>> + 100)")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1[one]",)
 
 
-def test_get_command_input_types_label_sub_parameters_false_with_sub_parameter():
+def test_get_command_input_types_label_sub_parameters_false_with_sub_parameter() -> None:
     act = hf.Action(commands=[hf.Command("Write-Output (<<parameter:p1[one].a>> + 100)")])
     assert act.get_command_input_types(sub_parameters=False) == ("p1[one]",)
 
 
-def test_get_script_name(null_config):
+def test_get_script_name(null_config) -> None:
     expected = {
         "<<script:/software/hello.py>>": "hello.py",
         "<<script:software/hello.py>>": "hello.py",
@@ -234,7 +238,7 @@ def test_get_script_name(null_config):
         assert hf.Action.get_script_name(k) == v
 
 
-def test_is_snippet_script(null_config):
+def test_is_snippet_script(null_config) -> None:
     expected = {
         "<<script:/software/hello.py>>": True,
         "<<script:software/hello.py>>": True,
@@ -245,7 +249,7 @@ def test_is_snippet_script(null_config):
         assert hf.Action.is_snippet_script(k) == v
 
 
-def test_get_snippet_script_path(null_config):
+def test_get_snippet_script_path(null_config) -> None:
     expected = {
         "<<script:/software/hello.py>>": Path("/software/hello.py"),
         "<<script:software/hello.py>>": Path("software/hello.py"),
@@ -255,17 +259,17 @@ def test_get_snippet_script_path(null_config):
         assert hf.Action.get_snippet_script_path(k) == v
 
 
-def test_get_snippet_script_path_False(null_config):
+def test_get_snippet_script_path_False(null_config) -> None:
     assert not hf.Action.get_snippet_script_path("/path/to/script.py")
 
 
-def test_process_script_data_in_str(null_config):
+def test_process_script_data_in_str(null_config) -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(objective="ts1", inputs=[hf.SchemaInput("p1")], actions=[act])
     assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
 
 
-def test_process_script_data_in_str_dict_equivalence(null_config):
+def test_process_script_data_in_str_dict_equivalence(null_config) -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"p1": "json"}
@@ -277,7 +281,7 @@ def test_process_script_data_in_str_dict_equivalence(null_config):
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_str_multi(null_config):
+def test_process_script_data_in_str_multi(null_config) -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -290,7 +294,7 @@ def test_process_script_data_in_str_multi(null_config):
     }
 
 
-def test_process_script_data_in_str_labelled_single(null_config):
+def test_process_script_data_in_str_labelled_single(null_config) -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -300,7 +304,7 @@ def test_process_script_data_in_str_labelled_single(null_config):
     assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
 
 
-def test_process_script_data_in_str_labelled_multiple(null_config):
+def test_process_script_data_in_str_labelled_multiple(null_config) -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -310,7 +314,7 @@ def test_process_script_data_in_str_labelled_multiple(null_config):
     assert ts.actions[0].script_data_in == {"p1[one]": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_all_str_equivalence(null_config):
+def test_process_script_data_in_dict_all_str_equivalence(null_config) -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"*": "json"}
@@ -322,7 +326,7 @@ def test_process_script_data_in_dict_all_str_equivalence(null_config):
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_dict_all_str_equivalence_multi(null_config):
+def test_process_script_data_in_dict_all_str_equivalence_multi(null_config) -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"*": "json"}
@@ -342,7 +346,7 @@ def test_process_script_data_in_dict_all_str_equivalence_multi(null_config):
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_dict_mixed(null_config):
+def test_process_script_data_in_dict_mixed(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "p2": "hdf5"},
@@ -358,7 +362,7 @@ def test_process_script_data_in_dict_mixed(null_config):
     }
 
 
-def test_process_script_data_in_dict_mixed_all(null_config):
+def test_process_script_data_in_dict_mixed_all(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "*": "hdf5"},
@@ -379,7 +383,7 @@ def test_process_script_data_in_dict_mixed_all(null_config):
     }
 
 
-def test_process_script_data_in_dict_labels_multiple(null_config):
+def test_process_script_data_in_dict_labels_multiple(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json"},
@@ -394,7 +398,7 @@ def test_process_script_data_in_dict_labels_multiple(null_config):
     assert ts.actions[0].script_data_in == {"p1[one]": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_labels_multiple_two(null_config):
+def test_process_script_data_in_dict_labels_multiple_two(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "p1[two]": "hdf5"},
@@ -412,7 +416,7 @@ def test_process_script_data_in_dict_labels_multiple_two(null_config):
     }
 
 
-def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config):
+def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "*": "hdf5"},
@@ -430,7 +434,7 @@ def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config):
     }
 
 
-def test_process_script_data_in_dict_excluded(null_config):
+def test_process_script_data_in_dict_excluded(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json"},
@@ -446,7 +450,7 @@ def test_process_script_data_in_dict_excluded(null_config):
     assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled(null_config):
+def test_process_script_data_in_dict_unlabelled_to_labelled(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json"},
@@ -464,7 +468,9 @@ def test_process_script_data_in_dict_unlabelled_to_labelled(null_config):
     }
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(null_config):
+def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(
+    null_config,
+) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "p1[two]": "hdf5"},
@@ -482,7 +488,7 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(nul
     }
 
 
-def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config):
+def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "*": "hdf5"},
@@ -500,7 +506,9 @@ def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config):
     }
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(null_config):
+def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(
+    null_config,
+) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "*": "hdf5"},
@@ -520,7 +528,7 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(null
     }
 
 
-def test_process_script_data_in_str_raise_invalid_format(null_config):
+def test_process_script_data_in_str_raise_invalid_format(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in="some_weird_format"
     )
@@ -532,7 +540,7 @@ def test_process_script_data_in_str_raise_invalid_format(null_config):
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_parameter(null_config):
+def test_process_script_data_in_dict_raise_invalid_parameter(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p2": "json"},
@@ -545,7 +553,9 @@ def test_process_script_data_in_dict_raise_invalid_parameter(null_config):
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(null_config):
+def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(
+    null_config,
+) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[two]": "json"},
@@ -558,10 +568,11 @@ def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(null_
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_script_key(null_config):
+def test_process_script_data_in_dict_raise_invalid_script_key(null_config) -> None:
+    bad_script_data: Any = {"p1": {"format": "json", "BAD_KEY": 1}}
     act = hf.Action(
         script="<<script:path/to/some/script>>",
-        script_data_in={"p1": {"format": "json", "BAD_KEY": 1}},
+        script_data_in=bad_script_data,
     )
     with pytest.raises(UnknownScriptDataKey):
         hf.TaskSchema(
@@ -571,7 +582,7 @@ def test_process_script_data_in_dict_raise_invalid_script_key(null_config):
         )
 
 
-def test_process_script_data_out_mixed(null_config):
+def test_process_script_data_out_mixed(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in="json",
@@ -589,7 +600,7 @@ def test_process_script_data_out_mixed(null_config):
     }
 
 
-def test_process_script_data_in_fmt_dict_mixed(null_config):
+def test_process_script_data_in_fmt_dict_mixed(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": {"format": "json"}, "p2": "hdf5"},
@@ -605,22 +616,22 @@ def test_process_script_data_in_fmt_dict_mixed(null_config):
     }
 
 
-def test_ActionEnvironment_env_str(null_config):
+def test_ActionEnvironment_env_str(null_config) -> None:
     act_env = hf.ActionEnvironment(environment="my_env")
     assert act_env.environment == {"name": "my_env"}
 
 
-def test_ActionEnvironment_env_dict(null_config):
+def test_ActionEnvironment_env_dict(null_config) -> None:
     act_env = hf.ActionEnvironment(environment={"name": "my_env", "key": "value"})
     assert act_env.environment == {"name": "my_env", "key": "value"}
 
 
-def test_ActionEnvironment_raises_on_missing_name(null_config):
+def test_ActionEnvironment_raises_on_missing_name(null_config) -> None:
     with pytest.raises(ActionEnvironmentMissingNameError):
         hf.ActionEnvironment(environment={"key": "value"})
 
 
-def test_rules_allow_runs_initialised(null_config, tmp_path):
+def test_rules_allow_runs_initialised(null_config, tmp_path: Path):
     """Test rules that do not depend on execution allow for runs to be initialised."""
     act = hf.Action(
         script="<<script:path/to/some/script>>",
@@ -645,7 +656,7 @@ def test_rules_allow_runs_initialised(null_config, tmp_path):
     assert len(wk.tasks[0].elements[1].actions) == 0
 
 
-def test_rules_prevent_runs_initialised(null_config, tmp_path):
+def test_rules_prevent_runs_initialised(null_config, tmp_path: Path):
     """Test rules that depend on execution prevent initialising runs."""
     act1 = hf.Action(script="<<script:path/to/some/script>>")
     act2 = hf.Action(
@@ -674,7 +685,7 @@ def test_rules_prevent_runs_initialised(null_config, tmp_path):
     assert not wk.tasks[1].elements[0].iterations[0].EARs_initialised
 
 
-def test_command_rules_allow_runs_initialised(null_config, tmp_path):
+def test_command_rules_allow_runs_initialised(null_config, tmp_path: Path):
     """Test command rules that do not depend on execution allow for runs to be
     initialised."""
     act = hf.Action(
@@ -706,7 +717,7 @@ def test_command_rules_allow_runs_initialised(null_config, tmp_path):
     assert len(wk.tasks[0].elements[1].action_runs[0].commands_idx) == 0
 
 
-def test_command_rules_prevent_runs_initialised(null_config, tmp_path):
+def test_command_rules_prevent_runs_initialised(null_config, tmp_path: Path):
     """Test command rules that do depend on execution prevent runs being initialised."""
     act1 = hf.Action(
         commands=[
@@ -745,7 +756,7 @@ def test_command_rules_prevent_runs_initialised(null_config, tmp_path):
 
 
 def test_command_rules_prevent_runs_initialised_with_valid_action_rules(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     """Test command rules that do depend on execution prevent runs being initialised, even
     when the parent action rules can be tested and are valid."""

@@ -1,15 +1,19 @@
 """Sub-package to define an extensible hpcflow application."""
 
+from __future__ import annotations
+from collections.abc import Mapping
 import logging
 import os
 import sys
+from typing import Final
 
-# classes used in the construction of a workflow:
-sdk_classes = {
+#: Classes used in the construction of a workflow.
+#: :meta hide-value:
+sdk_classes: Final[Mapping[str, str]] = {
     "Workflow": "hpcflow.sdk.core.workflow",
     "Task": "hpcflow.sdk.core.task",
     "MetaTask": "hpcflow.sdk.core.task",
-    "ActionScopeType": "hpcflow.sdk.core.actions",
+    "ActionScopeType": "hpcflow.sdk.core.enums",
     "ActionScope": "hpcflow.sdk.core.actions",
     "ActionRule": "hpcflow.sdk.core.actions",
     "Rule": "hpcflow.sdk.core.rule",
@@ -69,9 +73,9 @@ sdk_classes = {
     "ValuePerturbation": "hpcflow.sdk.core.parameters",
     "InputValue": "hpcflow.sdk.core.parameters",
     "ResourceSpec": "hpcflow.sdk.core.parameters",
-    "TaskSourceType": "hpcflow.sdk.core.parameters",
-    "InputSourceType": "hpcflow.sdk.core.parameters",
-    "ParameterPropagationMode": "hpcflow.sdk.core.parameters",
+    "TaskSourceType": "hpcflow.sdk.core.enums",
+    "InputSourceType": "hpcflow.sdk.core.enums",
+    "ParameterPropagationMode": "hpcflow.sdk.core.enums",
     "InputSource": "hpcflow.sdk.core.parameters",
     "TaskObjective": "hpcflow.sdk.core.task_schema",
     "TaskSchema": "hpcflow.sdk.core.task_schema",
@@ -90,6 +94,7 @@ sdk_classes = {
     "Jobscript": "hpcflow.sdk.submission.jobscript",
     "JobscriptBlock": "hpcflow.sdk.submission.jobscript",
     "Submission": "hpcflow.sdk.submission.submission",
+    "QueuedScheduler": "hpcflow.sdk.submission.schedulers",
     "DirectWindows": "hpcflow.sdk.submission.schedulers.direct",
     "DirectPosix": "hpcflow.sdk.submission.schedulers.direct",
     "SlurmPosix": "hpcflow.sdk.submission.schedulers.slurm",
@@ -99,7 +104,9 @@ sdk_classes = {
 }
 
 # these are defined as `BaseApp` methods with an underscore prefix:
-sdk_funcs = (
+#: Functions exported by the application.
+#: :meta hide-value:
+sdk_funcs: Final[tuple[str, ...]] = (
     "make_workflow",
     "make_demo_workflow",
     "make_and_submit_workflow",
@@ -115,24 +122,26 @@ sdk_funcs = (
     "cancel",
 )
 
-_SDK_CONSOLE_LOG_LEVEL = os.environ.get("HPCFLOW_SDK_CONSOLE_LOG_LEVEL", "ERROR")
 
-
-def get_SDK_logger(name=None):
+def get_SDK_logger(name: str | None = None) -> logging.Logger:
     """Get a logger with prefix of "hpcflow_sdk" instead of "hpcflow.sdk" to ensure the
     handlers of the SDK logger and app logger are distinct."""
     name = ".".join(["hpcflow_sdk"] + (name or __name__).split(".")[2:])
     return logging.getLogger(name)
 
 
-_SDK_logger = get_SDK_logger()
-_SDK_logger.setLevel("DEBUG")
+def _init_logger() -> None:
+    level = os.environ.get("HPCFLOW_SDK_CONSOLE_LOG_LEVEL", "ERROR")
+    SDK_logger = get_SDK_logger()
+    SDK_logger.setLevel("DEBUG")
 
-_sh = logging.StreamHandler()
-_sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-_sh.setLevel(_SDK_CONSOLE_LOG_LEVEL)
-_SDK_logger.addHandler(_sh)
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    sh.setLevel(level)
+    SDK_logger.addHandler(sh)
 
+
+_init_logger()
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     import multiprocessing
 

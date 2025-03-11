@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-import zarr
+import zarr  # type: ignore
 import numpy as np
 from numpy.typing import NDArray
 from hpcflow.sdk.core.errors import InvalidIdentifier, MissingVariableSubstitutionError
@@ -185,7 +185,7 @@ def zarr_column_array(tmp_path: Path):
         dtype=int,
         fill_value=fill_value,
     )
-    arr[:] = np.arange(np.product(arr.shape)).reshape(arr.shape)
+    arr[:] = np.arange(np.prod(arr.shape)).reshape(arr.shape)
     return arr, headers, fill_value
 
 
@@ -497,18 +497,13 @@ def test_substitute_string_vars_repeated_var():
     )
 
 
-def test_substitute_string_vars_no_vars():
-    assert (
-        substitute_string_vars(
-            "hello bob!",
-        )
-        == "hello bob!"
-    )
+def test_substitute_string_vars_empty_vars():
+    assert substitute_string_vars("hello bob!", variables={}) == "hello bob!"
 
 
 def test_substitute_string_vars_raise_no_vars():
     with pytest.raises(MissingVariableSubstitutionError):
-        substitute_string_vars("hello <<var:my_name>>")
+        substitute_string_vars("hello <<var:my_name>>", variables={})
 
 
 def test_substitute_string_vars_raise_missing():
@@ -521,7 +516,10 @@ def test_substitute_string_vars_non_str():
 
 
 def test_substitute_string_vars_default_value():
-    assert substitute_string_vars("hello <<var:my_name[default=bill]>>!") == "hello bill!"
+    assert (
+        substitute_string_vars("hello <<var:my_name[default=bill]>>!", variables={})
+        == "hello bill!"
+    )
 
 
 def test_substitute_string_vars_default_value_with_specified():

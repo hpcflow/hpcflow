@@ -283,17 +283,15 @@ def test_force_array(null_config, tmp_path):
 
 def test_merge_jobscript_multi_dependence(null_config, tmp_path):
     s1, s2, s3 = make_schemas(
-        [
-            [{}, ("p1", "p2"), "t1"],
-            [
-                {
-                    "p1": None,
-                },
-                ("p3",),
-                "t2",
-            ],
-            [{"p1": None, "p3": None}, tuple(), "t3"],
-        ]
+        ({}, ("p1", "p2"), "t1"),
+        (
+            {
+                "p1": None,
+            },
+            ("p3",),
+            "t2",
+        ),
+        ({"p1": None, "p3": None}, tuple(), "t3"),
     )
     wk = hf.Workflow.from_template_data(
         template_name="test_merge_js",
@@ -314,17 +312,15 @@ def test_merge_jobscript_multi_dependence(null_config, tmp_path):
 def test_merge_jobscript_multi_dependence_non_array_source(null_config, tmp_path):
     # the second two jobscripts should merge
     s1, s2, s3 = make_schemas(
-        [
-            [{}, ("p1", "p2"), "t1"],
-            [
-                {
-                    "p1": None,
-                },
-                ("p3",),
-                "t2",
-            ],
-            [{"p1": None, "p3": None}, tuple(), "t3"],
-        ]
+        ({}, ("p1", "p2"), "t1"),
+        (
+            {
+                "p1": None,
+            },
+            ("p3",),
+            "t2",
+        ),
+        ({"p1": None, "p3": None}, tuple(), "t3"),
     )
     wk = hf.Workflow.from_template_data(
         template_name="wk_test_merge",
@@ -345,12 +341,10 @@ def test_merge_jobscript_multi_dependence_non_array_source(null_config, tmp_path
 def test_multi_block_jobscript_multi_dependence(null_config, tmp_path):
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks = [
         hf.Task(schema=s1, inputs={"p1": 101}),
@@ -372,12 +366,10 @@ def test_multi_block_jobscript_multi_dependence(null_config, tmp_path):
 def test_multi_block_jobscript_multi_dependence_distinct_resources(null_config, tmp_path):
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks = [
         hf.Task(schema=s1, inputs={"p1": 101}),
@@ -403,11 +395,9 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_
 ):
 
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-        ]
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
     )
     s4 = hf.TaskSchema(
         objective="t4",
@@ -536,12 +526,10 @@ def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(null_config, tmp_path):
     equivalence."""
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks_zarr = [
         hf.Task(schema=s1, inputs={"p1": 101}),
@@ -594,12 +582,10 @@ def test_jobscript_task_element_maps_equivalence_JSON_Zarr(null_config, tmp_path
     equivalence."""
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks_zarr = [
         hf.Task(schema=s1, inputs={"p1": 101}),
@@ -656,12 +642,10 @@ def test_jobscript_task_actions_equivalence_JSON_Zarr(null_config, tmp_path):
     equivalence."""
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks_zarr = [
         hf.Task(schema=s1, inputs={"p1": 101}),
@@ -718,12 +702,10 @@ def test_jobscript_dependencies_equivalence_JSON_Zarr(null_config, tmp_path):
     equivalence."""
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2", "p3"), "t1"],
-            [{"p2": None}, ("p4",), "t2"],
-            [{"p4": None}, ("p5",), "t3"],
-            [{"p3": None, "p5": None}, (), "t4"],
-        ]
+        ({"p1": None}, ("p2", "p3"), "t1"),
+        ({"p2": None}, ("p4",), "t2"),
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p3": None, "p5": None}, (), "t4"),
     )
     tasks_zarr = [
         hf.Task(schema=s1, inputs={"p1": 101}),

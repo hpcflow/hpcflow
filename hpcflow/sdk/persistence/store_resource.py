@@ -1,10 +1,22 @@
+"""
+Models of data stores as resources.
+"""
+
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import copy
 import json
-from pathlib import Path
-from typing import Callable, Union
+from typing import Any, Callable, TYPE_CHECKING
 
 from hpcflow.sdk.core.utils import get_md5_hash
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from logging import Logger
+    from pathlib import Path
+    import zarr  # type: ignore
+    from fsspec import AbstractFileSystem  # type: ignore
+    from ..app import BaseApp
 
 
 class StoreResource(ABC):
@@ -13,30 +25,47 @@ class StoreResource(ABC):
     A `PersistentStore` maps workflow data across zero or more store resources. Updates to
     persistent workflow data that live in the same store resource are performed together.
 
+    Parameters
+    ----------
+    app: App
+        The main application context.
+    name:
+        The store name.
     """
 
-    def __init__(self, app, name: str) -> None:
-        self.app = app
+    def __init__(self, app: BaseApp, name: str) -> None:
+        self._app = app
         self.name = name
-        self.data = {"read": None, "update": None}
+        self.data: dict[str, Any] = {"read": None, "update": None}
         self.hash = None
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name={self.name!r})"
 
     @property
-    def logger(self):
-        return self.app.persistence_logger
+    def logger(self) -> Logger:
+        """
+        The logger.
+        """
+        return self._app.persistence_logger
 
     @abstractmethod
-    def _load(self):
+    def _load(self) -> Any:
         pass
 
     @abstractmethod
-    def _dump(self, data):
+    def _dump(self, data: dict | list):
         pass
 
-    def open(self, action):
+    def open(self, action: str):
+        """
+        Open the store.
+
+        Parameters
+        ----------
+        action:
+            What we are opening the store for; typically either ``read`` or ``update``.
+        """
 
         # TODO: some tests?
 
@@ -62,11 +91,20 @@ class StoreResource(ABC):
         self.data[action] = data
 
         try:
-            self.hash = get_md5_hash(data)
+            self.hash = get_md5_hash(data)  # type: ignore
         except Exception:
             pass
 
-    def close(self, action):
+    def close(self, action: str):
+        """
+        Close the store for a particular action.
+
+        Parameters
+        ----------
+        action:
+            What we are closing the store for.
+            Should match a previous call to :py:meth:`close`.
+        """
         if action == "read":
             self.logger.debug(f"{self!r}: closing read.")
         elif action == "update":
@@ -91,42 +129,75 @@ class StoreResource(ABC):
 
 
 class JSONFileStoreResource(StoreResource):
-    """For caching reads and writes to a JSON file."""
+    """
+    For caching reads and writes to a JSON file.
 
-    def __init__(self, app, name: str, filename: str, path: Union[str, Path], fs):
+    Parameters
+    ----------
+    app: App
+        The main application context.
+    name:
+        The store name.
+    filename:
+        The name of the JSON file.
+    path:
+        The path to the directory containing the JSON file.
+    fs:
+        The filesystem that the JSON file resides within.
+    """
+
+    def __init__(
+        self,
+        app: BaseApp,
+        name: str,
+        filename: str,
+        path: str | Path,
+        fs: AbstractFileSystem,
+    ):
         self.filename = filename
         self.path = path
         self.fs = fs
         super().__init__(app, name)
 
     @property
-    def _full_path(self):
+    def _full_path(self) -> str:
         return f"{self.path}/{self.filename}"
 
-    def _load(self):
+    def _load(self) -> Any:
         self.logger.debug(f"{self!r}: loading JSON from file.")
         with self.fs.open(self._full_path, mode="rt") as fp:
             return json.load(fp)
 
-    def _dump(self, data):
+    def _dump(self, data: Mapping | list):
         self.logger.debug(f"{self!r}: dumping JSON to file")
         with self.fs.open(self._full_path, mode="wt") as fp:
             json.dump(data, fp, indent=2)
 
 
 class ZarrAttrsStoreResource(StoreResource):
-    """For caching reads and writes to Zarr attributes on groups and arrays."""
+    """
+    For caching reads and writes to Zarr attributes on groups and arrays.
 
-    def __init__(self, app, name: str, open_call: Callable):
+    Parameters
+    ----------
+    app: App
+        The main application context.
+    name:
+        The store name.
+    open_call:
+        How to actually perform an open on the underlying resource.
+    """
+
+    def __init__(self, app: BaseApp, name: str, open_call: Callable[..., zarr.Group]):
         self.open_call = open_call
         super().__init__(app, name)
 
-    def _load(self):
+    def _load(self) -> Any:
         self.logger.debug(f"{self!r}: loading Zarr attributes.")
         item = self.open_call(mode="r")
         return copy.deepcopy(item.attrs.asdict())
 
-    def _dump(self, data):
+    def _dump(self, data: dict | list):
         self.logger.debug(f"{self!r}: dumping Zarr attributes.")
         item = self.open_call(mode="r+")
         item.attrs.put(data)

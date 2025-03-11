@@ -7,10 +7,10 @@ import time
 
 import zmq
 
+from hpcflow.sdk.core.app_aware import AppAware
 
-class Executor:
-    _app_attr = "app"
 
+class Executor(AppAware):
     def __init__(self, cmd, env, package_name):
 
         # TODO: make zmq_server optional (but required if action is abortable, or if
@@ -50,18 +50,18 @@ class Executor:
         """
         socket = self.zmq_context.socket(zmq.REP)
         port_number = socket.bind_to_random_port("tcp://*")
-        self.app.logger.info(f"zmq_server: started on port {port_number}")
+        self._app.logger.info(f"zmq_server: started on port {port_number}")
 
         # send port number back to main thread:
         self.q.put(port_number)
 
-        self.app.logger.info(f"zmq_server: port number sent to main thread.")
+        self._app.logger.info(f"zmq_server: port number sent to main thread.")
 
         # TODO: exception handling
 
         while True:
             message = socket.recv_string()
-            self.app.logger.info(f"zmq_server: received request: {message}")
+            self._app.logger.info(f"zmq_server: received request: {message}")
 
             # Check if the received message is a shutdown signal
             if message in ("shutdown", "abort"):
@@ -73,7 +73,7 @@ class Executor:
                 socket.send_string(f"received request: {message}")
 
         socket.close()
-        self.app.logger.info("zmq_server: server stopped")
+        self._app.logger.info("zmq_server: server stopped")
 
     def start_zmq_server(self) -> int:
 
@@ -81,7 +81,7 @@ class Executor:
         server_thread = threading.Thread(target=self._zmq_server)
         server_thread.start()
 
-        self.app.logger.info(f"server thread started")
+        self._app.logger.info(f"server thread started")
 
         if os.name == "nt":
             # some sort of race condition seems to exist on Windows, where self.q.get()
@@ -91,7 +91,7 @@ class Executor:
 
         # block until port number received:
         port_number = self.q.get(timeout=5)
-        self.app.logger.info(f"received port number from server thread: {port_number}")
+        self._app.logger.info(f"received port number from server thread: {port_number}")
 
         self.port_number = port_number
         self.server_thread = server_thread
@@ -104,19 +104,19 @@ class Executor:
         socket = self.zmq_context.socket(zmq.REQ)
         address = f"tcp://localhost:{self.port_number}"
         socket.connect(address)
-        self.app.logger.info(
+        self._app.logger.info(
             f"stop_zmq_server: about to send shutdown message to server: {address!r}"
         )
         socket.send_string("shutdown")
         send_shutdown_out = socket.recv()
-        self.app.logger.info(f"stop_zmq_server: received reply: {send_shutdown_out!r}")
+        self._app.logger.info(f"stop_zmq_server: received reply: {send_shutdown_out!r}")
         socket.close()
 
         # wait for the server thread to finish:
-        self.app.logger.info(f"stop_zmq_server: joining server thread")
+        self._app.logger.info(f"stop_zmq_server: joining server thread")
         self.server_thread.join()
 
-        self.app.logger.info(f"stop_zmq_server: terminating ZMQ context")
+        self._app.logger.info(f"stop_zmq_server: terminating ZMQ context")
         self.zmq_context.term()
         if self.server_thread.is_alive():
             raise RuntimeError("Server thread is still alive!")
@@ -139,9 +139,11 @@ class Executor:
         env = {**self.env, f"{app_caps}_RUN_PORT": str(self.port_number)}
         try:
             process = await asyncio.create_subprocess_exec(*self.cmd, env=env)
-            self.app.logger.info(f"_subprocess_runner: started subprocess: {process=!r}.")
+            self._app.logger.info(
+                f"_subprocess_runner: started subprocess: {process=!r}."
+            )
             ret_code = await process.wait()
-            self.app.logger.info(
+            self._app.logger.info(
                 f"_subprocess_runner: subprocess finished with return code: {ret_code!r}."
             )
             self.return_code = ret_code
@@ -174,12 +176,12 @@ class Executor:
 
         if pending == {wait_abort_task}:
             # subprocess completed; need to shutdown the server
-            self.app.logger.info(f"_run: subprocess completed; stopping zmq server")
+            self._app.logger.info(f"_run: subprocess completed; stopping zmq server")
             self.stop_zmq_server()
 
         else:
             # subprocess still running but got a stop request; need to kill subprocess:
-            self.app.logger.info(f"_run: stop request; killing subprocess")
+            self._app.logger.info(f"_run: stop request; killing subprocess")
             subprocess_task.cancel()
 
         if self.return_code and os.name == "nt":
@@ -195,11 +197,11 @@ class Executor:
         socket = context.socket(zmq.REQ)
         address = f"tcp://{hostname}:{port_number}"
         socket.connect(address)
-        cls.app.logger.info(
+        cls._app.logger.info(
             f"send_abort: about to send abort message to server: {address!r}"
         )
         socket.send_string("abort")
         abort_rep = socket.recv()
-        cls.app.logger.info(f"send_abort: received reply: {abort_rep!r}")
+        cls._app.logger.info(f"send_abort: received reply: {abort_rep!r}")
         socket.close()
         context.term()

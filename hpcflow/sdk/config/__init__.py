@@ -1,1 +1,5 @@
-from .config import Config, ConfigFile, ConfigOptions, DEFAULT_CONFIG
+"""
+Configuration loading and manipulation.
+"""
+
+from hpcflow.sdk.config.config import Config, ConfigFile, ConfigOptions, DEFAULT_CONFIG

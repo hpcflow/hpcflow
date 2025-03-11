@@ -1,40 +1,69 @@
+"""
+General model of a searchable serializable list.
+"""
+
+from __future__ import annotations
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 import copy
+import sys
 from types import SimpleNamespace
+from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
+from typing_extensions import override
 
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+    from typing import Any, ClassVar, Literal
+    from typing_extensions import Self, TypeIs
+    from zarr import Group  # type: ignore
+    from .actions import ActionScope
+    from .command_files import FileSpec
+    from .environment import Environment, Executable
+    from .loop import WorkflowLoop
+    from .json_like import JSONable, JSONed
+    from .parameters import Parameter, ResourceSpec
+    from .task import Task, TaskTemplate, TaskSchema, WorkflowTask, ElementSet
+    from .types import Resources
+    from .workflow import WorkflowTemplate
+
+T = TypeVar("T")
+
 
 class ObjectListMultipleMatchError(ValueError):
-    pass
-
-
-class ObjectList(JSONLike):
-    """A list-like class that provides item access via a `get` method according to
-    attributes or dict-keys.
-
+    """
+    Thrown when an object looked up by unique attribute ends up with multiple objects
+    being matched.
     """
 
-    def __init__(self, objects, descriptor=None):
-        """
 
-        Parameters
-        ----------
-        objects : sequence
-            List
-        access_attribute : str
-            Name of the attribute through which objects are accessed. The values must be
-            hashable.
-        descriptor : str
+class ObjectList(JSONLike, Generic[T]):
+    """
+    A list-like class that provides item access via a `get` method according to
+    attributes or dict-keys.
 
-        """
+    Parameters
+    ----------
+    objects : sequence
+        List of values of some type.
+    descriptor : str
+        Descriptive name for objects in the list.
+    """
 
+    # This would be in the docstring except it renders really wrongly!
+    # Type Parameters
+    # ---------------
+    # T
+    #     The type of elements of the list.
+
+    def __init__(self, objects: Iterable[T], descriptor: str | None = None):
         self._objects = list(objects)
         self._descriptor = descriptor or "object"
-        self._object_is_dict = False
-
+        self._object_is_dict: bool = False
         self._validate()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
         obj = self.__class__(copy.deepcopy(self._objects, memo))
         obj._descriptor = self._descriptor
         obj._object_is_dict = self._object_is_dict
@@ -54,61 +83,62 @@ class ObjectList(JSONLike):
         return repr(self._objects)
 
     def __str__(self):
-        return str([self._get_item(i) for i in self._objects])
+        return str([self._get_item(obj) for obj in self._objects])
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[T]:
         if self._object_is_dict:
-            return iter(self._get_item(i) for i in self._objects)
+            return iter(self._get_item(obj) for obj in self._objects)
         else:
             return self._objects.__iter__()
 
-    def __getitem__(self, key):
-        """Provide list-like index access."""
-        return self._get_item(self._objects.__getitem__(key))
+    @overload
+    def __getitem__(self, key: int) -> T:
+        ...
 
-    def __contains__(self, item):
+    @overload
+    def __getitem__(self, key: slice) -> list[T]:
+        ...
+
+    def __getitem__(self, key: int | slice) -> T | list[T]:
+        """Provide list-like index access."""
+        if isinstance(key, slice):
+            return list(map(self._get_item, self._objects.__getitem__(key)))
+        else:
+            return self._get_item(self._objects.__getitem__(key))
+
+    def __contains__(self, item: T) -> bool:
         if self._objects:
-            if type(item) == type(self._get_item(self._objects[0])):
+            if type(item) is type(self._get_item(self._objects[0])):
                 return self._objects.__contains__(item)
         return False
 
-    def __eq__(self, other):
-        return self._objects == other
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, self.__class__) and self._objects == other._objects
 
-    def list_attrs(self):
-        """Get a tuple of the unique access-attribute values of the constituent objects."""
-        return tuple(self._index.keys())
-
-    def _get_item(self, obj):
+    def _get_item(self, obj: T):
         if self._object_is_dict:
             return obj.__dict__
         else:
             return obj
 
-    def _get_obj_attr(self, obj, attr):
+    def _get_obj_attr(self, obj: T, attr: str):
         """Overriding this function allows control over how the `get` functions behave."""
         return getattr(obj, attr)
 
-    def _get_all_from_objs(self, objs, **kwargs):
-        # narrow down according to kwargs:
-        specified_objs = []
+    def __specified_objs(self, objs: Iterable[T], kwargs: dict[str, Any]) -> Iterator[T]:
         for obj in objs:
-            skip_obj = False
             for k, v in kwargs.items():
                 try:
-                    obj_key_val = self._get_obj_attr(obj, k)
+                    if self._get_obj_attr(obj, k) != v:
+                        break
                 except (AttributeError, KeyError):
-                    skip_obj = True
                     break
-                if obj_key_val != v:
-                    skip_obj = True
-                    break
-            if skip_obj:
-                continue
             else:
-                specified_objs.append(obj)
+                yield obj
 
-        return [self._get_item(i) for i in specified_objs]
+    def _get_all_from_objs(self, objs: Iterable[T], **kwargs):
+        # narrow down according to kwargs:
+        return [self._get_item(obj) for obj in self.__specified_objs(objs, kwargs)]
 
     def get_all(self, **kwargs):
         """Get one or more objects from the object list, by specifying the value of the
@@ -116,11 +146,11 @@ class ObjectList(JSONLike):
 
         return self._get_all_from_objs(self._objects, **kwargs)
 
-    def _validate_get(self, result, kwargs):
+    def _validate_get(self, result: Sequence[T], kwargs: dict[str, Any]):
         if not result:
-            available = []
+            available: list[dict[str, Any]] = []
             for obj in self._objects:
-                attr_vals = {}
+                attr_vals: dict[str, Any] = {}
                 for k in kwargs:
                     try:
                         attr_vals[k] = self._get_obj_attr(obj, k)
@@ -144,34 +174,110 @@ class ObjectList(JSONLike):
         attribute, and optionally additional keyword-argument attribute values."""
         return self._validate_get(self.get_all(**kwargs), kwargs)
 
-    def add_object(self, obj, index=-1, skip_duplicates=False):
+    @overload
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: Literal[False] = False
+    ) -> int:
+        ...
+
+    @overload
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: Literal[True]
+    ) -> int | None:
+        ...
+
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: bool = False
+    ) -> None | int:
+        """
+        Add an object to this object list.
+
+        Parameters
+        ----------
+        obj:
+            The object to add.
+        index:
+            Where to add it. Omit to append.
+        skip_duplicates:
+            If true, don't add the object if it is already in the list.
+
+        Returns
+        -------
+            The index of the added object, or ``None`` if the object was not added.
+        """
         if skip_duplicates and obj in self:
-            return
+            return None
 
         if index < 0:
             index += len(self) + 1
 
         if self._object_is_dict:
-            obj = SimpleNamespace(**obj)
+            obj = cast("T", SimpleNamespace(**cast("dict", obj)))
 
         self._objects = self._objects[:index] + [obj] + self._objects[index:]
         self._validate()
         return index
 
 
-class DotAccessObjectList(ObjectList):
-    """Provide dot-notation access via an access attribute for the case where the access
-    attribute uniquely identifies a single object."""
+class DotAccessAttributeError(AttributeError):
+    def __init__(self, name: str, obj: DotAccessObjectList) -> None:
+        msg = f"{obj._descriptor.title()} {name!r} does not exist. "
+        if obj._objects:
+            attr = obj._access_attribute
+            obj_list = (f'"{getattr(obj, attr)}"' for obj in obj._objects)
+            msg += f"Available {obj._descriptor}s are: {', '.join(obj_list)}."
+        else:
+            msg += "The object list is empty."
+        if sys.version_info >= (3, 10):
+            super().__init__(msg, name=name, obj=obj)
+        else:
+            super().__init__(msg)
+
+
+class DotAccessObjectList(ObjectList[T], Generic[T]):
+    """
+    Provide dot-notation access via an access attribute for the case where the access
+    attribute uniquely identifies a single object.
+
+    Parameters
+    ----------
+    _objects:
+        The objects in the list.
+    access_attribute:
+        The main attribute for selection and filtering. A unique property.
+    descriptor: str
+        Descriptive name for the objects in the list.
+    """
+
+    # This would be in the docstring except it renders really wrongly!
+    # Type Parameters
+    # ---------------
+    # T
+    #     The type of elements of the list.
 
     # access attributes must not be named after any "public" methods, to avoid confusion!
-    _pub_methods = ("get", "get_all", "add_object", "add_objects")
+    _pub_methods: ClassVar[tuple[str, ...]] = (
+        "get",
+        "get_all",
+        "add_object",
+        "add_objects",
+    )
 
-    def __init__(self, _objects, access_attribute, descriptor=None):
+    def __init__(
+        self, _objects: Iterable[T], access_attribute: str, descriptor: str | None = None
+    ):
         self._access_attribute = access_attribute
+        self._index: Mapping[str, Sequence[int]]
         super().__init__(_objects, descriptor=descriptor)
         self._update_index()
 
-    def _validate(self):
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        obj = self.__class__(copy.deepcopy(self._objects, memo), self._access_attribute)
+        obj._descriptor = self._descriptor
+        obj._object_is_dict = self._object_is_dict
+        return obj
+
+    def _validate(self) -> None:
         for idx, obj in enumerate(self._objects):
             if not hasattr(obj, self._access_attribute):
                 raise TypeError(
@@ -184,57 +290,48 @@ class DotAccessObjectList(ObjectList):
                     f"cannot be the same as any of the methods of "
                     f"{self.__class__.__name__!r}, which are: {self._pub_methods!r}."
                 )
+        super()._validate()
 
-        return super()._validate()
-
-    def _update_index(self):
+    def _update_index(self) -> None:
         """For quick look-up by access attribute."""
 
-        _index = {}
+        _index: dict[str, list[int]] = defaultdict(list)
         for idx, obj in enumerate(self._objects):
-            attr_val = getattr(obj, self._access_attribute)
+            attr_val: str = getattr(obj, self._access_attribute)
             try:
-                if attr_val in _index:
-                    _index[attr_val].append(idx)
-                else:
-                    _index[attr_val] = [idx]
+                _index[attr_val].append(idx)
             except TypeError:
                 raise TypeError(
                     f"Access attribute values ({self._access_attribute!r}) must be hashable."
                 )
         self._index = _index
 
-    def __getattr__(self, attribute):
-        if attribute in self._index:
-            idx = self._index[attribute]
+    def __getattr__(self, attribute: str):
+        if idx := self._index.get(attribute):
             if len(idx) > 1:
                 raise ValueError(
                     f"Multiple objects with access attribute: {attribute!r}."
                 )
             return self._get_item(self._objects[idx[0]])
-
         elif not attribute.startswith("__"):
-            obj_list_fmt = ", ".join(
-                [f'"{getattr(i, self._access_attribute)}"' for i in self._objects]
-            )
-            msg = f"{self._descriptor.title()} {attribute!r} does not exist. "
-            if self._objects:
-                msg += f"Available {self._descriptor}s are: {obj_list_fmt}."
-            else:
-                msg += "The object list is empty."
-
-            raise AttributeError(msg)
+            raise DotAccessAttributeError(attribute, self)
         else:
             raise AttributeError
 
-    def __dir__(self):
-        return super().__dir__() + [
-            getattr(i, self._access_attribute) for i in self._objects
-        ]
+    def __dir__(self) -> Iterator[str]:
+        yield from super().__dir__()
+        yield from (getattr(obj, self._access_attribute) for obj in self._objects)
 
-    def get(self, access_attribute_value=None, **kwargs):
+    def list_attrs(self) -> tuple[str, ...]:
+        """Get a tuple of the unique access-attribute values of the constituent objects."""
+        return tuple(self._index)
+
+    def get(self, access_attribute_value: str | None = None, **kwargs) -> T:
+        """
+        Get an object from this list that matches the given criteria.
+        """
         vld_get_kwargs = kwargs
-        if access_attribute_value:
+        if access_attribute_value is not None:
             vld_get_kwargs = {self._access_attribute: access_attribute_value, **kwargs}
 
         return self._validate_get(
@@ -242,70 +339,165 @@ class DotAccessObjectList(ObjectList):
             vld_get_kwargs,
         )
 
-    def get_all(self, access_attribute_value=None, **kwargs):
+    def get_all(self, access_attribute_value: str | None = None, **kwargs):
+        """
+        Get all objects in this list that match the given criteria.
+        """
         # use the index to narrow down the search first:
-        if access_attribute_value:
-            try:
-                all_idx = self._index[access_attribute_value]
-            except KeyError:
+        if access_attribute_value is not None:
+            if (all_idx := self._index.get(access_attribute_value)) is None:
                 raise ValueError(
                     f"Value {access_attribute_value!r} does not match the value of any "
                     f"object's attribute {self._access_attribute!r}. Available attribute "
                     f"values are: {self.list_attrs()!r}."
-                ) from None
-            all_objs = [self._objects[i] for i in all_idx]
+                )
+            all_objs: Iterable[T] = (self._objects[idx] for idx in all_idx)
         else:
             all_objs = self._objects
 
         return self._get_all_from_objs(all_objs, **kwargs)
 
-    def add_object(self, obj, index=-1, skip_duplicates=False):
-        index = super().add_object(obj, index, skip_duplicates)
+    @overload
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: Literal[False] = False
+    ) -> int:
+        ...
+
+    @overload
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: Literal[True]
+    ) -> int | None:
+        ...
+
+    def add_object(
+        self, obj: T, index: int = -1, *, skip_duplicates: bool = False
+    ) -> int | None:
+        """
+        Add an object to this list.
+        """
+        if skip_duplicates:
+            new_index = super().add_object(obj, index, skip_duplicates=True)
+        else:
+            new_index = super().add_object(obj, index)
         self._update_index()
+        return new_index
+
+    def add_objects(
+        self, objs: Iterable[T], index: int = -1, *, skip_duplicates: bool = False
+    ) -> int:
+        """
+        Add multiple objects to the list.
+        """
+        if skip_duplicates:
+            for obj in objs:
+                if (i := self.add_object(obj, index, skip_duplicates=True)) is not None:
+                    index = i + 1
+        else:
+            for obj in objs:
+                index = self.add_object(obj, index) + 1
         return index
 
-    def add_objects(self, objs, index=-1, skip_duplicates=False):
-        for obj in objs:
-            index = self.add_object(obj, index, skip_duplicates)
-            if index is not None:
-                index += 1
-        return index
 
+class AppDataList(DotAccessObjectList[T], Generic[T]):
+    """
+    An application-aware object list.
 
-class AppDataList(DotAccessObjectList):
-    _app_attr = "_app"
+    Type Parameters
+    ---------------
+    T
+        The type of elements of the list.
+    """
 
-    def to_dict(self):
-        return {"_objects": super().to_dict()["_objects"]}
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        d = super()._postprocess_to_dict(d)
+        return {"_objects": d["_objects"]}
 
     @classmethod
-    def from_json_like(cls, json_like, shared_data=None, is_hashed: bool = False):
+    def _get_default_shared_data(cls) -> Mapping[str, ObjectList[JSONable]]:
+        return cls._app._shared_data
+
+    @overload
+    @classmethod
+    def from_json_like(
+        cls,
+        json_like: str,
+        shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
+        is_hashed: bool = False,
+    ) -> Self | None:
+        ...
+
+    @overload
+    @classmethod
+    def from_json_like(
+        cls,
+        json_like: Mapping[str, JSONed] | Sequence[Mapping[str, JSONed]],
+        shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
+        is_hashed: bool = False,
+    ) -> Self:
+        ...
+
+    @overload
+    @classmethod
+    def from_json_like(
+        cls,
+        json_like: None,
+        shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
+        is_hashed: bool = False,
+    ) -> None:
+        ...
+
+    @classmethod
+    def from_json_like(
+        cls,
+        json_like: str | Mapping[str, JSONed] | Sequence[Mapping[str, JSONed]] | None,
+        shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
+        is_hashed: bool = False,
+    ) -> Self | None:
         """
+        Make an instance of this class from JSON (or YAML) data.
+
         Parameters
         ----------
-        is_hashed
+        json_like:
+            The data to deserialise.
+        shared_data:
+            Shared context data.
+        is_hashed:
             If True, accept a dict whose keys are hashes of the dict values.
 
+        Returns
+        -------
+            The deserialised object.
         """
         if is_hashed:
-            json_like = [
-                {**obj_js, "_hash_value": hash_val}
-                for hash_val, obj_js in json_like.items()
-            ]
-        if shared_data is None:
-            shared_data = cls._app.template_components
-        return super().from_json_like(json_like, shared_data=shared_data)
+            assert isinstance(json_like, Mapping)
+            return super().from_json_like(
+                [
+                    {**cast("Mapping", obj_js), "_hash_value": hash_val}
+                    for hash_val, obj_js in json_like.items()
+                ],
+                shared_data=shared_data,
+            )
+        else:
+            return super().from_json_like(json_like, shared_data=shared_data)
 
-    def _remove_object(self, index):
+    def _remove_object(self, index: int):
         self._objects.pop(index)
         self._update_index()
 
 
-class TaskList(AppDataList):
+class TaskList(AppDataList["Task"]):
     """A list-like container for a task-like list with dot-notation access by task
-    unique-name."""
+    unique-name.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.Task]
+        The tasks in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="Task",
@@ -314,15 +506,21 @@ class TaskList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[Task]):
         super().__init__(_objects, access_attribute="unique_name", descriptor="task")
 
 
-class TaskTemplateList(AppDataList):
+class TaskTemplateList(AppDataList["TaskTemplate"]):
     """A list-like container for a task-like list with dot-notation access by task
-    unique-name."""
+    unique-name.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.TaskTemplate]
+        The task templates in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="TaskTemplate",
@@ -331,15 +529,21 @@ class TaskTemplateList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[TaskTemplate]):
         super().__init__(_objects, access_attribute="name", descriptor="task template")
 
 
-class TaskSchemasList(AppDataList):
+class TaskSchemasList(AppDataList["TaskSchema"]):
     """A list-like container for a task schema list with dot-notation access by task
-    schema unique-name."""
+    schema unique-name.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.TaskSchema]
+        The task schemas in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="TaskSchema",
@@ -348,15 +552,21 @@ class TaskSchemasList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[TaskSchema]):
         super().__init__(_objects, access_attribute="name", descriptor="task schema")
 
 
-class GroupList(AppDataList):
+class GroupList(AppDataList["Group"]):
     """A list-like container for the task schema group list with dot-notation access by
-    group name."""
+    group name.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[Group]
+        The groups in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="Group",
@@ -365,14 +575,21 @@ class GroupList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[Group]):
         super().__init__(_objects, access_attribute="name", descriptor="group")
 
 
-class EnvironmentsList(AppDataList):
-    """A list-like container for environments with dot-notation access by name."""
+class EnvironmentsList(AppDataList["Environment"]):
+    """
+    A list-like container for environments with dot-notation access by name.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.Environment]
+        The environments in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="Environment",
@@ -381,23 +598,31 @@ class EnvironmentsList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[Environment]):
         super().__init__(_objects, access_attribute="name", descriptor="environment")
 
-    def _get_obj_attr(self, obj, attr):
+    def _get_obj_attr(self, obj: Environment, attr: str):
         """Overridden to lookup objects via the `specifiers` dict attribute"""
         if attr in ("name", "_hash_value"):
             return getattr(obj, attr)
         else:
-            return getattr(obj, "specifiers")[attr]
+            return obj.specifiers[attr]
 
 
-class ExecutablesList(AppDataList):
-    """A list-like container for environment executables with dot-notation access by
-    executable label."""
+class ExecutablesList(AppDataList["Executable"]):
+    """
+    A list-like container for environment executables with dot-notation access by
+    executable label.
 
-    environment = None
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.Executable]
+        The executables in this list.
+    """
+
+    #: The environment containing these executables.
+    environment: Environment | None = None
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="Executable",
@@ -407,20 +632,27 @@ class ExecutablesList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[Executable]):
         super().__init__(_objects, access_attribute="label", descriptor="executable")
         self._set_parent_refs()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]):
         obj = super().__deepcopy__(memo)
         obj.environment = self.environment
         return obj
 
 
-class ParametersList(AppDataList):
-    """A list-like container for parameters with dot-notation access by parameter type."""
+class ParametersList(AppDataList["Parameter"]):
+    """
+    A list-like container for parameters with dot-notation access by parameter type.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.Parameter]
+        The parameters in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="Parameter",
@@ -429,16 +661,16 @@ class ParametersList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[Parameter]):
         super().__init__(_objects, access_attribute="typ", descriptor="parameter")
 
-    def __getattr__(self, attribute):
+    def __getattr__(self, attribute: str) -> Parameter:
         """Overridden to provide a default Parameter object if none exists."""
-        if not attribute.startswith("__"):
-            try:
+        try:
+            if not attribute.startswith("__"):
                 return super().__getattr__(attribute)
-            except (AttributeError, ValueError):
-                return self._app.Parameter(typ=attribute)
+        except (AttributeError, ValueError):
+            return self._app.Parameter(typ=attribute)
         raise AttributeError
 
     def get_all(self, access_attribute_value=None, **kwargs):
@@ -454,10 +686,17 @@ class ParametersList(AppDataList):
             return all_out or [self._app.Parameter(typ=typ)]
 
 
-class CommandFilesList(AppDataList):
-    """A list-like container for command files with dot-notation access by label."""
+class CommandFilesList(AppDataList["FileSpec"]):
+    """
+    A list-like container for command files with dot-notation access by label.
 
-    _child_objects = (
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.FileSpec]
+        The files in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="FileSpec",
@@ -466,41 +705,70 @@ class CommandFilesList(AppDataList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[FileSpec]):
         super().__init__(_objects, access_attribute="label", descriptor="command file")
 
 
-class WorkflowTaskList(DotAccessObjectList):
-    def __init__(self, _objects):
+class WorkflowTaskList(DotAccessObjectList["WorkflowTask"]):
+    """
+    A list-like container for workflow tasks with dot-notation access by unique name.
+
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.WorkflowTask]
+        The tasks in this list.
+    """
+
+    def __init__(self, _objects: Iterable[WorkflowTask]):
         super().__init__(_objects, access_attribute="unique_name", descriptor="task")
 
-    def _reindex(self):
+    def _reindex(self) -> None:
         """Re-assign the WorkflowTask index attributes so they match their order."""
-        for idx, i in enumerate(self._objects):
-            i._index = idx
+        for idx, item in enumerate(self._objects):
+            item._index = idx
         self._update_index()
 
-    def add_object(self, obj, index=-1):
+    def add_object(
+        self, obj: WorkflowTask, index: int = -1, skip_duplicates=False
+    ) -> int:
         index = super().add_object(obj, index)
         self._reindex()
         return index
 
-    def _remove_object(self, index):
+    def _remove_object(self, index: int):
         self._objects.pop(index)
         self._reindex()
 
 
-class WorkflowLoopList(DotAccessObjectList):
-    def __init__(self, _objects):
+class WorkflowLoopList(DotAccessObjectList["WorkflowLoop"]):
+    """
+    A list-like container for workflow loops with dot-notation access by name.
+
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.WorkflowLoop]
+        The loops in this list.
+    """
+
+    def __init__(self, _objects: Iterable[WorkflowLoop]):
         super().__init__(_objects, access_attribute="name", descriptor="loop")
 
-    def _remove_object(self, index):
+    def _remove_object(self, index: int):
         self._objects.pop(index)
 
 
-class ResourceList(ObjectList):
-    _app_attr = "_app"
-    _child_objects = (
+class ResourceList(ObjectList["ResourceSpec"]):
+    """
+    A list-like container for resources.
+    Each contained resource must have a unique scope.
+
+    Parameters
+    ----------
+    _objects: list[~hpcflow.app.ResourceSpec]
+        The resource descriptions in this list.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="_objects",
             class_name="ResourceSpec",
@@ -511,13 +779,15 @@ class ResourceList(ObjectList):
         ),
     )
 
-    def __init__(self, _objects):
+    def __init__(self, _objects: Iterable[ResourceSpec]):
         super().__init__(_objects, descriptor="resource specification")
-        self._element_set = None  # assigned by parent ElementSet
-        self._workflow_template = None  # assigned by parent WorkflowTemplate
+        self._element_set: ElementSet | None = None  # assigned by parent ElementSet
+        self._workflow_template: WorkflowTemplate | None = (
+            None  # assigned by parent WorkflowTemplate
+        )
 
         # check distinct scopes for each item:
-        scopes = [i.to_string() for i in self.get_scopes()]
+        scopes = [scope.to_string() for scope in self.get_scopes()]
         if len(set(scopes)) < len(scopes):
             raise ValueError(
                 "Multiple `ResourceSpec` objects have the same scope. The scopes are "
@@ -526,84 +796,123 @@ class ResourceList(ObjectList):
 
         self._set_parent_refs()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]):
         obj = super().__deepcopy__(memo)
         obj._element_set = self._element_set
         obj._workflow_template = self._workflow_template
         return obj
 
     @property
-    def element_set(self):
+    def element_set(self) -> ElementSet | None:
+        """
+        The parent element set, if a child of an element set.
+        """
         return self._element_set
 
     @property
-    def workflow_template(self):
+    def workflow_template(self) -> WorkflowTemplate | None:
+        """
+        The parent workflow template, if a child of a workflow template.
+        """
         return self._workflow_template
 
-    def to_json_like(self, dct=None, shared_data=None, exclude=None, path=None):
-        """Overridden to write out as a dict keyed by action scope (like as can be
+    def _postprocess_to_json(self, json_like):
+        """Convert JSON doc to a dict keyed by action scope (like as can be
         specified in the input YAML) instead of list."""
+        return {
+            self._app.ActionScope.from_json_like(
+                res_spec_js.pop("scope")
+            ).to_string(): res_spec_js
+            for res_spec_js in json_like
+        }
 
-        out, shared_data = super().to_json_like(dct, shared_data, exclude, path)
-        as_dict = {}
-        for res_spec_js in out:
-            scope = self._app.ActionScope.from_json_like(res_spec_js.pop("scope"))
-            as_dict[scope.to_string()] = res_spec_js
-        return as_dict, shared_data
+    @staticmethod
+    def __ensure_non_persistent(resource_spec: ResourceSpec) -> ResourceSpec:
+        """
+        For any resources that are persistent, if they have a
+        `_resource_list` attribute, this means they are sourced from some
+        other persistent workflow, rather than, say, a workflow being
+        loaded right now, so make a non-persistent copy
+
+        Part of `normalise`.
+        """
+        if resource_spec._value_group_idx is not None and (
+            resource_spec._resource_list is not None
+        ):
+            return resource_spec.copy_non_persistent()
+        return resource_spec
 
     @classmethod
-    def normalise(cls, resources):
+    def __is_ResourceSpec(cls, value) -> TypeIs[ResourceSpec]:
+        return isinstance(value, cls._app.ResourceSpec)
+
+    @classmethod
+    def normalise(cls, resources: Resources) -> Self:
         """Generate from resource-specs specified in potentially several ways."""
 
-        def _ensure_non_persistent(resource_spec):
-            # for any resources that are persistent, if they have a
-            # `_resource_list` attribute, this means they are sourced from some
-            # other persistent workflow, rather than, say, a workflow being
-            # loaded right now, so make a non-persistent copy:
-            if res_i._value_group_idx is not None and res_i._resource_list is not None:
-                return resource_spec.copy_non_persistent()
-            return resource_spec
-
-        if isinstance(resources, cls._app.ResourceSpec):
-            return resources
         if not resources:
-            resources = cls([cls._app.ResourceSpec()])
+            return cls([cls._app.ResourceSpec()])
+        elif isinstance(resources, ResourceList):
+            # Already a ResourceList
+            return cast("Self", resources)
         elif isinstance(resources, dict):
-            resources = cls.from_json_like(resources)
-        elif isinstance(resources, list):
-            for idx, res_i in enumerate(resources):
-                if isinstance(res_i, dict):
-                    resources[idx] = cls._app.ResourceSpec.from_json_like(res_i)
-                else:
-                    resources[idx] = _ensure_non_persistent(resources[idx])
-            resources = cls(resources)
+            return cls.from_json_like(cast("dict", resources))
+        elif cls.__is_ResourceSpec(resources):
+            return cls([resources])
+        else:
+            return cls(
+                cls._app.ResourceSpec.from_json_like(cast("dict", res_i))
+                if isinstance(res_i, dict)
+                else cls.__ensure_non_persistent(res_i)
+                for res_i in resources
+            )
 
-        return resources
+    def get_scopes(self) -> Iterator[ActionScope]:
+        """
+        Get the scopes of the contained resources.
+        """
+        for rs in self._objects:
+            if rs.scope is not None:
+                yield rs.scope
 
-    def get_scopes(self):
-        return tuple(i.scope for i in self._objects)
+    def __get_for_scope(self, scope: ActionScope):
+        try:
+            return self.get(scope=scope)
+        except ValueError:
+            return None
 
-    def merge_other(self, other):
+    def __merge(self, our_spec: ResourceSpec | None, other_spec: ResourceSpec):
+        """
+        Merge two resource specs that have the same scope, or just add the other one to
+        the list if we didn't already have it.
+        """
+        if our_spec is not None:
+            for k, v in other_spec._get_members().items():
+                if getattr(our_spec, k, None) is None:
+                    setattr(our_spec, f"_{k}", copy.deepcopy(v))
+        else:
+            self.add_object(copy.deepcopy(other_spec))
+
+    def merge_other(self, other: ResourceList):
         """Merge lower-precedence other resource list into this resource list."""
         for scope_i in other.get_scopes():
-            try:
-                self_scoped = self.get(scope=scope_i)
-            except ValueError:
-                in_self = False
-            else:
-                in_self = True
+            self.__merge(self.__get_for_scope(scope_i), other.get(scope=scope_i))
 
-            other_scoped = other.get(scope=scope_i)
-            if in_self:
-                for k, v in other_scoped._get_members().items():
-                    if getattr(self_scoped, k) is None:
-                        setattr(self_scoped, f"_{k}", copy.deepcopy(v))
-            else:
-                self.add_object(copy.deepcopy(other_scoped))
+    def merge_one(self, other: ResourceSpec):
+        """Merge lower-precedence other resource spec into this resource list.
+
+        This is a simplified version of :py:meth:`merge_other`.
+        """
+        if other.scope is not None:
+            self.__merge(self.__get_for_scope(other.scope), other)
 
 
-def index(obj_lst, obj):
-    for idx, i in enumerate(obj_lst._objects):
-        if obj is i:
+def index(obj_lst: ObjectList[T], obj: T) -> int:
+    """
+    Get the index of the object in the list.
+    The item is checked for by object identity, not equality.
+    """
+    for idx, item in enumerate(obj_lst._objects):
+        if obj is item:
             return idx
     raise ValueError(f"{obj!r} not in list.")

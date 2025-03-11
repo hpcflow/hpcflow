@@ -15,7 +15,7 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_direct_in_direct_out(null_config, tmp_path, combine_scripts):
+def test_script_direct_in_direct_out(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -40,13 +40,17 @@ def test_script_direct_in_direct_out(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_direct_sub_param_in_direct_out(null_config, tmp_path, combine_scripts):
+def test_script_direct_sub_param_in_direct_out(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -71,13 +75,17 @@ def test_script_direct_sub_param_in_direct_out(null_config, tmp_path, combine_sc
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val["a"] + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val["a"] + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_direct_in_direct_out_single_label(null_config, tmp_path, combine_scripts):
+def test_script_direct_in_direct_out_single_label(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     """This uses the same test script as the `test_script_direct_in_direct_out` test;
     single labels are trivial and need not be referenced in the script."""
     p1_label = "one"
@@ -105,13 +113,17 @@ def test_script_direct_in_direct_out_single_label(null_config, tmp_path, combine
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_direct_in_direct_out_labels(null_config, tmp_path, combine_scripts):
+def test_script_direct_in_direct_out_labels(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -151,13 +163,15 @@ def test_script_direct_in_direct_out_labels(null_config, tmp_path, combine_scrip
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_1_val + p1_2_val
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_1_val + p1_2_val
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_in_json_out(null_config, tmp_path, combine_scripts):
+def test_script_json_in_json_out(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -183,13 +197,17 @@ def test_script_json_in_json_out(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_in_json_out_labels(null_config, tmp_path, combine_scripts):
+def test_script_json_in_json_out_labels(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -230,13 +248,17 @@ def test_script_json_in_json_out_labels(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_1_val + p1_2_val
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_1_val + p1_2_val
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path, combine_scripts):
+def test_script_json_sub_param_in_json_out_labels(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -277,13 +299,17 @@ def test_script_json_sub_param_in_json_out_labels(null_config, tmp_path, combine
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == a_val + p1_2_val
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == a_val + p1_2_val
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_and_direct_in_json_out(null_config, tmp_path, combine_scripts):
+def test_script_json_and_direct_in_json_out(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[
@@ -313,13 +339,17 @@ def test_script_json_and_direct_in_json_out(null_config, tmp_path, combine_scrip
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p3.value == p1_val + p2_val
+    p3 = wk.tasks[0].elements[0].outputs.p3
+    assert isinstance(p3, hf.ElementParameter)
+    assert p3.value == p1_val + p2_val
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_in_json_and_direct_out(null_config, tmp_path, combine_scripts):
+def test_script_json_in_json_and_direct_out(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -348,14 +378,18 @@ def test_script_json_in_json_and_direct_out(null_config, tmp_path, combine_scrip
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
-    assert wk.tasks[0].elements[0].outputs.p3.value == p1_val + 200
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    p3 = wk.tasks[0].elements[0].outputs.p3
+    assert isinstance(p3, hf.ElementParameter)
+    assert p2.value == p1_val + 100
+    assert p3.value == p1_val + 200
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_in_obj(null_config, tmp_path, combine_scripts):
+def test_script_json_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -383,13 +417,15 @@ def test_script_json_in_obj(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == a_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == a_val + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_hdf5_in_obj(null_config, tmp_path, combine_scripts):
+def test_script_hdf5_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -417,13 +453,15 @@ def test_script_hdf5_in_obj(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == a_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == a_val + 100
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_json_out_obj(null_config, tmp_path, combine_scripts):
+def test_script_json_out_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -451,13 +489,15 @@ def test_script_json_out_obj(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p1c.value == P1(a=p1_val + 100)
+    p1c = wk.tasks[0].elements[0].outputs.p1c
+    assert isinstance(p1c, hf.ElementParameter)
+    assert p1c.value == P1(a=p1_val + 100)
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_hdf5_out_obj(null_config, tmp_path, combine_scripts):
+def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -485,13 +525,17 @@ def test_script_hdf5_out_obj(null_config, tmp_path, combine_scripts):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p1c.value == P1(a=p1_val + 100)
+    p1c = wk.tasks[0].elements[0].outputs.p1c
+    assert isinstance(p1c, hf.ElementParameter)
+    assert p1c.value == P1(a=p1_val + 100)
 
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_direct_in_pass_env_spec(new_null_config, tmp_path, combine_scripts):
+def test_script_direct_in_pass_env_spec(
+    new_null_config, tmp_path: Path, combine_scripts: bool
+):
 
     vers_spec = {"version": "1.2"}
     env = hf.Environment(
@@ -542,7 +586,9 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path, combine_scrip
     )
     wk.submit(wait=True, add_to_known=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == {
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == {
         "name": "python_env_with_specifiers",
         **vers_spec,
     }
@@ -553,7 +599,7 @@ def test_script_direct_in_pass_env_spec(new_null_config, tmp_path, combine_scrip
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_std_stream_redirect_on_exception(
-    new_null_config, tmp_path, combine_scripts
+    new_null_config, tmp_path: Path, combine_scripts: bool
 ):
     """Test exceptions raised by the app during execution of a script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
@@ -626,7 +672,9 @@ def test_script_std_stream_redirect_on_exception(
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_std_out_std_err_not_redirected(null_config, tmp_path, combine_scripts):
+def test_script_std_out_std_err_not_redirected(
+    null_config, tmp_path: Path, combine_scripts: bool
+):
     """Test that standard error and output streams from a script are written to the jobscript
     standard error and output files."""
     s1 = hf.TaskSchema(
@@ -669,7 +717,7 @@ def test_script_std_out_std_err_not_redirected(null_config, tmp_path, combine_sc
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_script_pass_env_spec(null_config, tmp_path, combine_scripts):
+def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -703,7 +751,9 @@ def test_script_pass_env_spec(null_config, tmp_path, combine_scripts):
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
-def test_env_specifier_in_main_script_path(new_null_config, tmp_path, combine_scripts):
+def test_env_specifier_in_main_script_path(
+    new_null_config, tmp_path: Path, combine_scripts: bool
+):
     py_env = hf.Environment(
         name="python_env",
         specifiers={"version": "v1"},
@@ -760,7 +810,7 @@ def test_env_specifier_in_main_script_path(new_null_config, tmp_path, combine_sc
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_env_specifier_in_main_script_path_multiple_scripts(
-    new_null_config, tmp_path, combine_scripts
+    new_null_config, tmp_path: Path, combine_scripts: bool
 ):
     """Test two elements with different environment specifiers use two distinct scripts"""
     py_env_v1 = hf.Environment(
@@ -844,7 +894,7 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_direct_out_multi_element(
-    null_config, tmp_path, combine_scripts
+    null_config, tmp_path: Path, combine_scripts: bool
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -885,7 +935,7 @@ def test_script_direct_in_direct_out_multi_element(
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_repeated_action_in_schema(null_config, tmp_path):
+def test_repeated_action_in_schema(null_config, tmp_path: Path):
     # TODO: cannot currently use same Action object multiple times in a schema
     s1 = hf.TaskSchema(
         objective="t1",
@@ -945,7 +995,7 @@ def test_repeated_action_in_schema(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_main_script_two_schemas_same_action(null_config, tmp_path):
+def test_main_script_two_schemas_same_action(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -1015,7 +1065,7 @@ def test_main_script_two_schemas_same_action(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_main_script_two_actions_same_schema(null_config, tmp_path):
+def test_main_script_two_actions_same_schema(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -1061,7 +1111,7 @@ def test_main_script_two_actions_same_schema(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_shell_env_vars(null_config, tmp_path):
+def test_shell_env_vars(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -1160,7 +1210,9 @@ def test_shell_env_vars(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_combine_scripts_script_data_multiple_input_file_formats(null_config, tmp_path):
+def test_combine_scripts_script_data_multiple_input_file_formats(
+    null_config, tmp_path: Path
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],

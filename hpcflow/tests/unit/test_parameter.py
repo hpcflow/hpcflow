@@ -1,20 +1,25 @@
+from __future__ import annotations
 from dataclasses import dataclass
+from pathlib import Path
 import random
 import string
 import sys
 from textwrap import dedent
+from typing import ClassVar
 
 import pytest
 import requests
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import ParametersMetadataReadOnlyError
+from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.parameters import ParameterValue
 
 
 @dataclass
+@hydrate
 class MyParameterP1(ParameterValue):
-    _typ = "p1_test"
+    _typ: ClassVar[str] = "p1_test"
     a: int
 
     def CLI_format(self):
@@ -23,7 +28,9 @@ class MyParameterP1(ParameterValue):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_submission_with_specified_parameter_class_module(null_config, tmp_path, store):
+def test_submission_with_specified_parameter_class_module(
+    null_config, tmp_path: Path, store: str
+):
     """Test we can use a ParameterValue subclass that is defined separately from the main
     code (i.e. not automatically imported on app init)."""
 
@@ -85,7 +92,7 @@ def test_submission_with_specified_parameter_class_module(null_config, tmp_path,
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_unseen_parameter(null_config, tmp_path, store):
+def test_unseen_parameter(null_config, tmp_path: Path, store: str):
     """Test we can generate a workflow that uses an unseen parameter type."""
 
     random_str = "".join(random.choice(string.ascii_letters) for _ in range(10))
@@ -117,7 +124,7 @@ def test_unseen_parameter(null_config, tmp_path, store):
     assert wk.tasks[0].elements[0].get(f"inputs.{p_type}") == 5
 
 
-def test_iter(new_null_config, tmp_path):
+def test_iter(new_null_config, tmp_path: Path):
     values = [1, 2, 3]
     wkt = hf.WorkflowTemplate(
         name="test",
@@ -133,7 +140,7 @@ def test_iter(new_null_config, tmp_path):
         assert param_p1_i.value == values[idx]
 
 
-def test_slice(new_null_config, tmp_path):
+def test_slice(new_null_config, tmp_path: Path):
     values = [1, 2, 3]
     wkt = hf.WorkflowTemplate(
         name="test",
@@ -159,7 +166,7 @@ def test_slice(new_null_config, tmp_path):
         "retrieving demo data from GitHub."
     ),
 )
-def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_path):
+def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_path: Path):
     yaml_str = dedent(
         """\
         name: temp
@@ -190,7 +197,9 @@ def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_pa
         "retrieving demo data from GitHub."
     ),
 )
-def test_demo_data_substitution_value_sequence_class_method(new_null_config, tmp_path):
+def test_demo_data_substitution_value_sequence_class_method(
+    new_null_config, tmp_path: Path
+):
     yaml_str = dedent(
         """\
         name: temp
@@ -222,7 +231,9 @@ def test_demo_data_substitution_value_sequence_class_method(new_null_config, tmp
     ]
 
 
-def test_json_store_parameters_metadata_cache_raises_on_modify(null_config, tmp_path):
+def test_json_store_parameters_metadata_cache_raises_on_modify(
+    null_config, tmp_path: Path
+):
     wk = hf.make_demo_workflow("workflow_1", path=tmp_path, store="json")
     num_params = len(wk.get_all_parameters())
     with pytest.raises(ParametersMetadataReadOnlyError):

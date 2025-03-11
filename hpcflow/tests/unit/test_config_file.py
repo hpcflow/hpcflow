@@ -1,10 +1,12 @@
+from __future__ import annotations
+from typing import Any
 import pytest
 from hpcflow.sdk.config.config_file import ConfigFile
 from hpcflow.sdk.config.errors import ConfigFileInvocationIncompatibleError
 
 
-def test_select_invocation_default_no_specified_matches():
-    configs = {
+def test_select_invocation_default_no_specified_matches() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -12,17 +14,16 @@ def test_select_invocation_default_no_specified_matches():
             }
         }
     }
-    run_time_info = {}
     matched = ConfigFile.select_invocation(
         configs=configs,
-        run_time_info=run_time_info,
+        run_time_info={},
         path="/path/to/config.yaml",
     )
     assert matched == "default"
 
 
-def test_select_invocation_default_no_specified_matches_with_run_time_info():
-    configs = {
+def test_select_invocation_default_no_specified_matches_with_run_time_info() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -39,8 +40,8 @@ def test_select_invocation_default_no_specified_matches_with_run_time_info():
     assert matched == "default"
 
 
-def test_select_invocation_single_specified_match():
-    configs = {
+def test_select_invocation_single_specified_match() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -57,8 +58,8 @@ def test_select_invocation_single_specified_match():
     assert matched == "default"
 
 
-def test_select_invocation_single_specified_match_list_match_first():
-    configs = {
+def test_select_invocation_single_specified_match_list_match_first() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -75,8 +76,8 @@ def test_select_invocation_single_specified_match_list_match_first():
     assert matched == "default"
 
 
-def test_select_invocation_single_specified_match_list_match_second():
-    configs = {
+def test_select_invocation_single_specified_match_list_match_second() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -93,8 +94,8 @@ def test_select_invocation_single_specified_match_list_match_second():
     assert matched == "default"
 
 
-def test_select_invocation_raise_on_no_match():
-    configs = {
+def test_select_invocation_raise_on_no_match() -> None:
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,
@@ -111,8 +112,8 @@ def test_select_invocation_raise_on_no_match():
         )
 
 
-def test_select_invocation_multiple_specified_higher_specificity_selected_first():
-    configs = {
+def test_select_invocation_multiple_specified_higher_specificity_selected_first() -> None:
+    configs: dict[str, Any] = {
         "specific": {
             "invocation": {
                 "environment_setup": None,
@@ -135,8 +136,10 @@ def test_select_invocation_multiple_specified_higher_specificity_selected_first(
     assert matched == "specific"
 
 
-def test_select_invocation_multiple_specified_higher_specificity_selected_second():
-    configs = {
+def test_select_invocation_multiple_specified_higher_specificity_selected_second() -> (
+    None
+):
+    configs: dict[str, Any] = {
         "default": {
             "invocation": {
                 "environment_setup": None,

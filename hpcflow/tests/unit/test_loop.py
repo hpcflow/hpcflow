@@ -1,7 +1,8 @@
+from __future__ import annotations
+from pathlib import Path
 import pytest
 
-from valida.conditions import Value
-
+from valida.conditions import Value  # type: ignore
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import LoopAlreadyExistsError, LoopTaskSubsetError
@@ -10,9 +11,9 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls, make_schemas, make_wor
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_loop_tasks_obj_insert_ID_equivalence(tmp_path, store):
+def test_loop_tasks_obj_insert_ID_equivalence(tmp_path: Path, store: str):
     wk_1 = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
         store=store,
@@ -22,9 +23,9 @@ def test_loop_tasks_obj_insert_ID_equivalence(tmp_path, store):
     assert lp_0.task_insert_IDs == lp_1.task_insert_IDs
 
 
-def test_raise_on_add_loop_same_name(tmp_path):
+def test_raise_on_add_loop_same_name(tmp_path: Path):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"], [{"p2": None}, ("p2",), "t2"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1"), ({"p2": None}, ("p2",), "t2")],
         local_inputs={0: ("p1",), 1: ("p2",)},
         path=tmp_path,
         store="json",
@@ -39,10 +40,10 @@ def test_raise_on_add_loop_same_name(tmp_path):
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_wk_loop_data_idx_single_task_single_element_single_parameter_three_iters(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
         store=store,
@@ -60,10 +61,10 @@ def test_wk_loop_data_idx_single_task_single_element_single_parameter_three_iter
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_wk_loop_EARs_initialised_single_task_single_element_single_parameter_three_iters(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
         store=store,
@@ -75,10 +76,10 @@ def test_wk_loop_EARs_initialised_single_task_single_element_single_parameter_th
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_wk_loop_data_idx_single_task_multi_element_single_parameter_three_iters(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_sequences={0: [("inputs.p1", 2, 0)]},
         path=tmp_path,
         store=store,
@@ -107,13 +108,13 @@ def test_wk_loop_data_idx_single_task_multi_element_single_parameter_three_iters
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_wk_loop_data_idx_multi_task_single_element_single_parameter_two_iters(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p1",), "t2"],
-            [{"p1": None}, ("p1",), "t3"],
+            ({"p1": None}, ("p1",), "t1"),
+            ({"p1": None}, ("p1",), "t2"),
+            ({"p1": None}, ("p1",), "t3"),
         ],
         local_inputs={0: ("p1",)},
         path=tmp_path,
@@ -150,10 +151,10 @@ def test_wk_loop_data_idx_multi_task_single_element_single_parameter_two_iters(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_wk_loop_data_idx_single_task_single_element_single_parameter_three_iters_non_iterable_param(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
         store=store,
@@ -172,12 +173,12 @@ def test_wk_loop_data_idx_single_task_single_element_single_parameter_three_iter
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_wk_loop_iterable_parameters(tmp_path, store):
+def test_wk_loop_iterable_parameters(tmp_path: Path, store: str):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None, "p2": None}, ("p1", "p2"), "t1"],
-            [{"p1": None}, ("p1",), "t2"],
-            [{"p1": None, "p2": None}, ("p1", "p2"), "t3"],
+            ({"p1": None, "p2": None}, ("p1", "p2"), "t1"),
+            ({"p1": None}, ("p1",), "t2"),
+            ({"p1": None, "p2": None}, ("p1", "p2"), "t3"),
         ],
         local_inputs={0: ("p1", "p2"), 1: ("p1",)},
         path=tmp_path,
@@ -191,12 +192,14 @@ def test_wk_loop_iterable_parameters(tmp_path, store):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_wk_loop_input_sources_including_local_single_element_two_iters(tmp_path, store):
+def test_wk_loop_input_sources_including_local_single_element_two_iters(
+    tmp_path: Path, store: str
+):
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None, "p2": None}, ("p1", "p2"), "t1"],
-            [{"p1": None}, ("p1",), "t2"],
-            [{"p1": None, "p2": None}, ("p1", "p2"), "t3"],
+            ({"p1": None, "p2": None}, ("p1", "p2"), "t1"),
+            ({"p1": None}, ("p1",), "t2"),
+            ({"p1": None, "p2": None}, ("p1", "p2"), "t3"),
         ],
         local_inputs={0: ("p1", "p2"), 1: ("p1",)},
         path=tmp_path,
@@ -229,10 +232,10 @@ def test_wk_loop_input_sources_including_local_single_element_two_iters(tmp_path
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_get_iteration_task_pathway_single_task_single_element_three_iters(
-    tmp_path, store
+    tmp_path: Path, store: str
 ):
     wk = make_workflow(
-        schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
         local_inputs={0: ("p1",)},
         path=tmp_path,
         store=store,
@@ -246,7 +249,7 @@ def test_get_iteration_task_pathway_single_task_single_element_three_iters(
     ]
 
 
-def test_get_iteration_task_pathway_nested_loops_multi_iter(null_config, tmp_path):
+def test_get_iteration_task_pathway_nested_loops_multi_iter(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -289,7 +292,9 @@ def test_get_iteration_task_pathway_nested_loops_multi_iter(null_config, tmp_pat
 @pytest.mark.skip(
     reason="second set of asserts fail; need to re-source inputs on adding iterations."
 )
-def test_get_iteration_task_pathway_nested_loops_multi_iter_jagged(null_config, tmp_path):
+def test_get_iteration_task_pathway_nested_loops_multi_iter_jagged(
+    null_config, tmp_path: Path
+):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -348,7 +353,7 @@ def test_get_iteration_task_pathway_nested_loops_multi_iter_jagged(null_config, 
 
 
 def test_get_iteration_task_pathway_nested_loops_multi_iter_add_outer_iter(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -393,7 +398,7 @@ def test_get_iteration_task_pathway_nested_loops_multi_iter_add_outer_iter(
     ]
 
 
-def test_get_iteration_task_pathway_unconnected_loops(null_config, tmp_path):
+def test_get_iteration_task_pathway_unconnected_loops(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -444,7 +449,9 @@ def test_get_iteration_task_pathway_unconnected_loops(null_config, tmp_path):
     assert pathway[4][2][0]["inputs.p1"] == pathway[3][2][0]["outputs.p1"]
 
 
-def test_wk_loop_input_sources_including_non_iteration_task_source(null_config, tmp_path):
+def test_wk_loop_input_sources_including_non_iteration_task_source(
+    null_config, tmp_path: Path
+):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -518,7 +525,7 @@ def test_wk_loop_input_sources_including_non_iteration_task_source(null_config, 
     assert t2_iter_1["inputs.p3"] == t3_iter_0["outputs.p3"]
 
 
-def test_wk_loop_input_sources_default(null_config, tmp_path):
+def test_wk_loop_input_sources_default(null_config, tmp_path: Path):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -548,7 +555,7 @@ def test_wk_loop_input_sources_default(null_config, tmp_path):
     assert t1_iter_0["inputs.p2"] == t1_iter_1["inputs.p2"]
 
 
-def test_wk_loop_input_sources_iterable_param_default(null_config, tmp_path):
+def test_wk_loop_input_sources_iterable_param_default(null_config, tmp_path: Path):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -585,7 +592,7 @@ def test_wk_loop_input_sources_iterable_param_default(null_config, tmp_path):
 
 
 def test_wk_loop_input_sources_iterable_param_default_conditional_action(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
@@ -633,7 +640,7 @@ def test_wk_loop_input_sources_iterable_param_default_conditional_action(
 
 
 def test_wk_loop_input_sources_including_non_iteration_task_source_with_groups(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
@@ -729,7 +736,7 @@ def test_wk_loop_input_sources_including_non_iteration_task_source_with_groups(
     ]
 
 
-def test_loop_local_sub_parameters(null_config, tmp_path):
+def test_loop_local_sub_parameters(null_config, tmp_path: Path):
     act_env = hf.ActionEnvironment("null_env")
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -792,7 +799,7 @@ def test_loop_local_sub_parameters(null_config, tmp_path):
     assert t1_iter_0["inputs.p1c.d"] == t1_iter_1["inputs.p1c.d"]
 
 
-def test_nested_loop_iter_loop_idx(null_config, tmp_path):
+def test_nested_loop_iter_loop_idx(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -824,7 +831,7 @@ def test_nested_loop_iter_loop_idx(null_config, tmp_path):
     }
 
 
-def test_schema_input_with_group_sourced_from_prev_iteration(null_config, tmp_path):
+def test_schema_input_with_group_sourced_from_prev_iteration(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -903,7 +910,7 @@ def test_schema_input_with_group_sourced_from_prev_iteration(null_config, tmp_pa
     ] == [wk.tasks.t2.elements[0].iterations[1].get_data_idx()["outputs.p3"]] * 3
 
 
-def test_loop_downstream_tasks(null_config, tmp_path):
+def test_loop_downstream_tasks(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -947,11 +954,11 @@ def test_loop_downstream_tasks(null_config, tmp_path):
             hf.Loop(name="my_loop", tasks=[1, 2], num_iterations=2),
         ],
     )
-    assert wk.loops.my_loop.downstream_tasks == [wk.tasks[3]]
-    assert wk.loops.my_loop.upstream_tasks == [wk.tasks[0]]
+    assert list(wk.loops.my_loop.downstream_tasks) == [wk.tasks[3]]
+    assert list(wk.loops.my_loop.upstream_tasks) == [wk.tasks[0]]
 
 
-def test_raise_loop_task_subset_error(null_config, tmp_path):
+def test_raise_loop_task_subset_error(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -983,22 +990,20 @@ def test_raise_loop_task_subset_error(null_config, tmp_path):
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop output (but not iterable) parameter sourced in task downstream of loop:
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [
-                {"p2": None},
-                (
-                    "p2",
-                    "p3",
-                ),
-                "t2",
-            ],
-            [{"p3": None}, ("p4",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        (
+            {"p2": None},
+            (
+                "p2",
+                "p3",
+            ),
+            "t2",
+        ),
+        ({"p3": None}, ("p4",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1027,23 +1032,21 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param(
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_element(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop output (but not iterable) parameter sourced in task downstream of loop - multi
     # element
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [
-                {"p2": None},
-                (
-                    "p2",
-                    "p3",
-                ),
-                "t2",
-            ],
-            [{"p3": None}, ("p4",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        (
+            {"p2": None},
+            (
+                "p2",
+                "p3",
+            ),
+            "t2",
+        ),
+        ({"p3": None}, ("p4",), "t3"),
     )
     tasks = [
         hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
@@ -1086,22 +1089,20 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_eleme
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_element_to_group(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop output (but not iterable) parameter sourced in task downstream of loop - multi
     # element group
     s1, s2 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [
-                {"p2": None},
-                (
-                    "p2",
-                    "p3",
-                ),
-                "t2",
-            ],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        (
+            {"p2": None},
+            (
+                "p2",
+                "p3",
+            ),
+            "t2",
+        ),
     )
     s3 = hf.TaskSchema(
         objective="t3",
@@ -1158,15 +1159,13 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_multi_eleme
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_iterable_param(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop iterable parameter sourced in task downstream of loop:
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p3",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p3",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1194,15 +1193,13 @@ def test_add_iteration_updates_downstream_data_idx_loop_iterable_param(
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_element(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop iterable parameter sourced in task downstream of loop - multi element:
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p3",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p3",), "t3"),
     )
     tasks = [
         hf.Task(s1, sequences=[hf.ValueSequence("inputs.p1", values=[100, 101])]),
@@ -1241,14 +1238,12 @@ def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_ele
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_element_to_group(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # loop iterable parameter sourced in task downstream of loop - multi element:
     s1, s2 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
     )
 
     s3 = hf.TaskSchema(
@@ -1306,15 +1301,13 @@ def test_add_iteration_updates_downstream_data_idx_loop_iterable_param_multi_ele
 
 
 def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_adjacent_loop(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
 
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1360,14 +1353,12 @@ def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_adj
 
 
 def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_adjacent_loop_added_before(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1413,15 +1404,13 @@ def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_adj
 
 
 def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_multi_task_adjacent_loop_added_before(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-            [{"p2": None}, ("p2",), "t4"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
+        ({"p2": None}, ("p2",), "t4"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1475,13 +1464,13 @@ def test_add_iteration_correct_downstream_data_idx_iterable_param_downstream_mul
     assert t4_i1_iter_di["inputs.p2"] == t3_i1_iter_di["outputs.p2"]
 
 
-def test_nested_loops_with_downstream_updates_iteration_pathway(null_config, tmp_path):
+def test_nested_loops_with_downstream_updates_iteration_pathway(
+    null_config, tmp_path: Path
+):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p1",), "t3"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p1",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1533,14 +1522,14 @@ def test_nested_loops_with_downstream_updates_iteration_pathway(null_config, tmp
     assert pathway[6][2][0]["outputs.p2"] == pathway[7][2][0]["inputs.p2"]
 
 
-def test_multi_task_loop_with_downstream_updates_iteration_pathway(null_config, tmp_path):
+def test_multi_task_loop_with_downstream_updates_iteration_pathway(
+    null_config, tmp_path: Path
+):
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-            [{"p2": None}, ("p3",), "t4"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
+        ({"p2": None}, ("p3",), "t4"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1584,18 +1573,16 @@ def test_multi_task_loop_with_downstream_updates_iteration_pathway(null_config, 
 
 
 def test_multi_nested_loops_with_downstream_updates_iteration_pathway(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
 
     s1, s2, s3, s4, s5, s6 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-            [{"p2": None}, ("p2",), "t4"],
-            [{"p2": None}, ("p1",), "t5"],
-            [{"p1": None}, ("p3",), "t6"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
+        ({"p2": None}, ("p2",), "t4"),
+        ({"p2": None}, ("p1",), "t5"),
+        ({"p1": None}, ("p3",), "t6"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1689,17 +1676,15 @@ def test_multi_nested_loops_with_downstream_updates_iteration_pathway(
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # task `t3` input `p1` has `InputSource.task(task_ref=1, task_source_type="input")`,
     # so `t3` elements needs to have data indices updated, since task `t2` (i.e.
     # `task_ref=1`) will have had its data indices updated:
     s1, s2, s3 = make_schemas(
-        [
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p2",), "t2"],
-            [{"p1": None, "p2": None}, ("p3",), "t3"],
-        ],
+        ({"p1": None}, ("p1",), "t1"),
+        ({"p1": None}, ("p2",), "t2"),
+        ({"p1": None, "p2": None}, ("p3",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1727,19 +1712,17 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_t
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_twice(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # tasks `t3/t4` inputs `p1` have `InputSource.task(task_ref=1/2, task_source_type="input")`,
     # so `t3/t4` elements needs to have data indices updated, since task `t2/t3` (i.e.
     # `task_ref=1/2`) will have had their data indices updated:
 
     s1, s2, s3, s4 = make_schemas(
-        [
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p2",), "t2"],
-            [{"p1": None, "p2": None}, ("p3",), "t3"],
-            [{"p1": None, "p3": None}, ("p4",), "t4"],
-        ],
+        ({"p1": None}, ("p1",), "t1"),
+        ({"p1": None}, ("p2",), "t2"),
+        ({"p1": None, "p2": None}, ("p3",), "t3"),
+        ({"p1": None, "p3": None}, ("p4",), "t4"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1768,20 +1751,18 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_t
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_thrice(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # tasks `t3/t4/t5` inputs `p1` have `InputSource.task(task_ref=1/2/3, task_source_type="input")`,
     # so `t3/t4/t5` elements needs to have data indices updated, since task `t2/t3/t4` (i.e.
     # `task_ref=1/2/3`) will have had their data indices updated:
 
     s1, s2, s3, s4, s5 = make_schemas(
-        [
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p2",), "t2"],
-            [{"p1": None, "p2": None}, ("p3",), "t3"],
-            [{"p1": None, "p3": None}, ("p4",), "t4"],
-            [{"p1": None, "p4": None}, ("p5",), "t5"],
-        ],
+        ({"p1": None}, ("p1",), "t1"),
+        ({"p1": None}, ("p2",), "t2"),
+        ({"p1": None, "p2": None}, ("p3",), "t3"),
+        ({"p1": None, "p3": None}, ("p4",), "t4"),
+        ({"p1": None, "p4": None}, ("p5",), "t5"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}),
@@ -1813,20 +1794,18 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_t
 
 
 def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_task_input_sources_thrice_multi_element(
-    new_null_config, tmp_path
+    new_null_config, tmp_path: Path
 ):
     # tasks `t3/t4/t5` inputs `p1` have `InputSource.task(task_ref=1/2/3, task_source_type="input")`,
     # so `t3/t4/t5` elements needs to have data indices updated, since task `t2/t3/t4` (i.e.
     # `task_ref=1/2/3`) will have had their data indices updated:
 
     s1, s2, s3, s4, s5 = make_schemas(
-        [
-            [{"p1": None}, ("p1",), "t1"],
-            [{"p1": None}, ("p2",), "t2"],
-            [{"p1": None, "p2": None}, ("p3",), "t3"],
-            [{"p1": None, "p3": None}, ("p4",), "t4"],
-            [{"p1": None, "p4": None}, ("p5",), "t5"],
-        ],
+        ({"p1": None}, ("p1",), "t1"),
+        ({"p1": None}, ("p2",), "t2"),
+        ({"p1": None, "p2": None}, ("p3",), "t3"),
+        ({"p1": None, "p3": None}, ("p4",), "t4"),
+        ({"p1": None, "p4": None}, ("p5",), "t5"),
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 100}, repeats=2),
@@ -1871,7 +1850,7 @@ def test_add_iteration_updates_downstream_data_idx_loop_output_param_including_t
     assert t2_e1_di["outputs.p2"] == t3_e1_di["inputs.p2"]
 
 
-def test_adjacent_loops_iteration_pathway(null_config, tmp_path):
+def test_adjacent_loops_iteration_pathway(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -1925,7 +1904,7 @@ def test_adjacent_loops_iteration_pathway(null_config, tmp_path):
     ]
 
 
-def test_get_child_loops_ordered_by_depth(null_config, tmp_path):
+def test_get_child_loops_ordered_by_depth(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -1958,7 +1937,7 @@ def test_get_child_loops_ordered_by_depth(null_config, tmp_path):
     assert wk.loops.outer.get_child_loops() == [wk.loops.middle, wk.loops.inner]
 
 
-def test_multi_nested_loops(null_config, tmp_path):
+def test_multi_nested_loops(null_config, tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -2015,14 +1994,14 @@ def test_multi_nested_loops(null_config, tmp_path):
     ]
 
 
-def test_nested_loop_input_from_parent_loop_task(null_config, tmp_path):
+def test_nested_loop_input_from_parent_loop_task(null_config, tmp_path: Path):
     """Test that an input in a nested-loop task is correctly sourced from latest
     iteration of the parent loop."""
     wk = make_workflow(
         schemas_spec=[
-            [{"p1": None}, ("p2", "p3")],
-            [{"p2": None}, ("p4",)],
-            [{"p4": None, "p3": None}, ("p2", "p1")],  # testing p3 source
+            ({"p1": None}, ("p2", "p3")),
+            ({"p2": None}, ("p4",)),
+            ({"p4": None, "p3": None}, ("p2", "p1")),  # testing p3 source
         ],
         path=tmp_path,
         local_inputs={0: {"p1": 101}},
@@ -2040,16 +2019,16 @@ def test_nested_loop_input_from_parent_loop_task(null_config, tmp_path):
     assert p3_inp_idx == [p3_out_idx[0]] * 3 + [p3_out_idx[1]] * 3
 
 
-def test_doubly_nested_loop_input_from_parent_loop_task(null_config, tmp_path):
+def test_doubly_nested_loop_input_from_parent_loop_task(null_config, tmp_path: Path):
     """Test that an input in a doubly-nested-loop task is correctly sourced from latest
     iteration of the parent loop."""
     # test source of p6 in final task:
     wk = make_workflow(
         schemas_spec=[
-            [{"p5": None}, ("p6", "p1")],
-            [{"p1": None}, ("p2", "p3")],
-            [{"p2": None}, ("p4",)],
-            [{"p4": None, "p3": None, "p6": None}, ("p2", "p1", "p5")],
+            ({"p5": None}, ("p6", "p1")),
+            ({"p1": None}, ("p2", "p3")),
+            ({"p2": None}, ("p4",)),
+            ({"p4": None, "p3": None, "p6": None}, ("p2", "p1", "p5")),
         ],
         path=tmp_path,
         local_inputs={0: {"p5": 101}},
@@ -2070,7 +2049,7 @@ def test_doubly_nested_loop_input_from_parent_loop_task(null_config, tmp_path):
     assert p6_inp_idx == [p6_out_idx[0]] * 9 + [p6_out_idx[1]] * 9 + [p6_out_idx[2]] * 9
 
 
-def test_loop_non_input_task_input_from_element_group(null_config, tmp_path):
+def test_loop_non_input_task_input_from_element_group(null_config, tmp_path: Path):
     """Test correct sourcing of an element group input within a loop, for a task that is
     not that loop's "input task" with respect to that parameter."""
     s1 = hf.TaskSchema(
@@ -2143,7 +2122,7 @@ def test_loop_non_input_task_input_from_element_group(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_multi_task_loop_termination(null_config, tmp_path):
+def test_multi_task_loop_termination(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -2206,7 +2185,7 @@ def test_multi_task_loop_termination(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_multi_task_loop_termination_task(null_config, tmp_path):
+def test_multi_task_loop_termination_task(null_config, tmp_path: Path):
     """Specify non-default task at which to check for termination."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -2271,7 +2250,7 @@ def test_multi_task_loop_termination_task(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skip(reason="need to fix loop termination for multiple elements")
-def test_multi_task_loop_termination_multi_element(null_config, tmp_path):
+def test_multi_task_loop_termination_multi_element(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -2379,10 +2358,8 @@ def test_inner_loop_num_added_iterations_on_reload(null_config, tmp_path, num_it
     # this tests that the pending num_added_iterations are saved correctly when adding
     # loop iterations
     s1, s2 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),
@@ -2416,10 +2393,8 @@ def test_outer_loop_num_added_iterations_on_reload(
     # loop iterations
 
     s1, s2 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),
@@ -2445,13 +2420,11 @@ def test_outer_loop_num_added_iterations_on_reload(
         assert wk.loops.inner.num_added_iterations == {(0,): 2, (1,): 2}
 
 
-def test_multi_nested_loop_num_added_iterations_on_reload(null_config, tmp_path):
+def test_multi_nested_loop_num_added_iterations_on_reload(null_config, tmp_path: Path):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),
@@ -2495,14 +2468,12 @@ def test_multi_nested_loop_num_added_iterations_on_reload(null_config, tmp_path)
 
 
 def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_inner(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),
@@ -2546,14 +2517,12 @@ def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_inner(
 
 
 def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_middle(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),
@@ -2589,14 +2558,12 @@ def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_middle(
 
 
 def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_outer(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     s1, s2, s3 = make_schemas(
-        [
-            [{"p2": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p2",), "t2"],
-            [{"p2": None}, ("p2",), "t3"],
-        ],
+        ({"p2": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p2",), "t2"),
+        ({"p2": None}, ("p2",), "t3"),
     )
     tasks = [
         hf.Task(s1, inputs={"p2": 100}),

@@ -1,3 +1,5 @@
+from __future__ import annotations
+from pathlib import Path
 import pytest
 
 from hpcflow.app import app as hf
@@ -11,19 +13,19 @@ def null_config(tmp_path):
         hf.load_config(config_dir=tmp_path)
 
 
-def test_null_default_value(null_config):
+def test_null_default_value(null_config) -> None:
     p1 = hf.Parameter("p1")
     p1_inp = hf.SchemaInput(parameter=p1)
     assert "default_value" not in p1_inp.labels[""]
 
 
-def test_null_default_value_property(null_config):
+def test_null_default_value_property(null_config) -> None:
     p1 = hf.Parameter("p1")
     p1_inp = hf.SchemaInput(parameter=p1)
     assert p1_inp.default_value is NullDefault.NULL
 
 
-def test_none_default_value(null_config):
+def test_none_default_value(null_config) -> None:
     """A `None` default value is set with a value of `None`"""
     p1 = hf.Parameter("p1")
     p1_inp = hf.SchemaInput(parameter=p1, default_value=None)
@@ -32,7 +34,7 @@ def test_none_default_value(null_config):
     assert p1_inp.labels[""]["default_value"].value == def_val_exp.value
 
 
-def test_from_json_like_labels_and_default(null_config):
+def test_from_json_like_labels_and_default(null_config) -> None:
     json_like = {
         "parameter": "p1",
         "labels": {"0": {}},
@@ -45,7 +47,7 @@ def test_from_json_like_labels_and_default(null_config):
     assert inp.labels["0"]["default_value"].value == None
 
 
-def test_element_get_removes_schema_param_trivial_label(null_config, tmp_path):
+def test_element_get_removes_schema_param_trivial_label(null_config, tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -61,7 +63,7 @@ def test_element_get_removes_schema_param_trivial_label(null_config, tmp_path):
     assert wk.tasks[0].elements[0].get("inputs") == {"p1": p1_val}
 
 
-def test_element_inputs_removes_schema_param_trivial_label(null_config, tmp_path):
+def test_element_inputs_removes_schema_param_trivial_label(null_config, tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -91,7 +93,9 @@ def test_element_inputs_removes_schema_param_trivial_label(null_config, tmp_path
     assert element.iterations[0].action_runs[0].inputs._get_prefixed_names() == ["p1"]
 
 
-def test_element_get_does_not_removes_multiple_schema_param_label(null_config, tmp_path):
+def test_element_get_does_not_removes_multiple_schema_param_label(
+    null_config, tmp_path: Path
+):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -109,7 +113,7 @@ def test_element_get_does_not_removes_multiple_schema_param_label(null_config, t
 
 
 def test_element_inputs_does_not_remove_multiple_schema_param_label(
-    null_config, tmp_path
+    null_config, tmp_path: Path
 ):
     p1_val = 101
     label = "my_label"
@@ -142,7 +146,9 @@ def test_element_inputs_does_not_remove_multiple_schema_param_label(
     ]
 
 
-def test_get_input_values_for_multiple_schema_input_single_label(null_config, tmp_path):
+def test_get_input_values_for_multiple_schema_input_single_label(
+    null_config, tmp_path: Path
+):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -170,7 +176,7 @@ def test_get_input_values_for_multiple_schema_input_single_label(null_config, tm
     assert run.get_input_values() == {"p2": 201, "p1": 101}
 
 
-def test_get_input_values_subset(null_config, tmp_path):
+def test_get_input_values_subset(null_config, tmp_path: Path):
     p1_val = 101
     s1 = hf.TaskSchema(
         objective="t1",
@@ -195,7 +201,7 @@ def test_get_input_values_subset(null_config, tmp_path):
     assert run.get_input_values(inputs=("p1",)) == {"p1": 101}
 
 
-def test_get_input_values_subset_labelled_label_dict_False(null_config, tmp_path):
+def test_get_input_values_subset_labelled_label_dict_False(null_config, tmp_path: Path):
     p1_val = 101
     s1 = hf.TaskSchema(
         objective="t1",
@@ -229,7 +235,7 @@ def test_get_input_values_subset_labelled_label_dict_False(null_config, tmp_path
     assert run.get_input_values(inputs=("p1[one]",), label_dict=False) == {"p1[one]": 101}
 
 
-def test_get_input_values_subset_labelled_label_dict_True(null_config, tmp_path):
+def test_get_input_values_subset_labelled_label_dict_True(null_config, tmp_path: Path):
     p1_val = 101
     s1 = hf.TaskSchema(
         objective="t1",
@@ -265,7 +271,7 @@ def test_get_input_values_subset_labelled_label_dict_True(null_config, tmp_path)
     }
 
 
-def test_get_input_values_for_multiple_schema_input(null_config, tmp_path):
+def test_get_input_values_for_multiple_schema_input(null_config, tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -293,7 +299,9 @@ def test_get_input_values_for_multiple_schema_input(null_config, tmp_path):
     assert run.get_input_values() == {"p2": 201, "p1": {label: 101}}
 
 
-def test_get_input_values_for_multiple_schema_input_with_object(null_config, tmp_path):
+def test_get_input_values_for_multiple_schema_input_with_object(
+    null_config, tmp_path: Path
+):
     p1_val = P1(a=101)
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -324,7 +332,7 @@ def test_get_input_values_for_multiple_schema_input_with_object(null_config, tmp
 
 
 @pytest.mark.integration
-def test_get_input_values_all_iterations(null_config, tmp_path):
+def test_get_input_values_all_iterations(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],

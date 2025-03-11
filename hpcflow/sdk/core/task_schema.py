@@ -1,38 +1,70 @@
+"""
+Abstract task, prior to instantiation.
+"""
+
+from __future__ import annotations
 from contextlib import contextmanager
 import copy
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Tuple, Union
+from itertools import chain
+from typing import TYPE_CHECKING
 from html import escape
 
 from rich import print as rich_print
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.markup import escape as rich_esc
 from rich.text import Text
 
-from hpcflow.sdk import app
+from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.core.enums import ParameterPropagationMode
 from hpcflow.sdk.core.errors import EnvironmentPresetUnknownEnvironmentError
+from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import Parameter
-from .json_like import ChildObjectSpec, JSONLike
-from .parameters import NullDefault, ParameterPropagationMode, SchemaInput
-from .utils import check_valid_py_identifier
+from hpcflow.sdk.core.utils import check_valid_py_identifier
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from typing import Any, ClassVar
+    from typing_extensions import Self, TypeIs
+    from .actions import Action
+    from .object_list import ParametersList, TaskSchemasList
+    from .parameters import InputValue, SchemaInput, SchemaOutput, SchemaParameter
+    from .task import TaskTemplate
+    from .types import ActParameterDependence
+    from .workflow import Workflow
+    from ..typing import ParamSource
 
 
 @dataclass
+@hydrate
 class TaskObjective(JSONLike):
-    _child_objects = (
+    """
+    A thing that a task is attempting to achieve.
+
+    Parameter
+    ---------
+    name: str
+        The name of the objective. A valid Python identifier.
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
             name="name",
             is_single_attribute=True,
         ),
     )
 
+    #: The name of the objective. A valid Python identifier.
     name: str
 
     def __post_init__(self):
         self.name = check_valid_py_identifier(self.name)
+
+    @classmethod
+    def _parse_from_string(cls, string):
+        return string
 
 
 class TaskSchema(JSONLike):
@@ -41,28 +73,35 @@ class TaskSchema(JSONLike):
 
     Parameters
     ----------
-    objective
+    objective:
         This is a string representing the objective of the task schema.
-    actions
+    actions:
         A list of Action objects whose commands are to be executed by the task.
-    method
+    method:
         An optional string to label the task schema by its method.
-    implementation
+    implementation:
         An optional string to label the task schema by its implementation.
-    inputs
+    inputs:
         A list of SchemaInput objects that define the inputs to the task.
-    outputs
+    outputs:
         A list of SchemaOutput objects that define the outputs of the task.
-    web_doc
-        True if this object should be included in the Sphinx documentation (in the case
-        of built-in task schemas). True by default.
+    version:
+        The version of this task schema.
+    parameter_class_modules:
+        Where to find implementations of parameter value handlers.
+    web_doc:
+        True if this object should be included in the Sphinx documentation
+        (normally only relevant for built-in task schemas). True by default.
+    environment_presets:
+        Information about default execution environments. Can be overridden in specific
+        cases in the concrete tasks.
     """
 
-    _validation_schema = "task_schema_spec_schema.yaml"
+    _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
     _hash_value = None
     _validate_actions = True
 
-    _child_objects = (
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(name="objective", class_name="TaskObjective"),
         ChildObjectSpec(
             name="inputs",
@@ -79,94 +118,129 @@ class TaskSchema(JSONLike):
         ),
     )
 
+    @classmethod
+    def __is_InputValue(cls, value) -> TypeIs[InputValue]:
+        return isinstance(value, cls._app.InputValue)
+
+    @classmethod
+    def __is_Parameter(cls, value) -> TypeIs[Parameter]:
+        return isinstance(value, cls._app.Parameter)
+
+    @classmethod
+    def __is_SchemaOutput(cls, value) -> TypeIs[SchemaOutput]:
+        return isinstance(value, cls._app.SchemaOutput)
+
     def __init__(
         self,
-        objective: Union[app.TaskObjective, str],
-        actions: List[app.Action] = None,
-        method: Optional[str] = None,
-        implementation: Optional[str] = None,
-        inputs: Optional[List[Union[app.Parameter, app.SchemaInput]]] = None,
-        outputs: Optional[List[Union[app.Parameter, app.SchemaOutput]]] = None,
-        version: Optional[str] = None,
-        parameter_class_modules: Optional[List[str]] = None,
-        web_doc: Optional[bool] = True,
-        environment_presets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
-        _hash_value: Optional[str] = None,
+        objective: TaskObjective | str,
+        actions: list[Action] | None = None,
+        method: str | None = None,
+        implementation: str | None = None,
+        inputs: list[Parameter | SchemaInput] | None = None,
+        outputs: list[Parameter | SchemaParameter] | None = None,
+        version: str | None = None,
+        parameter_class_modules: list[str] | None = None,
+        web_doc: bool | None = True,
+        environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+        doc: str = "",
+        _hash_value: str | None = None,
     ):
-        self.objective = objective
+        #: This is a string representing the objective of the task schema.
+        self.objective = self.__coerce_objective(objective)
+        #: A list of Action objects whose commands are to be executed by the task.
         self.actions = actions or []
+        #: An optional string to label the task schema by its method.
         self.method = method
+        #: An optional string to label the task schema by its implementation.
         self.implementation = implementation
-        self.inputs = inputs or []
-        self.outputs = outputs or []
+        #: A list of SchemaInput objects that define the inputs to the task.
+        self.inputs = self.__coerce_inputs(inputs or ())
+        #: A list of SchemaOutput objects that define the outputs of the task.
+        self.outputs = self.__coerce_outputs(outputs or ())
+        #: Where to find implementations of parameter value handlers.
         self.parameter_class_modules = parameter_class_modules or []
+        #: Whether this object should be included in the Sphinx documentation
+        #: (normally only relevant for built-in task schemas).
         self.web_doc = web_doc
+        #: Information about default execution environments.
         self.environment_presets = environment_presets
+        #: Documentation information about the task schema.
+        self.doc = doc
         self._hash_value = _hash_value
 
         self._set_parent_refs()
 
         # process `Action` script_data_in/out formats:
-        for i in self.actions:
-            i.process_script_data_formats()
+        for act in self.actions:
+            act.process_script_data_formats()
 
         self._validate()
-        self.actions = self._expand_actions()
+        self.actions = self.__expand_actions()
+        #: The version of this task schema.
         self.version = version
-        self._task_template = None  # assigned by parent Task
+        self._task_template: TaskTemplate | None = None  # assigned by parent Task
 
-        self._update_parameter_value_classes()
+        self.__update_parameter_value_classes()
 
         if self.environment_presets:
             # validate against env names in actions:
             env_names = {act.get_environment_name() for act in self.actions}
-            preset_envs = {i for v in self.environment_presets.values() for i in v.keys()}
-            bad_envs = preset_envs - env_names
-            if bad_envs:
-                raise EnvironmentPresetUnknownEnvironmentError(
-                    f"Task schema {self.name} has environment presets that refer to one "
-                    f"or more environments that are not referenced in any of the task "
-                    f"schema's actions: {', '.join(f'{i!r}' for i in bad_envs)}."
-                )
+            preset_envs = {
+                preset_name
+                for preset in self.environment_presets.values()
+                for preset_name in preset
+            }
+            if bad_envs := preset_envs - env_names:
+                raise EnvironmentPresetUnknownEnvironmentError(self.name, bad_envs)
 
         # if version is not None:  # TODO: this seems fragile
         #     self.assign_versions(
         #         version=version,
-        #         app_data_obj_list=self.app.task_schemas
+        #         app_data_obj_list=self._app.task_schemas
         #         if app.is_data_files_loaded
         #         else [],
         #     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.objective.name!r})"
 
-    def _get_info(self, include=None):
-        def _get_param_type_str(parameter) -> str:
-            type_fmt = "-"
-            if parameter._validation:
-                try:
-                    type_fmt = parameter._validation.to_tree()[0]["type_fmt"]
-                except Exception:
-                    pass
-            elif parameter._value_class:
-                param_cls = parameter._value_class
-                cls_url = (
-                    f"{self.app.docs_url}/reference/_autosummary/{param_cls.__module__}."
-                    f"{param_cls.__name__}"
-                )
-                type_fmt = f"[link={cls_url}]{param_cls.__name__}[/link]"
-            return type_fmt
+    @classmethod
+    def __parameters(cls) -> ParametersList:
+        # Workaround for a dumb mypy bug
+        return cls._app.parameters
 
-        def _format_parameter_type(param) -> str:
-            param_typ_fmt = param.typ
-            if param.typ in self.app.parameters.list_attrs():
-                param_url = (
-                    f"{self.app.docs_url}/reference/template_components/"
-                    f"parameters.html#{param.url_slug}"
-                )
-                param_typ_fmt = f"[link={param_url}]{param_typ_fmt}[/link]"
-            return param_typ_fmt
+    @classmethod
+    def __task_schemas(cls) -> TaskSchemasList:
+        # Workaround for a dumb mypy bug
+        return cls._app.task_schemas
 
+    def __get_param_type_str(self, param: Parameter) -> str:
+        type_fmt = "-"
+        if param._validation:
+            try:
+                type_fmt = param._validation.to_tree()[0]["type_fmt"]
+            except Exception:
+                pass
+        elif param._value_class:
+            param_cls = param._value_class
+            cls_url = (
+                f"{self._app.docs_url}/reference/_autosummary/{param_cls.__module__}."
+                f"{param_cls.__name__}"
+            )
+            type_fmt = f"[link={cls_url}]{param_cls.__name__}[/link]"
+        return type_fmt
+
+    def __format_parameter_type(self, param: Parameter) -> str:
+        param_typ_fmt = param.typ
+        if param.typ in self.__parameters().list_attrs():
+            param_url = (
+                f"{self._app.docs_url}/reference/template_components/"
+                f"parameters.html#{param.url_slug}"
+            )
+            param_typ_fmt = f"[link={param_url}]{param_typ_fmt}[/link]"
+        return param_typ_fmt
+
+    def __get_info(self, include: Sequence[str] = ()):
         if not include:
             include = ("inputs", "outputs", "actions")
 
@@ -174,9 +248,7 @@ class TaskSchema(JSONLike):
         tab.add_column(justify="right")
         tab.add_column()
 
-        from rich.table import box
-
-        tab_ins_outs = None
+        tab_ins_outs: Table | None = None
         if "inputs" in include or "outputs" in include:
             tab_ins_outs = Table(
                 show_header=False,
@@ -191,6 +263,7 @@ class TaskSchema(JSONLike):
             tab_ins_outs.add_row()
 
         if "inputs" in include:
+            assert tab_ins_outs
             if self.inputs:
                 tab_ins_outs.add_row(
                     "",
@@ -201,19 +274,20 @@ class TaskSchema(JSONLike):
             for inp_idx, inp in enumerate(self.inputs):
                 def_str = "-"
                 if not inp.multiple:
-                    if inp.default_value is not NullDefault.NULL:
+                    if self.__is_InputValue(inp.default_value):
                         if inp.default_value.value is None:
                             def_str = "None"
                         else:
                             def_str = f"{rich_esc(str(inp.default_value.value))!r}"
                 tab_ins_outs.add_row(
                     "" if inp_idx > 0 else "[bold]Inputs[/bold]",
-                    _format_parameter_type(inp.parameter),
-                    _get_param_type_str(inp.parameter),
+                    self.__format_parameter_type(inp.parameter),
+                    self.__get_param_type_str(inp.parameter),
                     def_str,
                 )
 
         if "outputs" in include:
+            assert tab_ins_outs
             if "inputs" in include:
                 tab_ins_outs.add_row()  # for spacing
             else:
@@ -226,8 +300,8 @@ class TaskSchema(JSONLike):
             for out_idx, out in enumerate(self.outputs):
                 tab_ins_outs.add_row(
                     "" if out_idx > 0 else "[bold]Outputs[/bold]",
-                    _format_parameter_type(out.parameter),
-                    _get_param_type_str(out.parameter),
+                    self.__format_parameter_type(out.parameter),
+                    self.__get_param_type_str(out.parameter),
                     "",
                 )
 
@@ -273,7 +347,7 @@ class TaskSchema(JSONLike):
                     cmd_str = "cmd" if cmd.command else "exe"
                     tab_cmds_i.add_row(
                         f"[italic]{cmd_str}:[/italic]",
-                        rich_esc(cmd.command or cmd.executable),
+                        rich_esc(cmd.command or cmd.executable or ""),
                     )
                     if cmd.stdout:
                         tab_cmds_i.add_row(
@@ -294,32 +368,30 @@ class TaskSchema(JSONLike):
         panel = Panel(tab, title=f"Task schema: {rich_esc(self.objective.name)!r}")
         return panel
 
-    def _show_info(self, include=None):
-        panel = self._get_info(include=include)
-        rich_print(panel)
-
-    @property
-    def basic_info(self):
+    def basic_info(self) -> None:
         """Show inputs and outputs, formatted in a table."""
-        return self._show_info(include=("inputs", "outputs"))
+        rich_print(self.__get_info(include=("inputs", "outputs")))
 
-    @property
-    def info(self):
+    def info(self) -> None:
         """Show inputs, outputs, and actions, formatted in a table."""
-        return self._show_info()
+        rich_print(self.__get_info(include=()))
 
     def get_info_html(self) -> str:
-        def _format_parameter_type(param):
+        """
+        Describe the task schema as an HTML document.
+        """
+
+        def _format_parameter_type(param: Parameter) -> str:
             param_typ_fmt = param.typ
             if param.typ in param_types:
                 param_url = (
-                    f"{self.app.docs_url}/reference/template_components/"
+                    f"{self._app.docs_url}/reference/template_components/"
                     f"parameters.html#{param.url_slug}"
                 )
                 param_typ_fmt = f'<a href="{param_url}">{param_typ_fmt}</a>'
             return param_typ_fmt
 
-        def _get_param_type_str(param) -> str:
+        def _get_param_type_str(param: Parameter) -> str:
             type_fmt = "-"
             if param._validation:
                 try:
@@ -329,13 +401,15 @@ class TaskSchema(JSONLike):
             elif param._value_class:
                 param_cls = param._value_class
                 cls_url = (
-                    f"{self.app.docs_url}/reference/_autosummary/{param_cls.__module__}."
+                    f"{self._app.docs_url}/reference/_autosummary/{param_cls.__module__}."
                     f"{param_cls.__name__}"
                 )
                 type_fmt = f'<a href="{cls_url}">{param_cls.__name__}</a>'
             return type_fmt
 
-        def _prepare_script_data_format_table(script_data_grouped):
+        def _prepare_script_data_format_table(
+            script_data_grouped: Mapping[str, Mapping[str, Mapping[str, str]]]
+        ) -> str:
             out = ""
             rows = ""
             for fmt, params in script_data_grouped.items():
@@ -349,14 +423,14 @@ class TaskSchema(JSONLike):
 
             return out
 
-        param_types = self.app.parameters.list_attrs()
+        param_types = self.__parameters().list_attrs()
 
-        inputs_header_row = f"<tr><th>parameter</th><th>type</th><th>default</th></tr>"
+        inputs_header_row = "<tr><th>parameter</th><th>type</th><th>default</th></tr>"
         input_rows = ""
         for inp in self.inputs:
             def_str = "-"
             if not inp.multiple:
-                if inp.default_value is not NullDefault.NULL:
+                if self.__is_InputValue(inp.default_value):
                     if inp.default_value.value is None:
                         def_str = "None"
                     else:
@@ -379,11 +453,11 @@ class TaskSchema(JSONLike):
             )
         else:
             inputs_table = (
-                f'<span class="schema-note-no-inputs">This task schema has no input '
-                f"parameters.</span>"
+                '<span class="schema-note-no-inputs">This task schema has no input '
+                "parameters.</span>"
             )
 
-        outputs_header_row = f"<tr><th>parameter</th><th>type</th></tr>"
+        outputs_header_row = "<tr><th>parameter</th><th>type</th></tr>"
         output_rows = ""
         for out in self.outputs:
             param_str = _format_parameter_type(out.parameter)
@@ -398,8 +472,8 @@ class TaskSchema(JSONLike):
 
         else:
             outputs_table = (
-                f'<span class="schema-note-no-outputs">This task schema has no output '
-                f"parameters.</span>"
+                '<span class="schema-note-no-outputs">This task schema has no output '
+                "parameters.</span>"
             )
 
         action_rows = ""
@@ -457,7 +531,7 @@ class TaskSchema(JSONLike):
             num_inp_fg_rows = 0
             if act.input_file_generators:
                 inp_fg = act.input_file_generators[0]  # should be only one
-                inps = ", ".join(f"<code>{i.typ}</code>" for i in inp_fg.inputs)
+                inps = ", ".join(f"<code>{in_.typ}</code>" for in_ in inp_fg.inputs)
                 inp_fg_rows += (
                     f"<tr>"
                     f'<td class="action-header-cell">input file:</td>'
@@ -474,11 +548,13 @@ class TaskSchema(JSONLike):
             num_out_fp_rows = 0
             if act.output_file_parsers:
                 out_fp = act.output_file_parsers[0]  # should be only one
-                files = ", ".join(f"<code>{i.label}</code>" for i in out_fp.output_files)
+                files = ", ".join(
+                    f"<code>{of_.label}</code>" for of_ in out_fp.output_files
+                )
                 out_fp_rows += (
                     f"<tr>"
                     f'<td class="action-header-cell">output:</td>'
-                    f"<td><code>{out_fp.output.typ}</code></td>"
+                    f"<td><code>{out_fp.output.typ if out_fp.output else ''}</code></td>"
                     f"</tr>"
                     f"<tr>"
                     f'<td class="action-header-cell">output files:</td>'
@@ -495,7 +571,7 @@ class TaskSchema(JSONLike):
                     f'<td rowspan="{bool(cmd.stdout) + bool(cmd.stderr) + 1}">'
                     f'<span class="cmd-idx-numeral">{cmd_idx}</span></td>'
                     f'<td class="command-header-cell">{"cmd" if cmd.command else "exe"}:'
-                    f"</td><td><code><pre>{escape(cmd.command or cmd.executable)}</pre>"
+                    f"</td><td><code><pre>{escape(cmd.command or cmd.executable or '')}</pre>"
                     f"</code></td></tr>"
                 )
                 if cmd.stdout:
@@ -510,8 +586,8 @@ class TaskSchema(JSONLike):
                     )
                 if cmd_idx < len(act.commands) - 1:
                     cmd_j_tab_rows += (
-                        f'<tr><td colspan="3" class="commands-table-bottom-spacer-cell">'
-                        f"</td></tr>"
+                        '<tr><td colspan="3" class="commands-table-bottom-spacer-cell">'
+                        "</td></tr>"
                     )
                 act_i_cmds_tab_rows += cmd_j_tab_rows
 
@@ -541,30 +617,36 @@ class TaskSchema(JSONLike):
         if action_rows:
             action_table = f'<table class="action-table hidden">{action_rows}</table>'
             action_show_hide = (
-                f'<span class="actions-show-hide-toggle">[<span class="action-show-text">'
-                f'show ↓</span><span class="action-hide-text hidden">hide ↑</span>]'
-                f"</span>"
+                '<span class="actions-show-hide-toggle">[<span class="action-show-text">'
+                'show ↓</span><span class="action-hide-text hidden">hide ↑</span>]'
+                "</span>"
             )
             act_heading_class = ' class="actions-heading"'
         else:
             action_table = (
-                f'<span class="schema-note-no-actions">'
-                f"This task schema has no actions.</span>"
+                '<span class="schema-note-no-actions">'
+                "This task schema has no actions.</span>"
             )
             action_show_hide = ""
             act_heading_class = ""
-        out = (
-            f"<h5>Inputs</h5>{inputs_table}"
-            f"<h5>Outputs</h5>{outputs_table}"
-            # f"<h5>Examples</h5>examples here..." # TODO:
-            f"<h5{act_heading_class}>Actions{action_show_hide}</h5>{action_table}"
+        description = (
+            f"<h3 class='task-desc'>Description</h3>{self.doc}" if self.doc else ""
         )
-        return out
+        return (
+            f"{description}"
+            f"<h3>Inputs</h3>{inputs_table}"
+            f"<h3>Outputs</h3>{outputs_table}"
+            # f"<h3>Examples</h3>examples here..." # TODO:
+            f"<h3{act_heading_class}>Actions{action_show_hide}</h3>"
+            f"{action_table}"
+        )
 
-    def __eq__(self, other):
-        if type(other) is not self.__class__:
+    def __eq__(self, other: Any):
+        if id(self) == id(other):
+            return True
+        if not isinstance(other, self.__class__):
             return False
-        if (
+        return (
             self.objective == other.objective
             and self.actions == other.actions
             and self.method == other.method
@@ -573,11 +655,9 @@ class TaskSchema(JSONLike):
             and self.outputs == other.outputs
             and self.version == other.version
             and self._hash_value == other._hash_value
-        ):
-            return True
-        return False
+        )
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
         kwargs = self.to_dict()
         obj = self.__class__(**copy.deepcopy(kwargs, memo))
         obj._task_template = self._task_template
@@ -585,78 +665,92 @@ class TaskSchema(JSONLike):
 
     @classmethod
     @contextmanager
-    def ignore_invalid_actions(cls):
+    def ignore_invalid_actions(cls) -> Iterator[None]:
+        """
+        A context manager within which invalid actions will be ignored.
+        """
         try:
             cls._validate_actions = False
             yield
         finally:
             cls._validate_actions = True
 
-    def _validate(self):
-        if isinstance(self.objective, str):
-            self.objective = self.app.TaskObjective(self.objective)
+    @classmethod
+    def __coerce_objective(cls, objective: TaskObjective | str) -> TaskObjective:
+        if isinstance(objective, str):
+            return cls._app.TaskObjective(objective)
+        else:
+            return objective
 
+    @classmethod
+    def __coerce_one_input(cls, inp: Parameter | SchemaInput) -> SchemaInput:
+        return cls._app.SchemaInput(inp) if cls.__is_Parameter(inp) else inp
+
+    @classmethod
+    def __coerce_inputs(
+        cls, inputs: Iterable[Parameter | SchemaInput]
+    ) -> list[SchemaInput]:
+        """coerce Parameters to SchemaInputs"""
+        return [cls.__coerce_one_input(inp) for inp in inputs]
+
+    @classmethod
+    def __coerce_one_output(cls, out: Parameter | SchemaParameter) -> SchemaOutput:
+        return (
+            out
+            if cls.__is_SchemaOutput(out)
+            else cls._app.SchemaOutput(out if cls.__is_Parameter(out) else out.parameter)
+        )
+
+    @classmethod
+    def __coerce_outputs(
+        cls, outputs: Iterable[Parameter | SchemaParameter]
+    ) -> list[SchemaOutput]:
+        """coerce Parameters to SchemaOutputs"""
+        return [cls.__coerce_one_output(out) for out in outputs]
+
+    def _validate(self) -> None:
         if self.method:
             self.method = check_valid_py_identifier(self.method)
         if self.implementation:
             self.implementation = check_valid_py_identifier(self.implementation)
 
-        # coerce Parameters to SchemaInputs
-        for idx, i in enumerate(self.inputs):
-            if isinstance(
-                i, Parameter
-            ):  # TODO: doc. that we should use the sdk class for type checking!
-                self.inputs[idx] = self.app.SchemaInput(i)
-
-        # coerce Parameters to SchemaOutputs
-        for idx, i in enumerate(self.outputs):
-            if isinstance(i, Parameter):
-                self.outputs[idx] = self.app.SchemaOutput(i)
-            elif isinstance(i, SchemaInput):
-                self.outputs[idx] = self.app.SchemaOutput(i.parameter)
-
         # check action input/outputs
         if self._validate_actions:
             has_script = any(
-                i.script and not i.input_file_generators and not i.output_file_parsers
-                for i in self.actions
+                act.script
+                and not act.input_file_generators
+                and not act.output_file_parsers
+                for act in self.actions
             )
 
-            all_outs = []
+            all_outs: set[str] = set()
             extra_ins = set(self.input_types)
 
             act_ins_lst = [act.get_input_types() for act in self.actions]
             act_outs_lst = [act.get_output_types() for act in self.actions]
 
-            schema_ins = set(self.input_types)
             schema_outs = set(self.output_types)
 
-            all_act_ins = set(j for i in act_ins_lst for j in i)
-            all_act_outs = set(j for i in act_outs_lst for j in i)
+            all_act_ins = set(chain.from_iterable(act_ins_lst))
+            all_act_outs = set(chain.from_iterable(act_outs_lst))
 
-            non_schema_act_ins = all_act_ins - schema_ins
-            non_schema_act_outs = set(all_act_outs - schema_outs)
+            non_schema_act_ins = all_act_ins.difference(self.input_types)
+            non_schema_act_outs = all_act_outs.difference(schema_outs)
 
             extra_act_outs = non_schema_act_outs
-            seen_act_outs = []
+            seen_act_outs: set[str] = set()
             for act_idx in range(len(self.actions)):
-                for act_in in [
-                    i for i in act_ins_lst[act_idx] if i in non_schema_act_ins
-                ]:
-                    if act_in not in seen_act_outs:
+                for act_in in act_ins_lst[act_idx]:
+                    if act_in in non_schema_act_ins and act_in not in seen_act_outs:
                         raise ValueError(
                             f"Action {act_idx} input {act_in!r} of schema {self.name!r} "
                             f"is not a schema input, but nor is it an action output from "
                             f"a preceding action."
                         )
-                seen_act_outs += [
-                    i for i in act_outs_lst[act_idx] if i not in seen_act_outs
-                ]
-                extra_act_outs = extra_act_outs - set(act_ins_lst[act_idx])
-                act_inputs = set(act_ins_lst[act_idx])
-                act_outputs = set(act_outs_lst[act_idx])
-                extra_ins = extra_ins - act_inputs
-                all_outs.extend(list(act_outputs))
+                seen_act_outs.update(act_outs_lst[act_idx])
+                extra_act_outs.difference_update(act_ins_lst[act_idx])
+                extra_ins.difference_update(act_ins_lst[act_idx])
+                all_outs.update(act_outs_lst[act_idx])
 
             if extra_act_outs:
                 raise ValueError(
@@ -670,9 +764,9 @@ class TaskSchema(JSONLike):
                 # i.e. are all schema inputs "consumed" by an action?
 
                 # consider OFP inputs:
-                for act_i in self.actions:
-                    for OFP_j in act_i.output_file_parsers:
-                        extra_ins = extra_ins - set(OFP_j.inputs or [])
+                for act in self.actions:
+                    for ofp in act.output_file_parsers:
+                        extra_ins.difference_update(ofp.inputs or ())
 
                 if self.actions and extra_ins:
                     # allow for no actions (e.g. defining inputs for downstream tasks)
@@ -681,7 +775,7 @@ class TaskSchema(JSONLike):
                         f"by any actions."
                     )
 
-            missing_outs = set(self.output_types) - set(all_outs)
+            missing_outs = schema_outs - all_outs
             if missing_outs and not has_script:
                 # TODO: bit of a hack, need to consider script ins/outs later
                 raise ValueError(
@@ -689,12 +783,12 @@ class TaskSchema(JSONLike):
                     f"generated by any actions."
                 )
 
-    def _expand_actions(self):
+    def __expand_actions(self) -> list[Action]:
         """Create new actions for input file generators and output parsers in existing
         actions."""
-        return [j for i in self.actions for j in i.expand()]
+        return [new_act for act in self.actions for new_act in act.expand()]
 
-    def _update_parameter_value_classes(self):
+    def __update_parameter_value_classes(self):
         # ensure any referenced parameter_class_modules are imported:
         for module in self.parameter_class_modules:
             import_module(module)
@@ -708,8 +802,14 @@ class TaskSchema(JSONLike):
         for out in self.outputs:
             out.parameter._set_value_class()
 
-    def make_persistent(self, workflow: app.Workflow, source: Dict) -> List[int]:
-        new_refs = []
+    def make_persistent(
+        self, workflow: Workflow, source: ParamSource
+    ) -> list[int | list[int]]:
+        """
+        Convert this task schema to persistent form within the context of the given
+        workflow.
+        """
+        new_refs: list[int | list[int]] = []
         for input_i in self.inputs:
             for lab_info in input_i.labelled_info():
                 if "default_value" in lab_info:
@@ -720,60 +820,77 @@ class TaskSchema(JSONLike):
         return new_refs
 
     @property
-    def name(self):
-        out = (
+    def name(self) -> str:
+        """
+        The name of this schema.
+        """
+        return (
             f"{self.objective.name}"
             f"{f'_{self.method}' if self.method else ''}"
             f"{f'_{self.implementation}' if self.implementation else ''}"
         )
-        return out
 
     @property
-    def input_types(self):
-        return tuple(j for i in self.inputs for j in i.all_labelled_types)
+    def input_types(self) -> list[str]:
+        """
+        The input types to the schema.
+        """
+        return [typ for inp in self.inputs for typ in inp.all_labelled_types]
 
     @property
-    def output_types(self):
-        return tuple(i.typ for i in self.outputs)
+    def output_types(self) -> list[str]:
+        """
+        The output types from the schema.
+        """
+        return [out.typ for out in self.outputs]
 
     @property
-    def provides_parameters(self) -> Tuple[Tuple[str, str]]:
-        out = []
+    def provides_parameters(self) -> Iterator[tuple[str, str]]:
+        """
+        The parameters that this schema provides.
+        """
         for schema_inp in self.inputs:
-            for labelled_info in schema_inp.labelled_info():
-                prop_mode = labelled_info["propagation_mode"]
+            for label, prop_mode in schema_inp._simple_labelled_info:
                 if prop_mode is not ParameterPropagationMode.NEVER:
-                    out.append(
-                        (schema_inp.input_or_output, labelled_info["labelled_type"])
-                    )
+                    yield (schema_inp.input_or_output, label)
         for schema_out in self.outputs:
             if schema_out.propagation_mode is not ParameterPropagationMode.NEVER:
-                out.append((schema_out.input_or_output, schema_out.typ))
-        return tuple(out)
+                yield (schema_out.input_or_output, schema_out.typ)
 
     @property
-    def task_template(self):
+    def task_template(self) -> TaskTemplate | None:
+        """
+        The template that this schema is contained in.
+        """
         return self._task_template
 
     @classmethod
-    def get_by_key(cls, key):
+    def get_by_key(cls, key: str) -> TaskSchema:
         """Get a config-loaded task schema from a key."""
-        return cls.app.task_schemas.get(key)
+        return cls.__task_schemas().get(key)
 
-    def get_parameter_dependence(self, parameter: app.SchemaParameter):
+    def get_parameter_dependence(
+        self, parameter: SchemaParameter
+    ) -> ActParameterDependence:
         """Find if/where a given parameter is used by the schema's actions."""
-        out = {"input_file_writers": [], "commands": []}
+        out: ActParameterDependence = {"input_file_writers": [], "commands": []}
         for act_idx, action in enumerate(self.actions):
             deps = action.get_parameter_dependence(parameter)
-            for key in out:
-                out[key].extend((act_idx, i) for i in deps[key])
+            out["input_file_writers"].extend(
+                (act_idx, ifw) for ifw in deps["input_file_writers"]
+            )
+            out["commands"].extend((act_idx, cmd) for cmd in deps["commands"])
         return out
 
-    def get_key(self):
+    def get_key(self) -> tuple:
+        """
+        Get the hashable value that represents this schema.
+        """
         return (str(self.objective), self.method, self.implementation)
 
-    def _get_single_label_lookup(self, prefix="") -> Dict[str, str]:
-        """Get a mapping between schema input types that have a single label (i.e.
+    def _get_single_label_lookup(self, prefix: str = "") -> Mapping[str, str]:
+        """
+        Get a mapping between schema input types that have a single label (i.e.
         labelled but with `multiple=False`) and the non-labelled type string.
 
         For example, if a task schema has a schema input like:
@@ -785,7 +902,7 @@ class TaskSchema(JSONLike):
         `{"inputs.p1[one]": "inputs.p1"}`.
 
         """
-        lookup = {}
+        lookup: dict[str, str] = {}
         if prefix and not prefix.endswith("."):
             prefix += "."
         for sch_inp in self.inputs:
@@ -795,18 +912,38 @@ class TaskSchema(JSONLike):
         return lookup
 
     @property
-    def multi_input_types(self) -> List[str]:
+    def multi_input_types(self) -> list[str]:
         """Get a list of input types that have multiple labels."""
-        out = []
-        for inp in self.inputs:
-            if inp.multiple:
-                out.append(inp.parameter.typ)
-        return out
+        return [inp.parameter.typ for inp in self.inputs if inp.multiple]
 
 
 class MetaTaskSchema(TaskSchema):
+    """Class to represent a task schema with no actions, that can be used to represent the
+    effect of multiple task schemas.
 
-    _validation_schema = "task_schema_spec_schema.yaml"
+    Parameters
+    ----------
+    objective:
+        This is a string representing the objective of the task schema.
+    method:
+        An optional string to label the task schema by its method.
+    implementation:
+        An optional string to label the task schema by its implementation.
+    inputs:
+        A list of SchemaInput objects that define the inputs to the task.
+    outputs:
+        A list of SchemaOutput objects that define the outputs of the task.
+    version:
+        The version of this task schema.
+    web_doc:
+        True if this object should be included in the Sphinx documentation
+        (normally only relevant for built-in task schemas). True by default.
+    environment_presets:
+        Information about default execution environments. Can be overridden in specific
+        cases in the concrete tasks.
+    """
+
+    _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
     _hash_value = None
     _validate_actions = False
 
@@ -823,15 +960,16 @@ class MetaTaskSchema(TaskSchema):
 
     def __init__(
         self,
-        objective: Union[app.TaskObjective, str],
-        method: Optional[str] = None,
-        implementation: Optional[str] = None,
-        inputs: Optional[List[Union[app.Parameter, app.SchemaInput]]] = None,
-        outputs: Optional[List[Union[app.Parameter, app.SchemaOutput]]] = None,
-        version: Optional[str] = None,
-        web_doc: Optional[bool] = True,
-        environment_presets: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
-        _hash_value: Optional[str] = None,
+        objective: TaskObjective | str,
+        method: str | None = None,
+        implementation: str | None = None,
+        inputs: list[Parameter | SchemaInput] | None = None,
+        outputs: list[Parameter | SchemaParameter] | None = None,
+        version: str | None = None,
+        web_doc: bool | None = True,
+        environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+        doc: str = "",
+        _hash_value: str | None = None,
     ):
         super().__init__(
             objective=objective,
@@ -842,5 +980,6 @@ class MetaTaskSchema(TaskSchema):
             version=version,
             web_doc=web_doc,
             environment_presets=environment_presets,
+            doc=doc,
             _hash_value=_hash_value,
         )

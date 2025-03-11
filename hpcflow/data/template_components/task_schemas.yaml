@@ -1,4 +1,7 @@
 - objective: test_t1_bash
+  doc: >
+    Simple echo test using bash.
+    <code>p1</code> &rarr; <code>p2</code>
   inputs:
     - parameter: p1
   outputs:
@@ -13,6 +16,9 @@
           stdout: <<parameter:p2>>
 
 - objective: test_t1_ps
+  doc: >
+    Simple echo test using powershell.
+    <code>p1</code> &rarr; <code>p2</code>
   inputs:
     - parameter: p1
   outputs:
@@ -27,6 +33,9 @@
           stdout: <<parameter:p2>>
 
 - objective: test_t1_conditional_OS
+  doc: >
+    Simple echo test showing conditional enactment schemes.
+    <code>p1</code> &rarr; <code>p2</code>
   inputs:
     - parameter: p1
   outputs:
@@ -54,6 +63,9 @@
           stdout: <<parameter:p2>>
 
 - objective: test_t2_bash
+  doc: >
+    Simple echo test using bash.
+    <code>p2</code> &rarr; <code>p3</code>
   inputs:
     - parameter: p2
   outputs:
@@ -68,6 +80,9 @@
           stdout: <<parameter:p3>>
 
 - objective: test_t2_ps
+  doc: >
+    Simple echo test using powershell.
+    <code>p2</code> &rarr; <code>p3</code>
   inputs:
     - parameter: p2
   outputs:
@@ -100,6 +115,9 @@
 #           from_files: [t1_outfile_1]
 
 - objective: dummy_task_1
+  doc: >
+    A dummy task showing simple output file parsing.
+    <code>(p1, p2, p5)</code> &rarr; <code>p3</code>
   inputs:
     - parameter: p1
     - parameter: p2
@@ -119,6 +137,9 @@
           from_files: [t1_outfile_1]
 
 - objective: dummy_task_2
+  doc: >
+    A dummy task showing simple output file parsing.
+    <code>(p3, orientations)</code> &rarr; <code>p4</code>
   inputs:
     - parameter: p3
     - parameter: orientations

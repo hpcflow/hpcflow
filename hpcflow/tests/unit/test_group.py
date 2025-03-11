@@ -1,9 +1,11 @@
+from __future__ import annotations
+from pathlib import Path
 import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import MissingElementGroup
 
 
-def test_group_simple(null_config, tmp_path):
+def test_group_simple(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -48,7 +50,7 @@ def test_group_simple(null_config, tmp_path):
     assert len(wk.tasks.t2.elements[0].get_data_idx("inputs.p2")["inputs.p2"]) == 3
 
 
-def test_group_raise_no_elements(null_config, tmp_path):
+def test_group_raise_no_elements(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],

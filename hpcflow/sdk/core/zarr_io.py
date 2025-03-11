@@ -1,76 +1,72 @@
-from typing import Any, Dict, Union
+"""
+Utilities for working with Zarr.
+"""
 
-import zarr
+from __future__ import annotations
+from typing import Any
+from typing_extensions import Self
+
+import zarr  # type: ignore
 import numpy as np
 
 from hpcflow.sdk.core.utils import get_in_container, get_relative_path, set_in_container
 
 
-PRIMITIVES = (
+#: The basic types that Zarr can handle directly with no special action.
+PRIMITIVES: tuple[type, ...] = (
     int,
     float,
     str,
     type(None),
 )
 
+#: Maximum nesting depth for encoding.
+MAX_DEPTH = 50
 
-def _zarr_encode(obj, zarr_group, path=None, encoded=None):
-    path = path or []
-    encoded = encoded or []
 
-    if len(path) > 50:
-        raise RuntimeError("I'm in too deep!")
+def zarr_encode(data, zarr_group: zarr.Group, is_pending_add: bool, is_set: bool):
+    """
+    Encode data into a zarr group.
+    """
 
-    if isinstance(obj, ZarrEncodable):
-        obj = obj.to_dict()
-        out, encoded = _zarr_encode(
-            obj, zarr_group=zarr_group, path=path, encoded=encoded
-        )
+    encoded: list[dict] = []
 
-    elif isinstance(obj, (list, tuple, set)):
-        out = []
-        for idx, item in enumerate(obj):
-            item, encoded = _zarr_encode(item, zarr_group, path + [idx], encoded)
-            out.append(item)
-        if isinstance(obj, tuple):
-            out = tuple(out)
-        elif isinstance(obj, set):
-            out = set(out)
+    def encode(obj: Any, path: list) -> Any:
+        if len(path) > MAX_DEPTH:
+            raise RuntimeError("I'm in too deep!")
 
-    elif isinstance(obj, dict):
-        out = {}
-        for dct_key, dct_val in obj.items():
-            dct_val, encoded = _zarr_encode(
-                dct_val, zarr_group, path + [dct_key], encoded
-            )
-            out.update({dct_key: dct_val})
-
-    elif isinstance(obj, PRIMITIVES):
-        out = obj
-
-    elif isinstance(obj, np.ndarray):
-        names = [int(i) for i in zarr_group.keys()]
-        if not names:
-            new_name = "0"
-        else:
-            new_name = str(max(names) + 1)
-
-        zarr_group.create_dataset(name=new_name, data=obj)
-        encoded.append(
-            {
-                "path": path,
-                "dataset": new_name,
+        if isinstance(obj, ZarrEncodable):
+            return encode(obj.to_dict(), path)
+        elif isinstance(obj, (list, tuple, set)):
+            out = (encode(item, [*path, idx]) for idx, item in enumerate(obj))
+            if isinstance(obj, tuple):
+                return tuple(out)
+            elif isinstance(obj, set):
+                return set(out)
+            else:
+                return list(out)
+        elif isinstance(obj, dict):
+            return {
+                dct_key: encode(dct_val, [*path, dct_key])
+                for dct_key, dct_val in obj.items()
             }
-        )
-        out = None
+        elif isinstance(obj, PRIMITIVES):
+            return obj
+        elif isinstance(obj, np.ndarray):
+            new_name = str(max((int(i) + 1 for i in zarr_group.keys()), default=0))
+            zarr_group.create_dataset(name=new_name, data=obj)
+            encoded.append(
+                {
+                    "path": path,
+                    "dataset": new_name,
+                }
+            )
+            return None
+        else:
+            raise ValueError(f"unserializable type: {type(obj)}")
 
-    return out, encoded
-
-
-def zarr_encode(data, zarr_group, is_pending_add, is_set):
-    data, encoded = _zarr_encode(data, zarr_group)
+    zarr_group.attrs["data"] = encode(data, [])
     zarr_group.attrs["encoded"] = encoded
-    zarr_group.attrs["data"] = data
     zarr_group.attrs["is_set"] = is_set
     if is_pending_add:
         zarr_group.attrs["is_pending_add"] = is_pending_add
@@ -81,101 +77,72 @@ def zarr_encode(data, zarr_group, is_pending_add, is_set):
 
 def _zarr_encode_NEW(
     obj: Any,
-    base_arr: zarr.Array,
     root_group: zarr.Group,
     arr_path: str,
-    path=None,
-    arr_lookup=None,
-):
+) -> tuple[Any, list[list]]:
     """
     Save arbitrarily-nested Python-primitive, `ZarrEncodable` and numpy array objects into
     Zarr.
 
     Parameters
     ----------
-    obj
-    base_arr
-        Zarr object array into which (the top-level) `obj` is saved using the MsgPack
-        encoder.
-    root_group
+    obj:
+        Object to encode.
+    root_group:
         Parent Zarr group into which new Zarr arrays will be added (at `arr_path`).
-    arr_path
+    arr_path:
         Path relative to `root_group` into which new Zarr arrays will be added.
 
     Returns
     -------
-    (data, arr_lookup)
-
-
+    data
+        The encoded data.
+    arr_lookup
+        How to look up where to rebuild Numpy arrays.
     """
 
-    path = path or []
-    arr_lookup = arr_lookup or []
+    arr_lookup: list[list] = []
 
-    if len(path) > 50:
-        raise RuntimeError("I'm in too deep!")
+    def encode(obj: Any, path: list) -> Any:
+        if len(path) > MAX_DEPTH:
+            raise RuntimeError("I'm in too deep!")
 
-    if isinstance(obj, ZarrEncodable):
-        data, arr_lookup = _zarr_encode_NEW(
-            obj=obj.to_dict(),
-            base_arr=base_arr,
-            root_group=root_group,
-            arr_path=arr_path,
-            path=path,
-        )
-
-    elif isinstance(obj, (list, tuple, set)):
-        data = []
-        for idx, item in enumerate(obj):
-            item, arr_lookup = _zarr_encode_NEW(
-                obj=item,
-                base_arr=base_arr,
-                root_group=root_group,
-                arr_path=arr_path,
-                path=path + [idx],
-            )
-            data.append(item)
-        if isinstance(obj, tuple):
-            data = tuple(data)
-        elif isinstance(obj, set):
-            data = set(data)
-
-    elif isinstance(obj, dict):
-        data = {}
-        for dct_key, dct_val in obj.items():
-            dct_val, arr_lookup = _zarr_encode_NEW(
-                obj=dct_val,
-                base_arr=base_arr,
-                root_group=root_group,
-                arr_path=arr_path,
-                path=path + [dct_key],
-            )
-            data[dct_key] = dct_val
-
-    elif isinstance(obj, PRIMITIVES):
-        data = obj
-
-    elif isinstance(obj, np.ndarray):
-        # Might need to generate new group:
-        param_arr_group = root_group.require_group(arr_path)
-        names = [int(i) for i in param_arr_group.keys()]
-        if not names:
-            new_idx = 0
+        if isinstance(obj, ZarrEncodable):
+            return encode(obj.to_dict(), path)
+        elif isinstance(obj, (list, tuple, set)):
+            items = (encode(item, [*path, idx]) for idx, item in enumerate(obj))
+            if isinstance(obj, tuple):
+                return tuple(items)
+            elif isinstance(obj, set):
+                return set(items)
+            else:
+                return list(items)
+        elif isinstance(obj, dict):
+            return {key: encode(val, [*path, key]) for key, val in obj.items()}
+        elif isinstance(obj, PRIMITIVES):
+            return obj
+        elif isinstance(obj, np.ndarray):
+            # Might need to generate new group:
+            param_arr_group = root_group.require_group(arr_path)
+            new_idx = max((int(i) + 1 for i in param_arr_group.keys()), default=0)
+            param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj)
+            arr_lookup.append([path, new_idx])
+            return None
         else:
-            new_idx = max(names) + 1
-        param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj)
-        arr_lookup.append([path, new_idx])
-        data = None
+            raise ValueError(f"unserializable type: {type(obj)}")
 
-    return data, arr_lookup
+    return encode(obj, []), arr_lookup
 
 
 def zarr_decode(
-    param_data: Union[None, Dict],
+    param_data: None | dict,
     arr_group: zarr.Group,
-    path=None,
-    dataset_copy=False,
+    path: list | None = None,
+    dataset_copy: bool = False,
 ):
+    """
+    Decode data from a zarr group.
+    """
     if param_data is None:
         return None
 
@@ -204,19 +171,36 @@ def zarr_decode(
 
 
 class ZarrEncodable:
+    """
+    Base class of data that can be converted to and from zarr form.
+    """
+
     _typ = None
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert this object to a dict.
+        """
         if hasattr(self, "__dict__"):
             return dict(self.__dict__)
         elif hasattr(self, "__slots__"):
             return {k: getattr(self, k) for k in self.__slots__}
+        else:
+            # Should be unreachable
+            return {}
 
-    def to_zarr(self, zarr_group):
-        data = self.to_dict()
-        zarr_encode(data, zarr_group)
+    def to_zarr(self, zarr_group: zarr.Group):
+        """
+        Save this object into the given zarr group.
+        """
+        zarr_encode(self.to_dict(), zarr_group, is_pending_add=False, is_set=False)
 
     @classmethod
-    def from_zarr(cls, zarr_group, dataset_copy=False):
-        data = zarr_decode(zarr_group, dataset_copy=dataset_copy)
+    def from_zarr(cls, zarr_group: zarr.Group, dataset_copy: bool = False) -> Self:
+        """
+        Read an instance of this class from the given zarr group.
+        """
+        # FIXME: Do the read of the data!
+        param_data = None
+        data = zarr_decode(param_data, zarr_group, dataset_copy=dataset_copy)
         return cls(**data)

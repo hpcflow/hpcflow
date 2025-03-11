@@ -1,24 +1,46 @@
+"""
+Shell models based on the GNU Bourne-Again Shell.
+"""
+
+from __future__ import annotations
 from pathlib import Path
 import subprocess
 from textwrap import dedent, indent
-from typing import Dict, List, Optional, Union
-from hpcflow.sdk.submission.shells import Shell
+from typing import TYPE_CHECKING
+from typing_extensions import override
+from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.core import ABORT_EXIT_CODE
+from hpcflow.sdk.submission.shells.base import Shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Any, ClassVar
+    from .base import VersionInfo, JobscriptHeaderArgs
 
+
+@hydrate
 class Bash(Shell):
-    """Class to represent using bash on a POSIX OS to generate and submit a jobscript."""
+    """
+    Class to represent using bash on a POSIX OS to generate and submit a jobscript.
+    """
 
-    DEFAULT_EXE = "/bin/bash"
+    #: Default for executable name.
+    DEFAULT_EXE: ClassVar[str] = "/bin/bash"
 
-    JS_EXT = ".sh"
-    JS_INDENT = "  "
-    JS_ENV_SETUP_INDENT = 2 * JS_INDENT
-    JS_SHEBANG = """#!{shebang_executable} {shebang_args}"""
-    JS_FUNCS = dedent(
+    #: File extension for jobscripts.
+    JS_EXT: ClassVar[str] = ".sh"
+    #: Basic indent.
+    JS_INDENT: ClassVar[str] = "  "
+    #: Indent for environment setup.
+    JS_ENV_SETUP_INDENT: ClassVar[str] = 2 * JS_INDENT
+    #: Template for the jobscript shebang line.
+    JS_SHEBANG: ClassVar[str] = """#!{shebang_executable} {shebang_args}"""
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str] = dedent(
         """\
         {workflow_app_alias} () {{
         (
@@ -31,7 +53,8 @@ class Bash(Shell):
         }}
     """
     )
-    JS_HEADER = dedent(
+    #: Template for the common part of the jobscript header.
+    JS_HEADER: ClassVar[str] = dedent(
         """\
         WK_PATH=`pwd`
         WK_PATH_ARG="$WK_PATH"
@@ -62,7 +85,8 @@ class Bash(Shell):
         export {app_caps}_RUN_ID_FILE=$EAR_ID_FILE
     """
     )
-    JS_SCHEDULER_HEADER = dedent(
+    #: Template for the jobscript header when scheduled.
+    JS_SCHEDULER_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
 
@@ -70,24 +94,30 @@ class Bash(Shell):
         {header}
     """
     )
-    JS_DIRECT_HEADER = dedent(
+    #: Template for the jobscript header when directly executed.
+    JS_DIRECT_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
         {header}
         {wait_command}
     """
     )
-    JS_RUN_LOG_PATH_ENABLE = '"$SUB_LOG_DIR/{run_log_file_name}"'
-    JS_RUN_LOG_PATH_DISABLE = '" "'
-    JS_RUN_CMD = (
+    #: Template for enabling writing of the app log.
+    JS_RUN_LOG_PATH_ENABLE: ClassVar[str] = '"$SUB_LOG_DIR/{run_log_file_name}"'
+    #: Template for disabling writing of the app log.
+    JS_RUN_LOG_PATH_DISABLE: ClassVar[str] = '" "'
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str] = (
         '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-run '
         "$SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
     )
-    JS_RUN_CMD_COMBINED = (
+    #: Template for the execution command for multiple combined runs.
+    JS_RUN_CMD_COMBINED: ClassVar[str] = (
         '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-combined-runs '
         "$SUB_IDX $JS_IDX\n"
     )
-    JS_RUN = dedent(
+    #: Template for setting up run environment variables and executing the run.
+    JS_RUN: ClassVar[str] = dedent(
         """\
         EAR_ID="$(cut -d'{EAR_files_delimiter}' -f $(($block_act_idx + 1)) <<< $elem_EAR_IDs)"
         if [ "$EAR_ID" = "-1" ]; then
@@ -105,7 +135,8 @@ class Bash(Shell):
         {run_cmd}
     """
     )
-    JS_ACT_MULTI = dedent(
+    #: Template for the action-run processing loop in a jobscript.
+    JS_ACT_MULTI: ClassVar[str] = dedent(
         """\
         for ((block_act_idx=0;block_act_idx<{num_actions};block_act_idx++))
         do      
@@ -113,13 +144,15 @@ class Bash(Shell):
         done  
         """
     )
-    JS_ACT_SINGLE = dedent(
+    #: Template for the single-action-run execution in a jobscript.
+    JS_ACT_SINGLE: ClassVar[str] = dedent(
         """\
         block_act_idx=0        
         {run_block}
         """
     )
-    JS_MAIN = dedent(
+    #: Template for setting up environment variables and running one or more action-runs.
+    JS_MAIN: ClassVar[str] = dedent(
         """\
         block_elem_idx=$(( $JS_elem_idx - {block_start_elem_idx} ))
         elem_EAR_IDs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$EAR_ID_FILE"`
@@ -129,19 +162,22 @@ class Bash(Shell):
         {action}
     """
     )
-    JS_BLOCK_HEADER = dedent(  # for single-block jobscripts only
+    #: Template for a jobscript-block header.
+    JS_BLOCK_HEADER: ClassVar[str] = dedent(  # for single-block jobscripts only
         """\
         block_idx=0
         export {app_caps}_BLOCK_IDX=0
         """
     )
-    JS_ELEMENT_SINGLE = dedent(
+    #: Template for single-element execution.
+    JS_ELEMENT_SINGLE: ClassVar[str] = dedent(
         """\
         JS_elem_idx={block_start_elem_idx}
         {main}
     """
     )
-    JS_ELEMENT_MULTI_LOOP = dedent(
+    #: Template for the element processing loop in a jobscript.
+    JS_ELEMENT_LOOP: ClassVar[str] = dedent(
         """\
         for ((JS_elem_idx={block_start_elem_idx};JS_elem_idx<$(({block_start_elem_idx} + {num_elements}));JS_elem_idx++))
         do
@@ -149,13 +185,15 @@ class Bash(Shell):
         done
     """
     )
-    JS_ELEMENT_MULTI_ARRAY = dedent(
+    #: Template for the array handling code in a jobscript.
+    JS_ELEMENT_MULTI_ARRAY: ClassVar[str] = dedent(
         """\
         JS_elem_idx=$(({scheduler_array_item_var} - 1))
         {main}
     """
     )
-    JS_BLOCK_LOOP = dedent(
+    #: Template for the jobscript block loop in a jobscript.
+    JS_BLOCK_LOOP: ClassVar[str] = dedent(
         """\
         num_elements={num_elements}
         num_actions={num_actions}
@@ -168,23 +206,25 @@ class Bash(Shell):
         done
     """
     )
-    JS_FOOTER = dedent(
+    #: Template for the jobscript footer.
+    JS_FOOTER: ClassVar[str] = dedent(
         """\
         cd $WK_PATH
     """
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @property
-    def linux_release_file(self):
+    def linux_release_file(self) -> str:
+        """
+        The name of the file describing the Linux version.
+        """
         return self.os_args["linux_release_file"]
 
-    def _get_OS_info_POSIX(self):
+    def _get_OS_info_POSIX(self) -> Mapping[str, str]:
         return get_OS_info_POSIX(linux_release_file=self.linux_release_file)
 
-    def get_version_info(self, exclude_os: Optional[bool] = False) -> Dict:
+    @override
+    def get_version_info(self, exclude_os: bool = False) -> VersionInfo:
         """Get bash version information.
 
         Parameters
@@ -205,36 +245,51 @@ class Bash(Shell):
         else:
             raise RuntimeError("Failed to parse bash version information.")
 
-        out = {
+        return {
             "shell_name": "bash",
             "shell_executable": self.executable,
             "shell_version": bash_version,
+            **({} if exclude_os else self._get_OS_info_POSIX()),
         }
 
-        if not exclude_os:
-            out.update(**self._get_OS_info_POSIX())
-
-        return out
-
     @staticmethod
-    def process_app_invoc_executable(app_invoc_exe):
+    def process_app_invoc_executable(app_invoc_exe: str) -> str:
         # escape spaces with a back slash:
-        app_invoc_exe = app_invoc_exe.replace(" ", r"\ ")
-        return app_invoc_exe
+        return app_invoc_exe.replace(" ", r"\ ")
 
-    def format_env_var_get(self, var: str):
+    @override
+    def format_env_var_get(self, var: str) -> str:
+        """
+        Format retrieval of a shell environment variable.
+        """
         return f"${var}"
 
-    def format_array(self, lst: List) -> str:
+    @override
+    def format_array(self, lst: list) -> str:
+        """
+        Format construction of a shell array.
+        """
         return "(" + " ".join(str(i) for i in lst) + ")"
 
-    def format_array_get_item(self, arr_name, index) -> str:
+    @override
+    def format_array_get_item(self, arr_name: str, index: int | str) -> str:
+        """
+        Format retrieval of a shell array item at a specified index.
+        """
         return f"${{{arr_name}[{index}]}}"
 
-    def format_stream_assignment(self, shell_var_name, command):
+    @override
+    def format_stream_assignment(self, shell_var_name: str, command: str) -> str:
+        """
+        Produce code to assign the output of the command to a shell variable.
+        """
         return f"{shell_var_name}=`{command}`"
 
-    def format_source_functions_file(self, app_name, commands):
+    @override
+    def format_source_functions_file(self, app_name: str, commands: str) -> str:
+        """
+        Format sourcing (i.e. invocation) of the jobscript functions file.
+        """
         return dedent(
             """\
             . "${app_caps}_JS_FUNCS_PATH"
@@ -242,9 +297,14 @@ class Bash(Shell):
             """
         ).format(app_caps=app_name.upper())
 
-    def format_commands_file(self, app_name, commands):
+    @override
+    def format_commands_file(self, app_name: str, commands: str) -> str:
+        """
+        Format the commands file.
+        """
         return self.format_source_functions_file(app_name, commands) + commands
 
+    @override
     def format_save_parameter(
         self,
         workflow_app_alias: str,
@@ -254,6 +314,9 @@ class Bash(Shell):
         stderr: bool,
         app_name: str,
     ):
+        """
+        Produce code to save a parameter's value into the workflow persistent store.
+        """
         # TODO: quote shell_var_name as well? e.g. if it's a white-space delimited list?
         #   and test.
         stderr_str = " --stderr" if stderr else ""
@@ -267,9 +330,15 @@ class Bash(Shell):
 
 
 class WSLBash(Bash):
-    DEFAULT_WSL_EXE = "wsl"
+    """
+    A variant of bash that handles running under WSL on Windows.
+    """
 
-    JS_FUNCS = dedent(
+    #: Default name of the WSL interface executable.
+    DEFAULT_WSL_EXE: ClassVar[str] = "wsl"
+
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str] = dedent(
         """\
         {{workflow_app_alias}} () {{{{
         (
@@ -296,11 +365,13 @@ class WSLBash(Bash):
             prefix=Bash.JS_ENV_SETUP_INDENT,
         )
     )
-    JS_HEADER = Bash.JS_HEADER.replace(
+    #: Template for the common part of the jobscript header.
+    JS_HEADER: ClassVar[str] = Bash.JS_HEADER.replace(
         'WK_PATH_ARG="$WK_PATH"',
         'WK_PATH_ARG=`wslpath -m "$WK_PATH"`',
     )
-    JS_RUN_CMD = (
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str] = (
         dedent(
             """\
         WSLENV=$WSLENV:${{APP_CAPS}}_WK_PATH
@@ -323,25 +394,28 @@ class WSLBash(Bash):
 
     def __init__(
         self,
-        WSL_executable: Optional[str] = None,
-        WSL_distribution: Optional[str] = None,
-        WSL_user: Optional[str] = None,
+        WSL_executable: str | None = None,
+        WSL_distribution: str | None = None,
+        WSL_user: str | None = None,
         *args,
         **kwargs,
     ):
+        #: The WSL executable wrapper.
         self.WSL_executable = WSL_executable or self.DEFAULT_WSL_EXE
+        #: The WSL distribution to use, if any.
         self.WSL_distribution = WSL_distribution
+        #: The WSL user to use, if any.
         self.WSL_user = WSL_user
         super().__init__(*args, **kwargs)
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: Any) -> bool:
         return super().__eq__(other) and (
             self.WSL_executable == other.WSL_executable
             and self.WSL_distribution == other.WSL_distribution
             and self.WSL_user == other.WSL_user
         )
 
-    def _get_WSL_command(self):
+    def _get_WSL_command(self) -> list[str]:
         out = [self.WSL_executable]
         if self.WSL_distribution:
             out += ["--distribution", self.WSL_distribution]
@@ -350,14 +424,14 @@ class WSLBash(Bash):
         return out
 
     @property
-    def executable(self) -> List[str]:
+    def executable(self) -> list[str]:
         return self._get_WSL_command() + super().executable
 
     @property
-    def shebang_executable(self) -> List[str]:
+    def shebang_executable(self) -> list[str]:
         return super().executable
 
-    def _get_OS_info_POSIX(self):
+    def _get_OS_info_POSIX(self) -> Mapping[str, str]:
         return get_OS_info_POSIX(
             WSL_executable=self._get_WSL_command(),
             use_py=False,
@@ -365,27 +439,29 @@ class WSLBash(Bash):
         )
 
     @staticmethod
-    def _convert_to_wsl_path(win_path: Union[str, Path]) -> str:
+    def _convert_to_wsl_path(win_path: str | Path) -> str:
         win_path = Path(win_path)
         parts = list(win_path.parts)
         parts[0] = f"/mnt/{win_path.drive.lower().rstrip(':')}"
-        wsl_path = "/".join(parts)
-        return wsl_path
+        return "/".join(parts)
 
-    def process_JS_header_args(self, header_args):
+    def process_JS_header_args(
+        self, header_args: JobscriptHeaderArgs
+    ) -> JobscriptHeaderArgs:
         # convert executable windows paths to posix style as expected by WSL:
-        header_args["app_invoc"][0] = self._convert_to_wsl_path(
-            header_args["app_invoc"][0]
-        )
+        ai = header_args["app_invoc"]
+        if isinstance(ai, list):
+            ai[0] = self._convert_to_wsl_path(ai[0])
         return super().process_JS_header_args(header_args)
 
     def prepare_JS_path(self, js_path: Path) -> str:
         return self._convert_to_wsl_path(js_path)
 
-    def prepare_element_run_dirs(self, run_dirs: List[List[Path]]) -> List[List[str]]:
-        return [["/".join(str(j).split("\\")) for j in i] for i in run_dirs]
+    def prepare_element_run_dirs(self, run_dirs: list[list[Path]]) -> list[list[str]]:
+        return [[str(path).replace("\\", "/") for path in i] for i in run_dirs]
 
-    def get_version_info(self, exclude_os: Optional[bool] = False) -> Dict:
+    @override
+    def get_version_info(self, exclude_os: bool = False) -> VersionInfo:
         """Get WSL and bash version information.
 
         Parameters
@@ -396,12 +472,14 @@ class WSLBash(Bash):
         """
         vers_info = super().get_version_info(exclude_os=exclude_os)
 
-        vers_info["shell_name"] = ("wsl+" + vers_info["shell_name"]).lower()
+        vers_info["shell_name"] = f"wsl+{vers_info['shell_name']}".lower()
         vers_info["WSL_executable"] = self.WSL_executable
-        vers_info["WSL_distribution"] = self.WSL_distribution
-        vers_info["WSL_user"] = self.WSL_user
+        if self.WSL_distribution:
+            vers_info["WSL_distribution"] = self.WSL_distribution
+        if self.WSL_user:
+            vers_info["WSL_user"] = self.WSL_user
 
-        for key in list(vers_info.keys()):
+        for key in tuple(vers_info):
             if key.startswith("OS_"):
                 vers_info[f"WSL_{key}"] = vers_info.pop(key)
 
@@ -410,6 +488,6 @@ class WSLBash(Bash):
 
         return vers_info
 
-    def get_command_file_launch_command(self, cmd_file_path: str) -> List[str]:
+    def get_command_file_launch_command(self, cmd_file_path: str) -> list[str]:
         """Get the command for launching the commands file for a given run."""
         return self.executable + [self._convert_to_wsl_path(cmd_file_path)]

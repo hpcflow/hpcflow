@@ -169,10 +169,8 @@ def test_skip_downstream_on_failure_false_combine_scripts(null_config, tmp_path)
 @pytest.mark.integration
 def test_skip_downstream_on_failure_true(null_config, tmp_path):
     s1, s2 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p3",), "t2"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p3",), "t2"),
     )
     s3 = hf.TaskSchema(
         "t3",
@@ -220,10 +218,8 @@ def test_skip_downstream_on_failure_true(null_config, tmp_path):
 @pytest.mark.integration
 def test_skip_downstream_on_failure_false(null_config, tmp_path):
     s1, s2 = make_schemas(
-        [
-            [{"p1": None}, ("p2",), "t1"],
-            [{"p2": None}, ("p3",), "t2"],
-        ],
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p3",), "t2"),
     )
     s3 = hf.TaskSchema(
         "t3",
@@ -568,9 +564,7 @@ def test_unset_parameters_found_when_writing_commands(null_config, tmp_path):
         ],  # will fail
     )
     s2 = make_schemas(
-        [
-            [{"p2": None}, ("p3",), "t2"],  # command-line based action
-        ]
+        ({"p2": None}, ("p3",), "t2"),  # command-line based action
     )
     tasks = [
         hf.Task(s1, inputs={"p1": 123}),  # will fail, and not set p2 for next task

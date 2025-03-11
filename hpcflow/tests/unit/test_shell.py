@@ -1,7 +1,8 @@
+from __future__ import annotations
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 
 
-def test_process_JS_header_args_app_invoc_windows_powershell():
+def test_process_JS_header_args_app_invoc_windows_powershell() -> None:
     """
     Three types of invocation commands exist:
       1. the frozen app executable
@@ -40,7 +41,7 @@ def test_process_JS_header_args_app_invoc_windows_powershell():
         assert processed["app_invoc"] == j
 
 
-def test_process_JS_header_args_app_invoc_bash():
+def test_process_JS_header_args_app_invoc_bash() -> None:
     """
     Three types of invocation commands exist:
       1. the frozen app executable
