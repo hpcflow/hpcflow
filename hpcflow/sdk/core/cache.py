@@ -136,8 +136,8 @@ class ObjectCache:
         for idx, dict_i in enumerate(all_data_idx):
             run_i_sources = set(
                 run_k
-                for idx in chain.from_iterable(dict_i.values())
-                if (run_k := all_param_sources[idx].get("EAR_ID")) is not None
+                for dat_idx_k in chain.from_iterable(dict_i.values())
+                if (run_k := all_param_sources[dat_idx_k].get("EAR_ID")) is not None
                 and run_k != idx
             )
             run_dependencies[idx] = run_i_sources
