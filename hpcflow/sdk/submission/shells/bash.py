@@ -177,7 +177,7 @@ class Bash(Shell):
     """
     )
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_LOOP: ClassVar[str] = dedent(
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent(
         """\
         for ((JS_elem_idx={block_start_elem_idx};JS_elem_idx<$(({block_start_elem_idx} + {num_elements}));JS_elem_idx++))
         do
