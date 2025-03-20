@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence, Iterable
     from .types import ConfigMetadata
     from ..typing import PathLike
 
@@ -52,7 +52,7 @@ class ConfigNonConfigurableError(ConfigError):
     Raised when the configuration contains an item that can't be configured.
     """
 
-    def __init__(self, name: str | Sequence[str], message: str | None = None):
+    def __init__(self, name: str | Iterable[str], message: str | None = None):
         if not message:
             if not isinstance(name, str):
                 names_str = ", ".join(f"{i!r}" for i in name)

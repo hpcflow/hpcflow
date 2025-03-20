@@ -32,28 +32,53 @@ class Shell(ABC):
         Arguments to pass to the shell.
     """
 
+    #: Default for executable name.
+    DEFAULT_EXE: ClassVar[str] = "/bin/bash"
     #: File extension for jobscripts.
     JS_EXT: ClassVar[str]
-    #: Default for executable name.
-    DEFAULT_EXE: ClassVar[str]
+    #: Basic indent.
+    JS_INDENT: ClassVar[str]
     #: Indent for environment setup.
     JS_ENV_SETUP_INDENT: ClassVar[str]
     #: Template for the jobscript shebang line.
     JS_SHEBANG: ClassVar[str]
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str]
     #: Template for the common part of the jobscript header.
     JS_HEADER: ClassVar[str]
     #: Template for the jobscript header when scheduled.
     JS_SCHEDULER_HEADER: ClassVar[str]
     #: Template for the jobscript header when directly executed.
     JS_DIRECT_HEADER: ClassVar[str]
-    #: Template for the jobscript body.
+    #: Template for enabling writing of the app log.
+    JS_RUN_LOG_PATH_ENABLE: ClassVar[str]
+    #: Template for disabling writing of the app log.
+    JS_RUN_LOG_PATH_DISABLE: ClassVar[str]
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str]
+    #: Template for the execution command for multiple combined runs.
+    JS_RUN_CMD_COMBINED: ClassVar[str]
+    #: Template for setting up run environment variables and executing the run.
+    JS_RUN: ClassVar[str]
+    #: Template for the action-run processing loop in a jobscript.
+    JS_ACT_MULTI: ClassVar[str]
+    #: Template for the single-action-run execution in a jobscript.
+    JS_ACT_SINGLE: ClassVar[str]
+    #: Template for setting up environment variables and running one or more action-runs.
     JS_MAIN: ClassVar[str]
-    #: Template for the array handling code in a jobscript.
-    JS_ELEMENT_ARRAY: ClassVar[str]
+    #: Template for a jobscript-block header.
+    JS_BLOCK_HEADER: ClassVar[str]
+    #: Template for single-element execution.
+    JS_ELEMENT_SINGLE: ClassVar[str]
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_LOOP: ClassVar[str]
-    #: Basic indent.
-    JS_INDENT: ClassVar[str]
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str]
+    #: Template for the array handling code in a jobscript.
+    JS_ELEMENT_MULTI_ARRAY: ClassVar[str]
+    #: Template for the jobscript block loop in a jobscript.
+    JS_BLOCK_LOOP: ClassVar[str]
+    #: Template for the jobscript footer.
+    JS_FOOTER: ClassVar[str]
+
     __slots__ = ("_executable", "os_args")
 
     def __init__(
@@ -90,7 +115,7 @@ class Shell(ABC):
         """Get the command for submitting a non-scheduled jobscript."""
         return self.executable + [js_path]
 
-    def get_command_file_launch_command(self, cmd_file_path: str) -> List[str]:
+    def get_command_file_launch_command(self, cmd_file_path: str) -> list[str]:
         """Get the command for launching the commands file for a given run."""
         return self.executable + [cmd_file_path]
 
@@ -150,12 +175,12 @@ class Shell(ABC):
         workflow_app_alias: str,
         param_name: str,
         shell_var_name: str,
-        EAR_ID: int,
         cmd_idx: int,
         stderr: bool,
-    ):
+        app_name: str,
+    ) -> str:
         """
-        Format instructions to save a parameter.
+        Produce code to save a parameter's value into the workflow persistent store.
         """
 
     @abstractmethod

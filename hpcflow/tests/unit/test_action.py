@@ -904,7 +904,7 @@ def test_get_script_input_output_file_paths_json_in_json_out(null_config):
         outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
         actions=[act],
     )
-    assert s1.actions[0].get_script_input_output_file_paths(0, 1, 2) == {
+    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
         "inputs": {"json": Path("js_0_block_1_act_2_inputs.json")},
         "outputs": {"json": Path("js_0_block_1_act_2_outputs.json")},
     }
@@ -925,7 +925,7 @@ def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
         outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
         actions=[act],
     )
-    assert s1.actions[0].get_script_input_output_file_paths(0, 1, 2) == {
+    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
         "inputs": {"hdf5": Path("js_0_block_1_act_2_inputs.h5")},
         "outputs": {},
     }

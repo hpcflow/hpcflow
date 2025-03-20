@@ -203,6 +203,7 @@ def _make_API_CLI(app: BaseApp):
             status=status,
             add_submission=add_submission,
         )
+        assert isinstance(wk, Workflow)
         click.echo(wk.path)
 
     @click.command(name="go")
@@ -439,8 +440,8 @@ def _make_workflow_submission_CLI(app: BaseApp):
     ):
         """Print a table listing jobscripts and associated information."""
         if jobscripts:
-            jobscripts = [int(i) for i in jobscripts.split(",")]
-        sb.list_jobscripts(max_js=max_js, jobscripts=jobscripts, width=width)
+            jobscripts_ = [int(i) for i in jobscripts.split(",")]
+        sb.list_jobscripts(max_js=max_js, jobscripts=jobscripts_, width=width)
 
     @submission.command()
     @list_task_js_max_js_opt
@@ -455,8 +456,8 @@ def _make_workflow_submission_CLI(app: BaseApp):
     ):
         """Print a table listing tasks and their associated jobscripts."""
         if task_names:
-            task_names = list(task_names.split(","))
-        sb.list_task_jobscripts(task_names=task_names, max_js=max_js, width=width)
+            task_names_ = list(task_names.split(","))
+        sb.list_task_jobscripts(task_names=task_names_, max_js=max_js, width=width)
 
     _set_help_name(submission, app)
     submission.add_command(_make_workflow_submission_jobscript_CLI(app))
@@ -687,7 +688,7 @@ def _make_workflow_CLI(app: BaseApp):
     @_pass_workflow
     def list_jobscripts(
         wf: Workflow,
-        sub_idx: int | None,
+        sub_idx: int,
         max_js: int | None,
         jobscripts: str | None,
         width: int | None,
@@ -695,9 +696,9 @@ def _make_workflow_CLI(app: BaseApp):
         """Print a table listing jobscripts and associated information from the specified
         submission."""
         if jobscripts:
-            jobscripts = [int(i) for i in jobscripts.split(",")]
+            jobscripts_ = [int(i) for i in jobscripts.split(",")]
         wf.list_jobscripts(
-            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts, width=width
+            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts_, width=width
         )
 
     @workflow.command()
@@ -713,7 +714,7 @@ def _make_workflow_CLI(app: BaseApp):
     @_pass_workflow
     def list_task_jobscripts(
         wf: Workflow,
-        sub_idx: int | None,
+        sub_idx: int,
         max_js: int | None,
         task_names: str | None,
         width: int | None,
@@ -721,9 +722,9 @@ def _make_workflow_CLI(app: BaseApp):
         """Print a table listing tasks and their associated jobscripts from the specified
         submission."""
         if task_names:
-            task_names = list(task_names.split(","))
+            task_names_ = list(task_names.split(","))
         wf.list_task_jobscripts(
-            sub_idx=sub_idx, task_names=task_names, max_js=max_js, width=width
+            sub_idx=sub_idx, task_names=task_names_, max_js=max_js, width=width
         )
 
     _set_help_name(workflow, app)
@@ -898,15 +899,6 @@ def _make_internal_CLI(app: BaseApp):
             app.CLI_logger.debug(f"save parameter processed value is: {value!r}")
             wf.save_parameter(name=name, value=value, EAR_ID=ear_id)
 
-    @workflow.command()
-    @_pass_workflow
-    @click.argument("ear_id", type=click.INT)
-    @click.argument("loop_names", type=click.STRING, nargs=-1)
-    def check_loop(wf: Workflow, loop_names: list[str], ear_id: int):
-        """Check if an iteration has met its loop's termination condition."""
-        app.CLI_logger.info(f"check_loop for loops {loop_names!r} and EAR ID {ear_id!r}.")
-        wf.check_loop_termination(loop_names, ear_id)
-
     # TODO: in general, maybe the workflow command group can expose the simple Workflow
     # properties; maybe use a decorator on the Workflow property object to signify
     # inclusion?
@@ -1030,7 +1022,7 @@ def _make_cancel_CLI(app: BaseApp):
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
     @cancel_status_opt
-    def cancel(workflow_ref: str, ref_type: str | None, status: bool | None):
+    def cancel(workflow_ref: str, ref_type: str | None, status: bool):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is the local ID (that provided by the `show` command}) or the

@@ -334,7 +334,7 @@ def get_relative_path(path1: Sequence[T], path2: Sequence[T]) -> Sequence[T]:
 
 
 def search_dir_files_by_regex(
-    pattern: str | re.Pattern[str], directory: str = "."
+    pattern: str | re.Pattern[str], directory: str | os.PathLike = "."
 ) -> list[str]:
     """Search recursively for files in a directory by a regex pattern and return matching
     file paths, relative to the given directory."""
@@ -1105,8 +1105,8 @@ def get_file_context(
 @contextlib.contextmanager
 def redirect_std_to_file(
     file,
-    mode: str = "a",
-    ignore: Callable[[Exception], Literal[True] | int] | None = None,
+    mode: Literal["w", "a"] = "a",
+    ignore: Callable[[BaseException], Literal[True] | int] | None = None,
 ) -> Iterator[None]:
     """Temporarily redirect both stdout and stderr to a file, and if an exception is
     raised, catch it, print the traceback to that file, and exit.

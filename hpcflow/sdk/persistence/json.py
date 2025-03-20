@@ -33,11 +33,12 @@ from hpcflow.sdk.persistence.base import (
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.store_resource import JSONFileStoreResource
+from hpcflow.sdk.typing import DataIndex
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from datetime import datetime
-    from typing import Any, ClassVar
+    from typing import Any, ClassVar, Literal
     from typing_extensions import Self
     from numpy.typing import NDArray
     from ..app import BaseApp
@@ -273,7 +274,7 @@ class JSONPersistentStore(
         # store-specific cache data, assigned in `using_resource()` when
         # `_use_parameters_metadata_cache` is True, and set back to None when exiting the
         # `parameters_metadata_cache` context manager.
-        self._parameters_file_dat: dict[str, dict[str, Any]] = None
+        self._parameters_file_dat: dict[str, dict[str, Any]] | None = None
 
     @contextmanager
     def cached_load(self) -> Iterator[None]:
@@ -283,7 +284,11 @@ class JSONPersistentStore(
                 yield
 
     @contextmanager
-    def using_resource(self, res_label: str, action: str) -> Iterator[Any]:
+    def using_resource(
+        self,
+        res_label: Literal["metadata", "submissions", "parameters", "attrs", "runs"],
+        action: str,
+    ) -> Iterator[Any]:
         """Context manager for managing `StoreResource` objects associated with the store.
 
         Notes
@@ -300,7 +305,9 @@ class JSONPersistentStore(
             and action == "read"
         ):
             if not self._parameters_file_dat:
-                with super().using_resource(res_label, action) as res:
+                with super().using_resource(
+                    cast("Literal['parameters']", res_label), action
+                ) as res:
                     self._parameters_file_dat = res
             yield self._parameters_file_dat
 
@@ -390,7 +397,7 @@ class JSONPersistentStore(
             "num_added_tasks": 0,
             "loops": [],
         }
-        runs = {
+        runs: dict[str, list] = {
             "runs": [],
             "run_dirs": [],
         }
@@ -425,7 +432,7 @@ class JSONPersistentStore(
                 )
                 md["template"]["loops"].append(loop["loop_template"])
 
-    def _append_submissions(self, subs: dict[int, JSONDocument]):
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]):
         with self.using_resource("submissions", action="update") as subs_res:
             subs_res.extend(subs.values())
 
@@ -493,13 +500,13 @@ class JSONPersistentStore(
             assert "loops" in md
             md["loops"][index]["parents"] = parents
 
-    def _update_iter_data_indices(self, iter_data_indices: dict[int, dict[str, int]]):
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
         with self.using_resource("metadata", action="update") as md:
             assert "iters" in md
             for iter_ID, dat_idx in iter_data_indices.items():
                 md["iters"][iter_ID]["data_idx"].update(dat_idx)
 
-    def _update_run_data_indices(self, run_data_indices: dict[int, dict[str, int]]):
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
         with self.using_resource("runs", action="update") as md:
             assert "runs" in md
             for run_ID, dat_idx in run_data_indices.items():
@@ -520,7 +527,7 @@ class JSONPersistentStore(
                 dirs_lst[r_idx] = run_dir_arr[idx].item()
             md["run_dirs"] = dirs_lst
 
-    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int]]):
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
         with self.using_resource("runs", action="update") as md:
             assert "runs" in md
             for EAR_ID_i, (sub_idx_i, cmd_file_ID) in sub_data.items():
@@ -528,7 +535,8 @@ class JSONPersistentStore(
                 md["runs"][EAR_ID_i]["commands_file_ID"] = cmd_file_ID
 
     def _update_EAR_start(
-        self, run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int]]
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ):
         with self.using_resource("runs", action="update") as md:
             assert "runs" in md
@@ -721,7 +729,7 @@ class JSONPersistentStore(
                 assert "tasks" in md
                 new_tasks = {
                     i["id_"]: JsonStoreTask.decode({**i, "index": idx})
-                    for idx, i in enumerate(md["tasks"])
+                    for idx, i in enumerate(cast("Sequence[TaskMeta]", md["tasks"]))
                     if id_lst is None or i["id_"] in id_lst
                 }
                 self.task_cache.update(new_tasks)
@@ -741,7 +749,7 @@ class JSONPersistentStore(
 
     def _get_persistent_submissions(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, JSONDocument]:
+    ) -> dict[int, Mapping[str, JSONed]]:
         with self.using_resource("submissions", "read") as sub_res:
             subs_dat = copy.deepcopy(
                 {

@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union, Any
 from warnings import warn
 from collections import defaultdict
 from itertools import chain
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 
 from hpcflow.sdk.core.app_aware import AppAware
@@ -201,13 +201,12 @@ class Loop(JSONLike):
         """
         The task at which the loop will terminate.
         """
-        if not self.workflow_template:
+        if (wt := self.workflow_template) is None:
             raise RuntimeError(
                 "Workflow template must be assigned to retrieve task objects of the loop."
             )
-        return self.workflow_template.workflow.tasks.get(
-            insert_ID=self.termination_task_insert_ID
-        )
+        assert wt.workflow
+        return wt.workflow.tasks.get(insert_ID=self.termination_task_insert_ID)
 
     @property
     def workflow_template(self) -> WorkflowTemplate | None:
@@ -460,7 +459,7 @@ class WorkflowLoop(AppAware):
         return self.template.name
 
     @property
-    def iterable_parameters(self) -> Mapping[str, IterableParam]:
+    def iterable_parameters(self) -> dict[str, IterableParam]:
         """
         The parameters that are being iterated over.
         """
@@ -800,7 +799,7 @@ class WorkflowLoop(AppAware):
         for child in child_loops[::-1]:
             if child.num_iterations is not None:
                 if status:
-                    status_prev = status.status.rstrip(".")
+                    status_prev = str(status.status).rstrip(".")
                 for iter_idx in range(child.num_iterations - 1):
                     if status:
                         status.update(
@@ -1016,14 +1015,16 @@ class WorkflowLoop(AppAware):
         # this loop:
 
         # keys: iter or run ID, values: dict of param type and new parameter index
-        iter_new_data_idx = defaultdict(dict)
-        run_new_data_idx = defaultdict(dict)
+        iter_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
+        run_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
 
         param_sources = self.workflow.get_all_parameter_sources()
 
         # keys are parameter type, then task insert ID, then data index keys mapping to
         # their updated values:
-        all_updates = defaultdict(lambda: defaultdict(dict))
+        all_updates: dict[str, dict[int, dict[int, int]]] = defaultdict(
+            lambda: defaultdict(dict)
+        )
 
         for task in self.downstream_tasks:
             for elem in task.elements:
@@ -1079,8 +1080,10 @@ class WorkflowLoop(AppAware):
                                     i.element.iterations[-1] for i in iter_old_run_objs
                                 ]
 
+                                # note: we can cast to int, because output keys never
+                                # have multiple data indices (unlike input keys):
                                 iter_new_dis = [
-                                    i.get_data_idx()[f"outputs.{param_typ}"]
+                                    cast("int", i.get_data_idx()[f"outputs.{param_typ}"])
                                     for i in iter_new_iters
                                 ]
 
@@ -1127,8 +1130,14 @@ class WorkflowLoop(AppAware):
                                             i.element.iterations[-1] for i in old_run_objs
                                         ]
 
+                                        # note: we can cast to int, because output keys
+                                        # never have multiple data indices (unlike input
+                                        # keys):
                                         new_dis = [
-                                            i.get_data_idx()[f"outputs.{param_typ}"]
+                                            cast(
+                                                "int",
+                                                i.get_data_idx()[f"outputs.{param_typ}"],
+                                            )
                                             for i in new_iters
                                         ]
 
@@ -1143,6 +1152,7 @@ class WorkflowLoop(AppAware):
                             # parameters are that sourced from inputs of other tasks,
                             # might need to be updated if those other tasks have
                             # themselves had their data indices updated:
+                            assert elem_src.task_ref
                             ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
 
                             if ups_i:

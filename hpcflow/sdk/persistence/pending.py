@@ -37,12 +37,12 @@ if TYPE_CHECKING:
     from .base import PersistentStore, FileDescriptor, LoopDescriptor
     from ..app import BaseApp
     from ..typing import ParamSource
-    from ..core.json_like import JSONDocument
+    from ..core.json_like import JSONed
 
 P = ParamSpec("P")
 T = TypeVar("T")
 
-_commit_method_data_map = defaultdict(
+_commit_method_data_map: dict[str, list[str]] = defaultdict(
     list
 )  # note: this is updated at module-import time.
 
@@ -94,7 +94,7 @@ class PendingChanges(
         #: Keys are loop IDs, values are loop descriptors.
         self.add_loops: dict[int, LoopDescriptor] = {}
         #: Keys are submission IDs, values are submission descriptors.
-        self.add_submissions: dict[int, JSONDocument] = {}
+        self.add_submissions: dict[int, Mapping[str, JSONed]] = {}
         #: Keys are element IDs.
         self.add_elements: dict[int, AnySElement] = {}
         #: Keys are element iteration IDs.
@@ -124,13 +124,13 @@ class PendingChanges(
         #: IDs of EARs to mark as initialised.
         self.set_EARs_initialised: list[int] = []
         #: Submission IDs and commands file IDs to attach to EARs.
-        self.set_EAR_submission_data: dict[int, tuple[int, int]] = {}
+        self.set_EAR_submission_data: dict[int, tuple[int, int | None]] = {}
         #: IDs of EARs to mark as skipped.
         self.set_EAR_skips: dict[int, int] = {}
         #: Keys are EAR IDs and values are tuples of start time, start dir snapshot, run
         #: hostname, and port number.
         self.set_EAR_starts: dict[
-            int, tuple[datetime, dict[str, Any] | None, str], int
+            int, tuple[datetime, dict[str, Any] | None, str, int | None]
         ] = {}
         #: Keys are EAR IDs and values are tuples of end time, end dir snapshot, exit
         #: code, and success boolean.

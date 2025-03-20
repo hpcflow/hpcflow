@@ -151,7 +151,7 @@ class Executor(AppAware):
         except asyncio.CancelledError:
             process.kill()
 
-    async def _run(self) -> int:
+    async def _run(self):
 
         # create tasks for the subprocess and a synchronous Queue.get retrieval:
         try:

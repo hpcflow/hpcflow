@@ -9,6 +9,7 @@ from hpcflow.sdk.core.utils import JSONLikeDirSnapShot
 
 if TYPE_CHECKING:
     from ..submission.shells.base import Shell
+    from .types import BlockActionKey
 
 
 class RunDirAppFiles(AppAware):
@@ -16,29 +17,27 @@ class RunDirAppFiles(AppAware):
     directories."""
 
     @staticmethod
-    def get_run_file_prefix(block_act_key: tuple[int, int, int]) -> str:
+    def get_run_file_prefix(block_act_key: BlockActionKey) -> str:
         """
         Get the common prefix for files associated with a run.
         """
         return f"js_{block_act_key[0]}_block_{block_act_key[1]}_act_{block_act_key[2]}"
 
     @classmethod
-    def get_commands_file_name(
-        cls, block_act_key: tuple[int, int, int], shell: Shell
-    ) -> str:
+    def get_commands_file_name(cls, block_act_key: BlockActionKey, shell: Shell) -> str:
         """
         Get the name of the file containing commands.
         """
         return cls.get_run_file_prefix(block_act_key) + shell.JS_EXT
 
     @classmethod
-    def get_run_param_dump_file_prefix(cls, block_act_key: tuple[int, int, int]) -> str:
+    def get_run_param_dump_file_prefix(cls, block_act_key: BlockActionKey) -> str:
         """Get the prefix to a file in the run directory that the app will dump parameter
         data to."""
         return cls.get_run_file_prefix(block_act_key) + "_inputs"
 
     @classmethod
-    def get_run_param_load_file_prefix(cls, block_act_key: tuple[int, int, int]) -> str:
+    def get_run_param_load_file_prefix(cls, block_act_key: BlockActionKey) -> str:
         """Get the prefix to a file in the run directory that the app will load parameter
         data from."""
         return cls.get_run_file_prefix(block_act_key) + "_outputs"

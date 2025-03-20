@@ -62,7 +62,14 @@ from hpcflow.sdk.utils.arrays import get_2D_idx, split_arr
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import (
+        Callable,
+        Iterable,
+        Iterator,
+        Mapping,
+        MutableMapping,
+        Sequence,
+    )
     from datetime import datetime
     from fsspec import AbstractFileSystem  # type: ignore
     from logging import Logger
@@ -72,16 +79,16 @@ if TYPE_CHECKING:
     from zarr import Array, Group  # type: ignore
     from zarr.attrs import Attributes  # type: ignore
     from zarr.storage import Store  # type: ignore
+    from ..submission.types import ResolvedJobscriptBlockDependencies
     from .types import TypeLookup
     from ..app import BaseApp
     from ..core.json_like import JSONed, JSONDocument
-    from ..typing import ParamSource, PathLike
-
+    from ..typing import ParamSource, PathLike, DataIndex
 
 #: List of any (Zarr-serializable) value.
 ListAny: TypeAlias = "list[Any]"
 #: Zarr attribute mapping context.
-ZarrAttrs: TypeAlias = "dict[str, list[str]]"
+ZarrAttrs: TypeAlias = "dict[str, Any]"
 _JS: TypeAlias = "dict[str, list[dict[str, dict]]]"
 
 
@@ -455,14 +462,25 @@ class ZarrPersistentStore(
                 app, name="attrs", open_call=self._get_root_group
             ),
         }
-        self._jobscript_at_submit_metadata = None  # this is a cache
+        self._jobscript_at_submit_metadata: dict[
+            int, dict[str, Any]
+        ] = {}  # this is a cache
 
         # these are caches; keys are submission index and then tuples of
         # (jobscript index, jobscript-block index):
-        self._jobscript_run_ID_arrays = {}
-        self._jobscript_task_element_maps = {}
-        self._jobscript_task_actions_arrays = {}
-        self._jobscript_dependencies = {}
+        self._jobscript_run_ID_arrays: dict[int, dict[tuple[int, int], NDArray]] = {}
+        self._jobscript_task_element_maps: dict[
+            int, dict[tuple[int, int], dict[int, list[int]]]
+        ] = {}
+        self._jobscript_task_actions_arrays: dict[
+            int, dict[tuple[int, int], NDArray]
+        ] = {}
+        self._jobscript_dependencies: dict[
+            int,
+            dict[
+                tuple[int, int], dict[tuple[int, int], ResolvedJobscriptBlockDependencies]
+            ],
+        ] = {}
 
         super().__init__(app, workflow, path, fs)
 
@@ -667,7 +685,7 @@ class ZarrPersistentStore(
 
     @staticmethod
     def _extract_submission_run_IDs_array(
-        sub_js: JSONDocument,
+        sub_js: Mapping[str, JSONed],
     ) -> tuple[np.ndarray, list[list[list[int]]]]:
         """For a JSON-like representation of a Submission object, remove and combine all
         jobscript-block run ID lists into a single array with a fill value.
@@ -698,11 +716,11 @@ class ZarrPersistentStore(
 
         # a list for each jobscript, containing shapes of run ID arrays in each block:
         block_shapes = []
-        for js in sub_js["jobscripts"]:
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
             block_shapes_js_i = []
-            for blk in js["blocks"]:
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
                 run_IDs_i = np.array(blk["EAR_ID"])
-                blk["EAR_ID"] = None
+                blk["EAR_ID"] = None  # TODO: how to type?
                 block_shapes_js_i.append(list(run_IDs_i.shape))
                 if run_IDs_i.shape[0] > max_acts:
                     max_acts = run_IDs_i.shape[0]
@@ -723,7 +741,7 @@ class ZarrPersistentStore(
 
     @staticmethod
     def _extract_submission_task_elements_array(
-        sub_js: JSONDocument,
+        sub_js: Mapping[str, JSONed],
     ) -> tuple[np.ndarray, list[list[list[int]]]]:
         """For a JSON-like representation of a Submission object, remove and combine all
         jobscript-block task-element mappings into a single array with a fill value.
@@ -756,19 +774,19 @@ class ZarrPersistentStore(
 
         # a list for each jobscript, containing shapes of run ID arrays in each block:
         block_shapes = []
-        for js in sub_js["jobscripts"]:
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
             block_shapes_js_i = []
-            for blk in js["blocks"]:
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
 
                 task_elems_lst = []
-                for k, v in blk["task_elements"].items():
+                for k, v in cast("Mapping[int, list[int]]", blk["task_elements"]).items():
                     task_elems_lst.append([k] + v)
                 task_elems_i = np.array(task_elems_lst)
 
                 block_shape_j = [task_elems_i.shape[1] - 1, task_elems_i.shape[0]]
                 block_shapes_js_i.append(block_shape_j)
 
-                blk["task_elements"] = None
+                blk["task_elements"] = None  # TODO: how to type?
                 if task_elems_i.shape[1] > max_x:
                     max_x = task_elems_i.shape[1]
                 if task_elems_i.shape[0] > max_y:
@@ -788,7 +806,7 @@ class ZarrPersistentStore(
 
     @staticmethod
     def _extract_submission_task_actions_array(
-        sub_js: JSONDocument,
+        sub_js: Mapping[str, JSONed],
     ) -> tuple[np.ndarray, list[list[int]]]:
         """For a JSON-like representation of a Submission object, remove and concatenate
         all jobscript-block task-action arrays into a single array.
@@ -819,13 +837,13 @@ class ZarrPersistentStore(
         # a list for each jobscript, containing shapes of run ID arrays in each block:
 
         blk_num_acts = []
-        for js in sub_js["jobscripts"]:
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
 
             blk_num_acts_js_i = []
-            for blk in js["blocks"]:
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
 
                 blk_acts = np.array(blk["task_actions"])
-                blk["task_actions"] = None
+                blk["task_actions"] = None  # TODO: how to type?
                 blk_num_acts_js_i.append(blk_acts.shape[0])
                 arrs.append(blk_acts)
 
@@ -836,7 +854,7 @@ class ZarrPersistentStore(
         return combined_task_acts, blk_num_acts
 
     @staticmethod
-    def _encode_jobscript_block_dependencies(sub_js: JSONDocument) -> np.ndarray:
+    def _encode_jobscript_block_dependencies(sub_js: Mapping[str, JSONed]) -> np.ndarray:
         """For a JSON-like representation of a Submission object, remove jobscript-block
         dependencies for all jobscripts and transform to a single 1D integer array, that
         can be transformed back by `_decode_jobscript_block_dependencies`.
@@ -846,19 +864,36 @@ class ZarrPersistentStore(
         This mutates `sub_js`, by setting `depdendencies` jobscript-block keys to `None`.
         """
 
+        # TODO: avoid this horrible mess of casts
+
         all_deps_arr = []
-        for js in sub_js["jobscripts"]:
-            for blk in js["blocks"]:
-                all_deps_i = []
-                for (dep_js_idx, dep_blk_idx), dep in blk["dependencies"]:
-                    deps_arr = []
-                    for elem_i, elements_j in dep["js_element_mapping"].items():
+        assert sub_js["jobscripts"] is not None
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
+                all_deps_i: list[int] = []
+                assert blk["dependencies"] is not None
+                blk_deps = cast(
+                    "list[tuple[tuple[int, int], Mapping[str, JSONed]]]",
+                    blk["dependencies"],
+                )
+                for (dep_js_idx, dep_blk_idx), dep in blk_deps:
+                    deps_arr: list[int] = []
+                    for elem_i, elements_j in cast(
+                        "Mapping[int, Sequence[int]]", dep["js_element_mapping"]
+                    ).items():
                         deps_arr.extend([len(elements_j) + 1, elem_i] + list(elements_j))
-                    blk_arr = [dep_js_idx, dep_blk_idx, int(dep["is_array"])] + deps_arr
+                    blk_arr = [
+                        dep_js_idx,
+                        dep_blk_idx,
+                        int(cast("bool", dep["is_array"])),
+                    ] + deps_arr
                     blk_arr = [len(blk_arr)] + blk_arr
                     all_deps_i.extend(blk_arr)
-                all_deps_i = [js["index"], blk["index"]] + all_deps_i
-                blk["dependencies"] = None
+                all_deps_i = [
+                    cast("int", js["index"]),
+                    cast("int", blk["index"]),
+                ] + all_deps_i
+                blk["dependencies"] = None  # TODO: how to type?
                 all_deps_arr.extend([len(all_deps_i)] + all_deps_i)
 
         return np.array(all_deps_arr)
@@ -866,7 +901,7 @@ class ZarrPersistentStore(
     @staticmethod
     def _decode_jobscript_block_dependencies(
         arr: np.ndarray,
-    ) -> dict[tuple[int, int], dict[tuple[int, int], dict[str, Any]]]:
+    ) -> dict[tuple[int, int], dict[tuple[int, int], ResolvedJobscriptBlockDependencies]]:
         """Re-generate jobscript-block dependencies that have been transformed by
         `_encode_jobscript_block_dependencies` into a single 1D integer array.
 
@@ -880,11 +915,18 @@ class ZarrPersistentStore(
         block_arrs = split_arr(arr, metadata_size=2)
         block_deps = {}
         for i in block_arrs:
+
+            js_idx: int
+            blk_idx: int
+            dep_js_idx: int
+            dep_blk_idx: int
+            is_array: int
+
             js_idx, blk_idx = i[0]
             # metadata is js/blk_idx that this block depends on, plus whether the
             # dependency is an array dependency:
             deps_arrs = split_arr(i[1], metadata_size=3)
-            all_deps_ij = {}
+            all_deps_ij: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] = {}
             for j in deps_arrs:
                 dep_js_idx, dep_blk_idx, is_array = j[0]
                 # no metadata:
@@ -901,7 +943,7 @@ class ZarrPersistentStore(
             block_deps[(js_idx, blk_idx)] = all_deps_ij
         return block_deps
 
-    def _append_submissions(self, subs: dict[int, JSONDocument]):
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]):
 
         for sub_idx, sub_i in subs.items():
 
@@ -911,7 +953,7 @@ class ZarrPersistentStore(
             )
 
             # add a new at-submit metadata array for jobscripts of this submission:
-            num_js = len(sub_i["jobscripts"])
+            num_js = len(cast("list", sub_i["jobscripts"]))
             sub_grp.create_dataset(
                 name=self._js_at_submit_md_arr_name,
                 shape=num_js,
@@ -1074,7 +1116,7 @@ class ZarrPersistentStore(
         with self.using_resource("attrs", action="update") as attrs:
             attrs["loops"][index]["parents"] = parents
 
-    def _update_iter_data_indices(self, iter_data_indices: dict[int, dict[str, int]]):
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
 
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
@@ -1088,7 +1130,7 @@ class ZarrPersistentStore(
             # object array, so set one-by-one:
             arr[iter_ID_i] = new_iter_i.encode(attrs)
 
-    def _update_run_data_indices(self, run_data_indices: dict[int, dict[str, int]]):
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
         self._update_runs(
             updates={k: {"data_idx": v} for k, v in run_data_indices.items()}
         )
@@ -1103,7 +1145,7 @@ class ZarrPersistentStore(
             arr_add[:] = [i.encode(self.ts_fmt, attrs) for i in EARs]
 
             # get new 1D indices:
-            new_idx = np.arange(num_existing, num_tot)
+            new_idx: NDArray = np.arange(num_existing, num_tot)
 
             # transform to 2D indices:
             r_idx, c_idx = get_2D_idx(new_idx, num_cols=arr.shape[1])
@@ -1150,7 +1192,7 @@ class ZarrPersistentStore(
                 arr[ri, ci] = new_run_i.encode(self.ts_fmt, attrs)
 
     @TimeIt.decorator
-    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int]]):
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
         self._update_runs(
             updates={
                 k: {"submission_idx": v[0], "commands_file_ID": v[1]}
@@ -1159,7 +1201,8 @@ class ZarrPersistentStore(
         )
 
     def _update_EAR_start(
-        self, run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int]]
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ):
         self._update_runs(
             updates={
@@ -1597,7 +1640,9 @@ class ZarrPersistentStore(
             }
 
     @TimeIt.decorator
-    def _get_persistent_submissions(self, id_lst: Iterable[int] | None = None):
+    def _get_persistent_submissions(
+        self, id_lst: Iterable[int] | None = None
+    ) -> dict[int, Mapping[str, JSONed]]:
         self.logger.debug("loading persistent submissions from the zarr store")
         ids = set(id_lst or ())
         with self.using_resource("attrs", "read") as attrs:
@@ -1669,6 +1714,7 @@ class ZarrPersistentStore(
             )
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
+            sel: tuple[NDArray, NDArray] | list[int]
             try:
                 # convert to 2D array indices:
                 sel = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
@@ -1772,14 +1818,14 @@ class ZarrPersistentStore(
 
     def clear_jobscript_at_submit_metadata_cache(self):
         """Clear the cache of at-submit-time jobscript metadata."""
-        self._jobscript_at_submit_metadata = None
+        self._jobscript_at_submit_metadata = {}
 
     def get_jobscript_at_submit_metadata(
         self,
         sub_idx: int,
         js_idx: int,
         metadata_attr: dict | None,
-    ) -> dict[int, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """For the specified jobscript, retrieve the values of jobscript-submit-time
         attributes.
 
@@ -1800,8 +1846,6 @@ class ZarrPersistentStore(
             # cache exists, but might not include data for the requested jobscript:
             if js_idx in self._jobscript_at_submit_metadata:
                 return self._jobscript_at_submit_metadata[js_idx]
-        else:
-            self._jobscript_at_submit_metadata = {}
 
         arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
         non_cached = set(range(len(arr))) - set(self._jobscript_at_submit_metadata.keys())
@@ -1829,8 +1873,8 @@ class ZarrPersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        run_ID_arr: np.ndarray | None,
-    ) -> dict[int, dict[str, Any]]:
+        run_ID_arr: NDArray | None,
+    ) -> NDArray:
         """For the specified jobscript-block, retrieve the run ID array."""
 
         if run_ID_arr is not None:
@@ -1877,8 +1921,8 @@ class ZarrPersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_elems_map: np.ndarray | None,
-    ) -> dict[int, dict[str, Any]]:
+        task_elems_map: dict[int, list[int]] | None,
+    ) -> dict[int, list[int]]:
         """For the specified jobscript-block, retrieve the task-elements mapping."""
 
         if task_elems_map is not None:
@@ -1928,8 +1972,8 @@ class ZarrPersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_actions_arr: np.ndarray | None,
-    ) -> np.ndarray:
+        task_actions_arr: NDArray | list[tuple[int, int, int]] | None,
+    ) -> NDArray:
         """For the specified jobscript-block, retrieve the task-actions array."""
 
         if task_actions_arr is not None:
@@ -1979,8 +2023,8 @@ class ZarrPersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        js_dependencies: dict | None,
-    ) -> np.ndarray:
+        js_dependencies: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] | None,
+    ) -> dict[tuple[int, int], ResolvedJobscriptBlockDependencies]:
         """For the specified jobscript-block, retrieve the dependencies."""
 
         if js_dependencies is not None:
@@ -2298,6 +2342,7 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
         if path.is_absolute():
             path = path.relative_to(self.workflow.url)
         path = str(path.as_posix())
+        assert self.fs
         try:
             with self.fs.open(path, mode="rt") as fp:
                 return fp.read()

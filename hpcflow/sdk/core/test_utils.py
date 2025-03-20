@@ -41,7 +41,7 @@ def make_schemas(
     """
     out: list[TaskSchema] = []
     for idx, info in enumerate(ins_outs):
-        act_kwargs = {}
+        act_kwargs: dict[str, Any] = {}
         if len(info) == 2:
             (ins_i, outs_i) = info
             obj = f"t{idx}"

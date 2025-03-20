@@ -5,7 +5,7 @@ An interface to SGE.
 from __future__ import annotations
 from collections.abc import Sequence
 import re
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import (
@@ -174,20 +174,6 @@ class SGEPosix(QueuedScheduler):
     def __format_array_request(self, num_elements: int) -> str:
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}"
 
-    def get_std_out_err_filename(
-        self, js_idx: int, job_ID: str, array_idx: int | None = None
-    ) -> str:
-        """File name of combined standard output and error streams.
-
-        Notes
-        -----
-        We use the standard output stream filename format for the combined output and
-        error streams file.
-
-        """
-        # TODO: untested, might not work!
-        return self.get_stdout_filename(js_idx=js_idx, job_ID=job_ID, array_idx=array_idx)
-
     def get_stdout_filename(
         self, js_idx: int, job_ID: str, array_idx: int | None = None
     ) -> str:
@@ -321,7 +307,7 @@ class SGEPosix(QueuedScheduler):
         elif not stdout:
             return {}
 
-        info: dict[str, dict[int | None, JobscriptElementState]] = {}
+        info: dict[str, dict[int, JobscriptElementState] | JobscriptElementState] = {}
         lines = stdout.split("\n")
         # assuming a job name with spaces means we can't split on spaces to get
         # anywhere beyond the job name, so get the column index of the state heading
@@ -345,7 +331,10 @@ class SGEPosix(QueuedScheduler):
             )
 
             if arr_idx is not None:
-                info[base_job_ID][arr_idx] = state
+                entry = cast(
+                    dict[int, JobscriptElementState], info.setdefault(base_job_ID, {})
+                )
+                entry[arr_idx] = state
             else:
                 info[base_job_ID] = state
         return info

@@ -18,7 +18,7 @@ import string
 from threading import Thread
 import time
 from typing import overload, cast, TYPE_CHECKING, TypeVar
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, Concatenate
 
 from uuid import uuid4
 from warnings import warn
@@ -100,7 +100,7 @@ if TYPE_CHECKING:
     import psutil
     from rich.status import Status
     from ..typing import DataIndex, ParamSource, PathLike, TemplateComponents
-    from .actions import ElementActionRun
+    from .actions import ElementActionRun, UnsetParamTracker
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
@@ -112,6 +112,7 @@ if TYPE_CHECKING:
         Pending,
         Resources,
         WorkflowTemplateTaskData,
+        BlockActionKey,
     )
     from ..submission.submission import Submission
     from ..submission.jobscript import (
@@ -127,12 +128,14 @@ if TYPE_CHECKING:
         StoreEAR,
     )
     from ..persistence.types import TemplateMeta
+    from .json_like import JSONed
 
     #: Convenience alias
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
 
 P = ParamSpec("P")
 T = TypeVar("T")
+S = TypeVar("S", bound="Workflow")
 
 
 @dataclass
@@ -251,8 +254,10 @@ class WorkflowTemplate(JSONLike):
 
     def __post_init__(self) -> None:
 
+        # TODO: in what scenario is the reindex required? are loops initialised?
+
         # replace metatasks with tasks
-        new_tasks = []
+        new_tasks: list[Task] = []
         do_reindex = False
         reindex = {}
         for task_idx, i in enumerate(self.tasks):
@@ -268,15 +273,11 @@ class WorkflowTemplate(JSONLike):
                 new_tasks.append(i)
         if do_reindex:
             if self.loops:
-                for loop_idx, loop in enumerate(self.loops):
-                    self.loops[loop_idx]["tasks"] = [
-                        j for i in loop["tasks"] for j in reindex.get(i)
-                    ]
+                for loop_idx, loop in enumerate(cast("list[dict[str, Any]]", self.loops)):
+                    loop["tasks"] = [j for i in loop["tasks"] for j in reindex[i]]
                     term_task = loop.get("termination_task")
                     if term_task is not None:
-                        self.loops[loop_idx]["termination_task"] = reindex.get(term_task)[
-                            0
-                        ]
+                        loop["termination_task"] = reindex[term_task][0]
 
         self.tasks = new_tasks
 
@@ -395,7 +396,7 @@ class WorkflowTemplate(JSONLike):
     @classmethod
     @TimeIt.decorator
     def _from_data(cls, data: dict[str, Any]) -> WorkflowTemplate:
-        def _normalise_task_parametrisation(task_lst: list[dict[str, Any]]):
+        def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
             """
             For each dict in a list of task parametrisations, ensure the `schema` key is
             a list of values, and ensure `element_sets` are defined.
@@ -424,11 +425,10 @@ class WorkflowTemplate(JSONLike):
         if meta_tasks:
             for i in list(meta_tasks):
                 _normalise_task_parametrisation(meta_tasks[i])
-            new_task_dat = []
+            new_task_dat: list[WorkflowTemplateTaskData] = []
             reindex = {}
             for task_idx, task_dat in enumerate(data["tasks"]):
-                meta_task_dat = meta_tasks.get(task_dat["schema"])
-                if meta_task_dat:
+                if meta_task_dat := meta_tasks.get(task_dat["schema"]):
                     reindex[task_idx] = [
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
                     ]
@@ -488,15 +488,14 @@ class WorkflowTemplate(JSONLike):
 
             data["tasks"] = new_task_dat
 
-            loops = data.get("loops")
-            if loops:
+            if loops := data.get("loops"):
                 for loop_idx, loop in enumerate(loops):
                     loops[loop_idx]["tasks"] = [
-                        j for i in loop["tasks"] for j in reindex.get(i)
+                        j for i in loop["tasks"] for j in reindex[i]
                     ]
                     term_task = loop.get("termination_task")
                     if term_task is not None:
-                        loops[loop_idx]["termination_task"] = reindex.get(term_task)[0]
+                        loops[loop_idx]["termination_task"] = reindex[term_task][0]
 
         _normalise_task_parametrisation(data["tasks"])
 
@@ -527,8 +526,7 @@ class WorkflowTemplate(JSONLike):
             )
             cls._app.task_schemas.add_objects(task_schemas, skip_duplicates=True)
 
-        mts_dat = tcs.pop("meta_task_schemas", [])
-        if mts_dat:
+        if mts_dat := tcs.pop("meta_task_schemas", []):
             meta_ts = [
                 cls._app.MetaTaskSchema.from_json_like(
                     i, shared_data=cls._app.template_components
@@ -538,9 +536,12 @@ class WorkflowTemplate(JSONLike):
             cls._app.task_schemas.add_objects(meta_ts, skip_duplicates=True)
 
         wkt = cls.from_json_like(data, shared_data=cls._app._shared_data)
-        for idx, task in enumerate(wkt.tasks):
-            if isinstance(task.schema, cls._app.MetaTaskSchema):
-                wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
+        # print(f"WorkflowTemplate._from_data: {wkt=!r}")
+        # TODO: what is this for!?
+        # for idx, task in enumerate(wkt.tasks):
+        #     if isinstance(task.schema, cls._app.MetaTaskSchema):
+        #         print(f"{task=!r}")
+        #         wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
         return wkt
 
     @classmethod
@@ -744,12 +745,14 @@ class _IterationData:
     idx: int
 
 
-def load_workflow_config(func: Callable[P, T]) -> Callable[P, T]:
+def load_workflow_config(
+    func: Callable[Concatenate[S, P], T],
+) -> Callable[Concatenate[S, P], T]:
     """Decorator to apply workflow-level config items during execution of a Workflow
     method."""
 
     @wraps(func)
-    def wrapped(self, *args, **kwargs) -> T:
+    def wrapped(self: S, *args: P.args, **kwargs: P.kwargs) -> T:
 
         updates = self.template.config
         if updates:
@@ -821,14 +824,16 @@ class Workflow(AppAware):
         self._in_batch_mode = False  # flag to track when processing batch updates
 
         self._use_merged_parameters_cache = False
-        self._merged_parameters_cache = {}
+        self._merged_parameters_cache: dict[
+            tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]], Any
+        ] = {}
 
         # store indices of updates during batch update, so we can revert on failure:
         self._pending = self._get_empty_pending()
 
         # reassigned within `ElementActionRun.raise_on_failure_threshold` context manager:
-        self._is_tracking_unset = False
-        self._tracked_unset = None
+        self._is_tracking_unset: bool = False
+        self._tracked_unset: dict[str, UnsetParamTracker] | None = None
 
     def reload(self) -> Self:
         """Reload the workflow from disk."""
@@ -1022,6 +1027,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        status: Status | None = None,
     ) -> Workflow:
         """Generate from a YAML string.
 
@@ -1066,6 +1072,7 @@ class Workflow(AppAware):
             ts_fmt,
             ts_name_fmt,
             store_kwargs,
+            status,
         )
 
     @classmethod
@@ -1322,7 +1329,7 @@ class Workflow(AppAware):
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
-            config=config,
+            config=config or {},
         )
         return cls.from_template(
             template,
@@ -1848,20 +1855,19 @@ class Workflow(AppAware):
                 for task_idx, elem_idxes in element_idx_by_task.items()
             }
 
-            result = {} if as_dict else []
+            result = {}
             for path in index_paths:
                 run = (
                     iters[path.task][path.elem][path.iter]
                     .actions[path.act]
                     .runs[path.run]
                 )
-                if as_dict:
-                    result[run.id_] = run
-                else:
-                    result.append(run)
+                result[run.id_] = run
 
-            if not as_dict and isinstance(ids, int):
-                return result[0]
+            if not as_dict:
+                res_lst = list(result.values())
+                return res_lst[0] if isinstance(ids, int) else res_lst
+
             return result
 
     @TimeIt.decorator
@@ -2520,12 +2526,6 @@ class Workflow(AppAware):
             for te in self._store.get_task_elements(task.insert_ID, idx_lst)
         ]
 
-    def set_EAR_submission_index(self, EAR_ID: int, sub_idx: int) -> None:
-        """Set the submission index of an EAR."""
-        with self._store.cached_load():
-            with self.batch_update():
-                self._store.set_EAR_submission_index(EAR_ID, sub_idx)
-
     def set_EAR_start(
         self, run_id: int, run_dir: Path | None, port_number: int | None
     ) -> None:
@@ -2544,7 +2544,7 @@ class Workflow(AppAware):
 
     def set_EAR_end(
         self,
-        block_act_key: tuple[int, int, int],
+        block_act_key: BlockActionKey,
         run: ElementActionRun,
         exit_code: int,
     ) -> None:
@@ -2557,17 +2557,20 @@ class Workflow(AppAware):
         self._app.logger.debug(
             f"Setting end for run ID {run.id_!r} with exit code {exit_code!r}."
         )
-        with self._store.cached_load():
-            with self.batch_update():
-                success = exit_code == 0  # TODO  more sophisticated success heuristics
-                if not run.skip:
-                    run_dir = run.get_directory()
-                    is_aborted = False
-                    if run.action.abortable and exit_code == ABORT_EXIT_CODE:
-                        # the point of aborting an EAR is to continue with the workflow:
-                        is_aborted = True
-                        success = True
+        param_id: int | list[int] | None
+        with self._store.cached_load(), self.batch_update():
+            success = exit_code == 0  # TODO  more sophisticated success heuristics
+            if not run.skip:
 
+                is_aborted = False
+                if run.action.abortable and exit_code == ABORT_EXIT_CODE:
+                    # the point of aborting an EAR is to continue with the workflow:
+                    is_aborted = True
+                    success = True
+
+                run_dir = run.get_directory()
+                if run_dir:
+                    assert isinstance(run_dir, Path)
                     for IFG_i in run.action.input_file_generators:
                         inp_file = IFG_i.input_file
                         self._app.logger.debug(
@@ -2604,7 +2607,7 @@ class Workflow(AppAware):
 
                     if run.action.script_data_out_has_files:
                         try:
-                            run._param_save(block_act_key)
+                            run._param_save(block_act_key, run_dir)
                         except FileNotFoundError:
                             self._app.logger.debug(
                                 f"script did not generate an expected output parameter "
@@ -2622,12 +2625,12 @@ class Workflow(AppAware):
                             f"{run.id_!r}."
                         )
                         try:
-                            param_id_j = run.data_idx[f"output_files.{save_file_j.label}"]
+                            param_id = run.data_idx[f"output_files.{save_file_j.label}"]
                         except KeyError:
                             # We might be saving a file that is not a defined
                             # "output file"; this will avoid saving a reference in the
                             # parameter data:
-                            param_id_j = None
+                            param_id = None
 
                         file_paths = save_file_j.value(directory=run_dir)
                         self._app.logger.debug(
@@ -2653,7 +2656,7 @@ class Workflow(AppAware):
                                     exit_code = 1  # TODO more custom exit codes?
                             else:
                                 self._set_file(
-                                    param_id=param_id_j,
+                                    param_id=param_id,
                                     store_contents=True,
                                     is_input=False,
                                     path=full_path,
@@ -2667,14 +2670,14 @@ class Workflow(AppAware):
                                 f"{run.id_!r}."
                             )
                             try:
-                                param_id_j = run.data_idx[
+                                param_id = run.data_idx[
                                     f"output_files.{save_file_j.label}"
                                 ]
                             except KeyError:
                                 # We might be saving a file that is not a defined
                                 # "output file"; this will avoid saving a reference in the
                                 # parameter data:
-                                param_id_j = None
+                                param_id = None
 
                             file_paths = save_file_j.value(directory=run_dir)
                             self._app.logger.debug(
@@ -2698,37 +2701,35 @@ class Workflow(AppAware):
                                         exit_code = 1  # TODO more custom exit codes?
                                 else:
                                     self._set_file(
-                                        param_id=param_id_j,
+                                        param_id=param_id,
                                         store_contents=True,  # TODO: make optional according to OFP
                                         is_input=False,
                                         path=full_path,
                                         clean_up=(save_file_j in OFP_i.clean_up),
                                     )
 
-                if (
-                    run.resources.skip_downstream_on_failure
-                    and not success
-                    and run.skip_reason is not SkipReason.LOOP_TERMINATION
-                ):
-                    # loop termination skips are already propagated
-                    for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
-                        self._app.logger.debug(
-                            f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
-                            f" EAR ID {run.id_!r}, which exited with a non-zero exit code:"
-                            f" {exit_code!r}."
-                        )
-                        self._store.set_EAR_skip(
-                            {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
-                        )
+            if (
+                run.resources.skip_downstream_on_failure
+                and not success
+                and run.skip_reason is not SkipReason.LOOP_TERMINATION
+            ):
+                # loop termination skips are already propagated
+                for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
+                    self._app.logger.debug(
+                        f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
+                        f" EAR ID {run.id_!r}, which exited with a non-zero exit code:"
+                        f" {exit_code!r}."
+                    )
+                    self._store.set_EAR_skip(
+                        {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
+                    )
 
-                self._store.set_EAR_end(
-                    run.id_, exit_code, success, run.action.requires_dir
-                )
+            self._store.set_EAR_end(run.id_, exit_code, success, run.action.requires_dir)
 
     def set_multi_run_ends(
         self,
         runs: dict[
-            tuple[int, int, int],
+            BlockActionKey,
             list[tuple[ElementActionRun, int, Path | None]],
         ],
     ) -> None:
@@ -2738,6 +2739,7 @@ class Workflow(AppAware):
         skipped. Also save any generated input/output files."""
 
         self._app.logger.debug(f"Setting end for multiple run IDs.")
+        param_id: int | list[int] | None
         with self._store.cached_load(), self.batch_update():
             run_ids = []
             run_dirs = []
@@ -2767,133 +2769,19 @@ class Workflow(AppAware):
                             is_aborted = True
                             success = True
 
-                        for IFG_i in run.action.input_file_generators:
-                            self._app.logger.info(f"setting IFG file {IFG_i!r}")
-                            inp_file = IFG_i.input_file
-                            self._app.logger.debug(
-                                f"Saving EAR input file: {inp_file.label!r} for EAR "
-                                f"ID {run.id_!r}."
-                            )
-                            param_id = run.data_idx[f"input_files.{inp_file.label}"]
-
-                            file_paths = inp_file.value(directory=run_dir)
-                            for path_i in (
-                                file_paths
-                                if isinstance(file_paths, list)
-                                else [file_paths]
-                            ):
-                                full_path = run_dir.joinpath(path_i)
-                                if not full_path.exists():
-                                    self._app.logger.debug(
-                                        f"expected input file {path_i!r} does not "
-                                        f"exist, so setting run to an error state "
-                                        f"(if not aborted)."
-                                    )
-                                    if not is_aborted and success is True:
-                                        # this is unlikely to happen, but could happen
-                                        # if the input file is deleted in between
-                                        # the input file generator completing and this
-                                        # code being run
-                                        success = False
-                                        exit_code = 1  # TODO more custom exit codes?
-                                else:
-                                    self._set_file(
-                                        param_id=param_id,
-                                        store_contents=True,  # TODO: make optional according to IFG
-                                        is_input=False,
-                                        path=full_path,
-                                    )
-
-                        if run.action.script_data_out_has_files:
-                            self._app.logger.info(f"saving script-generated parameters.")
-                            try:
-                                run._param_save(block_act_key, run_dir)
-                            except FileNotFoundError:
-                                # script did not generate the output parameter file, so
-                                # set a failed exit code (if we did not abort the run):
+                        run_dir = run.get_directory()
+                        if run_dir:
+                            assert isinstance(run_dir, Path)
+                            for IFG_i in run.action.input_file_generators:
+                                self._app.logger.info(f"setting IFG file {IFG_i!r}")
+                                inp_file = IFG_i.input_file
                                 self._app.logger.debug(
-                                    f"script did not generate an expected output "
-                                    f"parameter file (block_act_key="
-                                    f"{block_act_key!r}), so setting run to an error "
-                                    f"state (if not aborted)."
+                                    f"Saving EAR input file: {inp_file.label!r} for EAR "
+                                    f"ID {run.id_!r}."
                                 )
-                                if not is_aborted and success is True:
-                                    success = False
-                                    exit_code = 1  # TODO more custom exit codes?
+                                param_id = run.data_idx[f"input_files.{inp_file.label}"]
 
-                        # Save action-level files: (TODO: refactor with below for OFPs)
-                        for save_file_j in run.action.save_files:
-                            self._app.logger.info(
-                                f"saving action-level file {save_file_j!r}."
-                            )
-                            self._app.logger.debug(
-                                f"Saving file: {save_file_j.label!r} for EAR ID "
-                                f"{run.id_!r}."
-                            )
-                            try:
-                                param_id = run.data_idx[
-                                    f"output_files.{save_file_j.label}"
-                                ]
-                            except KeyError:
-                                # We might be saving a file that is not a defined
-                                # "output file"; this will avoid saving a reference in
-                                # the parameter data:
-                                param_id = None
-
-                            file_paths = save_file_j.value(directory=run_dir)
-                            self._app.logger.debug(
-                                f"Saving output file paths: {file_paths!r}"
-                            )
-                            for path_i in (
-                                file_paths
-                                if isinstance(file_paths, list)
-                                else [file_paths]
-                            ):
-                                full_path = run_dir.joinpath(path_i)
-                                if not full_path.exists():
-                                    self._app.logger.debug(
-                                        f"expected file to save {path_i!r} does not "
-                                        f"exist, so setting run to an error state "
-                                        f"(if not aborted)."
-                                    )
-                                    if not is_aborted and success is True:
-                                        # this is unlikely to happen, but could happen
-                                        # if the input file is deleted in between
-                                        # the input file generator completing and this
-                                        # code being run
-                                        success = False
-                                        exit_code = 1  # TODO more custom exit codes?
-                                else:
-                                    self._set_file(
-                                        param_id=param_id,
-                                        store_contents=True,
-                                        is_input=False,
-                                        path=full_path,
-                                        clean_up=(save_file_j in run.action.clean_up),
-                                    )
-
-                        for OFP_i in run.action.output_file_parsers:
-                            self._app.logger.info(f"saving files from OFP: {OFP_i!r}.")
-                            for save_file_j in OFP_i._save_files:
-                                self._app.logger.debug(
-                                    f"Saving EAR output file: {save_file_j.label!r} "
-                                    f"for EAR ID {run.id_!r}."
-                                )
-                                try:
-                                    param_id = run.data_idx[
-                                        f"output_files.{save_file_j.label}"
-                                    ]
-                                except KeyError:
-                                    # We might be saving a file that is not a defined
-                                    # "output file"; this will avoid saving a
-                                    # reference in the parameter data:
-                                    param_id = None
-
-                                file_paths = save_file_j.value(directory=run_dir)
-                                self._app.logger.debug(
-                                    f"Saving EAR output file paths: {file_paths!r}"
-                                )
-
+                                file_paths = inp_file.value(directory=run_dir)
                                 for path_i in (
                                     file_paths
                                     if isinstance(file_paths, list)
@@ -2902,21 +2790,144 @@ class Workflow(AppAware):
                                     full_path = run_dir.joinpath(path_i)
                                     if not full_path.exists():
                                         self._app.logger.debug(
-                                            f"expected output file parser `save_files` file "
-                                            f"{path_i!r} does not exist, so setting run "
-                                            f"to an error state (if not aborted)."
+                                            f"expected input file {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
                                         )
                                         if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
                                             success = False
                                             exit_code = 1  # TODO more custom exit codes?
                                     else:
                                         self._set_file(
                                             param_id=param_id,
-                                            store_contents=True,  # TODO: make optional according to OFP
+                                            store_contents=True,  # TODO: make optional according to IFG
                                             is_input=False,
                                             path=full_path,
-                                            clean_up=(save_file_j in OFP_i.clean_up),
                                         )
+
+                            if run.action.script_data_out_has_files:
+                                self._app.logger.info(
+                                    f"saving script-generated parameters."
+                                )
+                                try:
+                                    run._param_save(block_act_key, run_dir)
+                                except FileNotFoundError:
+                                    # script did not generate the output parameter file, so
+                                    # set a failed exit code (if we did not abort the run):
+                                    self._app.logger.debug(
+                                        f"script did not generate an expected output "
+                                        f"parameter file (block_act_key="
+                                        f"{block_act_key!r}), so setting run to an error "
+                                        f"state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
+
+                            # Save action-level files: (TODO: refactor with below for OFPs)
+                            for save_file_j in run.action.save_files:
+                                self._app.logger.info(
+                                    f"saving action-level file {save_file_j!r}."
+                                )
+                                self._app.logger.debug(
+                                    f"Saving file: {save_file_j.label!r} for EAR ID "
+                                    f"{run.id_!r}."
+                                )
+                                try:
+                                    param_id = run.data_idx[
+                                        f"output_files.{save_file_j.label}"
+                                    ]
+                                except KeyError:
+                                    # We might be saving a file that is not a defined
+                                    # "output file"; this will avoid saving a reference in
+                                    # the parameter data:
+                                    param_id = None
+
+                                file_paths = save_file_j.value(directory=run_dir)
+                                self._app.logger.debug(
+                                    f"Saving output file paths: {file_paths!r}"
+                                )
+                                for path_i in (
+                                    file_paths
+                                    if isinstance(file_paths, list)
+                                    else [file_paths]
+                                ):
+                                    full_path = run_dir.joinpath(path_i)
+                                    if not full_path.exists():
+                                        self._app.logger.debug(
+                                            f"expected file to save {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
+                                        )
+                                        if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
+                                            success = False
+                                            exit_code = 1  # TODO more custom exit codes?
+                                    else:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,
+                                            is_input=False,
+                                            path=full_path,
+                                            clean_up=(save_file_j in run.action.clean_up),
+                                        )
+
+                            for OFP_i in run.action.output_file_parsers:
+                                self._app.logger.info(
+                                    f"saving files from OFP: {OFP_i!r}."
+                                )
+                                for save_file_j in OFP_i._save_files:
+                                    self._app.logger.debug(
+                                        f"Saving EAR output file: {save_file_j.label!r} "
+                                        f"for EAR ID {run.id_!r}."
+                                    )
+                                    try:
+                                        param_id = run.data_idx[
+                                            f"output_files.{save_file_j.label}"
+                                        ]
+                                    except KeyError:
+                                        # We might be saving a file that is not a defined
+                                        # "output file"; this will avoid saving a
+                                        # reference in the parameter data:
+                                        param_id = None
+
+                                    file_paths = save_file_j.value(directory=run_dir)
+                                    self._app.logger.debug(
+                                        f"Saving EAR output file paths: {file_paths!r}"
+                                    )
+
+                                    for path_i in (
+                                        file_paths
+                                        if isinstance(file_paths, list)
+                                        else [file_paths]
+                                    ):
+                                        full_path = run_dir.joinpath(path_i)
+                                        if not full_path.exists():
+                                            self._app.logger.debug(
+                                                f"expected output file parser `save_files` file "
+                                                f"{path_i!r} does not exist, so setting run "
+                                                f"to an error state (if not aborted)."
+                                            )
+                                            if not is_aborted and success is True:
+                                                success = False
+                                                exit_code = (
+                                                    1  # TODO more custom exit codes?
+                                                )
+                                        else:
+                                            self._set_file(
+                                                param_id=param_id,
+                                                store_contents=True,  # TODO: make optional according to OFP
+                                                is_input=False,
+                                                path=full_path,
+                                                clean_up=(save_file_j in OFP_i.clean_up),
+                                            )
 
                     else:
                         self._app.logger.info(
@@ -2967,7 +2978,7 @@ class Workflow(AppAware):
         with self._store.cached_load(), self.batch_update():
             self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
 
-    def get_EAR_skipped(self, EAR_ID: int) -> bool:
+    def get_EAR_skipped(self, EAR_ID: int) -> int:
         """Check if an EAR is to be skipped."""
         with self._store.cached_load():
             return self._store.get_EAR_skipped(EAR_ID)
@@ -3515,25 +3526,22 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def cancel(self, status: bool = True):
         """Cancel any running jobscripts."""
-        if status:
-            console = rich.console.Console()
-            status = console.status(f"Cancelling jobscripts of workflow {self.path!r}")
-            status.start()
-        try:
-            with self._store.cached_load():
-                for sub in self.submissions:
-                    sub.cancel()
-        finally:
-            if status:
-                status.stop()
+        status_msg = f"Cancelling jobscripts of workflow {self.path!r}"
+        # Type hint for mypy
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            rich.console.Console().status(status_msg) if status else nullcontext()
+        )
+        with status_context as status_, self._store.cached_load():
+            for sub in self.submissions:
+                sub.cancel()
 
     def add_submission(
         self,
-        tasks: list[int] = None,
+        tasks: list[int] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         force_array: bool = False,
         status: bool = True,
-    ) -> app.Submission:
+    ) -> Submission | None:
         """Add a new submission.
 
         Parameters
@@ -3543,15 +3551,12 @@ class Workflow(AppAware):
             it. This is provided for testing purposes only.
         """
         # JS_parallelism=None means guess
-        if status:
-            status = rich.console.Console().status("")
-            status.start()
-        try:
-            with self._store.cached_load(), self.batch_update():
-                return self._add_submission(tasks, JS_parallelism, force_array, status)
-        finally:
-            if status:
-                status.stop()
+        # Type hint for mypy
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            rich.console.Console().status("") if status else nullcontext()
+        )
+        with status_context as status_, self._store.cached_load(), self.batch_update():
+            return self._add_submission(tasks, JS_parallelism, force_array, status_)
 
     @TimeIt.decorator
     @load_workflow_config
@@ -3645,7 +3650,7 @@ class Workflow(AppAware):
         self._submissions.append(sub_obj)
         self._pending["submissions"].append(new_idx)
         with self._store.cached_load(), self.batch_update():
-            self._store.add_submission(new_idx, sub_obj_js)
+            self._store.add_submission(new_idx, cast("Mapping[str, JSONed]", sub_obj_js))
 
         return self.submissions[new_idx]
 
@@ -3676,15 +3681,15 @@ class Workflow(AppAware):
 
             for js_idx, jsca in js.items():
                 if js_idx in js_deps:
-                    jsca["dependencies"] = js_deps[js_idx]
+                    jsca["dependencies"] = js_deps[js_idx]  # type: ignore
 
             js = merge_jobscripts_across_tasks(js)
 
             # for direct or (non-array scheduled), combine into jobscripts of multiple
             # blocks for dependent jobscripts that have the same resource hashes
-            js = resolve_jobscript_blocks(js)
+            js_ = resolve_jobscript_blocks(js)
 
-            return [self._app.Jobscript(**i, index=idx) for idx, i in enumerate(js)]
+            return [self._app.Jobscript(**i, index=idx) for idx, i in enumerate(js_)]
 
     def __EAR_obj_map(
         self,
@@ -3695,6 +3700,7 @@ class Workflow(AppAware):
         EAR_map: NDArray,
         cache: ObjectCache,
     ) -> Mapping[int, ElementActionRun]:
+        assert cache.runs
         all_EAR_IDs: list[int] = []
         for js_elem_idx, (elem_idx, act_indices) in enumerate(
             js_desc["elements"].items()
@@ -3830,7 +3836,7 @@ class Workflow(AppAware):
     def execute_run(
         self,
         submission_idx: int,
-        block_act_key: tuple[int, int, int],
+        block_act_key: BlockActionKey,
         run_ID: int,
     ) -> None:
         """Execute commands of a run via a subprocess."""
@@ -3846,11 +3852,12 @@ class Workflow(AppAware):
         # redirect (as much as possible) app-generated stdout/err to a dedicated file:
         with redirect_std_to_file(run_std_path):
             with self._store.cached_load():
-                js_idx = block_act_key[0]
+                js_idx = cast("int", block_act_key[0])
                 run = self.get_EARs_from_IDs([run_ID])[0]
                 run_dir = None
                 if run.action.requires_dir:
                     run_dir = run.get_directory()
+                    assert run_dir
                     self._app.submission_logger.debug(
                         f"changing directory to run execution directory: {run_dir}."
                     )
@@ -3900,6 +3907,7 @@ class Workflow(AppAware):
 
                     if has_commands := bool(cmd_file_path):
 
+                        assert isinstance(cmd_file_path, Path)
                         if not cmd_file_path.is_file():
                             raise RuntimeError(
                                 f"Command file {cmd_file_path!r} does not exist."
@@ -4243,7 +4251,7 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def get_run_directories(
         self,
-        run_ids: list[int] = None,
+        run_ids: list[int] | None = None,
         dir_indices_arr: np.ndarray | None = None,
     ) -> list[Path | None]:
         """"""
@@ -4253,7 +4261,7 @@ class Workflow(AppAware):
             item_idx: int,
             max_per_dir: int,
             max_depth: int,
-            depth_idx_cache: dict[tuple[int, int]],
+            depth_idx_cache: dict[tuple[int, int], NDArray],
             prefix: str,
         ) -> list[str]:
             dirs = []
@@ -4261,14 +4269,13 @@ class Workflow(AppAware):
             for depth_i in range(1, max_depth):
                 tot_items_per_level = int(max_avail_items / max_per_dir**depth_i)
                 key = (max_avail_items, tot_items_per_level)
-                depth_idx = depth_idx_cache.get(key)
-                if depth_idx is None:
+                if (depth_idx := depth_idx_cache.get(key)) is None:
                     depth_idx = np.repeat(
                         np.arange(max_avail_items / tot_items_per_level, dtype=int),
                         tot_items_per_level,
                     )
                     depth_idx_cache[key] = depth_idx
-                idx_i = depth_idx[item_idx]
+                idx_i = cast("NDArray", depth_idx)[item_idx]
                 start_idx = idx_i * tot_items_per_level
                 end_idx = start_idx + tot_items_per_level - 1
                 dirs.append(f"{prefix}_{start_idx}-{end_idx}")
@@ -4288,7 +4295,9 @@ class Workflow(AppAware):
         # a fill value means no sub directory should be created
         T_FILL, E_FILL, I_FILL, A_FILL, R_FILL, _, _ = RUN_DIR_ARR_FILL
 
-        depth_idx_cache = {}  # keys are (max_avail, tot_elems_per_dir_level)
+        depth_idx_cache: dict[
+            tuple[int, int], NDArray
+        ] = {}  # keys are (max_avail, tot_elems_per_dir_level)
 
         # format run directories:
         dirs = []
@@ -4344,14 +4353,14 @@ class Workflow(AppAware):
         return dirs
 
     @TimeIt.decorator
-    def get_scheduler_job_IDs(self) -> tuple[str]:
+    def get_scheduler_job_IDs(self) -> tuple[str, ...]:
         """Return jobscript scheduler job IDs from all submissions of this workflow."""
         return tuple(
             IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_scheduler_job_IDs()
         )
 
     @TimeIt.decorator
-    def get_process_IDs(self) -> tuple[int]:
+    def get_process_IDs(self) -> tuple[int, ...]:
         """Return jobscript process IDs from all submissions of this workflow."""
         return tuple(
             IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_process_IDs()
@@ -4361,9 +4370,9 @@ class Workflow(AppAware):
     def list_jobscripts(
         self,
         sub_idx: int = 0,
-        max_js: int = None,
-        jobscripts: list[int] = None,
-        width: int = None,
+        max_js: int | None = None,
+        jobscripts: list[int] | None = None,
+        width: int | None = None,
     ) -> None:
         """Print a table listing jobscripts and associated information from the specified
         submission.
@@ -4394,7 +4403,7 @@ class Workflow(AppAware):
                     box=rich.box.SIMPLE,
                 )
             else:
-                loop_names_panel = ""
+                loop_names_panel = rich.panel.Panel("")
 
             table = rich.table.Table(width=width)
 
@@ -4459,9 +4468,9 @@ class Workflow(AppAware):
     def list_task_jobscripts(
         self,
         sub_idx: int = 0,
-        task_names: list[str] = None,
-        max_js: int = None,
-        width: int = None,
+        task_names: list[str] | None = None,
+        max_js: int | None = None,
+        width: int | None = None,
     ):
         """Print a table listing the jobscripts associated with the specified (or all)
         tasks for the specified submission.
@@ -4489,7 +4498,7 @@ class Workflow(AppAware):
                     box=rich.box.SIMPLE,
                 )
             else:
-                loop_names_panel = ""
+                loop_names_panel = rich.panel.Panel("")
 
             sub_js = self.submissions[sub_idx].jobscripts
             all_task_names = {i.insert_ID: i.unique_name for i in self.tasks}

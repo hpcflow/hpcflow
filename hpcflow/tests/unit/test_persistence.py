@@ -401,15 +401,15 @@ def test_get_parameter_sources_duplicate_ids(null_config, tmp_path):
 
 
 def _transform_jobscript_dependencies_to_encodable(
-    deps: Dict[Tuple[int, int], Dict[Tuple[int, int], Dict[str, Any]]],
-) -> Dict[str, List[Dict[str, Any]]]:
+    deps: dict[tuple[int, int], dict[tuple[int, int], dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
     """Transform a dict of jobscript dependencies written in a more testing-friendly/
     convenient format into the format expected by the method
     `ZarrPersistentStore._encode_jobscript_block_dependencies`.
 
     """
     max_js_idx = max(i[0] for i in deps)
-    sub_js = {
+    sub_js: dict[str, list[dict[str, Any]]] = {
         "jobscripts": [
             {"blocks": [], "index": js_idx} for js_idx in range(max_js_idx + 1)
         ]

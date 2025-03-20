@@ -10,13 +10,14 @@ from textwrap import dedent
 from typing import Protocol, cast, overload, TYPE_CHECKING
 from typing_extensions import Final, override
 
-from hpcflow.sdk.typing import hydrate, ParamSource
+from hpcflow.sdk.typing import PathLike, hydrate, ParamSource
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
 from hpcflow.sdk.core.zarr_io import zarr_decode
 from hpcflow.sdk.core.parameters import _process_demo_data_strings
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Mapping
     from typing import Any, ClassVar
     from typing_extensions import Self
@@ -33,7 +34,7 @@ class FileNamePart(Protocol):
     A filename or piece of filename that can be expanded.
     """
 
-    def value(self, directory: str = ".") -> str | list[str]:
+    def value(self, directory: str | os.PathLike = ".") -> str | list[str]:
         """
         Get the part of the file, possibly with directory specified.
         Implementations of this may ignore the directory.
@@ -74,7 +75,7 @@ class FileSpec(JSONLike):
         self._hash_value = _hash_value
         self.__hash = hash((label, self.name))
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         The path to a file, optionally resolved with respect to a particular directory.
         """
@@ -178,17 +179,17 @@ class FileNameSpec(JSONLike):
         """
         return self._app.FileNameExt(self)
 
-    def value(self, directory: str = ".") -> list[str] | str:
+    def value(self, directory: str | os.PathLike = ".") -> list[str] | str:
         """
         Get the template-resolved name of the file
         (or files matched if the name is a regex pattern).
 
         Parameters
         ----------
-        directory: str
+        directory: PathLike
             Where to resolve values with respect to.
         """
-        format_args = [arg.value(directory) for arg in self.args]
+        format_args = [arg.value(Path(directory)) for arg in self.args]
         value = self.name.format(*format_args)
         if self.is_regex:
             return search_dir_files_by_regex(value, directory=directory)
@@ -207,7 +208,7 @@ class FileNameStem(JSONLike):
     #: The file specification this is derived from.
     file_name: FileNameSpec
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         Get the stem, possibly with directory specified.
         """
@@ -227,7 +228,7 @@ class FileNameExt(JSONLike):
     #: The file specification this is derived from.
     file_name: FileNameSpec
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         Get the extension.
         """

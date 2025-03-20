@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import ClassVar, Literal
     from rich.status import Status
+    from numpy.typing import NDArray
     from .jobscript import Jobscript
     from .enums import JobscriptElementState
     from .schedulers import Scheduler
@@ -253,7 +254,7 @@ class Submission(JSONLike):
         return self.at_submit_metadata["submission_parts"] or {}
 
     @property
-    def submission_parts(self) -> list[dict[str, Any]]:
+    def submission_parts(self) -> list[SubmissionPart]:
         if self._submission_parts_lst is None:
             self._submission_parts_lst = [
                 {
@@ -302,7 +303,7 @@ class Submission(JSONLike):
         return self._jobscripts
 
     @property
-    def JS_parallelism(self) -> bool | None:
+    def JS_parallelism(self) -> bool | Literal["direct", "scheduled"] | None:
         """
         Whether to exploit jobscript parallelism.
         """
@@ -409,7 +410,7 @@ class Submission(JSONLike):
         return cls.get_path(submissions_path, sub_idx) / cls.LOG_DIR_NAME
 
     @staticmethod
-    def get_app_log_file_name(run_ID: int):
+    def get_app_log_file_name(run_ID: int | str) -> str:
         """
         The app log file name.
         """
@@ -603,7 +604,7 @@ class Submission(JSONLike):
 
     @property
     @TimeIt.decorator
-    def all_EARs_IDs_by_jobscript(self) -> list[list[int]]:
+    def all_EARs_IDs_by_jobscript(self) -> list[np.ndarray]:
         return [i.all_EAR_IDs for i in self.jobscripts]
 
     @property
@@ -627,26 +628,27 @@ class Submission(JSONLike):
         return task_elem_EARs
 
     @property
-    def is_scheduled(self) -> tuple[bool]:
+    def is_scheduled(self) -> tuple[bool, ...]:
         """Return whether each jobscript of this submission uses a scheduler or not."""
         return tuple(i.is_scheduled for i in self.jobscripts)
 
     @overload
     def get_active_jobscripts(
         self, as_json: Literal[False] = False
-    ) -> dict[int, dict[int, dict[int, JobscriptElementState]]]:
+    ) -> Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]]:
         ...
 
     @overload
     def get_active_jobscripts(
         self, as_json: Literal[True]
-    ) -> dict[int, dict[int, dict[int, str]]]:
+    ) -> Mapping[int, Mapping[int, Mapping[int, str]]]:
         ...
 
     @TimeIt.decorator
     def get_active_jobscripts(
-        self, as_json: bool = False
-    ) -> dict[int, dict[int, dict[int, JobscriptElementState | str]]]:
+        self,
+        as_json: Literal[True] | Literal[False] = False,  # TODO: why can't we use bool?
+    ) -> Mapping[int, Mapping[int, Mapping[int, JobscriptElementState | str]]]:
         """Get jobscripts that are active on this machine, and their active states."""
         # this returns: {JS_IDX: {BLOCK_IDX: {JS_ELEMENT_IDX: STATE}}}
         # TODO: query the scheduler once for all jobscripts?
@@ -659,7 +661,7 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def _write_scripts(
         self, cache: ObjectCache, status: Status | None = None
-    ) -> tuple[dict[int, int], np.NDarray, dict[int, list[Path]]]:
+    ) -> tuple[dict[int, int | None], NDArray, dict[int, list[Path]]]:
         """Write to disk all action scripts associated with this submission."""
         # TODO: rename this method
 
@@ -668,7 +670,9 @@ class Submission(JSONLike):
         # TODO: scripts must have the same exe and the same environment as well?
         # TODO: env_spec should be included in jobscript hash if combine_scripts=True ?
 
-        actions_by_schema = defaultdict(lambda: defaultdict(set))
+        actions_by_schema: dict[str, dict[int, set]] = defaultdict(
+            lambda: defaultdict(set)
+        )
         combined_env_specs = {}
 
         # task insert IDs and action indices for each combined_scripts jobscript:
@@ -680,13 +684,14 @@ class Submission(JSONLike):
         run_inp_files = defaultdict(
             list
         )  # keys are `run_idx`, values are Paths to copy to run dir
-        run_cmd_file_names: dict[int, int] = {}
+        run_cmd_file_names: dict[int, int | None] = {}  # None if no commands to write
         run_idx = 0
 
         if status:
             status.update(f"Adding new submission: processing run 1/{num_runs_tot}.")
 
         all_runs = cache.runs
+        assert all_runs
         runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
         with self.workflow.cached_merged_parameters():
@@ -782,8 +787,10 @@ class Submission(JSONLike):
         if status:
             status.update("Adding new submission: writing scripts...")
 
-        seen = {}
-        combined_script_data = defaultdict(lambda: defaultdict(list))
+        seen: dict[int, Path] = {}
+        combined_script_data: dict[
+            int, dict[int, list[tuple[str, Path, bool]]]
+        ] = defaultdict(lambda: defaultdict(list))
         for task in self.workflow.tasks:
             for schema in task.template.schemas:
                 if schema.name in actions_by_schema:
@@ -861,6 +868,8 @@ class Submission(JSONLike):
         cache: ObjectCache,
     ) -> tuple[np.ndarray, np.ndarray]:
 
+        assert cache.elements
+        assert cache.iterations
         # get the multiplicities of all tasks, elements, iterations, and runs:
         wk_num_tasks = self.workflow.num_tasks
         task_num_elems = {}
@@ -890,8 +899,8 @@ class Submission(JSONLike):
         run_dir_arr = np.empty(requires_dir_idx.size, dtype=RUN_DIR_ARR_DTYPE)
         run_ids = np.empty(requires_dir_idx.size, dtype=int)
 
-        elem_depths = {}
-        iter_depths = {}
+        elem_depths: dict[int, int] = {}
+        iter_depths: dict[int, int] = {}
         for idx in range(requires_dir_idx.size):
             row = run_indices[requires_dir_idx[idx]]
             t_iID, e_id, i_id, r_id, e_idx, i_idx, a_idx, r_idx = row[:-1]
@@ -906,8 +915,7 @@ class Submission(JSONLike):
             if num_elems_i == 1:
                 e_idx = max_u32
             elif num_elems_i > MAX_ELEMS_PER_DIR:
-                e_depth = elem_depths.get(t_iID)
-                if e_depth is None:
+                if (e_depth := elem_depths.get(t_iID, -1)) == -1:
                     e_depth = int(
                         np.ceil(np.log(num_elems_i) / np.log(MAX_ELEMS_PER_DIR))
                     )
@@ -920,8 +928,7 @@ class Submission(JSONLike):
             if num_iters_i == 1:
                 i_idx = max_u32
             elif num_iters_i > MAX_ITERS_PER_DIR:
-                i_depth = iter_depths.get(e_id)
-                if i_depth is None:
+                if (i_depth := iter_depths.get(e_id, -1)) == -1:
                     i_depth = int(
                         np.ceil(np.log(num_iters_i) / np.log(MAX_ITERS_PER_DIR))
                     )
@@ -942,8 +949,8 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def _write_execute_dirs(
         self,
-        run_indices: np.NDArray,
-        run_inp_files: dict[int, List[Path]],
+        run_indices: NDArray,
+        run_inp_files: dict[int, list[Path]],
         cache: ObjectCache,
         status: Status | None = None,
     ):
@@ -966,6 +973,7 @@ class Submission(JSONLike):
 
         # make directories
         for idx, run_dir in enumerate(run_dirs):
+            assert run_dir
             run_dir.mkdir(parents=True, exist_ok=True)
             inp_files_i = run_inp_files.get(run_idx[idx])
             if inp_files_i:
@@ -1277,7 +1285,7 @@ class Submission(JSONLike):
                 print("No active jobscripts to cancel.")
 
     @TimeIt.decorator
-    def get_scheduler_job_IDs(self) -> tuple[str]:
+    def get_scheduler_job_IDs(self) -> tuple[str, ...]:
         """Return jobscript scheduler job IDs."""
         return tuple(
             js_i.scheduler_job_ID
@@ -1286,7 +1294,7 @@ class Submission(JSONLike):
         )
 
     @TimeIt.decorator
-    def get_process_IDs(self) -> tuple[int]:
+    def get_process_IDs(self) -> tuple[int, ...]:
         """Return jobscript process IDs."""
         return tuple(
             js_i.process_ID for js_i in self.jobscripts if js_i.process_ID is not None
@@ -1294,7 +1302,10 @@ class Submission(JSONLike):
 
     @TimeIt.decorator
     def list_jobscripts(
-        self, max_js: int = None, jobscripts: list[int] = None, width: int = None
+        self,
+        max_js: int | None = None,
+        jobscripts: list[int] | None = None,
+        width: int | None = None,
     ) -> None:
         """Print a table listing jobscripts and associated information.
 
@@ -1315,9 +1326,9 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def list_task_jobscripts(
         self,
-        task_names: list[str] = None,
-        max_js: int = None,
-        width: int = None,
+        task_names: list[str] | None = None,
+        max_js: int | None = None,
+        width: int | None = None,
     ) -> None:
         """Print a table listing the jobscripts associated with the specified (or all)
         tasks for the specified submission.

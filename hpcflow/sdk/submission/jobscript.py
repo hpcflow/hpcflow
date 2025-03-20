@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from ..core.actions import ElementActionRun
     from ..core.element import ElementResources
     from ..core.loop_cache import LoopIndex
-    from ..core.types import JobscriptSubmissionFailureArgs
+    from ..core.types import JobscriptSubmissionFailureArgs, BlockActionKey
     from ..core.workflow import WorkflowTask, Workflow
     from ..persistence.base import PersistentStore
     from .submission import Submission
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from .types import (
         JobScriptCreationArguments,
         JobScriptDescriptor,
-        ResolvedDependencies,
+        ResolvedJobscriptBlockDependencies,
         SchedulerRef,
         VersionInfo,
     )
@@ -105,6 +105,9 @@ def generate_EAR_resource_map(
     EAR_ID_map = np.empty(arr_shape, dtype=int)
     resource_map[:] = none_val
     EAR_ID_map[:] = none_val
+
+    assert cache.elements
+    assert cache.iterations
 
     for elem_id in task.element_IDs:
         element = cache.elements[elem_id]
@@ -219,12 +222,12 @@ def group_resource_map_into_jobscripts(
 def resolve_jobscript_dependencies(
     jobscripts: Mapping[int, JobScriptCreationArguments],
     element_deps: Mapping[int, Mapping[int, Sequence[int]]],
-) -> Mapping[int, dict[int, ResolvedDependencies]]:
+) -> Mapping[int, dict[int, ResolvedJobscriptBlockDependencies]]:
     """
     Discover concrete dependencies between jobscripts.
     """
     # first pass is to find the mappings between jobscript elements:
-    jobscript_deps: dict[int, dict[int, ResolvedDependencies]] = {}
+    jobscript_deps: dict[int, dict[int, ResolvedJobscriptBlockDependencies]] = {}
     for js_idx, elem_deps in element_deps.items():
         # keys of new dict are other jobscript indices on which this jobscript (js_idx)
         # depends:
@@ -289,7 +292,9 @@ def resolve_jobscript_dependencies(
 
 
 def _reindex_dependencies(
-    jobscripts: Mapping[int, JobScriptCreationArguments], from_idx: int, to_idx: int
+    jobscripts: Mapping[int, JobScriptCreationArguments],
+    from_idx: int,
+    to_idx: int,
 ):
     for ds_js_idx, ds_js in jobscripts.items():
         if ds_js_idx <= from_idx:
@@ -318,7 +323,7 @@ def merge_jobscripts_across_tasks(
         if not js["dependencies"]:
             continue
 
-        closest_idx = max(js["dependencies"])
+        closest_idx = cast("int", max(js["dependencies"]))
         closest_js = jobscripts[closest_idx]
         other_deps = {k: v for k, v in js["dependencies"].items() if k != closest_idx}
 
@@ -382,18 +387,24 @@ def resolve_jobscript_blocks(
         True if the store supports run parallelism
 
     """
-    js_new = []
-    new_idx = {}  # track new positions by new jobscript index and block index
-    new_idx_inv = defaultdict(list)
+    js_new: list[
+        list[JobScriptCreationArguments]
+    ] = []  # TODO: not the same type, e.g. dependencies have tuple keys,
+    new_idx: dict[
+        int, tuple[int, int]
+    ] = {}  # track new positions by new jobscript index and block index
+    new_idx_inv: dict[int, list[int]] = defaultdict(list)
     prev_hash = None
-    blocks = []
-    js_deps_rec = {}  # recursive
+    blocks: list[JobScriptCreationArguments] = []
+    js_deps_rec: dict[int, set[int]] = {}  # recursive
     for js_idx, js_i in jobscripts.items():
 
         cur_js_idx = len(js_new)
-        new_deps_js_j = {new_idx[i][0] for i in js_i["dependencies"]}
+        new_deps_js_j = {
+            new_idx[i][0] for i in cast("Sequence[int]", js_i["dependencies"])
+        }
         new_deps_js_j_rec = [
-            k for i in new_deps_js_j for j in new_idx_inv[i] for k in js_deps_rec.get(j)
+            k for i in new_deps_js_j for j in new_idx_inv[i] for k in js_deps_rec[j]
         ]
 
         js_deps_rec[js_idx] = new_deps_js_j.union(new_deps_js_j_rec)
@@ -466,11 +477,12 @@ def resolve_jobscript_blocks(
         blocks = []
 
     # re-index dependencies:
-    for js_i_idx, js_i in enumerate(js_new):
+    js_new_: list[dict[str, Any]] = []
+    for js_i_idx, js_new_i in enumerate(js_new):
 
         resources = None
         is_array = None
-        for block_j in js_i:
+        for block_j in js_new_i:
             for k, v in new_idx.items():
                 dep_data = block_j["dependencies"].pop(k, None)
                 if dep_data:
@@ -480,13 +492,15 @@ def resolve_jobscript_blocks(
             resources = block_j.pop("resources", None)
             is_array = block_j.pop("is_array")
 
-        js_new[js_i_idx] = {
-            "resources": resources,
-            "is_array": is_array,
-            "blocks": js_new[js_i_idx],
-        }
+        js_new_.append(
+            {
+                "resources": resources,
+                "is_array": is_array,
+                "blocks": js_new[js_i_idx],
+            }
+        )
 
-    return js_new
+    return js_new_
 
 
 @hydrate
@@ -519,13 +533,15 @@ class JobscriptBlock(JSONLike):
 
     def __init__(
         self,
-        task_insert_IDs: list[int],
-        task_actions: list[tuple[int, int, int]],
-        task_elements: dict[int, list[int]],
-        EAR_ID: NDArray | None,
-        task_loop_idx: list[dict[str, int]],
-        dependencies: dict[tuple[int, int], ResolvedDependencies],
         index: int,
+        task_insert_IDs: list[int],
+        task_loop_idx: list[dict[str, int]],
+        task_actions: list[tuple[int, int, int]] | None = None,
+        task_elements: dict[int, list[int]] | None = None,
+        EAR_ID: NDArray | None = None,
+        dependencies: (
+            dict[tuple[int, int], ResolvedJobscriptBlockDependencies] | None
+        ) = None,
         jobscript: Jobscript | None = None,
     ):
         self.jobscript = jobscript
@@ -545,6 +561,7 @@ class JobscriptBlock(JSONLike):
 
     @property
     def submission(self) -> Submission:
+        assert self.jobscript is not None
         return self.jobscript.submission
 
     @property
@@ -556,10 +573,11 @@ class JobscriptBlock(JSONLike):
 
     @property
     @TimeIt.decorator
-    def task_actions(self) -> Sequence[tuple[int, int, int]]:
+    def task_actions(self) -> NDArray:
         """
         The IDs of actions of each task in this jobscript-block.
         """
+        assert self.jobscript is not None
         return self.workflow._store.get_jobscript_block_task_actions_array(
             sub_idx=self.submission.index,
             js_idx=self.jobscript.index,
@@ -573,6 +591,7 @@ class JobscriptBlock(JSONLike):
         """
         The IDs of elements of each task in this jobscript-block.
         """
+        assert self.jobscript is not None
         return self.workflow._store.get_jobscript_block_task_elements_map(
             sub_idx=self.submission.index,
             js_idx=self.jobscript.index,
@@ -586,6 +605,7 @@ class JobscriptBlock(JSONLike):
         """
         The array of EAR IDs in this jobscript-block.
         """
+        assert self.jobscript is not None
         return self.workflow._store.get_jobscript_block_run_ID_array(
             sub_idx=self.submission.index,
             js_idx=self.jobscript.index,
@@ -595,10 +615,13 @@ class JobscriptBlock(JSONLike):
 
     @property
     @TimeIt.decorator
-    def dependencies(self) -> Mapping[tuple[int, int], ResolvedDependencies]:
+    def dependencies(
+        self,
+    ) -> Mapping[tuple[int, int], ResolvedJobscriptBlockDependencies]:
         """
         The dependency descriptor.
         """
+        assert self.jobscript is not None
         return self.workflow._store.get_jobscript_block_dependencies(
             sub_idx=self.submission.index,
             js_idx=self.jobscript.index,
@@ -634,6 +657,7 @@ class JobscriptBlock(JSONLike):
         """
         The associated workflow.
         """
+        assert self.jobscript is not None
         return self.jobscript.workflow
 
     @property
@@ -642,6 +666,7 @@ class JobscriptBlock(JSONLike):
         """
         Description of EAR information for this jobscript-block.
         """
+        assert self.jobscript is not None
         return [i for i in self.jobscript.all_EARs if i.id_ in self.EAR_ID]
 
     @override
@@ -694,6 +719,7 @@ class JobscriptBlock(JSONLike):
     def write_EAR_ID_file(self, fp: TextIO):
         """Write a text file with `num_elements` lines and `num_actions` delimited tokens
         per line, representing whether a given EAR must be executed."""
+        assert self.jobscript is not None
         # can't specify "open" newline if we pass the file name only, so pass handle:
         np.savetxt(
             fname=fp,
@@ -851,7 +877,7 @@ class Jobscript(JSONLike):
         return self.submission.WORKFLOW_APP_ALIAS
 
     def get_commands_file_name(
-        self, block_act_key: tuple[int, int, int], shell: Shell | None = None
+        self, block_act_key: BlockActionKey, shell: Shell | None = None
     ) -> str:
         """
         Get the name of a file containing commands for a particular jobscript action.
@@ -897,18 +923,18 @@ class Jobscript(JSONLike):
 
     @property
     @TimeIt.decorator
-    def dependencies(self) -> Mapping[int, dict[Literal["is_array"], bool]]:
+    def dependencies(self) -> Mapping[tuple[int, int], dict[str, bool]]:
         """
         The dependency descriptor, accounting for all blocks within this jobscript.
         """
         deps = {}
         for block in self.blocks:
-            for k, v in block.dependencies.items():
-                if k[0] == self.index:
+            for (js_idx, blk_idx), v in block.dependencies.items():
+                if js_idx == self.index:
                     # block dependency is internal to this jobscript
                     continue
                 else:
-                    deps[k] = {"is_array": v["is_array"]}
+                    deps[js_idx, blk_idx] = {"is_array": v["is_array"]}
         return deps
 
     @property
@@ -1018,21 +1044,24 @@ class Jobscript(JSONLike):
         return self._is_array
 
     @property
-    def os_name(self) -> str | None:
+    def os_name(self) -> str:
         """
         The name of the OS to use.
         """
+        assert self.resources.os_name
         return self.resources.os_name
 
     @property
-    def shell_name(self) -> str | None:
+    def shell_name(self) -> str:
+        assert self.resources.shell
         return self.resources.shell
 
     @property
-    def scheduler_name(self) -> str | None:
+    def scheduler_name(self) -> str:
         """
         The name of the scheduler to use.
         """
+        assert self.resources.scheduler
         return self.resources.scheduler
 
     def _get_submission_os_args(self) -> dict[str, str]:
@@ -1325,10 +1354,10 @@ class Jobscript(JSONLike):
 
     def _update_at_submit_metadata(
         self,
-        submit_cmdline=None,
-        scheduler_job_ID=None,
-        process_ID=None,
-        submit_time=None,
+        submit_cmdline: list[str] | None = None,
+        scheduler_job_ID: str | None = None,
+        process_ID: int | None = None,
+        submit_time: str | None = None,
     ):
         """Update persistent store and in-memory record of at-submit metadata for this
         jobscript.
@@ -1353,8 +1382,9 @@ class Jobscript(JSONLike):
             self._at_submit_metadata["submit_time"] = submit_time
 
     def _set_submit_time(self, submit_time: datetime) -> None:
-        submit_time = submit_time.strftime(self.workflow.ts_fmt)
-        self._update_at_submit_metadata(submit_time=submit_time)
+        self._update_at_submit_metadata(
+            submit_time=submit_time.strftime(self.workflow.ts_fmt)
+        )
 
     def _set_submit_hostname(self, submit_hostname: str) -> None:
         self._submit_hostname = submit_hostname
@@ -1406,12 +1436,14 @@ class Jobscript(JSONLike):
         self,
         shell,
         deps: dict[int, tuple[str, bool]] | None = None,
-        os_name: str = None,
+        os_name: str | None = None,
         scheduler_name: str | None = None,
         scheduler_args: dict[str, Any] | None = None,
     ) -> str:
         """Prepare the jobscript file string."""
         scheduler_name = scheduler_name or self.scheduler_name
+        assert scheduler_name
+        assert os_name
         scheduler = self._app.get_scheduler(
             scheduler_name=scheduler_name,
             os_name=os_name,
@@ -1802,7 +1834,7 @@ class Jobscript(JSONLike):
         return self.index in self.submission.submitted_jobscripts
 
     @property
-    def scheduler_js_ref(self) -> str | tuple[int, list[str]]:
+    def scheduler_js_ref(self) -> str | None | tuple[int | None, list[str] | None]:
         """
         The reference to the submitted job for the jobscript.
         """
@@ -1811,25 +1843,26 @@ class Jobscript(JSONLike):
         else:
             return (self.process_ID, self.submit_cmdline)
 
-    @property
     @overload
     def get_active_states(
         self, as_json: Literal[False] = False
-    ) -> dict[int, dict[int, JobscriptElementState]]:
+    ) -> Mapping[int, Mapping[int, JobscriptElementState]]:
         ...
 
     @overload
-    def get_active_states(self, as_json: Literal[True]) -> dict[int, dict[int, str]]:
+    def get_active_states(
+        self, as_json: Literal[True]
+    ) -> Mapping[int, Mapping[int, str]]:
         ...
 
     @TimeIt.decorator
     def get_active_states(
         self, as_json: bool = False
-    ) -> dict[int, dict[int, JobscriptElementState | str]]:
+    ) -> Mapping[int, Mapping[int, JobscriptElementState | str]]:
         """If this jobscript is active on this machine, return the state information from
         the scheduler."""
         # this returns: {BLOCK_IDX: {JS_ELEMENT_IDX: STATE}}
-        out: dict[int, dict[int, JobscriptElementState]] = {}
+        out: Mapping[int, Mapping[int, JobscriptElementState]] = {}
         if self.is_submitted:
             self._app.submission_logger.debug(
                 "checking if the jobscript is running according to EAR submission "
@@ -1839,7 +1872,7 @@ class Jobscript(JSONLike):
             not_run_states = EARStatus.get_non_running_submitted_states()
             all_EAR_states = set(ear.status for ear in self.all_EARs)
             self._app.submission_logger.debug(
-                f"Unique EAR states are: {all_EAR_states!r}"
+                f"Unique EAR states are: {tuple(i.name for i in all_EAR_states)!r}"
             )
             if all_EAR_states.issubset(not_run_states):
                 self._app.submission_logger.debug(
@@ -1855,7 +1888,7 @@ class Jobscript(JSONLike):
                 if out_d:
                     # remove scheduler ref (should be only one):
                     assert len(out_d) == 1
-                    out_i = nth_value(out_d, 0)
+                    out_i = nth_value(cast("dict", out_d), 0)
 
                     if self.is_array:
                         # out_i is a dict keyed by array index; there will be exactly one
@@ -1911,12 +1944,12 @@ class Jobscript(JSONLike):
 
         tab_indent = "    "
 
-        script_funcs: list[str] = []
+        script_funcs_lst: list[str] = []
         for act_name, (_, snip_path) in script_data.items():
             main_func_name = snip_path.stem
             with snip_path.open("rt") as fp:
                 script_str = fp.read()
-            script_funcs.append(
+            script_funcs_lst.append(
                 dedent(
                     """\
                 def {act_name}(*args, **kwargs):
@@ -1987,7 +2020,7 @@ class Jobscript(JSONLike):
             """
         )
 
-        script_funcs = "\n".join(script_funcs)
+        script_funcs = "\n".join(script_funcs_lst)
         script_names_str = "[" + ", ".join(f"{i}" for i in script_names) + "]"
         main = dedent(
             """\
@@ -2158,7 +2191,7 @@ class Jobscript(JSONLike):
                                     func_kwargs = run.get_py_script_func_kwargs(
                                         raise_on_unset=False,
                                         add_script_files=True,
-                                        js_blk_act_key=block_act_key,
+                                        blk_act_key=block_act_key,
                                     )
                                     app.logger.info(
                                         f"run_ID: {{run_ID}}; script inputs have keys: "

@@ -127,7 +127,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
     @abstractmethod
     def get_job_state_info(
         self, *, js_refs: Sequence[JSRefType] | None = None
-    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
+    ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
         """
         Get the state of one or more jobscripts.
         """
@@ -147,6 +147,18 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
         """
         Cancel one or more jobscripts.
         """
+
+    @abstractmethod
+    def get_std_out_err_filename(self, js_idx: int, *args, **kwargs) -> str:
+        """File name of combined standard output and error streams."""
+
+    @abstractmethod
+    def get_stdout_filename(self, js_idx: int, *args, **kwargs) -> str:
+        """File name of the standard output stream file."""
+
+    @abstractmethod
+    def get_stderr_filename(self, js_idx: int, *args, **kwargs) -> str:
+        """File name of the standard error stream file."""
 
 
 @hydrate
@@ -239,8 +251,26 @@ class QueuedScheduler(Scheduler[str]):
 
     @abstractmethod
     def format_options(
-        self, resources: ElementResources, num_elements: int, is_array: bool, sub_idx: int
+        self,
+        resources: ElementResources,
+        num_elements: int,
+        is_array: bool,
+        sub_idx: int,
+        js_idx: int,
     ) -> str:
         """
         Render options in a way that the scheduler can handle.
         """
+
+    def get_std_out_err_filename(
+        self, js_idx: int, job_ID: str, array_idx: int | None = None
+    ):
+        """File name of combined standard output and error streams.
+
+        Notes
+        -----
+        We use the standard output stream filename format for the combined output and
+        error streams file.
+
+        """
+        return self.get_stdout_filename(js_idx=js_idx, job_ID=job_ID, array_idx=array_idx)

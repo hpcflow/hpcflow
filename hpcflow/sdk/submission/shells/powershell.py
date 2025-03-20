@@ -182,10 +182,6 @@ class WindowsPowerShell(Shell):
         }}
     """
     )
-    #: Template for the array handling code in a jobscript.
-    JS_ELEMENT_MULTI_ARRAY: ClassVar[
-        None
-    ] = None  # not implemented # TODO: add to Shell class
     #: Template for the jobscript block loop in a jobscript.
     JS_BLOCK_LOOP: ClassVar[str] = dedent(
         """\

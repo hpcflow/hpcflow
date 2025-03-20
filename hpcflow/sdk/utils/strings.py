@@ -1,8 +1,8 @@
-from typing import Sequence
+from typing import Iterable
 
 
 def shorten_list_str(
-    lst: Sequence, items: int = 10, end_num: int = 1, placeholder: str = "..."
+    lst: Iterable, items: int = 10, end_num: int = 1, placeholder: str = "..."
 ) -> str:
     """Format a list as a string, including only some maximum number of items.
 

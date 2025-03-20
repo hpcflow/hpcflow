@@ -72,6 +72,7 @@ if TYPE_CHECKING:
         KnownSubmissionItem,
         PathLike,
         TemplateComponents,
+        MakeWorkflowCommonArgs,
     )
     from .config.config import ConfigOptions
     from .core.actions import (
@@ -152,7 +153,7 @@ if TYPE_CHECKING:
         WorkflowTemplate as _WorkflowTemplate,
     )
     from .submission.jobscript import Jobscript
-    from .submission.submission import Submission
+    from .submission.submission import Submission as _Submission  # TODO: why?
     from .submission.schedulers import Scheduler, QueuedScheduler
     from .submission.schedulers.direct import DirectPosix, DirectWindows
     from .submission.schedulers.sge import SGEPosix
@@ -177,7 +178,8 @@ if TYPE_CHECKING:
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
             status: bool = True,
-        ) -> _Workflow:
+            add_submission: bool = False,
+        ) -> _Workflow | _Submission | None:
             ...
 
     class _MakeDemoWorkflow(Protocol):
@@ -196,7 +198,8 @@ if TYPE_CHECKING:
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
             status: bool = True,
-        ) -> _Workflow:
+            add_submission: bool = False,
+        ) -> _Workflow | _Submission | None:
             ...
 
     class _MakeAndSubmitWorkflow(Protocol):
@@ -297,6 +300,7 @@ if TYPE_CHECKING:
             self,
             workflow_ref: int | str | Path,
             ref_is_path: str | None = None,
+            status: bool = False,
         ) -> None:
             ...
 
@@ -1173,7 +1177,7 @@ class BaseApp(metaclass=Singleton):
         return self._get_app_core_class("Jobscript")
 
     @property
-    def Submission(self) -> type[Submission]:
+    def Submission(self) -> type[_Submission]:
         """
         The :class:`Submission` class.
 
@@ -1266,11 +1270,15 @@ class BaseApp(metaclass=Singleton):
             String variables to substitute in `template_file_or_str`.
         status: bool
             If True, display a live status to track workflow creation progress.
+        add_submission
+            If True, add a submission to the workflow (but do not submit).
 
         Returns
         -------
         Workflow
-            The created workflow.
+            The created workflow, if `add_submission` is `False`.
+        Submission
+            The created submission object, if `add_submission` is `True`.
         """
         return self.__get_app_func("make_workflow")
 
@@ -1311,11 +1319,15 @@ class BaseApp(metaclass=Singleton):
             String variables to substitute in the demo workflow template file.
         status: bool
             If True, display a live status to track workflow creation progress.
+        add_submission
+            If True, add a submission to the workflow (but do not submit).
 
         Returns
         -------
         Workflow
-            The created workflow.
+            The created workflow, if `add_submission` is `False`.
+        Submission
+            The created submission object, if `add_submission` is `True`.
         """
         return self.__get_app_func("make_demo_workflow")
 
@@ -1581,6 +1593,8 @@ class BaseApp(metaclass=Singleton):
             Which workflow to cancel, by ID or path.
         ref_is_path: str
             One of "``id``", "``path``" or "``assume-id``" (the default)
+        status: bool
+            Whether to show a live status during cancel.
         """
         return self.__get_app_func("cancel")
 
@@ -2655,7 +2669,7 @@ class BaseApp(metaclass=Singleton):
         variables: dict[str, str] | None = None,
         status: bool = True,
         add_submission: bool = False,
-    ) -> _Workflow:
+    ) -> _Workflow | _Submission | None:
         """
         Generate a new {app_name} workflow from a file or string containing a workflow
         template parametrisation.
@@ -2712,7 +2726,7 @@ class BaseApp(metaclass=Singleton):
 
         with status_context as status_:
 
-            common = {
+            common: MakeWorkflowCommonArgs = {
                 "path": str(path) if path else None,
                 "name": name,
                 "overwrite": overwrite,
@@ -2748,9 +2762,8 @@ class BaseApp(metaclass=Singleton):
                     f"formats are {ALL_TEMPLATE_FORMATS!r}."
                 )
             if add_submission:
-                with wk._store.cached_load():
-                    with wk.batch_update():
-                        return wk._add_submission(status=status_)
+                with wk._store.cached_load(), wk.batch_update():
+                    return wk._add_submission(status=status_)
 
         return wk
 
@@ -2859,6 +2872,7 @@ class BaseApp(metaclass=Singleton):
             variables=variables,
             status=status,
         )
+        assert isinstance(wk, _Workflow)
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
             wait=wait,
@@ -2887,7 +2901,7 @@ class BaseApp(metaclass=Singleton):
         variables: dict[str, str] | None = None,
         status: bool = True,
         add_submission: bool = False,
-    ) -> _Workflow:
+    ) -> _Workflow | _Submission | None:
         """
         Generate a new {app_name} workflow from a builtin demo workflow template.
 
@@ -3059,6 +3073,7 @@ class BaseApp(metaclass=Singleton):
             store_kwargs=store_kwargs,
             variables=variables,
         )
+        assert isinstance(wk, _Workflow)
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
             wait=wait,
@@ -3213,7 +3228,8 @@ class BaseApp(metaclass=Singleton):
 
         # keys are (workflow path, submission index)
         active_jobscripts: dict[
-            tuple[str, int], Mapping[int, Mapping[int, JobscriptElementState]]
+            tuple[str, int],
+            Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]],
         ] = {}
         loaded_workflows: dict[str, _Workflow] = {}  # keys are workflow path
 
@@ -3315,7 +3331,9 @@ class BaseApp(metaclass=Singleton):
                     if file_dat_i["is_active"]:
                         # check it really is active:
                         run_key = (file_dat_i["path"], file_dat_i["sub_idx"])
-                        act_i_js: Mapping[int, Mapping[int, JobscriptElementState]]
+                        act_i_js: Mapping[
+                            int, Mapping[int, Mapping[int, JobscriptElementState]]
+                        ]
                         if run_key in active_jobscripts:
                             act_i_js = active_jobscripts[run_key]
                         else:
@@ -3745,8 +3763,12 @@ class BaseApp(metaclass=Singleton):
 
         Parameters
         ----------
-        ref_is_path
-            One of "id", "path" or "assume-id" (the default)
+        workflow_ref: int | str | Path
+            Which workflow to cancel, by ID or path.
+        ref_is_path: str
+            One of "``id``", "``path``" or "``assume-id``" (the default)
+        status: bool
+            Whether to show a live status during cancel.
         """
         path = self._resolve_workflow_reference(str(workflow_ref), ref_is_path)
         self.Workflow(path).cancel(status=status)

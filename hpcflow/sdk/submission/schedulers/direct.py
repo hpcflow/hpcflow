@@ -203,20 +203,16 @@ class DirectScheduler(Scheduler[DirectRef]):
             return False
         return _is_process_cmdline_equal(proc, process_cmdline)
 
-    def get_std_out_err_filename(
-        self, js_idx: int, job_ID: None = None, array_idx: None = None
-    ):
+    def get_std_out_err_filename(self, js_idx: int, **kwargs) -> str:
         """File name of combined standard output and error streams."""
         return f"js_{js_idx}_std.log"
 
-    def get_stdout_filename(
-        self, js_idx: int, job_ID: None = None, array_idx: None = None
-    ):
+    def get_stdout_filename(self, js_idx: int, **kwargs) -> str:
+        """File name of the standard output stream file."""
         return f"js_{js_idx}_stdout.log"
 
-    def get_stderr_filename(
-        self, js_idx: int, job_ID: None = None, array_idx: None = None
-    ):
+    def get_stderr_filename(self, js_idx: int, **kwargs) -> str:
+        """File name of the standard error stream file."""
         return f"js_{js_idx}_stderr.log"
 
 

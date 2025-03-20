@@ -1897,7 +1897,7 @@ class WorkflowTask(AppAware):
                 key_ = key.split("inputs.")[1]
             except IndexError:
                 # e.g. "resources."
-                key_ = None
+                key_ = ""
             try:
                 # TODO: wouldn't need to do this if we raise when an ValueSequence is
                 # provided for a parameter whose inputs sources do not include the local
@@ -2947,7 +2947,7 @@ class WorkflowTask(AppAware):
         return params
 
     @staticmethod
-    def __get_relevant_paths(
+    def _get_relevant_paths(
         data_index: Mapping[str, Any], path: list[str], children_of: str | None = None
     ) -> Mapping[str, RelevantPath]:
         relevant_paths: dict[str, RelevantPath] = {}
@@ -3013,8 +3013,12 @@ class WorkflowTask(AppAware):
         if raise_on_unset and not is_set_i:
             raise UnsetParameterDataError(path, path_i)
         if not is_set_i and self.workflow._is_tracking_unset:
-            self.workflow._tracked_unset[path_i].run_ids.add(param_j.source.get("EAR_ID"))
-            self.workflow._tracked_unset[path_i].group_size = len_dat_idx
+            src_run_id = param_j.source.get("EAR_ID")
+            unset_trackers = self.workflow._tracked_unset
+            assert src_run_id is not None
+            assert unset_trackers is not None
+            unset_trackers[path_i].run_ids.add(src_run_id)
+            unset_trackers[path_i].group_size = len_dat_idx
         return data_j, is_set_i, meth_i
 
     def __get_relevant_data(
@@ -3243,7 +3247,7 @@ class WorkflowTask(AppAware):
         """Get element data from the persistent store."""
         path_split = [] if not path else path.split(".")
 
-        if not (relevant_paths := self.__get_relevant_paths(data_index, path_split)):
+        if not (relevant_paths := self._get_relevant_paths(data_index, path_split)):
             if raise_on_missing:
                 # TODO: custom exception?
                 raise ValueError(f"Path {path!r} does not exist in the element data.")
@@ -3259,10 +3263,9 @@ class WorkflowTask(AppAware):
             and default is None  # cannot cache on default value, may not be hashable
         )
         add_to_cache = False
-        cache_key = None
         if use_cache:
             # generate the key:
-            dat_idx_cache = []
+            dat_idx_cache: list[tuple[str, tuple[int, ...] | int]] = []
             for k, v in sorted(relevant_data_idx.items()):
                 dat_idx_cache.append((k, tuple(v) if isinstance(v, list) else v))
             cache_key = (path, tuple(dat_idx_cache))
@@ -3288,7 +3291,7 @@ class WorkflowTask(AppAware):
         except MayNeedObjectError as err:
             path_to_init = err.path
             path_to_init_split = path_to_init.split(".")
-            relevant_paths = self.__get_relevant_paths(data_index, path_to_init_split)
+            relevant_paths = self._get_relevant_paths(data_index, path_to_init_split)
             PV_classes = self._paths_to_PV_classes(*relevant_paths, path_to_init)
             relevant_data_idx = {
                 k: v for k, v in data_index.items() if k in relevant_paths
@@ -3340,6 +3343,8 @@ class WorkflowTask(AppAware):
             self._app.logger.debug(
                 f"_get_merged_parameter_data: adding to cache with key: {cache_key!r}"
             )
+            # tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]]
+            # tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]] | None
             cache[cache_key] = current_val
 
         return current_val

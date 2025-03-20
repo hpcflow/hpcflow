@@ -235,8 +235,9 @@ def test_json_store_parameters_metadata_cache_raises_on_modify(
     null_config, tmp_path: Path
 ):
     wk = hf.make_demo_workflow("workflow_1", path=tmp_path, store="json")
+    assert isinstance(wk, hf.Workflow)
     num_params = len(wk.get_all_parameters())
     with pytest.raises(ParametersMetadataReadOnlyError):
         with wk._store.parameters_metadata_cache():
-            wk._add_unset_parameter_data(source="UNSET-FOR-THIS-TEST")
+            wk._add_unset_parameter_data(source={"type": "UNSET-FOR-THIS-TEST"})
     assert len(wk.get_all_parameters()) == num_params

@@ -33,7 +33,10 @@ from hpcflow.sdk.core.utils import (
     current_timestamp,
 )
 from hpcflow.sdk.core.errors import ParametersMetadataReadOnlyError
-from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
+from hpcflow.sdk.submission.submission import (
+    JOBSCRIPT_SUBMIT_TIME_KEYS,
+    SUBMISSION_SUBMIT_TIME_KEYS,
+)
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.typing import hydrate
@@ -53,6 +56,7 @@ if TYPE_CHECKING:
     from typing import Any, ClassVar, Final, Literal
     from typing_extensions import Self, TypeIs
     from fsspec import AbstractFileSystem  # type: ignore
+    from numpy.typing import NDArray
     from .pending import CommitResourceMap
     from .store_resource import StoreResource
     from .types import (
@@ -74,7 +78,7 @@ if TYPE_CHECKING:
     from ..core.json_like import JSONed, JSONDocument
     from ..core.parameters import ParameterValue
     from ..core.workflow import Workflow
-    from ..submission.types import VersionInfo
+    from ..submission.types import VersionInfo, ResolvedJobscriptBlockDependencies
 
 T = TypeVar("T")
 #: Type of the serialized form.
@@ -107,28 +111,6 @@ def update_param_source_dict(source: ParamSource, update: ParamSource) -> ParamS
 
 
 def writes_parameter_data(func: Callable):
-    """Decorator function that should wrap `PersistentStore` methods that write
-    parameter-associated data.
-
-    Notes
-    -----
-    This decorator checks that the parameters-metadata cache is not in use, which should
-    not be used during writing of parameter-associated data.
-    """
-
-    @wraps(func)
-    def inner(self, *args, **kwargs):
-        if self._use_parameters_metadata_cache:
-            raise ParametersMetadataReadOnlyError(
-                "Cannot use the `parameters_metadata_cache` when writing parameter-"
-                "associated data!"
-            )
-        return func(self, *args, **kwargs)
-
-    return inner
-
-
-def writes_parameter_data(func):
     """Decorator function that should wrap `PersistentStore` methods that write
     parameter-associated data.
 
@@ -467,9 +449,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         )
 
     @TimeIt.decorator
-    def update_data_idx(
-        self: AnySElementIter, data_idx: Dict[str, int]
-    ) -> AnySElementIter:
+    def update_data_idx(self: AnySElementIter, data_idx: DataIndex) -> AnySElementIter:
         """Return a copy with an updated `data_idx`.
 
         The existing data index is updated, not overwritten.
@@ -552,6 +532,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     data_idx: DataIndex
     #: Which submission contained this EAR, if known.
     submission_idx: int | None = None
+    #: Run ID whose commands can be used for this run (may be this run's ID).
     commands_file_ID: int | None = None
     #: Whether to skip this EAR.
     skip: int = 0
@@ -633,7 +614,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         exit_code: int | None = None,
         run_hostname: str | None = None,
         port_number: int | None = None,
-        data_idx: dict[str, int] | None = None,
+        data_idx: DataIndex | None = None,
     ) -> Self:
         """Return a shallow copy, with specified data updated."""
 
@@ -1022,7 +1003,7 @@ class PersistentStore(
         self._use_cache = False
         self._reset_cache()
 
-        self._use_parameters_metadata_cache = None  # subclass-specific cache
+        self._use_parameters_metadata_cache: bool = False  # subclass-specific cache
 
     @abstractmethod
     def cached_load(self) -> contextlib.AbstractContextManager[None]:
@@ -1499,7 +1480,7 @@ class PersistentStore(
         self,
         loop_template: Mapping[str, Any],
         iterable_parameters: Mapping[str, IterableParam],
-        output_parameters: Sequence[str],
+        output_parameters: Mapping[str, int],
         parents: Sequence[str],
         num_added_iterations: Mapping[tuple[int, ...], int],
         iter_IDs: Iterable[int],
@@ -1513,8 +1494,8 @@ class PersistentStore(
         ]
         self._pending.add_loops[new_idx] = {
             "loop_template": dict(loop_template),
-            "iterable_parameters": iterable_parameters,
-            "output_parameters": list(output_parameters),
+            "iterable_parameters": cast("dict", iterable_parameters),
+            "output_parameters": cast("dict", output_parameters),
             "parents": list(parents),
             "num_added_iterations": added_iters,
         }
@@ -1526,7 +1507,9 @@ class PersistentStore(
             self.save()
 
     @TimeIt.decorator
-    def add_submission(self, sub_idx: int, sub_js: JSONDocument, save: bool = True):
+    def add_submission(
+        self, sub_idx: int, sub_js: Mapping[str, JSONed], save: bool = True
+    ):
         """Add a new submission."""
         self.logger.debug("Adding store submission.")
         self._pending.add_submissions[sub_idx] = sub_js
@@ -1645,7 +1628,7 @@ class PersistentStore(
 
     @TimeIt.decorator
     def set_run_submission_data(
-        self, EAR_ID: int, cmds_ID: int, sub_idx: int, save: bool = True
+        self, EAR_ID: int, cmds_ID: int | None, sub_idx: int, save: bool = True
     ) -> None:
         """
         Set the run submission data, like the submission index for an element action run.
@@ -1655,7 +1638,11 @@ class PersistentStore(
             self.save()
 
     def set_EAR_start(
-        self, EAR_ID: int, run_dir: Path | None, port_number: int, save: bool = True
+        self,
+        EAR_ID: int,
+        run_dir: Path | None,
+        port_number: int | None,
+        save: bool = True,
     ) -> datetime:
         """
         Mark an element action run as started.
@@ -2036,12 +2023,12 @@ class PersistentStore(
         if save:
             self.save()
 
-    def update_iter_data_indices(self, data_indices: dict[int, dict[str, int]]):
+    def update_iter_data_indices(self, data_indices: dict[int, DataIndex]):
         """Update data indices of one or more iterations."""
         for k, v in data_indices.items():
             self._pending.update_iter_data_idx[k].update(v)
 
-    def update_run_data_indices(self, data_indices: dict[int, dict[str, int]]):
+    def update_run_data_indices(self, data_indices: dict[int, DataIndex]):
         """Update data indices of one or more runs."""
         for k, v in data_indices.items():
             self._pending.update_run_data_idx[k].update(v)
@@ -2177,11 +2164,11 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_submissions(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, JSONDocument]:
+    ) -> dict[int, Mapping[str, JSONed]]:
         ...
 
     @TimeIt.decorator
-    def get_submissions(self) -> dict[int, JSONDocument]:
+    def get_submissions(self) -> dict[int, Mapping[str, JSONed]]:
         """Retrieve all submissions, including pending."""
 
         subs = self._get_persistent_submissions()
@@ -2192,7 +2179,7 @@ class PersistentStore(
 
     @TimeIt.decorator
     def get_submission_at_submit_metadata(
-        self, sub_idx: int, metadata_attr: dict | None
+        self, sub_idx: int, metadata_attr: dict[str, Any] | None
     ) -> dict[str, Any]:
         """Retrieve the values of submission attributes that are stored at submit-time.
 
@@ -2202,14 +2189,14 @@ class PersistentStore(
         from the remainder of the submission attributes.
 
         """
-        return metadata_attr
+        return metadata_attr or {i: None for i in SUBMISSION_SUBMIT_TIME_KEYS}
 
     @TimeIt.decorator
     def get_jobscript_at_submit_metadata(
         self,
         sub_idx: int,
         js_idx: int,
-        metadata_attr: dict | None,
+        metadata_attr: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """For the specified jobscript, retrieve the values of jobscript-submit-time
         attributes.
@@ -2224,8 +2211,8 @@ class PersistentStore(
 
     @TimeIt.decorator
     def get_jobscript_block_run_ID_array(
-        self, sub_idx: int, js_idx: int, blk_idx: int, run_ID_arr: np.ndarray | None
-    ) -> np.ndarray:
+        self, sub_idx: int, js_idx: int, blk_idx: int, run_ID_arr: NDArray | None
+    ) -> NDArray:
         """For the specified jobscript-block, retrieve the run ID array.
 
         Notes
@@ -2234,6 +2221,7 @@ class PersistentStore(
         from the remainder of the submission attributes.
 
         """
+        assert run_ID_arr is not None
         return np.asarray(run_ID_arr)
 
     @TimeIt.decorator
@@ -2242,8 +2230,8 @@ class PersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_elems_map: np.ndarray | None,
-    ) -> dict[int, dict[str, Any]]:
+        task_elems_map: dict[int, list[int]] | None,
+    ) -> dict[int, list[int]]:
         """For the specified jobscript-block, retrieve the task-elements mapping.
 
         Notes
@@ -2252,6 +2240,7 @@ class PersistentStore(
         from the remainder of the submission attributes.
 
         """
+        assert task_elems_map is not None
         return task_elems_map
 
     @TimeIt.decorator
@@ -2260,8 +2249,8 @@ class PersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        task_actions_arr: np.ndarray | None,
-    ) -> np.ndarray:
+        task_actions_arr: NDArray | list[tuple[int, int, int]] | None,
+    ) -> NDArray:
         """For the specified jobscript-block, retrieve the task-actions array.
 
         Notes
@@ -2270,6 +2259,7 @@ class PersistentStore(
         from the remainder of the submission attributes.
 
         """
+        assert task_actions_arr is not None
         return np.asarray(task_actions_arr)
 
     @TimeIt.decorator
@@ -2278,8 +2268,8 @@ class PersistentStore(
         sub_idx: int,
         js_idx: int,
         blk_idx: int,
-        js_dependencies: dict | None,
-    ) -> np.ndarray:
+        js_dependencies: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] | None,
+    ) -> dict[tuple[int, int], ResolvedJobscriptBlockDependencies]:
         """For the specified jobscript-block, retrieve the dependencies.
 
         Notes
@@ -2288,10 +2278,13 @@ class PersistentStore(
         from the remainder of the submission attributes.
 
         """
+        assert js_dependencies is not None
         return js_dependencies
 
     @TimeIt.decorator
-    def get_submissions_by_ID(self, ids: Iterable[int]) -> dict[int, JSONDocument]:
+    def get_submissions_by_ID(
+        self, ids: Iterable[int]
+    ) -> dict[int, Mapping[str, JSONed]]:
         """
         Get submissions with the given IDs.
         """
@@ -2463,7 +2456,7 @@ class PersistentStore(
     ) -> tuple[dict[int, AnySParameter], list[int]]:
         return self.__get_cached_persistent_items(id_lst, self.parameter_cache)
 
-    def get_EAR_skipped(self, EAR_ID: int) -> bool:
+    def get_EAR_skipped(self, EAR_ID: int) -> int:
         """
         Whether the element action run with the given ID was skipped.
         """
@@ -2619,7 +2612,7 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _append_submissions(self, subs: dict[int, JSONDocument]) -> None:
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]) -> None:
         ...
 
     @abstractmethod
@@ -2659,28 +2652,24 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int]]):
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
         ...
 
     @abstractmethod
     def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: dict[str, Any] | None, s_hn: str
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ) -> None:
         ...
 
     @abstractmethod
     def _update_EAR_end(
-        self,
-        EAR_id: int,
-        e_time: datetime,
-        e_snap: dict[str, Any] | None,
-        ext_code: int,
-        success: bool,
+        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
     ) -> None:
         ...
 
     @abstractmethod
-    def _update_EAR_skip(self, EAR_id: int) -> None:
+    def _update_EAR_skip(self, skips: dict[int, int]) -> None:
         ...
 
     @abstractmethod
@@ -2700,7 +2689,7 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]) -> None:
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]) -> None:
         ...
 
     @abstractmethod
@@ -2722,7 +2711,7 @@ class PersistentStore(
     @overload
     def using_resource(
         self, res_label: Literal["submissions"], action: str
-    ) -> AbstractContextManager[list[JSONDocument]]:
+    ) -> AbstractContextManager[list[dict[str, JSONed]]]:
         ...
 
     @overload
@@ -2733,12 +2722,22 @@ class PersistentStore(
 
     @overload
     def using_resource(
+        self, res_label: Literal["runs"], action: str
+    ) -> AbstractContextManager[dict[str, Any]]:
+        ...
+
+    @overload
+    def using_resource(
         self, res_label: Literal["attrs"], action: str
     ) -> AbstractContextManager[ZarrAttrsDict]:
         ...
 
     @contextlib.contextmanager
-    def using_resource(self, res_label: str, action: str) -> Iterator[Any]:
+    def using_resource(
+        self,
+        res_label: Literal["metadata", "submissions", "parameters", "attrs", "runs"],
+        action: str,
+    ) -> Iterator[Any]:
         """Context manager for managing `StoreResource` objects associated with the store."""
 
         try:
@@ -2829,3 +2828,15 @@ class PersistentStore(
     @abstractmethod
     def _append_task_element_IDs(self, task_ID: int, elem_IDs: list[int]):
         raise NotImplementedError
+
+    @abstractmethod
+    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray) -> None:
+        ...
+
+    @abstractmethod
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]) -> None:
+        ...
+
+    @abstractmethod
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]) -> None:
+        ...

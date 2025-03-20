@@ -741,7 +741,7 @@ class ValueSequence(JSONLike):
     def __init__(
         self,
         path: str,
-        values: list[Any] | None,
+        values: Sequence[Any] | None,
         nesting_order: int | float | None = None,
         label: str | int | None = None,
         value_class_method: str | None = None,

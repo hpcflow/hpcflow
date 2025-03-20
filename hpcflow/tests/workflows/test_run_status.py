@@ -50,7 +50,7 @@ def test_run_status_fail_when_missing_script_output_data_file(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [True, False])
-def test_run_status_fail_when_missing_script_output_data_file(
+def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
     null_config, tmp_path, combine_scripts
 ):
 

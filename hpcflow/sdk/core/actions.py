@@ -23,6 +23,7 @@ from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.enums import ActionScopeType, EARStatus
 from hpcflow.sdk.core.skip_reason import SkipReason
+from hpcflow.sdk.core.task import WorkflowTask
 from hpcflow.sdk.core.errors import (
     ActionEnvironmentMissingNameError,
     MissingCompatibleActionEnvironment,
@@ -76,7 +77,7 @@ if TYPE_CHECKING:
     from .rule import Rule
     from .task import WorkflowTask
     from .task_schema import TaskSchema
-    from .types import ParameterDependence, ScriptData
+    from .types import ParameterDependence, ScriptData, BlockActionKey
     from .workflow import Workflow
     from .object_list import EnvironmentsList
 
@@ -337,7 +338,7 @@ class ElementActionRun(AppAware):
         return self._success
 
     @property
-    def skip(self) -> bool:
+    def skip(self) -> int:
         """
         Was the EAR skipped?
         """
@@ -676,10 +677,14 @@ class ElementActionRun(AppAware):
     def env_spec_hashable(self) -> tuple:
         return self.action.env_spec_to_hashable(self.env_spec)
 
-    def get_directory(self) -> Path:
+    def get_directory(self) -> Path | None:
+        """
+        Get the working directory, if one is required.
+        """
         return self.workflow.get_run_directories(run_ids=[self.id_])[0]
 
     def get_app_log_path(self) -> Path:
+        assert self.submission_idx is not None
         return Submission.get_app_log_file_path(
             self.workflow.submissions_path,
             self.submission_idx,
@@ -687,6 +692,7 @@ class ElementActionRun(AppAware):
         )
 
     def get_app_std_path(self) -> Path:
+        assert self.submission_idx is not None
         std_dir = Submission.get_app_std_path(
             self.workflow.submissions_path,
             self.submission_idx,
@@ -881,7 +887,7 @@ class ElementActionRun(AppAware):
                 "Cannot get output file parser outputs from this from EAR because the "
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
-        outputs: Mapping[str, str | list[str]] = {}  # not sure this type is correct
+        outputs: dict[str, str | list[str]] = {}  # not sure this type is correct
         for out_typ in self.action.output_file_parsers[0].outputs or []:
             outputs[out_typ] = self.get(
                 f"outputs.{out_typ}", raise_on_unset=raise_on_unset
@@ -892,7 +898,7 @@ class ElementActionRun(AppAware):
         self,
         raise_on_unset: bool = False,
         add_script_files: bool = False,
-        js_blk_act_key: tuple[int] = None,
+        blk_act_key: BlockActionKey | None = None,
     ) -> Mapping[str, Any]:
         """Get function arguments to run the Python script associated with this action.
 
@@ -909,10 +915,12 @@ class ElementActionRun(AppAware):
             A three-tuple of integers corresponding to the jobscript index, block index,
             and block-action index.
         """
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if self.action.is_IFG:
             ifg = self.action.input_file_generators[0]
-            kwargs["path"] = Path(ifg.input_file.name.value())
+            path = ifg.input_file.name.value()
+            assert isinstance(path, str)
+            kwargs["path"] = Path(path)
             kwargs.update(self.get_IFG_input_values(raise_on_unset=raise_on_unset))
 
         elif self.action.is_OFP:
@@ -927,7 +935,8 @@ class ElementActionRun(AppAware):
             kwargs.update(self.get_input_values_direct(raise_on_unset=raise_on_unset))
 
         if add_script_files:
-            in_out_names = self.action.get_script_input_output_file_paths(*js_blk_act_key)
+            assert blk_act_key
+            in_out_names = self.action.get_script_input_output_file_paths(blk_act_key)
             in_names, out_names = in_out_names["inputs"], in_out_names["outputs"]
             if in_names:
                 kwargs["_input_files"] = in_names
@@ -936,7 +945,7 @@ class ElementActionRun(AppAware):
 
         return kwargs
 
-    def write_script_input_files(self, block_act_key: tuple[int, int, int]) -> None:
+    def write_script_input_files(self, block_act_key: BlockActionKey) -> None:
         """
         Write values to files in standard formats.
         """
@@ -948,7 +957,9 @@ class ElementActionRun(AppAware):
                 writer(self, in_vals, block_act_key)
 
     def __write_json_inputs(
-        self, in_vals: Mapping[str, ParameterValue], block_act_key: tuple[int, int, int]
+        self,
+        in_vals: Mapping[str, ParameterValue | list[ParameterValue]],
+        block_act_key: BlockActionKey,
     ):
         in_vals_processed: dict[str, Any] = {}
         for k, v in in_vals.items():
@@ -963,7 +974,9 @@ class ElementActionRun(AppAware):
             json.dump(in_vals_processed, fp)
 
     def __write_hdf5_inputs(
-        self, in_vals: Mapping[str, ParameterValue], block_act_key: tuple[int, int, int]
+        self,
+        in_vals: Mapping[str, ParameterValue | list[ParameterValue]],
+        block_act_key: BlockActionKey,
     ):
         import h5py  # type: ignore
 
@@ -973,10 +986,12 @@ class ElementActionRun(AppAware):
             for k, v in in_vals.items():
                 grp_k = h5file.create_group(k)
                 try:
+                    assert isinstance(v, ParameterValue)
                     v.dump_to_HDF5_group(grp_k)
                 except AttributeError:
                     # probably an element group (i.e. v is a list of `ParameterValue`
                     # objects):
+                    assert isinstance(v, list)
                     v[0].dump_element_group_to_HDF5_group(v, grp_k)
 
     __source_writer_map: ClassVar[dict[str, Callable[..., None]]] = {
@@ -987,13 +1002,11 @@ class ElementActionRun(AppAware):
     def __output_index(self, param_name: str) -> int:
         return cast("int", self.data_idx[f"outputs.{param_name}"])
 
-    def _param_save(
-        self, block_act_key: tuple[int, int, int], run_dir: Path | None = None
-    ):
+    def _param_save(self, block_act_key: BlockActionKey, run_dir: Path | None = None):
         """Save script-generated parameters that are stored within the supported script
         data output formats (HDF5, JSON, etc)."""
         in_out_names = self.action.get_script_input_output_file_paths(
-            *block_act_key, directory=run_dir
+            block_act_key, directory=run_dir
         )
 
         import h5py  # type: ignore
@@ -1005,12 +1018,14 @@ class ElementActionRun(AppAware):
                     file_data: dict[str, Any] = json.load(f)
                     for param_name, param_dat in file_data.items():
                         param_id = self.__output_index(param_name)
-                        param_cls = parameters.get(param_name)._force_value_class()
-                        try:
-                            param_cls.save_from_JSON(param_dat, param_id, self.workflow)
-                            continue
-                        except (AttributeError, NotImplementedError):
-                            pass
+                        if param_cls := parameters.get(param_name)._force_value_class():
+                            try:
+                                param_cls.save_from_JSON(
+                                    param_dat, param_id, self.workflow
+                                )
+                                continue
+                            except NotImplementedError:
+                                pass
                         # try to save as a primitive:
                         self.workflow.set_parameter_value(
                             param_id=param_id, value=param_dat
@@ -1020,17 +1035,19 @@ class ElementActionRun(AppAware):
                 with h5py.File(load_path, mode="r") as h5file:
                     for param_name, h5_grp in h5file.items():
                         param_id = self.__output_index(param_name)
-                        param_cls = parameters.get(param_name)._force_value_class()
-                        try:
-                            param_cls.save_from_HDF5_group(
-                                h5_grp, param_id, self.workflow
-                            )
-                        except (AttributeError, NotImplementedError):
-                            # Unlike with JSON, we've no fallback so we warn
-                            self._app.logger.warning(
-                                "parameter %s could not be saved; serializer not found",
-                                param_name,
-                            )
+                        if param_cls := parameters.get(param_name)._force_value_class():
+                            try:
+                                param_cls.save_from_HDF5_group(
+                                    h5_grp, param_id, self.workflow
+                                )
+                                continue
+                            except NotImplementedError:
+                                pass
+                        # Unlike with JSON, we've no fallback so we warn
+                        self._app.logger.warning(
+                            "parameter %s could not be saved; serializer not found",
+                            param_name,
+                        )
 
     @property
     def is_snippet_script(self) -> bool:
@@ -1107,6 +1124,24 @@ class ElementActionRun(AppAware):
             action_idx=self.element_action.action_idx,
         )
 
+    @overload
+    def try_write_commands(
+        self,
+        jobscript: Jobscript,
+        environments: EnvironmentsList,
+        raise_on_unset: Literal[True],
+    ) -> Path:
+        ...
+
+    @overload
+    def try_write_commands(
+        self,
+        jobscript: Jobscript,
+        environments: EnvironmentsList,
+        raise_on_unset: Literal[False] = False,
+    ) -> Path | None:
+        ...
+
     def try_write_commands(
         self,
         jobscript: Jobscript,
@@ -1126,7 +1161,7 @@ class ElementActionRun(AppAware):
             self._app.submission_logger.debug(
                 f"cannot yet write commands file for run ID {self.id_}; unset parameters"
             )
-            return
+            return None
 
         for cmd_idx, var_dat in shell_vars.items():
             for param_name, shell_var_name, st_typ in var_dat:
@@ -1162,7 +1197,7 @@ class ElementActionRun(AppAware):
         """
         self.workflow._is_tracking_unset = True
         self.workflow._tracked_unset = defaultdict(
-            lambda: UnsetParamTracker(run_ids=set(), group_size=None)
+            lambda: UnsetParamTracker(run_ids=set(), group_size=-1)
         )
         try:
             yield dict(self.workflow._tracked_unset)
@@ -1662,6 +1697,16 @@ class ActionRule(JSONLike):
             return False
         return self.rule == other.rule
 
+    @property
+    def __parent_action(self) -> Action:
+        if self.action:
+            return self.action
+        else:
+            assert self.command
+            act = self.command.action
+            assert act
+            return act
+
     @TimeIt.decorator
     def test(self, element_iteration: ElementIteration) -> bool:
         """
@@ -1672,9 +1717,10 @@ class ActionRule(JSONLike):
         element_iteration:
             The iteration to apply this rule to.
         """
+
         return self.rule.test(
             element_like=element_iteration,
-            action=self.action or self.command.action,
+            action=self.__parent_action,
         )
 
     @classmethod
@@ -2031,7 +2077,6 @@ class Action(JSONLike):
         d["script_data_in"] = d.pop("_script_data_in")
         d["script_data_out"] = d.pop("_script_data_out")
         return d
-        return False
 
     @property
     def is_IFG(self):
@@ -2116,9 +2161,10 @@ class Action(JSONLike):
 
     @staticmethod
     def env_spec_to_hashable(
-        env_spec: dict[str, Any],
+        env_spec: Mapping[str, Any],
     ) -> tuple[tuple[str, ...], tuple[Any, ...]]:
-        return tuple(zip(*env_spec.items()))
+        keys, values = zip(*env_spec.items()) if env_spec else ((), ())
+        return tuple(keys), tuple(values)
 
     @staticmethod
     def env_spec_from_hashable(
@@ -2287,9 +2333,31 @@ class Action(JSONLike):
         # by a previous action:
         return script
 
+    @overload
     def get_script_artifact_name(
         self,
-        env_spec: dict,
+        env_spec: Mapping[str, Any],
+        act_idx: int,
+        ret_specifiers: Literal[False] = False,
+        include_suffix: bool = True,
+        specs_suffix_delim: str = ".",
+    ) -> tuple[str, Path]:
+        ...
+
+    @overload
+    def get_script_artifact_name(
+        self,
+        env_spec: Mapping[str, Any],
+        act_idx: int,
+        ret_specifiers: Literal[True],
+        include_suffix: bool = True,
+        specs_suffix_delim: str = ".",
+    ) -> tuple[str, Path, dict]:
+        ...
+
+    def get_script_artifact_name(
+        self,
+        env_spec: Mapping[str, Any],
         act_idx: int,
         ret_specifiers: bool = False,
         include_suffix: bool = True,
@@ -2301,14 +2369,13 @@ class Action(JSONLike):
         Like `Action.get_script_name`, this is only applicable for snippet scripts.
 
         """
-        if not self.is_snippet_script(self.script):
-            raise ValueError("Not a snippet script!")
-
-        snip_path, specifiers = self.get_snippet_script_path(
+        snip_path_specs = self.get_snippet_script_path(
             self.script,
             env_spec,
             ret_specifiers=True,
         )
+        assert snip_path_specs
+        snip_path, specifiers = snip_path_specs
         specs_suffix = "__".join(f"{k}_{v}" for k, v in specifiers.items())
         if specs_suffix:
             specs_suffix = f"{specs_suffix_delim}{specs_suffix}"
@@ -2324,6 +2391,38 @@ class Action(JSONLike):
 
     __SCRIPT_RE: ClassVar[Pattern] = re.compile(r"\<\<script:(.*:?)\>\>")
     __ENV_RE: ClassVar[Pattern] = re.compile(r"\<\<env:(.*?)\>\>")
+
+    @overload
+    @classmethod
+    def get_snippet_script_str(
+        cls,
+        script: str,
+        env_spec: Mapping[str, Any] | None = None,
+        ret_specifiers: Literal[False] = False,
+    ) -> str:
+        ...
+
+    @overload
+    @classmethod
+    def get_snippet_script_str(
+        cls,
+        script: str,
+        env_spec: Mapping[str, Any] | None = None,
+        *,
+        ret_specifiers: Literal[True],
+    ) -> tuple[str, dict[str, Any]]:
+        ...
+
+    @overload
+    @classmethod
+    def get_snippet_script_str(
+        cls,
+        script: str,
+        env_spec: Mapping[str, Any] | None = None,
+        *,
+        ret_specifiers: bool,
+    ) -> str | tuple[str, dict[str, Any]]:
+        ...
 
     @classmethod
     def get_snippet_script_str(
@@ -2364,14 +2463,37 @@ class Action(JSONLike):
                 string=out,
             )
             if ret_specifiers:
-                out = (out, specifiers)
+                return (out, specifiers)
         return out
+
+    @classmethod
+    @overload
+    def get_snippet_script_path(
+        cls,
+        script_path: str | None,
+        env_spec: Mapping[str, Any] | None = None,
+        *,
+        ret_specifiers: Literal[True],
+    ) -> tuple[Path, dict[str, Any]] | None:
+        ...
+
+    @classmethod
+    @overload
+    def get_snippet_script_path(
+        cls,
+        script_path: str | None,
+        env_spec: Mapping[str, Any] | None = None,
+        *,
+        ret_specifiers: Literal[False] = False,
+    ) -> Path | None:
+        ...
 
     @classmethod
     def get_snippet_script_path(
         cls,
         script_path: str | None,
         env_spec: Mapping[str, Any] | None = None,
+        *,
         ret_specifiers: bool = False,
     ) -> Path | tuple[Path, dict[str, Any]] | None:
         """Return the specified snippet `script` path, or None if there is no snippet.
@@ -2388,11 +2510,17 @@ class Action(JSONLike):
             return None
 
         assert script_path is not None
-        path = cls.get_snippet_script_str(script_path, env_spec, ret_specifiers)
+        path_ = cls.get_snippet_script_str(
+            script_path, env_spec, ret_specifiers=ret_specifiers
+        )
         if ret_specifiers:
-            path, specifiers = path
+            assert isinstance(path_, tuple)
+            path_str, specifiers = path_
+        else:
+            assert isinstance(path_, str)
+            path_str = path_
 
-        path = Path(cls._app.scripts.get(path, path))
+        path = Path(cls._app.scripts.get(path_str, path_str))
 
         if ret_specifiers:
             return path, specifiers
@@ -2400,15 +2528,15 @@ class Action(JSONLike):
             return path
 
     @staticmethod
-    def __get_param_dump_file_stem(block_act_key: tuple[int, int, int]) -> str:
+    def __get_param_dump_file_stem(block_act_key: BlockActionKey) -> str:
         return RunDirAppFiles.get_run_param_dump_file_prefix(block_act_key)
 
     @staticmethod
-    def __get_param_load_file_stem(block_act_key: tuple[int, int, int]) -> str:
+    def __get_param_load_file_stem(block_act_key: BlockActionKey) -> str:
         return RunDirAppFiles.get_run_param_load_file_prefix(block_act_key)
 
     def get_param_dump_file_path_JSON(
-        self, block_act_key: tuple[int, int, int], directory: Path | None = None
+        self, block_act_key: BlockActionKey, directory: Path | None = None
     ) -> Path:
         """
         Get the path of the JSON dump file.
@@ -2419,7 +2547,7 @@ class Action(JSONLike):
         )
 
     def get_param_dump_file_path_HDF5(
-        self, block_act_key: tuple[int, int, int], directory: Path | None = None
+        self, block_act_key: BlockActionKey, directory: Path | None = None
     ) -> Path:
         """
         Get the path of the HDF5 dump file.
@@ -2428,7 +2556,7 @@ class Action(JSONLike):
         return directory.joinpath(self.__get_param_dump_file_stem(block_act_key) + ".h5")
 
     def get_param_load_file_path_JSON(
-        self, block_act_key: tuple[int, int, int], directory: Path | None = None
+        self, block_act_key: BlockActionKey, directory: Path | None = None
     ) -> Path:
         """
         Get the path of the JSON load file.
@@ -2439,7 +2567,7 @@ class Action(JSONLike):
         )
 
     def get_param_load_file_path_HDF5(
-        self, block_act_key: tuple[int, int, int], directory: Path | None = None
+        self, block_act_key: BlockActionKey, directory: Path | None = None
     ) -> Path:
         """
         Get the path of the HDF5 load file.
@@ -2914,7 +3042,7 @@ class Action(JSONLike):
 
         if self.is_OFP and self.output_file_parsers[0].output is None:
             # might be used just for saving files:
-            return
+            return ""
 
         app_caps = self._app.package_name.upper()
         py_imports = dedent(
@@ -2960,7 +3088,7 @@ class Action(JSONLike):
 
         func_kwargs_str = dedent(
             """\
-            js_blk_act_key = (
+            blk_act_key = (
                 os.environ["{app_caps}_JS_IDX"],
                 os.environ["{app_caps}_BLOCK_IDX"],
                 os.environ["{app_caps}_BLOCK_ACT_IDX"],
@@ -2969,7 +3097,7 @@ class Action(JSONLike):
                 func_kwargs = EAR.get_py_script_func_kwargs(
                     raise_on_unset=False,
                     add_script_files=True,
-                    js_blk_act_key=js_blk_act_key,
+                    blk_act_key=blk_act_key,
                 )            
         """
         ).format(app_caps=app_caps)
@@ -2987,6 +3115,7 @@ class Action(JSONLike):
             )
         elif self.is_OFP:
             py_main_block_invoke = f"output = {func_invoke_str}"
+            assert self.output_file_parsers[0].output
             py_main_block_outputs = dedent(
                 """\
                 with app.redirect_std_to_file(std_path):
@@ -3061,39 +3190,13 @@ class Action(JSONLike):
         else:
             raise ValueError(f"unexpected prefix: {prefix}")
 
-    def get_commands_file_hash(self, data_idx: dict[str, int], action_idx: int) -> int:
+    def get_commands_file_hash(self, data_idx: DataIndex, action_idx: int) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
 
         This hash is not stable across sessions or machines.
 
         """
-
-        def _get_relevant_paths(data_index, path, children_of: str = None):
-            # TODO: refactor: this is the same function as used in
-            # `WorkflowTask._get_merged_parameter_data`; duplicating to avoid
-            # anticipated merge conflicts
-
-            relevant_paths: dict[str, dict[str, Any]] = {}
-            # first extract out relevant paths in `data_index`:
-            for path_i in data_index:
-                path_i_split = path_i.split(".")
-                try:
-                    rel_path = get_relative_path(path, path_i_split)
-                    relevant_paths[path_i] = {"type": "parent", "relative_path": rel_path}
-                except ValueError:
-                    try:
-                        update_path = get_relative_path(path_i_split, path)
-                        relevant_paths[path_i] = {
-                            "type": "update",
-                            "update_path": update_path,
-                        }
-                    except ValueError:
-                        # no intersection between paths
-                        if children_of and path_i.startswith(children_of):
-                            relevant_paths[path_i] = {"type": "sibling"}
-                        continue
-            return relevant_paths
 
         # filter data index by input parameters that appear in the commands, or are used in
         # rules in conditional commands:
@@ -3102,22 +3205,31 @@ class Action(JSONLike):
         relevant_paths: list[str] = []
         for i in param_types:
             relevant_paths.extend(
-                list(_get_relevant_paths(data_idx, i.split(".")).keys())
+                list(WorkflowTask._get_relevant_paths(data_idx, i.split(".")).keys())
             )
 
         # hash any relevant data index from rule path
         for cmd in self.commands:
             for act_rule in cmd.rules:
                 rule_path = act_rule.rule.path
+                assert rule_path
                 rule_path_split = rule_path.split(".")
                 if rule_path.startswith("resources."):
                     # include all resource paths for now:
                     relevant_paths.extend(
-                        list(_get_relevant_paths(data_idx, ["resources"]).keys())
+                        list(
+                            WorkflowTask._get_relevant_paths(
+                                data_idx, ["resources"]
+                            ).keys()
+                        )
                     )
                 else:
                     relevant_paths.extend(
-                        list(_get_relevant_paths(data_idx, rule_path_split).keys())
+                        list(
+                            WorkflowTask._get_relevant_paths(
+                                data_idx, rule_path_split
+                            ).keys()
+                        )
                     )
 
         # note we don't need to consider action-level rules, since these determine
@@ -3142,7 +3254,7 @@ class Action(JSONLike):
         )
 
     @classmethod
-    def get_block_act_idx_shell_vars(cls) -> tuple[str, str, str]:
+    def get_block_act_idx_shell_vars(cls) -> BlockActionKey:
         """Return a the jobscript index, block index, and block action idx shell
         environment variable names formatted for shell substitution.
 
@@ -3160,31 +3272,36 @@ class Action(JSONLike):
 
     def get_script_input_output_file_paths(
         self,
-        js_idx: int | str,
-        block_idx: int | str,
-        block_act_idx: int | str,
+        block_act_key: BlockActionKey,
         directory: Path | None = None,
     ) -> dict[str, dict[str, Path]]:
         """Get the names (as `Path`s) of script input and output files for this action."""
-        in_out_paths = {
+        in_out_paths: dict[str, dict[str, Path]] = {
             "inputs": {},
             "outputs": {},
         }
-        key = (js_idx, block_idx, block_act_idx)
         for fmt in self.script_data_in_grouped:
             if fmt == "json":
-                path = self.get_param_dump_file_path_JSON(key, directory=directory)
+                path = self.get_param_dump_file_path_JSON(
+                    block_act_key, directory=directory
+                )
             elif fmt == "hdf5":
-                path = self.get_param_dump_file_path_HDF5(key, directory=directory)
+                path = self.get_param_dump_file_path_HDF5(
+                    block_act_key, directory=directory
+                )
             else:
                 continue
             in_out_paths["inputs"][fmt] = path
 
         for fmt in self.script_data_out_grouped:
             if fmt == "json":
-                path = self.get_param_load_file_path_JSON(key, directory=directory)
+                path = self.get_param_load_file_path_JSON(
+                    block_act_key, directory=directory
+                )
             elif fmt == "hdf5":
-                path = self.get_param_load_file_path_HDF5(key, directory=directory)
+                path = self.get_param_load_file_path_HDF5(
+                    block_act_key, directory=directory
+                )
             else:
                 continue
             in_out_paths["outputs"][fmt] = path
@@ -3194,7 +3311,7 @@ class Action(JSONLike):
     def get_script_input_output_file_command_args(self) -> list[str]:
         """Get the script input and output file names as command line arguments."""
         in_out_names = self.get_script_input_output_file_paths(
-            *self.get_block_act_idx_shell_vars()
+            self.get_block_act_idx_shell_vars()
         )
         args: list[str] = []
         for fmt, path in in_out_names["inputs"].items():

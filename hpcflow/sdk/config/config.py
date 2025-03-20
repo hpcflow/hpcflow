@@ -319,7 +319,7 @@ class Config:
 
         # used within context manager `cached_config`:
         self._use_cache = False
-        self._config_cache = {}
+        self._config_cache: dict[tuple[str, bool, bool, bool], Any] = {}
 
         # note: this must go at the end, after all instance attributes have been set!
         self._options.validate(

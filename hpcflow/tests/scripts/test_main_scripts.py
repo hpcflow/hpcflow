@@ -744,7 +744,9 @@ def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool
     wk.submit(wait=True, add_to_known=False, status=False)
 
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text().strip()
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
     assert std_out == "{'name': 'python_env'}"
 
 
@@ -801,7 +803,9 @@ def test_env_specifier_in_main_script_path(
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
 
     hf.reload_template_components()  # remove extra envs
 
@@ -884,8 +888,12 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
 
     # v1 and v2 scripts output different values:
     e1, e2 = wk.tasks.t1.elements
-    assert e1.outputs.p2.value == 201
-    assert e2.outputs.p2.value == 301
+    e1_p2 = e1.outputs.p2
+    e2_p2 = e2.outputs.p2
+    assert isinstance(e1_p2, hf.ElementParameter)
+    assert isinstance(e2_p2, hf.ElementParameter)
+    assert e1_p2.value == 201
+    assert e2_p2.value == 301
 
     hf.reload_template_components()  # remove extra envs
 
@@ -922,9 +930,17 @@ def test_script_direct_in_direct_out_multi_element(
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_vals[0] + 100
-    assert wk.tasks[0].elements[1].outputs.p2.value == p1_vals[1] + 100
-    assert wk.tasks[0].elements[2].outputs.p2.value == p1_vals[2] + 100
+    e0_p2 = wk.tasks[0].elements[0].outputs.p2
+    e1_p2 = wk.tasks[0].elements[1].outputs.p2
+    e2_p2 = wk.tasks[0].elements[2].outputs.p2
+
+    assert isinstance(e0_p2, hf.ElementParameter)
+    assert isinstance(e1_p2, hf.ElementParameter)
+    assert isinstance(e2_p2, hf.ElementParameter)
+
+    assert e0_p2.value == p1_vals[0] + 100
+    assert e1_p2.value == p1_vals[1] + 100
+    assert e2_p2.value == p1_vals[2] + 100
 
     # check only one script generated, and its name:
     script_name, _ = t1.schema.actions[0].get_script_artifact_name(env_spec={}, act_idx=0)
@@ -985,7 +1001,9 @@ def test_repeated_action_in_schema(null_config, tmp_path: Path):
         assert act_1_script_path.is_symlink()
 
     # output will be taken from second action
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == p1_val + 100
 
 
 # TODO: same action with different env spec path (v1/v2) in same schema (check contents
@@ -1051,8 +1069,12 @@ def test_main_script_two_schemas_same_action(null_config, tmp_path: Path):
         assert t2_script_path.is_symlink()
 
     # check output
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
-    assert wk.tasks[1].elements[0].outputs.p2.value == p1_val + 100
+    t0_p2 = wk.tasks[0].elements[0].outputs.p2
+    t1_p2 = wk.tasks[1].elements[0].outputs.p2
+    assert isinstance(t0_p2, hf.ElementParameter)
+    assert isinstance(t1_p2, hf.ElementParameter)
+    assert t0_p2.value == p1_val + 100
+    assert t1_p2.value == p1_val + 100
 
     # now copy the workflow elsewhere and check the symlink between the scripts still
     # works:
@@ -1162,12 +1184,14 @@ def test_shell_env_vars(null_config, tmp_path: Path):
 
     for run in wk.get_all_EARs():
         run_dir = run.get_directory()
+        assert run_dir
         with run_dir.joinpath("env_vars.json").open("rt") as fp:
             env_dat = json.load(fp)
 
         assert env_dat["HPCFLOW_WK_PATH"] == str(run.workflow.path)
         assert env_dat["HPCFLOW_WK_PATH_ARG"] == str(run.workflow.path)
 
+        assert run.submission_idx is not None
         for js in wk.submissions[run.submission_idx].jobscripts:
             js_funcs_path = str(js.jobscript_functions_path)
             for block in js.blocks:
@@ -1258,5 +1282,9 @@ def test_combine_scripts_script_data_multiple_input_file_formats(
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    assert wk.tasks[0].elements[0].outputs.p2.value == p1_val + 100
-    assert wk.tasks[1].elements[0].outputs.p3.value == p1_val + 100
+    t0_p2 = wk.tasks[0].elements[0].outputs.p2
+    t1_p3 = wk.tasks[1].elements[0].outputs.p3
+    assert isinstance(t0_p2, hf.ElementParameter)
+    assert isinstance(t1_p3, hf.ElementParameter)
+    assert t0_p2.value == p1_val + 100
+    assert t1_p3.value == p1_val + 100

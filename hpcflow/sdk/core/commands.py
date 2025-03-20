@@ -20,7 +20,7 @@ from hpcflow.sdk.core.parameters import ParameterValue
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from re import Pattern
-    from .actions import ActionRule
+    from .actions import ActionRule, Action
     from .element import ElementActionRun
     from .environment import Environment
     from ..submission.shells import Shell
@@ -81,6 +81,8 @@ class Command(JSONLike):
     #: Rules that state whether this command is eligible to run.
     rules: list[ActionRule] = field(default_factory=list)
 
+    action: Action | None = None  # assigned by parent Action
+
     def __post_init__(self):
         self._set_parent_refs()
 
@@ -104,6 +106,20 @@ class Command(JSONLike):
             out.append(f"rules={self.rules!r}")
 
         return f"{self.__class__.__name__}({', '.join(out)})"
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return (
+            self.command == other.command
+            and self.executable == other.executable
+            and self.arguments == other.arguments
+            and self.variables == other.variables
+            and self.stdout == other.stdout
+            and self.stderr == other.stderr
+            and self.stdin == other.stdin
+            and self.rules == other.rules
+        )
 
     def __get_initial_command_line(self) -> str:
         if self.command:

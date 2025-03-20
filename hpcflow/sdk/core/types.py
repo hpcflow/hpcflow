@@ -1,6 +1,7 @@
 """
 Types to support the core SDK.
 """
+
 from __future__ import annotations
 from typing import Any, Literal, Protocol, TYPE_CHECKING
 from typing_extensions import NotRequired, TypeAlias, TypedDict
@@ -205,6 +206,9 @@ class SchemaInputKwargs(TypedDict):
     multiple: bool
     #: The labels.
     labels: dict[str, LabelInfo] | None
+    #: The number or proportional of permitted unset parameter data found when reolving
+    #: this input from upstream outputs.
+    allow_failed_dependencies: int | float | bool | None
 
 
 class RuleArgs(TypedDict):
@@ -385,3 +389,12 @@ class ResourcePersistingWorkflow(Protocol):
         """
         Check if all the parameters exist.
         """
+
+
+BlockActionKey: TypeAlias = "tuple[int | str, int | str, int | str]"
+"""
+The type of indices that locate an action within a submission. The indices represent,
+respectively, the jobscript index, the jobscript-block index, and the block-action index.
+Usually, these are integers, but in the case of strings, they will correspond to shell
+environment variables.
+"""

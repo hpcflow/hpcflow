@@ -207,7 +207,7 @@ class AppLog:
         self.console_handler = self.__add_console_logger(
             level=log_console_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
         )
-        self.file_handler = None
+        self.file_handler: logging.FileHandler | None = None
 
     def __add_console_logger(self, level: str, fmt: str | None = None) -> logging.Handler:
         fmt = fmt or "%(levelname)s %(name)s: %(message)s"
@@ -217,14 +217,14 @@ class AppLog:
         self.logger.addHandler(handler)
         return handler
 
-    def update_console_level(self, new_level: str = None) -> None:
+    def update_console_level(self, new_level: str | None = None) -> None:
         """
         Set the logging level for console messages.
         """
         new_level = new_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
         self.console_handler.setLevel(new_level.upper())
 
-    def update_file_level(self, new_level: str = None) -> None:
+    def update_file_level(self, new_level: str | None = None) -> None:
         if self.file_handler:
             new_level = new_level or AppLog.DEFAULT_LOG_FILE_LEVEL
             self.file_handler.setLevel(new_level.upper())

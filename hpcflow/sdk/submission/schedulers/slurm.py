@@ -5,7 +5,7 @@ An interface to SLURM.
 from __future__ import annotations
 import subprocess
 import time
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import ParallelMode
@@ -344,19 +344,6 @@ class SlurmPosix(QueuedScheduler):
         max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
-    def get_std_out_err_filename(
-        self, js_idx: int, job_ID: str, array_idx: int | None = None
-    ) -> str:
-        """File name of combined standard output and error streams.
-
-        Notes
-        -----
-        We use the standard output stream filename format for the combined output and
-        error streams file.
-
-        """
-        return self.get_stdout_filename(js_idx=js_idx, job_ID=job_ID, array_idx=array_idx)
-
     def get_stdout_filename(
         self, js_idx: int, job_ID: str, array_idx: int | None = None
     ) -> str:
@@ -515,8 +502,10 @@ class SlurmPosix(QueuedScheduler):
             base_job_ID, arr_idx = self._parse_job_IDs(job_id)
             state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
-            entry = info.setdefault(base_job_ID, {})
             if arr_idx is not None:
+                entry = cast(
+                    dict[int, JobscriptElementState], info.setdefault(base_job_ID, {})
+                )
                 for arr_idx_i in arr_idx:
                     entry[arr_idx_i] = state
             else:

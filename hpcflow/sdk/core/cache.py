@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing_extensions import Self
     from .element import Element, ElementIteration
+    from .actions import ElementActionRun
     from .workflow import Workflow
     from ..persistence.base import StoreEAR, StoreElement, StoreElementIter
 
@@ -24,11 +25,11 @@ class ObjectCache:
     dependencies."""
 
     #: The elements of the workflow that this cache was built from.
-    elements: dict | None = None
+    elements: list[Element] | None = None
     #: The iterations of the workflow that this cache was built from.
-    iterations: dict | None = None
+    iterations: list[ElementIteration] | None = None
     #: The runs of the workflow that this cache was built from.
-    runs: dict | None = None
+    runs: list[ElementActionRun] | None = None
 
     #: What EARs (by ID) a given EAR depends on.
     run_dependencies: dict[int, set[int]] | None = None

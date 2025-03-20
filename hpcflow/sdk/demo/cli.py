@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Literal
     from ..app import BaseApp
+    from ..core.workflow import Workflow
 
 
 def get_demo_software_CLI(app: BaseApp):
@@ -145,6 +146,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             status=status,
             add_submission=add_submission,
         )
+        assert isinstance(wk, Workflow)
         click.echo(wk.path)
 
     @demo_workflow.command("go")

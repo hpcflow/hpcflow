@@ -44,7 +44,7 @@ def test_get_hash_equal_simple_types():
     assert get_hash("abc") == get_hash("abc")
 
 
-def test_get_hash_distinct_compound_types():
+def test_get_hash_equal_compound_types():
     assert get_hash([1, 2, 3]) == get_hash([1, 2, 3])
     assert get_hash((1, 2, 3)) == get_hash((1, 2, 3))
     assert get_hash({1, 2, 3}) == get_hash({1, 2, 3})
