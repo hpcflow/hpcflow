@@ -4395,6 +4395,7 @@ class Workflow(AppAware):
                 raise ValueError("Do not specify both `max_js` and `jobscripts`.")
 
             loop_names = [i.name for i in self.loops][::-1]
+            loop_names_panel: rich.panel.Panel | str = ""
             if loop_names:
                 loop_names_panel = rich.panel.Panel(
                     "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
@@ -4402,8 +4403,6 @@ class Workflow(AppAware):
                     title_align="left",
                     box=rich.box.SIMPLE,
                 )
-            else:
-                loop_names_panel = rich.panel.Panel("")
 
             table = rich.table.Table(width=width)
 
@@ -4490,6 +4489,7 @@ class Workflow(AppAware):
 
         with self._store.cached_load():
             loop_names = [i.name for i in self.loops][::-1]
+            loop_names_panel: rich.panel.Panel | str = ""
             if loop_names:
                 loop_names_panel = rich.panel.Panel(
                     "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
@@ -4497,8 +4497,6 @@ class Workflow(AppAware):
                     title_align="left",
                     box=rich.box.SIMPLE,
                 )
-            else:
-                loop_names_panel = rich.panel.Panel("")
 
             sub_js = self.submissions[sub_idx].jobscripts
             all_task_names = {i.insert_ID: i.unique_name for i in self.tasks}
