@@ -64,6 +64,10 @@ jobs:
   herp-derp:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: hpcflow/github-support/setup-poetry@0.3
         with:
           version: "1.4"
