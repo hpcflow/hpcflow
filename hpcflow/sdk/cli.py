@@ -439,8 +439,7 @@ def _make_workflow_submission_CLI(app: BaseApp):
         sb: Submission, max_js: int | None, jobscripts: str | None, width: int | None
     ):
         """Print a table listing jobscripts and associated information."""
-        if jobscripts:
-            jobscripts_ = [int(i) for i in jobscripts.split(",")]
+        jobscripts_ = [int(i) for i in jobscripts.split(",")] if jobscripts else None
         sb.list_jobscripts(max_js=max_js, jobscripts=jobscripts_, width=width)
 
     @submission.command()
@@ -455,8 +454,7 @@ def _make_workflow_submission_CLI(app: BaseApp):
         width: int | None,
     ):
         """Print a table listing tasks and their associated jobscripts."""
-        if task_names:
-            task_names_ = list(task_names.split(","))
+        task_names_ = list(task_names.split(",")) if task_names else None
         sb.list_task_jobscripts(task_names=task_names_, max_js=max_js, width=width)
 
     _set_help_name(submission, app)
@@ -695,8 +693,7 @@ def _make_workflow_CLI(app: BaseApp):
     ):
         """Print a table listing jobscripts and associated information from the specified
         submission."""
-        if jobscripts:
-            jobscripts_ = [int(i) for i in jobscripts.split(",")]
+        jobscripts_ = [int(i) for i in jobscripts.split(",")] if jobscripts else None
         wf.list_jobscripts(
             sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts_, width=width
         )
@@ -721,8 +718,7 @@ def _make_workflow_CLI(app: BaseApp):
     ):
         """Print a table listing tasks and their associated jobscripts from the specified
         submission."""
-        if task_names:
-            task_names_ = list(task_names.split(","))
+        task_names_ = list(task_names.split(",")) if task_names else None
         wf.list_task_jobscripts(
             sub_idx=sub_idx, task_names=task_names_, max_js=max_js, width=width
         )
