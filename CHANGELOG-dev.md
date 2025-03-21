@@ -1,4 +1,260 @@
 
+<a name="v0.2.0a195"></a>
+## [v0.2.0a195](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a194...v0.2.0a195) - 2025.03.21
+
+### Other changes
+
+* merge branch optimise/loops into refactor/jobscript
+* add some more `TimeIt.decorator`s
+
+### ♻ Code Refactoring
+
+* correct a status position
+* use sub-dirs for all files in submission dir
+* remove unused imports
+* store jobscript-block dependencies in arrays with zarr store
+* remove commented-out
+* use 2D array for run metadata to minimise number of files in one dir
+* use a `NestedDirectoryStore` for the zarr metadata group
+* add `_update_runs` Zarr store method
+* store jobscript-block task-actions in arrays with zarr store
+* store jobscript-block task-element mapping in arrays with zarr store
+* store jobscript-block run IDs in arrays with zarr store
+* rename zarr array for at-submit jobscript metadata
+* remove pointless Jobscript attributes
+* batch up `set_EAR_start` and `set_EAR_end`
+* batch up set_EAR_skip
+* ElementResources repr method for re-use elsewhere
+* remove some prints from `Jobscript.compose_combined_script`
+* simplify
+* rename `Action.script_is_python` to `Action.script_is_python_snippet`
+* remove a print
+* use env var in `Shell.format_save_parameter`
+* change `ElementActionRun.compose_commands` signature in prep for refactor
+* remove unused argument in `ElementActionRun.compose_commands`
+* move loop termination check to `Workflow.execute_run`
+* move submissions dir creation from `Submission.submit` to `Workflow._add_submission`
+* remove unused
+* remove unused/old abort run code
+* use env vars for e.g. workflow path  when running scripts
+* CD to execute directory within `Workflow.execute_run` instead of in jobscript
+* return commands file path in `write_commands`
+* load the run once in `execute_run`
+* remove unused
+* remove test file
+* use `DeferredFileWriter` in `redirect_std_to_file`
+* use shell loop for jobscript blocks (WIP: PS only)
+* add `runs` to `DependencyCache` and option to include/excluderuns/iters/elements
+
+### ⚡ Performance Improvements
+
+* speed up list_jobscripts
+* pre-load array data in jobscript metadata arrays
+* use `PersistentStore.cache_ctx` within `get_EARs_from_IDs`
+* count `Workflow._submissions` to get `num_submissions` if already assigned
+* use `cached_load` in `Workflow.get_EARs_from_IDs`
+* batch up `commit_loop_indices`
+* add a cache to `WorkflowTask._get_merged_parameter_data`
+* in combine_scripts, load all runs at start
+* use cache in `generate_EAR_resource_map` and `_resolve_singular_jobscripts`
+* add a config cache context manager
+
+### ✨ Features
+
+* add methods to retrieve/print jobscript stdout/err files
+* add `list_jobscript_jobscripts`
+* add split_arrays utility func
+* add list_jobscripts
+* add `allow_failed_dependencies` option for better error handling
+* add CLI to retrieve all scheduler job/process IDs of a workflow/submission
+* add `resources.skip_downstream_on_failure` to prevent skipping
+* add `raise_on_unset` bool arg to run methods that retrieve inputs/outputs
+* add a status to `Workflow.cancel`
+* add `ResourceSpec.resources_id` to provide a way to generate distinct jobscripts
+* add `--add_submission` flag to (`demo-workflow`) `make`
+* add `add-submission` to the workflow CLI
+* support loops where data indices must be updated in downstream tasks that are members of other loops
+* support loops where downstream tasks use loop output or iterable parameters
+* allow specifying custom inputs etc to meta-tasks in the tasks list
+* improve multi-block jobscript merging
+* add meta-tasks
+* add `Loop.termination_task` to choose where loops should terminate
+* batch up saving parameter outputs and setting run starts/ends with `combine_scripts`
+* initial attempt at `resources.combine_scripts`
+* add `Action.requires_dir` to reduce number of created directories
+* add resource `write_app_logs`
+* by default combine jobscript stdout/err on non-windows, add resource option `combine_jobscript_std`
+* use a separate dir for each jobscripts std stream files
+* initial work for simplified jobscripts with zmq server
+* only write command files if an equivalent file does not exist
+* write command files to artifacts dir
+* write action scripts on submission instead of at run time
+* place run log and std-stream files in artifacts dir
+* add `SkipReason` to run metadata
+* use `--std-stream` in input file generators and output file parsers
+* add `--std-stream` CLI option to redirect stdout/err and exceptions
+* add `DeferredFileWriter` class
+* partially implemented workflow structure viz in updated notebook (WIP)
+* merge jobscripts in more scenarios
+* implement jobscript blocks (WIP: PS only)
+* allow setting jobscript parallelism for only direct/scheduled jobscripts
+* add properties `Jobscript/Submission.is_scheduled`
+* add a `TimeIt` context manager
+* **config:** add `unset_callbacks`
+
+### 🐛 Bug Fixes
+
+* list-(task-)jobscripts
+* CLI
+* failing API funcs
+* type checking
+* cache dependencies
+* bash jobscript template
+* add missing exception handling for accessing psutil process attributes
+* only generate one jobscript funcs file per unique shell
+* add missing `width` argument to `Submission.list_jobscripts`
+* failing tests on posix
+* test `test_combine_jobscript_std_true`
+* pass status on to cancel in `Workflow.submit`
+* using the wrong cache
+* update black pre-commit hook to use same line length as in pyproject.toml
+* JSON store: `_set_run_dirs` and `_get_dirs_arr`
+* `get_parameter_sources` when duplicate IDs passed
+* always return array from `get_jobscript_block_task_actions_array` and `get_jobscript_block_run_ID_array`
+* missing import
+* try to fix units
+* backwards compat for reading workflows with 1D runs metadata arrays
+* catch `ZombieProcess`
+* WSL test
+* remove more sleeps from test_main_script to see what happens on GHA
+* remove sleeps from test_main_script to see what happens on GHA
+* missing `reason` in `pytest.mark.skipif`
+* try to identify integration tests that are hanging on Windows GHAs
+* ignore failing tests on py 3.8
+* issue with loading zipped workflow metadata group
+* exclude `skip_downstream_on_failure` from jobscript hash
+* new tests on bash
+* typo
+* chained task-input type dependencies
+* add missing script
+* support script in/output files (json, hdf5) when `combine_scripts==True`
+* tests
+* correct a type
+* saving outputs from previous element when current element failed with `combine_scripts==True`
+* cast stdout to integers in `make_schemas`
+* expose cancel status opt to CLI
+* status default value in `Workflow.cancel`
+* increase width of SLURMs squeue job IDs list to minimise chance of truncated output
+* further fix in `compose_combined_script`
+* attempt fix of generated code in `compose_combined_script`
+* more info logs in to help debug
+* more logs in `compose_combined_script`
+* temp increase info logs in `compose_combined_script`
+* separate tmp timing files in `compose_combined_script`
+* context manager that disables callbacks
+* add missing exception class
+* issues with submitting workflows with many jobscripts
+* ensure `bool(PendingChanges.add_template_components)` remains `False` when it should!
+* maintain a defaultdict for `PendingChanges.add_elem_iters_EAR_IDs`
+* make jobscript cancel print output less verbose
+* script_data_in/out in expanded actions
+* format of `script_data_in/out` in expanded actions
+* do not attempt to save input/output files on skipped runs
+* `.items()` call
+* `shorten_list_str` for non-list input
+* make some persistence logs more readable by truncating long lists
+* use $LASTEXITCODE as exit code on Powershell actions
+* `combine_scripts=False` and `None` should have the same jobscript hash contribution
+* commit of loop `num_added_iterations` when inner loops have one iteration
+* updating of task-input-type input sources when adding iterations
+* more loop downstream-source-update fixes
+* validation of loops where `NotImplementedError` should be raised - include all output params
+* improve make_schemas to support arbitrary number of outputs
+* validating available meta-task schema names!
+* add missing exception
+* validate schema name in meta-task custom parametrisation
+* tests
+* replace hardcoded HPCFLOW with app name
+* support dumping element groups to HDF5
+* recursive dependents in `ObjectCache`
+* nested-loop source_iter_loop_idx in `add_iteration` when loop tasks are different
+* double-quote "--" in save-parameter command construction to make it work!
+* allow passing negative numbers in save-parameter CLI command values
+* skip runs where necessary in combined script jobscript
+* combine_scripts script generator
+* undo simplification
+* remove a print
+* try another fix for combine_scripts for schedulers
+* combine_scripts for schedulers
+* missing dollar sign in Bash shell
+* add missing variable assignment
+* fix dir_diff test
+* combine_scripts set_EAR_start call
+* get_run_directories
+* correctly identify repeats key in _get_relevant_data
+* add `requires_dir=True` to a fix a test
+* set `Action.requires_dir` to True if the action has input file generators or output parsers
+* tests
+* shell env var test
+* tests where jobscript std is combined
+* add missing `Workflow` methods from develop merge
+* fix updating log_file_path and log_file_level
+* set `status=False` in test Jupyter notebook to fix recursion error
+* tests
+* evaluation of command rules for resource paths
+* passing extra argument to `compose_commands`
+* bug in `_show` introduced by recent change to `Submission.get_active_jobscripts`
+* move run CD back outside of skip check block
+* incorrect pytest skipip use
+* skip test_run_abort on mac
+* bug in `Workflow.get_running_runs` and so `Workflow.abort_run`
+* try another temporary fix for CentOS container actions
+* try temporary fix for CentOS container actions
+* test non_snippet_script
+* remove environments from `ElementResources.get_jobscript_hash`
+* missing `newline` arg on earlier Pythons `Path.write_text`
+* remove unrequired `export` in `Bash.JS_HEADER`
+* update Bash shell
+* test temporary workaround for excessive metadata reads in loop workflows (WIP)
+* skip check in `execute_run`
+* failing tests on Py 3.8,3.9 due to Python bug
+* need a `defauldict` in `_set_environments`
+* add back removed code in `_set_environments` with a comment!
+* do not use standard stream redirecet for python script invocation
+* use standard stream file in script-type actions
+* remove unrequired `ctx.exit()` in CLI
+* downgrade zarr to fix issues with object array retrieval
+* stop zmq server if exception raised in `execute_run`
+* encode directory snapshot data as strings; fix [#692](https://github.com/hpcflow/hpcflow-new/issues/692)
+* sorting `JobscriptElementState`s in `_show`
+* using new dependency keys correctly in `Jobscript.submit`
+* submission dependency check
+* provide absolute path to js funcs file (works with schedulers)
+* use blocks in `compose_jobscript` for scheduled
+* shell array get item in bash jobscript
+* shell variable capitalisation when expanding actions
+* add missing `asyncio.to_thread` for Python 3.8 compat
+* JSON store typo
+* integration tests
+* bash jobscripts
+* type annotations in `ObjectCache`
+* rename `DependencyCache` to `ObjectCache` and parametrise what is cached
+* **test:** rename file
+* **test:** mark config cache test as xfail
+
+### 👷 Build changes
+
+* merge in develop; might not work yet
+* partial merge of test_utils.py from develop
+* update poetry lock file
+* merge some selective updates from develop
+* merge GHA workflow updates from develop
+* merge develop
+* merge branch 'develop' into refactor/jobscript
+* correct license and bump pyinstaller
+* bump zarr
+
+
 <a name="v0.2.0a194"></a>
 ## [v0.2.0a194](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a193...v0.2.0a194) - 2025.03.05
 
