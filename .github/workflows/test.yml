@@ -66,4 +66,4 @@ jobs:
     steps:
       - uses: hpcflow/github-support/setup-poetry@0.3
         with:
-          version: "0.14"
+          version: "1.4"
