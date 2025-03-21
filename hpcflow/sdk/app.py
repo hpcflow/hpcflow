@@ -47,6 +47,7 @@ from hpcflow.sdk.core.utils import (
 from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
+from .core.workflow import Workflow as _Workflow
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -148,10 +149,7 @@ if TYPE_CHECKING:
         ElementSet,
     )
     from .core.task_schema import TaskSchema, TaskObjective
-    from .core.workflow import (
-        Workflow as _Workflow,
-        WorkflowTemplate as _WorkflowTemplate,
-    )
+    from .core.workflow import WorkflowTemplate as _WorkflowTemplate
     from .submission.jobscript import Jobscript
     from .submission.submission import Submission as _Submission  # TODO: why?
     from .submission.schedulers import Scheduler, QueuedScheduler
