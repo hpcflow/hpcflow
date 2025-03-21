@@ -330,7 +330,7 @@ class Config:
 
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
-        yield from self._all_keys
+        yield from self.__all_keys
 
     @property
     def config_directory(self) -> Path:
@@ -655,7 +655,7 @@ class Config:
         return decorator
 
     @property
-    def _all_keys(self) -> list[str]:
+    def __all_keys(self) -> list[str]:
         return [*self._configurable_keys, *self._meta_data]
 
     @overload
@@ -779,7 +779,7 @@ class Config:
             if key in self._config_cache:
                 return self._config_cache[key]
 
-        if name not in self._all_keys:
+        if name not in self.__all_keys:
             raise ConfigUnknownItemError(name=name)
 
         elif name in self._meta_data:
