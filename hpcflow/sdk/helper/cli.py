@@ -1,6 +1,7 @@
 """
 Common Click command line options related to the helper.
 """
+
 from __future__ import annotations
 from typing import TYPE_CHECKING
 

@@ -20,7 +20,7 @@ from hpcflow.sdk.core.parameters import ParameterValue
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from re import Pattern
-    from .actions import ActionRule
+    from .actions import ActionRule, Action
     from .element import ElementActionRun
     from .environment import Environment
     from ..submission.shells import Shell
@@ -81,6 +81,11 @@ class Command(JSONLike):
     #: Rules that state whether this command is eligible to run.
     rules: list[ActionRule] = field(default_factory=list)
 
+    action: Action | None = None  # assigned by parent Action
+
+    def __post_init__(self):
+        self._set_parent_refs()
+
     def __repr__(self) -> str:
         out = []
         if self.command:
@@ -101,6 +106,20 @@ class Command(JSONLike):
             out.append(f"rules={self.rules!r}")
 
         return f"{self.__class__.__name__}({', '.join(out)})"
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return (
+            self.command == other.command
+            and self.executable == other.executable
+            and self.arguments == other.arguments
+            and self.variables == other.variables
+            and self.stdout == other.stdout
+            and self.stderr == other.stderr
+            and self.stdin == other.stdin
+            and self.rules == other.rules
+        )
 
     def __get_initial_command_line(self) -> str:
         if self.command:
@@ -142,6 +161,7 @@ class Command(JSONLike):
                 exec_cmd = executable.filter_instances(**filter_exec)[0].command
                 return exec_cmd.replace("<<num_cores>>", str(EAR.resources.num_cores))
             elif typ == "script":
+                # TODO: is this needed? we have <<script_name>> <<script_path>> etc as command variables
                 return EAR.action.get_script_name(val)
             else:
                 raise ValueError("impossible match occurred")
@@ -191,7 +211,11 @@ class Command(JSONLike):
                     cmd_str = cmd_str.rstrip()
 
         # remove any left over "<<args>>" and "<<script_name>>"s:
-        cmd_str = cmd_str.replace("<<args>>", "").replace("<<script_name>>", "")
+        cmd_str = (
+            cmd_str.replace("<<args>>", "")
+            .replace("<<script_name>>", "")
+            .replace("<<script_path>>", "")
+        )
 
         # substitute input parameters in command:
         types_pattern = "|".join(parse_types)
@@ -208,7 +232,10 @@ class Command(JSONLike):
                 cmd_inp = ".".join(cmd_inp_parts[:-1])
             else:
                 cmd_inp = cmd_inp_full
-            inp_val = EAR.get(f"inputs.{cmd_inp}")  # TODO: what if schema output?
+            inp_val = EAR.get(
+                f"inputs.{cmd_inp}",
+                raise_on_unset=True,
+            )  # TODO: what if schema output?
             pattern_i = pattern.format(
                 types_pattern=types_pattern,
                 name=re.escape(cmd_inp),
@@ -219,9 +246,11 @@ class Command(JSONLike):
                 string=cmd_str,
             )
 
-        # substitute input files in command:
-        for cmd_file in EAR.action.get_command_input_file_labels():
-            file_path = EAR.get(f"input_files.{cmd_file}")  # TODO: what if out file?
+        # substitute input/output files in command:
+        for cmd_file in EAR.action.get_command_file_labels():
+            file_path = EAR.get(
+                f"input_files.{cmd_file}", raise_on_unset=True
+            ) or EAR.get(f"output_files.{cmd_file}", raise_on_unset=True)
             # assuming we have copied this file to the EAR directory, then we just
             # need the file name:
             file_name = Path(file_path).name

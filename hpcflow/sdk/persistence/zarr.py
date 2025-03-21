@@ -24,6 +24,7 @@ from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd  # type: ignore
 from reretry import retry  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.core import RUN_DIR_ARR_DTYPE, RUN_DIR_ARR_FILL
 from hpcflow.sdk.core.errors import (
     MissingParameterData,
     MissingStoreEARError,
@@ -53,9 +54,22 @@ from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.submission.submission import (
+    JOBSCRIPT_SUBMIT_TIME_KEYS,
+    SUBMISSION_SUBMIT_TIME_KEYS,
+)
+from hpcflow.sdk.utils.arrays import get_2D_idx, split_arr
+from hpcflow.sdk.utils.strings import shorten_list_str
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import (
+        Callable,
+        Iterable,
+        Iterator,
+        Mapping,
+        MutableMapping,
+        Sequence,
+    )
     from datetime import datetime
     from fsspec import AbstractFileSystem  # type: ignore
     from logging import Logger
@@ -65,16 +79,16 @@ if TYPE_CHECKING:
     from zarr import Array, Group  # type: ignore
     from zarr.attrs import Attributes  # type: ignore
     from zarr.storage import Store  # type: ignore
+    from ..submission.types import ResolvedJobscriptBlockDependencies
     from .types import TypeLookup
     from ..app import BaseApp
     from ..core.json_like import JSONed, JSONDocument
-    from ..typing import ParamSource, PathLike
-
+    from ..typing import ParamSource, PathLike, DataIndex
 
 #: List of any (Zarr-serializable) value.
 ListAny: TypeAlias = "list[Any]"
 #: Zarr attribute mapping context.
-ZarrAttrs: TypeAlias = "dict[str, list[str]]"
+ZarrAttrs: TypeAlias = "dict[str, Any]"
 _JS: TypeAlias = "dict[str, list[dict[str, dict]]]"
 
 
@@ -329,6 +343,8 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             self.metadata,
             self.run_hostname,
             self.commands_idx,
+            self.port_number,
+            self.commands_file_ID,
         ]
 
     @override
@@ -351,6 +367,8 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             "metadata": EAR_dat[12],
             "run_hostname": EAR_dat[13],
             "commands_idx": EAR_dat[14],
+            "port_number": EAR_dat[15],
+            "commands_file_ID": EAR_dat[16],
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -420,10 +438,17 @@ class ZarrPersistentStore(
     _param_sources_arr_name: ClassVar[str] = "sources"
     _param_user_arr_grp_name: ClassVar[str] = "arrays"
     _param_data_arr_grp_name: ClassVar = lambda _, param_idx: f"param_{param_idx}"
+    _subs_md_group_name: ClassVar[str] = "submissions"
     _task_arr_name: ClassVar[str] = "tasks"
     _elem_arr_name: ClassVar[str] = "elements"
     _iter_arr_name: ClassVar[str] = "iters"
     _EAR_arr_name: ClassVar[str] = "runs"
+    _run_dir_arr_name: ClassVar[str] = "run_dirs"
+    _js_at_submit_md_arr_name: ClassVar[str] = "js_at_submit_md"
+    _js_run_IDs_arr_name: ClassVar[str] = "js_run_IDs"
+    _js_task_elems_arr_name: ClassVar[str] = "js_task_elems"
+    _js_task_acts_arr_name: ClassVar[str] = "js_task_acts"
+    _js_deps_arr_name: ClassVar[str] = "js_deps"
     _time_res: ClassVar[str] = "us"  # microseconds; must not be smaller than micro!
 
     _res_map: ClassVar[CommitResourceMap] = CommitResourceMap(
@@ -437,6 +462,26 @@ class ZarrPersistentStore(
                 app, name="attrs", open_call=self._get_root_group
             ),
         }
+        self._jobscript_at_submit_metadata: dict[
+            int, dict[str, Any]
+        ] = {}  # this is a cache
+
+        # these are caches; keys are submission index and then tuples of
+        # (jobscript index, jobscript-block index):
+        self._jobscript_run_ID_arrays: dict[int, dict[tuple[int, int], NDArray]] = {}
+        self._jobscript_task_element_maps: dict[
+            int, dict[tuple[int, int], dict[int, list[int]]]
+        ] = {}
+        self._jobscript_task_actions_arrays: dict[
+            int, dict[tuple[int, int], NDArray]
+        ] = {}
+        self._jobscript_dependencies: dict[
+            int,
+            dict[
+                tuple[int, int], dict[tuple[int, int], ResolvedJobscriptBlockDependencies]
+            ],
+        ] = {}
+
         super().__init__(app, workflow, path, fs)
 
     @contextmanager
@@ -514,7 +559,11 @@ class ZarrPersistentStore(
         root = zarr.group(store=store, overwrite=False)
         root.attrs.update(attrs)
 
-        md = root.create_group("metadata")
+        # use a nested directory store for the metadata group so the runs array
+        # can be stored as a 2D array in nested directories, thereby limiting the maximum
+        # number of files stored in a given directory:
+        md_store = zarr.NestedDirectoryStore(Path(root.store.path).joinpath("metadata"))
+        md = zarr.group(store=md_store)
 
         compressor_lookup = {
             "blosc": Blosc,
@@ -561,13 +610,24 @@ class ZarrPersistentStore(
 
         EARs_arr = md.create_dataset(
             name=cls._EAR_arr_name,
-            shape=0,
+            shape=(0, 1000),
             dtype=object,
             object_codec=cls._CODEC,
             chunks=1,  # single-chunk rows for multiprocess writing
             compressor=cmp,
+            dimension_separator="/",
         )
-        EARs_arr.attrs["parameter_paths"] = []
+        EARs_arr.attrs.update({"parameter_paths": [], "num_runs": 0})
+
+        # array for storing indices that can be used to reproduce run directory paths:
+        run_dir_arr = md.create_dataset(
+            name=cls._run_dir_arr_name,
+            shape=0,
+            chunks=10_000,
+            dtype=RUN_DIR_ARR_DTYPE,
+            fill_value=RUN_DIR_ARR_FILL,
+            write_empty_chunks=False,
+        )
 
         parameter_data = root.create_group(name=cls._param_grp_name)
         parameter_data.create_dataset(
@@ -589,6 +649,9 @@ class ZarrPersistentStore(
             compressor=cmp,
         )
         parameter_data.create_group(name=cls._param_user_arr_grp_name)
+
+        # for storing submission metadata that should not be stored in the root group:
+        md.create_group(name=cls._subs_md_group_name)
 
     def _append_tasks(self, tasks: Iterable[ZarrStoreTask]):
         elem_IDs_arr = self._get_tasks_arr(mode="r+")
@@ -614,12 +677,339 @@ class ZarrPersistentStore(
                     {
                         "num_added_iterations": loop["num_added_iterations"],
                         "iterable_parameters": loop["iterable_parameters"],
+                        "output_parameters": loop["output_parameters"],
                         "parents": loop["parents"],
                     }
                 )
                 attrs["template"]["loops"].append(loop["loop_template"])
 
-    def _append_submissions(self, subs: dict[int, JSONDocument]):
+    @staticmethod
+    def _extract_submission_run_IDs_array(
+        sub_js: Mapping[str, JSONed],
+    ) -> tuple[np.ndarray, list[list[list[int]]]]:
+        """For a JSON-like representation of a Submission object, remove and combine all
+        jobscript-block run ID lists into a single array with a fill value.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `EAR_ID` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_run_IDs
+            Integer Numpy array that contains a concatenation of all 2D run ID arrays
+            from each jobscript-block. Technically a "jagged"/"ragged" array that is made
+            square with a large fill value.
+        block_shapes
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of shapes (as a two-item list:
+            `[num_actions, num_elements]`) of the constituent blocks of that jobscript.
+
+        """
+        arrs = []
+        max_acts, max_elems = 0, 0
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+        block_shapes = []
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
+            block_shapes_js_i = []
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
+                run_IDs_i = np.array(blk["EAR_ID"])
+                blk["EAR_ID"] = None  # TODO: how to type?
+                block_shapes_js_i.append(list(run_IDs_i.shape))
+                if run_IDs_i.shape[0] > max_acts:
+                    max_acts = run_IDs_i.shape[0]
+                if run_IDs_i.shape[1] > max_elems:
+                    max_elems = run_IDs_i.shape[1]
+                arrs.append(run_IDs_i)
+            block_shapes.append(block_shapes_js_i)
+
+        combined_run_IDs = np.full(
+            (len(arrs), max_acts, max_elems),
+            dtype=np.uint32,
+            fill_value=np.iinfo(np.uint32).max,
+        )
+        for arr_idx, arr in enumerate(arrs):
+            combined_run_IDs[arr_idx][: arr.shape[0], : arr.shape[1]] = arr
+
+        return combined_run_IDs, block_shapes
+
+    @staticmethod
+    def _extract_submission_task_elements_array(
+        sub_js: Mapping[str, JSONed],
+    ) -> tuple[np.ndarray, list[list[list[int]]]]:
+        """For a JSON-like representation of a Submission object, remove and combine all
+        jobscript-block task-element mappings into a single array with a fill value.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `task_elements` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_task_elems
+            Integer Numpy array that contains a concatenation of each task-element,
+            mapping, where each mapping is expressed as a 2D array whose first column
+            corresponds to the keys of the mappings, and whose remaining columns
+            correspond to the values of the mappings. Technically a "jagged"/"ragged"
+            array that is made square with a large fill value.
+        block_shapes
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of shapes (as a two-item list:
+            `[num_actions, num_elements]`) of the constituent blocks of that jobscript.
+
+        """
+        arrs = []
+        max_x, max_y = 0, 0
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+        block_shapes = []
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
+            block_shapes_js_i = []
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
+
+                task_elems_lst = []
+                for k, v in cast("Mapping[int, list[int]]", blk["task_elements"]).items():
+                    task_elems_lst.append([k] + v)
+                task_elems_i = np.array(task_elems_lst)
+
+                block_shape_j = [task_elems_i.shape[1] - 1, task_elems_i.shape[0]]
+                block_shapes_js_i.append(block_shape_j)
+
+                blk["task_elements"] = None  # TODO: how to type?
+                if task_elems_i.shape[1] > max_x:
+                    max_x = task_elems_i.shape[1]
+                if task_elems_i.shape[0] > max_y:
+                    max_y = task_elems_i.shape[0]
+                arrs.append(task_elems_i)
+            block_shapes.append(block_shapes_js_i)
+
+        combined_task_elems = np.full(
+            (len(arrs), max_y, max_x),
+            dtype=np.uint32,
+            fill_value=np.iinfo(np.uint32).max,
+        )
+        for arr_idx, arr in enumerate(arrs):
+            combined_task_elems[arr_idx][: arr.shape[0], : arr.shape[1]] = arr
+
+        return combined_task_elems, block_shapes
+
+    @staticmethod
+    def _extract_submission_task_actions_array(
+        sub_js: Mapping[str, JSONed],
+    ) -> tuple[np.ndarray, list[list[int]]]:
+        """For a JSON-like representation of a Submission object, remove and concatenate
+        all jobscript-block task-action arrays into a single array.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `task_actions` jobscript-block keys to `None`.
+
+        Parameters
+        ----------
+        sub_js
+            JSON-like representation of a `Submission` object.
+
+        Returns
+        -------
+        combined_task_acts
+            Integer 2D Numpy array which is a concatenation along the first axis of
+            task-action actions from all jobscript blocks. The second dimension is of
+            length three.
+        block_num_acts
+            List of length equal to the number of jobscripts in the submission. Each
+            sub-list contains a list of `num_actions` of the constituent blocks of that
+            jobscript.
+
+        """
+        arrs = []
+
+        # a list for each jobscript, containing shapes of run ID arrays in each block:
+
+        blk_num_acts = []
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
+
+            blk_num_acts_js_i = []
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
+
+                blk_acts = np.array(blk["task_actions"])
+                blk["task_actions"] = None  # TODO: how to type?
+                blk_num_acts_js_i.append(blk_acts.shape[0])
+                arrs.append(blk_acts)
+
+            blk_num_acts.append(blk_num_acts_js_i)
+
+        combined_task_acts = np.vstack(arrs)
+
+        return combined_task_acts, blk_num_acts
+
+    @staticmethod
+    def _encode_jobscript_block_dependencies(sub_js: Mapping[str, JSONed]) -> np.ndarray:
+        """For a JSON-like representation of a Submission object, remove jobscript-block
+        dependencies for all jobscripts and transform to a single 1D integer array, that
+        can be transformed back by `_decode_jobscript_block_dependencies`.
+
+        Notes
+        -----
+        This mutates `sub_js`, by setting `depdendencies` jobscript-block keys to `None`.
+        """
+
+        # TODO: avoid this horrible mess of casts
+
+        all_deps_arr = []
+        assert sub_js["jobscripts"] is not None
+        for js in cast("Sequence[Mapping[str, JSONed]]", sub_js["jobscripts"]):
+            for blk in cast("Sequence[MutableMapping[str, JSONed]]", js["blocks"]):
+                all_deps_i: list[int] = []
+                assert blk["dependencies"] is not None
+                blk_deps = cast(
+                    "list[tuple[tuple[int, int], Mapping[str, JSONed]]]",
+                    blk["dependencies"],
+                )
+                for (dep_js_idx, dep_blk_idx), dep in blk_deps:
+                    deps_arr: list[int] = []
+                    for elem_i, elements_j in cast(
+                        "Mapping[int, Sequence[int]]", dep["js_element_mapping"]
+                    ).items():
+                        deps_arr.extend([len(elements_j) + 1, elem_i] + list(elements_j))
+                    blk_arr = [
+                        dep_js_idx,
+                        dep_blk_idx,
+                        int(cast("bool", dep["is_array"])),
+                    ] + deps_arr
+                    blk_arr = [len(blk_arr)] + blk_arr
+                    all_deps_i.extend(blk_arr)
+                all_deps_i = [
+                    cast("int", js["index"]),
+                    cast("int", blk["index"]),
+                ] + all_deps_i
+                blk["dependencies"] = None  # TODO: how to type?
+                all_deps_arr.extend([len(all_deps_i)] + all_deps_i)
+
+        return np.array(all_deps_arr)
+
+    @staticmethod
+    def _decode_jobscript_block_dependencies(
+        arr: np.ndarray,
+    ) -> dict[tuple[int, int], dict[tuple[int, int], ResolvedJobscriptBlockDependencies]]:
+        """Re-generate jobscript-block dependencies that have been transformed by
+        `_encode_jobscript_block_dependencies` into a single 1D integer array.
+
+        Parameters
+        ----------
+        arr:
+            The 1D integer array to transform back to a verbose jobscript-block dependency
+            mapping.
+        """
+        # metadata is js/blk_idx for which the dependencies are stored:
+        block_arrs = split_arr(arr, metadata_size=2)
+        block_deps = {}
+        for i in block_arrs:
+
+            js_idx: int
+            blk_idx: int
+            dep_js_idx: int
+            dep_blk_idx: int
+            is_array: int
+
+            js_idx, blk_idx = i[0]
+            # metadata is js/blk_idx that this block depends on, plus whether the
+            # dependency is an array dependency:
+            deps_arrs = split_arr(i[1], metadata_size=3)
+            all_deps_ij: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] = {}
+            for j in deps_arrs:
+                dep_js_idx, dep_blk_idx, is_array = j[0]
+                # no metadata:
+                elem_deps = split_arr(j[1], metadata_size=0)
+                all_deps_ij[(dep_js_idx, dep_blk_idx)] = {
+                    "js_element_mapping": {},
+                    "is_array": bool(is_array),
+                }
+                for k in elem_deps:
+                    all_deps_ij[(dep_js_idx, dep_blk_idx)]["js_element_mapping"].update(
+                        {k[1][0]: list(k[1][1:])}
+                    )
+
+            block_deps[(js_idx, blk_idx)] = all_deps_ij
+        return block_deps
+
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]):
+
+        for sub_idx, sub_i in subs.items():
+
+            # add a new metadata group for this submission:
+            sub_grp = self._get_all_submissions_metadata_group(mode="r+").create_group(
+                sub_idx
+            )
+
+            # add a new at-submit metadata array for jobscripts of this submission:
+            num_js = len(cast("list", sub_i["jobscripts"]))
+            sub_grp.create_dataset(
+                name=self._js_at_submit_md_arr_name,
+                shape=num_js,
+                dtype=object,
+                object_codec=MsgPack(),
+                chunks=1,
+                write_empty_chunks=False,
+            )
+
+            # add a new array to store run IDs for each jobscript:
+            combined_run_IDs, block_shapes = self._extract_submission_run_IDs_array(sub_i)
+            run_IDs_arr = sub_grp.create_dataset(
+                name=self._js_run_IDs_arr_name,
+                data=combined_run_IDs,
+                chunks=(None, None, None),  # single chunk for the whole array
+            )
+            run_IDs_arr.attrs["block_shapes"] = block_shapes
+
+            # add a new array to store task-element map for each jobscript:
+            (
+                combined_task_elems,
+                block_shapes,
+            ) = self._extract_submission_task_elements_array(sub_i)
+            task_elems_arr = sub_grp.create_dataset(
+                name=self._js_task_elems_arr_name,
+                data=combined_task_elems,
+                chunks=(None, None, None),
+            )
+            task_elems_arr.attrs["block_shapes"] = block_shapes
+
+            # add a new array to store task-actions for each jobscript:
+            (
+                combined_task_acts,
+                block_num_acts,
+            ) = self._extract_submission_task_actions_array(sub_i)
+            task_acts_arr = sub_grp.create_dataset(
+                name=self._js_task_acts_arr_name,
+                data=combined_task_acts,
+                chunks=(None, None),
+            )
+            task_acts_arr.attrs["block_num_acts"] = block_num_acts
+
+            # add a new array to store jobscript-block dependencies for this submission:
+            sub_grp.create_dataset(
+                name=self._js_deps_arr_name,
+                data=self._encode_jobscript_block_dependencies(sub_i),
+                chunks=(None,),
+            )
+
+            # TODO: store block shapes in `grp.attrs` since it is defined at the
+            # submission level
+
+            # add attributes for at-submit-time submission metadata:
+            grp = self._get_submission_metadata_group(sub_idx, mode="r+")
+            grp.attrs["submission_parts"] = {}
+
         with self.using_resource("attrs", action="update") as attrs:
             attrs["submissions"].extend(subs.values())
 
@@ -694,20 +1084,29 @@ class ZarrPersistentStore(
         arr[iter_ID] = store_iter.encode(attrs)
         # attrs shouldn't be mutated (TODO: test!)
 
-    def _append_submission_parts(self, sub_parts: dict[int, dict[str, list[int]]]):
-        with self.using_resource("attrs", action="update") as attrs:
-            for sub_idx, sub_i_parts in sub_parts.items():
-                sub = cast("dict", attrs["submissions"][sub_idx])
-                for dt_str, parts_j in sub_i_parts.items():
-                    sub["submission_parts"][dt_str] = parts_j
+    def _update_at_submit_metadata(
+        self,
+        at_submit_metadata: dict[int, dict[str, Any]],
+    ):
+        for sub_idx, metadata_i in at_submit_metadata.items():
+            grp = self._get_submission_metadata_group(sub_idx, mode="r+")
+            attrs = self.__as_dict(grp.attrs)
+            attrs["submission_parts"].update(metadata_i["submission_parts"])
+            grp.attrs.put(attrs)
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: Mapping[str, int]):
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]):
+
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_dat = cast("list", arr[iter_ID])
-        store_iter = ZarrStoreElementIter.decode(iter_dat, attrs)
-        store_iter = store_iter.update_loop_idx(loop_idx)
-        arr[iter_ID] = store_iter.encode(attrs)
+        iter_IDs = list(loop_indices.keys())
+        iter_dat = arr.get_coordinate_selection(iter_IDs)
+        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
+
+        for idx, iter_ID_i in enumerate(iter_IDs):
+            new_iter_i = store_iters[idx].update_loop_idx(loop_indices[iter_ID_i])
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[iter_ID_i] = new_iter_i.encode(attrs)
 
     def _update_loop_num_iters(self, index: int, num_iters: list[list[list[int] | int]]):
         with self.using_resource("attrs", action="update") as attrs:
@@ -717,73 +1116,165 @@ class ZarrPersistentStore(
         with self.using_resource("attrs", action="update") as attrs:
             attrs["loops"][index]["parents"] = parents
 
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
+
+        arr = self._get_iters_arr(mode="r+")
+        attrs = self.__as_dict(arr.attrs)
+        iter_IDs = list(iter_data_indices.keys())
+        iter_dat = arr.get_coordinate_selection(iter_IDs)
+        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
+
+        for idx, iter_ID_i in enumerate(iter_IDs):
+            new_iter_i = store_iters[idx].update_data_idx(iter_data_indices[iter_ID_i])
+            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+            # object array, so set one-by-one:
+            arr[iter_ID_i] = new_iter_i.encode(attrs)
+
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
+        self._update_runs(
+            updates={k: {"data_idx": v} for k, v in run_data_indices.items()}
+        )
+
     def _append_EARs(self, EARs: Sequence[ZarrStoreEAR]):
         arr = self._get_EARs_arr(mode="r+")
         with self.__mutate_attrs(arr) as attrs:
-            arr_add = np.empty((len(EARs)), dtype=object)
-            arr_add[:] = [ear.encode(self.ts_fmt, attrs) for ear in EARs]
-            arr.append(arr_add)
+            num_existing = attrs["num_runs"]
+            num_add = len(EARs)
+            num_tot = num_existing + num_add
+            arr_add = np.empty(num_add, dtype=object)
+            arr_add[:] = [i.encode(self.ts_fmt, attrs) for i in EARs]
 
-    @TimeIt.decorator
-    def _update_EAR_submission_indices(self, sub_indices: Mapping[int, int]):
-        EAR_IDs = list(sub_indices)
-        EARs = self._get_persistent_EARs(EAR_IDs)
+            # get new 1D indices:
+            new_idx: NDArray = np.arange(num_existing, num_tot)
 
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            for EAR_ID_i, sub_idx_i in sub_indices.items():
-                new_EAR_i = EARs[EAR_ID_i].update(submission_idx=sub_idx_i)
+            # transform to 2D indices:
+            r_idx, c_idx = get_2D_idx(new_idx, num_cols=arr.shape[1])
+
+            # add rows to accomodate new runs:
+            max_r_idx = np.max(r_idx)
+            if max_r_idx + 1 > arr.shape[0]:
+                arr.resize(max_r_idx + 1, arr.shape[1])
+
+            # fill in new data:
+            for arr_add_idx_i, (r_idx_i, c_idx_i) in enumerate(zip(r_idx, c_idx)):
                 # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
                 # object array, so set one-by-one:
-                arr[EAR_ID_i] = new_EAR_i.encode(self.ts_fmt, attrs)
+                arr[r_idx_i, c_idx_i] = arr_add[arr_add_idx_i]
+
+            attrs["num_runs"] = num_tot
+
+        # add more rows to run dirs array:
+        dirs_arr = self._get_dirs_arr(mode="r+")
+        dirs_arr.resize(num_tot)
+
+    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray):
+        dirs_arr = self._get_dirs_arr(mode="r+")
+        dirs_arr[run_idx] = run_dir_arr
+
+    @TimeIt.decorator
+    def _update_runs(self, updates: dict[int, dict[str, Any]]):
+        """Update the provided EAR attribute values in the specified existing runs."""
+        run_IDs = list(updates.keys())
+        runs = self._get_persistent_EARs(run_IDs)
+
+        arr = self._get_EARs_arr(mode="r+")
+        with self.__mutate_attrs(arr) as attrs:
+            # convert to 2D array indices:
+            r_idx, c_idx = get_2D_idx(
+                np.array(list(updates.keys())), num_cols=arr.shape[1]
+            )
+            for ri, ci, rID_i, upd_i in zip(
+                r_idx, c_idx, updates.keys(), updates.values()
+            ):
+                new_run_i = runs[rID_i].update(**upd_i)
+                # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
+                # object array, so set one-by-one:
+                arr[ri, ci] = new_run_i.encode(self.ts_fmt, attrs)
+
+    @TimeIt.decorator
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
+        self._update_runs(
+            updates={
+                k: {"submission_idx": v[0], "commands_file_ID": v[1]}
+                for k, v in sub_data.items()
+            }
+        )
 
     def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: dict[str, Any], s_hn: str
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ):
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-            EAR_i = EAR_i.update(
-                start_time=s_time,
-                snapshot_start=s_snap,
-                run_hostname=s_hn,
-            )
-            arr[EAR_id] = EAR_i.encode(self.ts_fmt, attrs)
+        self._update_runs(
+            updates={
+                k: {
+                    "start_time": v[0],
+                    "snapshot_start": v[1],
+                    "run_hostname": v[2],
+                    "port_number": v[3],
+                }
+                for k, v in run_starts.items()
+            }
+        )
 
     def _update_EAR_end(
-        self,
-        EAR_id: int,
-        e_time: datetime,
-        e_snap: dict[str, Any],
-        ext_code: int,
-        success: bool,
+        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
     ):
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-            EAR_i = EAR_i.update(
-                end_time=e_time,
-                snapshot_end=e_snap,
-                exit_code=ext_code,
-                success=success,
-            )
-            arr[EAR_id] = EAR_i.encode(self.ts_fmt, attrs)
+        self._update_runs(
+            updates={
+                k: {
+                    "end_time": v[0],
+                    "snapshot_end": v[1],
+                    "exit_code": v[2],
+                    "success": v[3],
+                }
+                for k, v in run_ends.items()
+            }
+        )
 
-    def _update_EAR_skip(self, EAR_id: int):
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            EAR_i = self._get_persistent_EARs([EAR_id])[EAR_id]
-            EAR_i = EAR_i.update(skip=True)
-            arr[EAR_id] = EAR_i.encode(self.ts_fmt, attrs)
+    def _update_EAR_skip(self, skips: dict[int, int]):
+        self._update_runs(updates={k: {"skip": v} for k, v in skips.items()})
 
     def _update_js_metadata(self, js_meta: dict[int, dict[int, dict[str, Any]]]):
-        with self.using_resource("attrs", action="update") as attrs:
-            for sub_idx, all_js_md in js_meta.items():
-                sub = cast(
-                    "dict[str, list[dict[str, Any]]]", attrs["submissions"][sub_idx]
-                )
-                for js_idx, js_meta_i in all_js_md.items():
-                    sub["jobscripts"][js_idx].update(**js_meta_i)
+
+        arr_keys = JOBSCRIPT_SUBMIT_TIME_KEYS  # these items go to the Zarr array
+
+        # split into attributes to save to the root group metadata, and those to save to
+        # the submit-time jobscript metadata array
+
+        grp_dat = {}  # keys are tuples of (sub_idx, js_idx), values are metadata dicts
+
+        for sub_idx, all_js_md in js_meta.items():
+            js_arr = None
+            for js_idx, js_meta_i in all_js_md.items():
+
+                grp_dat_i = {k: v for k, v in js_meta_i.items() if k not in arr_keys}
+                if grp_dat_i:
+                    grp_dat[(sub_idx, js_idx)] = grp_dat_i
+                arr_dat = [js_meta_i.get(k) for k in arr_keys]
+
+                if any(arr_dat):
+                    # we are updating the at-sumbmit metadata, so clear the cache:
+                    self.clear_jobscript_at_submit_metadata_cache()
+
+                    js_arr = js_arr or self._get_jobscripts_at_submit_metadata_arr(
+                        mode="r+", sub_idx=sub_idx
+                    )
+                    self.logger.info(
+                        f"updating submit-time jobscript metadata array: {arr_dat!r}."
+                    )
+                    js_arr[js_idx] = arr_dat
+
+        if grp_dat:
+            with self.using_resource("attrs", action="update") as attrs:
+                for (sub_idx, js_idx), js_meta_i in grp_dat.items():
+                    self.logger.info(
+                        f"updating jobscript metadata in the root group for "
+                        f"(sub={sub_idx}, js={js_idx}): {js_meta_i!r}."
+                    )
+                    sub = cast(
+                        "dict[str, list[dict[str, Any]]]", attrs["submissions"][sub_idx]
+                    )
+                    sub["jobscripts"][js_idx].update(js_meta_i)
 
     def _append_parameters(self, params: Sequence[StoreParameter]):
         """Add new persistent parameters."""
@@ -887,7 +1378,7 @@ class ZarrPersistentStore(
         if self.use_cache and self.num_EARs_cache is not None:
             num = self.num_EARs_cache
         else:
-            num = len(self._get_EARs_arr())
+            num = self._get_EARs_arr().attrs["num_runs"]
         if self.use_cache and self.num_EARs_cache is None:
             self.num_EARs_cache = num
         return num
@@ -910,6 +1401,13 @@ class ZarrPersistentStore(
         return self._zarr_store
 
     def _get_root_group(self, mode: str = "r", **kwargs) -> Group:
+        # TODO: investigate if there are inefficiencies in how we retrieve zarr groups
+        # and arrays, e.g. opening sub groups sequentially would open the root group
+        # multiple times, and so read the root group attrs file multiple times?
+        # it might make sense to define a ZarrAttrsStoreResource for each zarr group and
+        # array (or at least non-parameter groups/arrays?), there could be some built-in
+        # understanding of the hierarchy (e.g. via a `path` attribute) which would then
+        # avoid reading parent groups multiple times --- if that is happening currently.
         return zarr.open(self.zarr_store, mode=mode, **kwargs)
 
     def _get_parameter_group(self, mode: str = "r", **kwargs) -> Group:
@@ -952,7 +1450,55 @@ class ZarrPersistentStore(
         return group, f"arr_{arr_idx}"
 
     def _get_metadata_group(self, mode: str = "r") -> Group:
-        return self._get_root_group(mode=mode).get("metadata")
+        try:
+            path = Path(self.workflow.url).joinpath("metadata")
+            md_store = zarr.NestedDirectoryStore(path)
+            return zarr.open_group(store=md_store, mode=mode)
+        except (FileNotFoundError, zarr.errors.GroupNotFoundError):
+            # zip store?
+            return zarr.open_group(self.zarr_store, path="metadata", mode=mode)
+
+    def _get_all_submissions_metadata_group(self, mode: str = "r") -> Group:
+        return self._get_metadata_group(mode=mode).get(self._subs_md_group_name)
+
+    def _get_submission_metadata_group(self, sub_idx: int, mode: str = "r") -> Group:
+        return self._get_all_submissions_metadata_group(mode=mode).get(sub_idx)
+
+    def _get_submission_metadata_group_path(self, sub_idx: int) -> Path:
+        grp = self._get_submission_metadata_group(sub_idx)
+        return Path(grp.store.path).joinpath(grp.path)
+
+    def _get_jobscripts_at_submit_metadata_arr(
+        self, sub_idx: int, mode: str = "r"
+    ) -> Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_at_submit_md_arr_name
+        )
+
+    def _get_jobscripts_at_submit_metadata_arr_path(self, sub_idx: int) -> Path:
+        arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
+        return Path(arr.store.path).joinpath(arr.path)
+
+    @TimeIt.decorator
+    def _get_jobscripts_run_ID_arr(self, sub_idx: int, mode: str = "r") -> Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_run_IDs_arr_name
+        )
+
+    def _get_jobscripts_task_elements_arr(self, sub_idx: int, mode: str = "r") -> Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_task_elems_arr_name
+        )
+
+    def _get_jobscripts_task_actions_arr(self, sub_idx: int, mode: str = "r") -> Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_task_acts_arr_name
+        )
+
+    def _get_jobscripts_dependencies_arr(self, sub_idx: int, mode: str = "r") -> Array:
+        return self._get_submission_metadata_group(sub_idx=sub_idx, mode=mode).get(
+            self._js_deps_arr_name
+        )
 
     def _get_tasks_arr(self, mode: str = "r") -> Array:
         return self._get_metadata_group(mode=mode).get(self._task_arr_name)
@@ -965,6 +1511,9 @@ class ZarrPersistentStore(
 
     def _get_EARs_arr(self, mode: str = "r") -> Array:
         return self._get_metadata_group(mode=mode).get(self._EAR_arr_name)
+
+    def _get_dirs_arr(self, mode: str = "r") -> zarr.Array:
+        return self._get_metadata_group(mode=mode).get(self._run_dir_arr_name)
 
     @classmethod
     def make_test_store_from_spec(
@@ -1091,7 +1640,9 @@ class ZarrPersistentStore(
             }
 
     @TimeIt.decorator
-    def _get_persistent_submissions(self, id_lst: Iterable[int] | None = None):
+    def _get_persistent_submissions(
+        self, id_lst: Iterable[int] | None = None
+    ) -> dict[int, Mapping[str, JSONed]]:
         self.logger.debug("loading persistent submissions from the zarr store")
         ids = set(id_lst or ())
         with self.using_resource("attrs", "read") as attrs:
@@ -1102,12 +1653,6 @@ class ZarrPersistentStore(
                     if id_lst is None or idx in ids
                 }
             )
-            # cast jobscript submit-times and jobscript `task_elements` keys:
-            for sub in subs_dat.values():
-                for js in cast("_JS", sub)["jobscripts"]:
-                    task_elements = js["task_elements"]
-                    for key in list(task_elements):
-                        task_elements[int(key)] = task_elements.pop(key)
 
         return subs_dat
 
@@ -1117,6 +1662,10 @@ class ZarrPersistentStore(
     ) -> dict[int, ZarrStoreElement]:
         elems, id_lst = self._get_cached_persistent_elements(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent element(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_elements_arr()
             attrs = arr.attrs.asdict()
             try:
@@ -1137,6 +1686,10 @@ class ZarrPersistentStore(
     ) -> dict[int, ZarrStoreElementIter]:
         iters, id_lst = self._get_cached_persistent_element_iters(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent element iteration(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_iters_arr()
             attrs = arr.attrs.asdict()
             try:
@@ -1155,11 +1708,21 @@ class ZarrPersistentStore(
     def _get_persistent_EARs(self, id_lst: Iterable[int]) -> dict[int, ZarrStoreEAR]:
         runs, id_lst = self._get_cached_persistent_EARs(id_lst)
         if id_lst:
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent EAR(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
             arr = self._get_EARs_arr()
             attrs = arr.attrs.asdict()
+            sel: tuple[NDArray, NDArray] | list[int]
             try:
-                self.logger.debug(f"_get_persistent_EARs: {id_lst=}")
-                EAR_arr_dat = _zarr_get_coord_selection(arr, id_lst, self.logger)
+                # convert to 2D array indices:
+                sel = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
+            except IndexError:
+                # 1D runs array from before update to 2D in Feb 2025 refactor/jobscript:
+                sel = id_lst
+            try:
+                EAR_arr_dat = _zarr_get_coord_selection(arr, sel, self.logger)
             except BoundsCheckError:
                 raise MissingStoreEARError(id_lst) from None
             EAR_dat = dict(zip(id_lst, EAR_arr_dat))
@@ -1178,6 +1741,14 @@ class ZarrPersistentStore(
     ) -> dict[int, ZarrStoreParameter]:
         params, id_lst = self._get_cached_persistent_parameters(id_lst)
         if id_lst:
+
+            self.logger.debug(
+                f"loading {len(id_lst)} persistent parameter(s) from disk: "
+                f"{shorten_list_str(id_lst)}."
+            )
+
+            # TODO: implement the "parameter_metadata_cache" for zarr stores, which would
+            # keep the base_arr and src_arr open
             base_arr = self._get_parameter_base_array(mode="r")
             src_arr = self._get_parameter_sources_array(mode="r")
 
@@ -1236,6 +1807,253 @@ class ZarrPersistentStore(
         # we assume the row index is equivalent to ID, might need to revisit in future
         base_arr = self._get_parameter_base_array(mode="r")
         return list(range(len(base_arr)))
+
+    def get_submission_at_submit_metadata(
+        self, sub_idx: int, metadata_attr: dict | None
+    ) -> dict[str, Any]:
+        """Retrieve the values of submission attributes that are stored at submit-time."""
+        grp = self._get_submission_metadata_group(sub_idx)
+        attrs = grp.attrs.asdict()
+        return {k: attrs[k] for k in SUBMISSION_SUBMIT_TIME_KEYS}
+
+    def clear_jobscript_at_submit_metadata_cache(self):
+        """Clear the cache of at-submit-time jobscript metadata."""
+        self._jobscript_at_submit_metadata = {}
+
+    def get_jobscript_at_submit_metadata(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        metadata_attr: dict | None,
+    ) -> dict[str, Any]:
+        """For the specified jobscript, retrieve the values of jobscript-submit-time
+        attributes.
+
+        Notes
+        -----
+        If the cache does not exist, this method will retrieve and cache metadata for
+        all jobscripts for which metadata has been set. If the cache does exist, but not
+        for the requested jobscript, then this method will retrieve and cache metadata for
+        all non-cached jobscripts for which metadata has been set. If metadata has not
+        yet been set for the specified jobscript, and dict with all `None` values will be
+        returned.
+
+        The cache can be cleared using the method
+        `clear_jobscript_at_submit_metadata_cache`.
+
+        """
+        if self._jobscript_at_submit_metadata:
+            # cache exists, but might not include data for the requested jobscript:
+            if js_idx in self._jobscript_at_submit_metadata:
+                return self._jobscript_at_submit_metadata[js_idx]
+
+        arr = self._get_jobscripts_at_submit_metadata_arr(sub_idx)
+        non_cached = set(range(len(arr))) - set(self._jobscript_at_submit_metadata.keys())
+
+        # populate cache:
+        arr_non_cached = arr.get_coordinate_selection((list(non_cached),))
+        for js_idx_i, arr_item in zip(non_cached, arr_non_cached):
+            try:
+                self._jobscript_at_submit_metadata[js_idx_i] = {
+                    i: arr_item[i_idx]
+                    for i_idx, i in enumerate(JOBSCRIPT_SUBMIT_TIME_KEYS)
+                }
+            except TypeError:
+                # data for this jobscript is not set
+                pass
+
+        if js_idx not in self._jobscript_at_submit_metadata:
+            return {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
+
+        return self._jobscript_at_submit_metadata[js_idx]
+
+    @TimeIt.decorator
+    def get_jobscript_block_run_ID_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        run_ID_arr: NDArray | None,
+    ) -> NDArray:
+        """For the specified jobscript-block, retrieve the run ID array."""
+
+        if run_ID_arr is not None:
+            self.logger.debug("jobscript-block run IDs are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # run ID arrays will not yet be persistent.
+            return np.asarray(run_ID_arr)
+
+        # otherwise, `append_submissions` has been called, the run IDs have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_run_ID_arrays:
+
+            self.logger.debug(
+                f"retrieving jobscript-block run IDs for submission {sub_idx} from disk,"
+                f" and caching."
+            )
+
+            # for a given submission, run IDs are stored for all jobscript-blocks in the
+            # same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_run_ID_arr(sub_idx)
+            arr_dat = arr[:]
+            block_shapes = arr.attrs["block_shapes"]
+
+            self._jobscript_run_ID_arrays[sub_idx] = {}  # keyed by (js_idx, blk_idx)
+            arr_idx = 0
+            for js_idx_i, js_blk_shapes in enumerate(block_shapes):
+                for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
+                    self._jobscript_run_ID_arrays[sub_idx][
+                        (js_idx_i, blk_idx_j)
+                    ] = arr_dat[arr_idx, : blk_shape_j[0], : blk_shape_j[1]]
+                    arr_idx += 1
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block run IDs for submission {sub_idx} from cache."
+            )
+
+        return self._jobscript_run_ID_arrays[sub_idx][(js_idx, blk_idx)]
+
+    def get_jobscript_block_task_elements_map(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_elems_map: dict[int, list[int]] | None,
+    ) -> dict[int, list[int]]:
+        """For the specified jobscript-block, retrieve the task-elements mapping."""
+
+        if task_elems_map is not None:
+            self.logger.debug("jobscript-block task elements are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # task elements arrays will not yet be persistent.
+            return task_elems_map
+
+        # otherwise, `append_submissions` has been called, the task elements have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_task_element_maps:
+
+            self.logger.debug(
+                f"retrieving jobscript-block task elements for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+
+            # for a given submission, task elements are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_task_elements_arr(sub_idx)
+            arr_dat = arr[:]
+            block_shapes = arr.attrs["block_shapes"]
+
+            self._jobscript_task_element_maps[sub_idx] = {}  # keys: (js_idx, blk_idx)
+            arr_idx = 0
+            for js_idx_i, js_blk_shapes in enumerate(block_shapes):
+                for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
+                    arr_i = arr_dat[arr_idx, : blk_shape_j[1], : blk_shape_j[0] + 1]
+                    self._jobscript_task_element_maps[sub_idx][(js_idx_i, blk_idx_j)] = {
+                        k[0]: list(k[1:]) for k in arr_i
+                    }
+                    arr_idx += 1
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block task elements for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_task_element_maps[sub_idx][(js_idx, blk_idx)]
+
+    @TimeIt.decorator
+    def get_jobscript_block_task_actions_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_actions_arr: NDArray | list[tuple[int, int, int]] | None,
+    ) -> NDArray:
+        """For the specified jobscript-block, retrieve the task-actions array."""
+
+        if task_actions_arr is not None:
+            self.logger.debug("jobscript-block task actions are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # task actions arrays will not yet be persistent.
+            return np.asarray(task_actions_arr)
+
+        # otherwise, `append_submissions` has been called, the task actions have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_task_actions_arrays:
+
+            self.logger.debug(
+                f"retrieving jobscript-block task actions for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+
+            # for a given submission, task actions are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+
+            arr = self._get_jobscripts_task_actions_arr(sub_idx)
+            arr_dat = arr[:]
+            block_num_acts = arr.attrs["block_num_acts"]
+
+            num_acts_count = 0
+            self._jobscript_task_actions_arrays[sub_idx] = {}  # keys: (js_idx, blk_idx)
+            for js_idx_i, js_blk_num_acts in enumerate(block_num_acts):
+                for blk_idx_j, blk_num_acts_j in enumerate(js_blk_num_acts):
+                    arr_i = arr_dat[num_acts_count : num_acts_count + blk_num_acts_j]
+                    num_acts_count += blk_num_acts_j
+                    self._jobscript_task_actions_arrays[sub_idx][
+                        (js_idx_i, blk_idx_j)
+                    ] = arr_i
+
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block task actions for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_task_actions_arrays[sub_idx][(js_idx, blk_idx)]
+
+    @TimeIt.decorator
+    def get_jobscript_block_dependencies(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        js_dependencies: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] | None,
+    ) -> dict[tuple[int, int], ResolvedJobscriptBlockDependencies]:
+        """For the specified jobscript-block, retrieve the dependencies."""
+
+        if js_dependencies is not None:
+            self.logger.debug("jobscript-block dependencies are still in memory.")
+            # in the special case when the Submission object has just been created, the
+            # dependencies will not yet be persistent.
+            return js_dependencies
+
+        # otherwise, `append_submissions` has been called, the dependencies have been
+        # removed from the JSON-representation of the submission object, and have been
+        # saved in separate zarr arrays:
+        if sub_idx not in self._jobscript_dependencies:
+            self.logger.debug(
+                f"retrieving jobscript-block dependencies for submission {sub_idx} from "
+                f"disk, and caching."
+            )
+            # for a given submission, dependencies are stored for all jobscript-blocks in
+            # the same array (and chunk), so retrieve all of them and cache:
+            arr = self._get_jobscripts_dependencies_arr(sub_idx)
+            self._jobscript_dependencies[
+                sub_idx
+            ] = self._decode_jobscript_block_dependencies(arr)
+        else:
+            self.logger.debug(
+                f"retrieving jobscript-block dependencies for submission {sub_idx} from "
+                "cache."
+            )
+
+        return self._jobscript_dependencies[sub_idx][(js_idx, blk_idx)]
 
     def get_ts_fmt(self):
         """
@@ -1332,7 +2150,7 @@ class ZarrPersistentStore(
         backup: bool = True,
         status: bool = True,
     ) -> Array:
-        arr_path = Path(self.workflow.path) / arr.path
+        arr_path = Path(arr.store.path) / arr.path
         arr_name = arr.path.split("/")[-1]
 
         if status:
@@ -1354,16 +2172,24 @@ class ZarrPersistentStore(
 
         tic = time.perf_counter()
         arr_rc_path = arr_path.with_suffix(".rechunked")
-        arr = zarr.open(arr_path)
         if status:
             s.update("Creating new array...")
+
+        # use the same store:
+        try:
+            arr_rc_store = arr.store.__class__(path=arr_rc_path)
+        except TypeError:
+            # FSStore
+            arr_rc_store = arr.store.__class__(url=str(arr_rc_path))
+
         arr_rc = zarr.create(
-            store=arr_rc_path,
+            store=arr_rc_store,
             shape=arr.shape,
             chunks=arr.shape if chunk_size is None else chunk_size,
             dtype=object,
             object_codec=self._CODEC,
         )
+
         if status:
             s.update("Copying data...")
         data = np.empty(shape=arr.shape, dtype=object)
@@ -1425,6 +2251,12 @@ class ZarrPersistentStore(
         """
         arr = self._get_EARs_arr()
         return self._rechunk_arr(arr, chunk_size, backup, status)
+
+    def get_dirs_array(self) -> NDArray:
+        """
+        Retrieve the run directories array.
+        """
+        return self._get_dirs_arr()[:]
 
 
 class ZarrZipPersistentStore(ZarrPersistentStore):
@@ -1503,3 +2335,18 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
         status: bool = True,
     ) -> Array:
         raise NotImplementedError
+
+    def get_text_file(self, path: str | Path) -> str:
+        """Retrieve the contents of a text file stored within the workflow."""
+        path = Path(path)
+        if path.is_absolute():
+            path = path.relative_to(self.workflow.url)
+        path = str(path.as_posix())
+        assert self.fs
+        try:
+            with self.fs.open(path, mode="rt") as fp:
+                return fp.read()
+        except KeyError:
+            raise FileNotFoundError(
+                f"File within zip at location {path!r} does not exist."
+            ) from None

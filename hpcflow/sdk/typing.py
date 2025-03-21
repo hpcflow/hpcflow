@@ -1,6 +1,7 @@
 """
 Common type aliases.
 """
+
 from __future__ import annotations
 from dataclasses import InitVar
 from typing import Any, ClassVar, Final, TypeVar, cast, TYPE_CHECKING
@@ -11,6 +12,7 @@ import re
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
+    from rich.status import Status
     from .core.object_list import (
         CommandFilesList,
         EnvironmentsList,
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
     )
     from .submission.enums import JobscriptElementState
     from .submission.submission import Submission
+
 
 #: Type of a value that can be treated as a path.
 PathLike: TypeAlias = "str | Path | None"
@@ -102,7 +105,7 @@ class KnownSubmissionItem(TypedDict):
     #: Jobscripts in submission.
     jobscripts: list[int]
     #: Active jobscript state.
-    active_jobscripts: Mapping[int, Mapping[int, JobscriptElementState]]
+    active_jobscripts: Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]]
     #: Whether this is deleted.
     deleted: bool
     #: Whether this is unloadable.
@@ -126,6 +129,22 @@ class TemplateComponents(TypedDict):
     task_schemas: NotRequired[TaskSchemasList]
     #: Scripts discovered by templates.
     scripts: NotRequired[dict[str, Path]]
+
+
+class MakeWorkflowCommonArgs(TypedDict):
+    """
+    Common keys used in workflow construction in :py:meth:`BaseApp._make_workflow`.
+    """
+
+    path: str | None
+    name: str | None
+    overwrite: bool
+    store: str
+    ts_fmt: str | None
+    ts_name_fmt: str | None
+    store_kwargs: dict[str, Any] | None
+    variables: dict[str, Any] | None
+    status: Status | None
 
 
 #: Simplification of :class:`TemplateComponents` to allow some types of

@@ -1,6 +1,7 @@
 """
 Types used in configuration.
 """
+
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import TypeAlias, TypedDict, TypeVar
@@ -19,6 +20,8 @@ T = TypeVar("T")
 GetterCallback: TypeAlias = "Callable[[Config, T], T]"
 #: Type of a setter callback.
 SetterCallback: TypeAlias = "Callable[[Config, T], Any]"
+#: Type of a unsetter callback.
+UnsetterCallback: TypeAlias = "Callable[[Config], None]"
 
 
 class SGEParallelEnvsDescriptor(TypedDict):

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 import sys
 from typing import TYPE_CHECKING
 import pytest
@@ -110,3 +111,22 @@ def test_get_demo_data_cache(null_config) -> None:
     with hf.demo_data_cache_dir.joinpath("text_file.txt").open("rt") as fh:
         contents = fh.read()
     assert contents == "\n".join(f"{i}" for i in range(1, 11)) + "\n"
+
+
+def test_list_demo_workflows():
+    # sanity checks
+    lst = hf.list_demo_workflows()
+    assert isinstance(lst, tuple)
+    assert all(isinstance(i, str) and "." not in i for i in lst)  # no extension included
+
+
+def test_get_demo_workflows():
+    # sanity checks
+    lst = hf.list_demo_workflows()
+    demo_paths = hf._get_demo_workflows()
+    # keys should be those in the list:
+    assert sorted(list(lst)) == sorted(list(demo_paths.keys()))
+
+    # values should be distinct, absolute paths:
+    assert all(isinstance(i, Path) and i.is_absolute() for i in demo_paths.values())
+    assert len(set(demo_paths.values())) == len(demo_paths)

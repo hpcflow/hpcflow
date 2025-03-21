@@ -9,10 +9,12 @@ from textwrap import indent
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from logging import Logger
     from .enums import ParallelMode
     from .object_list import WorkflowLoopList
-    from .parameters import InputSource, ValueSequence
+    from .parameters import InputSource, ValueSequence, SchemaInput
     from .types import ScriptData
+    from .task import WorkflowTask
 
 
 class InputValueDuplicateSequenceAddress(ValueError):
@@ -410,7 +412,13 @@ class WorkflowLimitsError(ValueError):
     # FIXME: never used
 
 
-class UnsetParameterDataError(Exception):
+class UnsetParameterDataErrorBase(Exception):
+    """
+    Exceptions related to attempts to retrieve unset parameters.
+    """
+
+
+class UnsetParameterDataError(UnsetParameterDataErrorBase):
     """
     Tried to read from an unset parameter.
     """
@@ -420,6 +428,50 @@ class UnsetParameterDataError(Exception):
             f"Element data path {path!r} resolves to unset data for "
             f"(at least) data-index path: {path_i!r}."
         )
+
+
+class UnsetParameterFractionLimitExceededError(UnsetParameterDataErrorBase):
+    """
+    Given the specified `allow_failed_dependencies`, the fraction of failed dependencies
+    (unset parameter data) is too high."""
+
+    def __init__(
+        self,
+        schema_inp: SchemaInput,
+        task: WorkflowTask,
+        unset_fraction: float,
+        log: Logger | None = None,
+    ):
+        msg = (
+            f"Input {schema_inp.parameter.typ!r} of task {task.name!r}: higher "
+            f"proportion of dependencies failed ({unset_fraction!r}) than allowed "
+            f"({schema_inp.allow_failed_dependencies!r})."
+        )
+        if log:
+            log.info(msg)
+        super().__init__(msg)
+
+
+class UnsetParameterNumberLimitExceededError(UnsetParameterDataErrorBase):
+    """
+    Given the specified `allow_failed_dependencies`, the number of failed dependencies
+    (unset parameter data) is too high."""
+
+    def __init__(
+        self,
+        schema_inp: SchemaInput,
+        task: WorkflowTask,
+        unset_num: int,
+        log: Logger | None = None,
+    ):
+        msg = (
+            f"Input {schema_inp.parameter.typ!r} of task {task.name!r}: higher number of "
+            f"dependencies failed ({unset_num!r}) than allowed "
+            f"({schema_inp.allow_failed_dependencies!r})."
+        )
+        if log:
+            log.info(msg)
+        super().__init__(msg)
 
 
 class LoopAlreadyExistsError(Exception):
@@ -728,6 +780,10 @@ class MissingParameterData(_MissingStoreItemError):
 
     def __init__(self, id_lst: Iterable[int]) -> None:
         super().__init__(id_lst, self._item_type)
+
+
+class ParametersMetadataReadOnlyError(RuntimeError):
+    pass
 
 
 class NotSubmitMachineError(RuntimeError):

@@ -3,82 +3,55 @@ Model of files in the run directory.
 """
 
 from __future__ import annotations
-import re
 from typing import Any, TYPE_CHECKING
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.utils import JSONLikeDirSnapShot
 
 if TYPE_CHECKING:
-    from re import Pattern
-    from typing_extensions import ClassVar
     from ..submission.shells.base import Shell
+    from .types import BlockActionKey
 
 
 class RunDirAppFiles(AppAware):
     """A class to encapsulate the naming/recognition of app-created files within run
     directories."""
 
-    __CMD_FILES_RE_PATTERN: ClassVar[Pattern] = re.compile(r"js_\d+_act_\d+\.?\w*")
-
-    @classmethod
-    def get_log_file_name(cls) -> str:
-        """File name for the app log file."""
-        return f"{cls._app.package_name}.log"
-
-    @classmethod
-    def get_std_file_name(cls) -> str:
-        """File name for stdout and stderr streams from the app."""
-        return f"{cls._app.package_name}_std.txt"
-
     @staticmethod
-    def get_run_file_prefix(js_idx: int | str, js_action_idx: int | str) -> str:
+    def get_run_file_prefix(block_act_key: BlockActionKey) -> str:
         """
         Get the common prefix for files associated with a run.
         """
-        return f"js_{js_idx}_act_{js_action_idx}"
+        return f"js_{block_act_key[0]}_block_{block_act_key[1]}_act_{block_act_key[2]}"
 
     @classmethod
-    def get_commands_file_name(
-        cls, js_idx: int | str, js_action_idx: int | str, shell: Shell
-    ) -> str:
+    def get_commands_file_name(cls, block_act_key: BlockActionKey, shell: Shell) -> str:
         """
         Get the name of the file containing commands.
         """
-        return cls.get_run_file_prefix(js_idx, js_action_idx) + shell.JS_EXT
+        return cls.get_run_file_prefix(block_act_key) + shell.JS_EXT
 
     @classmethod
-    def get_run_param_dump_file_prefix(
-        cls, js_idx: int | str, js_action_idx: int | str
-    ) -> str:
+    def get_run_param_dump_file_prefix(cls, block_act_key: BlockActionKey) -> str:
         """Get the prefix to a file in the run directory that the app will dump parameter
         data to."""
-        return cls.get_run_file_prefix(js_idx, js_action_idx) + "_inputs"
+        return cls.get_run_file_prefix(block_act_key) + "_inputs"
 
     @classmethod
-    def get_run_param_load_file_prefix(
-        cls, js_idx: int | str, js_action_idx: int | str
-    ) -> str:
+    def get_run_param_load_file_prefix(cls, block_act_key: BlockActionKey) -> str:
         """Get the prefix to a file in the run directory that the app will load parameter
         data from."""
-        return cls.get_run_file_prefix(js_idx, js_action_idx) + "_outputs"
+        return cls.get_run_file_prefix(block_act_key) + "_outputs"
 
     @classmethod
-    def take_snapshot(cls) -> dict[str, Any]:
+    def take_snapshot(cls, root_path=None) -> dict[str, Any]:
         """
-        Take a :py:class:`JSONLikeDirSnapShot`, and process to ignore files created by
-        the app.
+        Take a :py:class:`JSONLikeDirSnapShot`.
 
         This includes command files that are invoked by jobscripts, the app log file, and
         the app standard out/error file.
         """
         snapshot = JSONLikeDirSnapShot()
-        snapshot.take(".")
-        ss_js = snapshot.to_json_like()
+        snapshot.take(root_path or ".")
+        ss_js = snapshot.to_json_like(use_strings=True)
         ss_js.pop("root_path")  # always the current working directory of the run
-        excluded = {cls.get_log_file_name(), cls.get_std_file_name()}
-        data: dict[str, Any] = ss_js["data"]
-        for filename in tuple(data):
-            if filename in excluded or cls.__CMD_FILES_RE_PATTERN.match(filename):
-                data.pop(filename)
-
         return ss_js

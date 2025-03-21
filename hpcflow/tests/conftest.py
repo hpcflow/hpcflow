@@ -29,6 +29,13 @@ def pytest_addoption(parser: pytest.Parser):
         default=False,
         help="run integration-like workflow submission tests",
     )
+    parser.addoption(
+        "--repeat",
+        action="store",
+        default=1,
+        type=int,
+        help="number of times to repeat each test",
+    )
 
 
 def pytest_configure(config: pytest.Config):
@@ -102,3 +109,15 @@ def new_null_config(tmp_path: Path):
     hf.load_config(config_dir=tmp_path, warn=False)
     hf.load_template_components(warn=False)
     hf.run_time_info.in_pytest = True
+
+
+@pytest.fixture
+def unload_config():
+    hf.unload_config()
+
+
+def pytest_generate_tests(metafunc):
+    repeats_num = int(metafunc.config.getoption("--repeat"))
+    if repeats_num > 1:
+        metafunc.fixturenames.append("tmp_ct")
+        metafunc.parametrize("tmp_ct", range(repeats_num))

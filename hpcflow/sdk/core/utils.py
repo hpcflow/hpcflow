@@ -4,8 +4,12 @@ Miscellaneous utilities.
 
 from __future__ import annotations
 from collections import Counter
+from asyncio import events
+import contextvars
+import contextlib
 import copy
 import enum
+import functools
 import hashlib
 from itertools import accumulate, islice
 from importlib import resources
@@ -20,7 +24,8 @@ import string
 import subprocess
 from datetime import datetime, timedelta, timezone
 import sys
-from typing import cast, overload, TypeVar, TYPE_CHECKING
+import traceback
+from typing import Literal, cast, overload, TypeVar, TYPE_CHECKING
 import fsspec  # type: ignore
 import numpy as np
 
@@ -33,12 +38,13 @@ from hpcflow.sdk.core.errors import (
     MissingVariableSubstitutionError,
 )
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
     from contextlib import AbstractContextManager
     from types import ModuleType
-    from typing import Any, IO
+    from typing import Any, IO, Iterator
     from typing_extensions import TypeAlias
     from numpy.typing import NDArray
     from ..typing import PathLike
@@ -328,7 +334,7 @@ def get_relative_path(path1: Sequence[T], path2: Sequence[T]) -> Sequence[T]:
 
 
 def search_dir_files_by_regex(
-    pattern: str | re.Pattern[str], directory: str = "."
+    pattern: str | re.Pattern[str], directory: str | os.PathLike = "."
 ) -> list[str]:
     """Search recursively for files in a directory by a regex pattern and return matching
     file paths, relative to the given directory."""
@@ -773,7 +779,12 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
         See :py:meth:`to_json_like`.
     """
 
-    def __init__(self, root_path: str | None = None, data: dict[str, list] | None = None):
+    def __init__(
+        self,
+        root_path: str | None = None,
+        data: dict[str, list] | None = None,
+        use_strings: bool = False,
+    ):
         """
         Create an empty snapshot or load from JSON-like data.
         """
@@ -788,6 +799,7 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
             for name, item in data.items():
                 # add root path
                 full_name = str(PurePath(root_path) / PurePath(name))
+                item = [int(i) for i in item] if use_strings else item
                 stat_dat, inode_key = item[:-2], item[-2:]
                 self._stat_info[full_name] = os.stat_result(stat_dat)
                 self._inode_to_path[tuple(inode_key)] = full_name
@@ -796,7 +808,7 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
         """Take the snapshot."""
         super().__init__(*args, **kwargs)
 
-    def to_json_like(self) -> dict[str, Any]:
+    def to_json_like(self, use_strings: bool = False) -> dict[str, Any]:
         """Export to a dict that is JSON-compatible and can be later reloaded.
 
         The last two integers in `data` for each path are the keys in
@@ -809,13 +821,16 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
         # store efficiently:
         inode_invert = {v: k for k, v in self._inode_to_path.items()}
         data: dict[str, list] = {
-            str(PurePath(k).relative_to(root_path)): [*v, *inode_invert[k]]
+            str(PurePath(k).relative_to(root_path)): [
+                str(i) if use_strings else i for i in [*v, *inode_invert[k]]
+            ]
             for k, v in self._stat_info.items()
         }
 
         return {
             "root_path": root_path,
             "data": data,
+            "use_strings": use_strings,
         }
 
 
@@ -1085,3 +1100,57 @@ def get_file_context(
     except AttributeError:
         # < python 3.9
         return resources.path(package, src or "")
+
+
+@contextlib.contextmanager
+def redirect_std_to_file(
+    file,
+    mode: Literal["w", "a"] = "a",
+    ignore: Callable[[BaseException], Literal[True] | int] | None = None,
+) -> Iterator[None]:
+    """Temporarily redirect both stdout and stderr to a file, and if an exception is
+    raised, catch it, print the traceback to that file, and exit.
+
+    File creation is deferred until an actual write is required.
+
+    Parameters
+    ----------
+    ignore
+        Callable to test if a given exception should be ignored. If an exception is
+        not ignored, its traceback will be printed to `file` and the program will
+        exit with exit code 1. The callable should accept one parameter, the
+        exception, and should return True if that exception should be ignored, or
+        an integer representing the exit code to exit the program with if that
+        exception should not be ignored.  By default, no exceptions are ignored.
+
+    """
+    ignore = ignore or (lambda _: 1)
+    with DeferredFileWriter(file, mode=mode) as fp:
+        with contextlib.redirect_stdout(fp):
+            with contextlib.redirect_stderr(fp):
+                try:
+                    yield
+                except BaseException as exc:
+                    ignore_ret = ignore(exc)
+                    if ignore_ret is not True:
+                        traceback.print_exc()
+                        sys.exit(ignore_ret)
+
+
+async def to_thread(func, /, *args, **kwargs):
+    """Copied from https://github.com/python/cpython/blob/4b4227b907a262446b9d276c274feda2590a4e6e/Lib/asyncio/threads.py
+    to support Python 3.8, which does not have `asyncio.to_thread`.
+
+    Asynchronously run function *func* in a separate thread.
+
+    Any *args and **kwargs supplied for this function are directly passed
+    to *func*. Also, the current :class:`contextvars.Context` is propagated,
+    allowing context variables from the main thread to be accessed in the
+    separate thread.
+
+    Return a coroutine that can be awaited to get the eventual result of *func*.
+    """
+    loop = events.get_running_loop()
+    ctx = contextvars.copy_context()
+    func_call = functools.partial(ctx.run, func, *args, **kwargs)
+    return await loop.run_in_executor(None, func_call)

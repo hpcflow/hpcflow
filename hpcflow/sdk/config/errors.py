@@ -1,11 +1,12 @@
 """
 Miscellaneous configuration-related errors.
 """
+
 from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence, Iterable
     from .types import ConfigMetadata
     from ..typing import PathLike
 
@@ -51,10 +52,15 @@ class ConfigNonConfigurableError(ConfigError):
     Raised when the configuration contains an item that can't be configured.
     """
 
-    def __init__(self, name: str, message: str = ""):
-        super().__init__(
-            message or f"Specified name {name!r} is not a configurable item."
-        )
+    def __init__(self, name: str | Iterable[str], message: str | None = None):
+        if not message:
+            if not isinstance(name, str):
+                names_str = ", ".join(f"{i!r}" for i in name)
+                msg = f"Specified names {names_str} are not configurable items."
+            else:
+                msg = f"Specified name {name!r} is not a configurable item."
+        self.message = message or msg
+        super().__init__(self.message)
 
 
 class ConfigItemAlreadyUnsetError(ConfigError):
@@ -250,3 +256,11 @@ class MissingEnvironmentFileError(ConfigError):
         super().__init__(
             message or (f"The environment file {file_name!r} cannot be found. \n{err!s}")
         )
+
+
+class ConfigReadOnlyError(ConfigError):
+    pass
+
+
+class UnknownMetaTaskConstitutiveSchema(ValueError):
+    pass

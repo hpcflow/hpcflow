@@ -121,6 +121,13 @@ class ParameterValue:
         raise NotImplementedError
 
     @classmethod
+    def dump_element_group_to_HDF5_group(cls, objs: list[ParameterValue], group: Group):
+        """
+        Write a list (from an element group) of parameter values to an HDF5 group.
+        """
+        raise NotImplementedError
+
+    @classmethod
     def save_from_HDF5_group(cls, group: Group, param_id: int, workflow: Workflow):
         """
         Extract a parameter value from an HDF5 group.
@@ -376,6 +383,13 @@ class SchemaInput(SchemaParameter):
         Determines the name of the element group from which this input should be sourced.
         This is a default value that will be applied to all `labels` if a "group" key
         does not exist.
+    allow_failed_dependencies
+        This controls whether failure to retrieve inputs (i.e. an
+        `UnsetParameterDataError` is raised for one of the input sources) should be
+        allowed. By default, the unset value, which is equivalent to `False`, means no
+        failures are allowed. If set to `True`, any number of failures are allowed. If an
+        integer is specified, that number of failures are permitted. Finally, if a float
+        is specified, that proportion of failures are allowed.
     """
 
     _task_schema: TaskSchema | None = None  # assigned by parent TaskSchema
@@ -397,6 +411,7 @@ class SchemaInput(SchemaParameter):
         default_value: InputValue | Any | NullDefault = NullDefault.NULL,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
         group: str | None = None,
+        allow_failed_dependencies: int | float | bool | None = False,
     ):
         # TODO: can we define elements groups on local inputs as well, or should these be
         # just for elements from other tasks?
@@ -413,8 +428,14 @@ class SchemaInput(SchemaParameter):
         else:
             self.parameter = parameter
 
-        #: Whether to expect more than of these parameters defined in the workflow.
+        if allow_failed_dependencies is None:
+            allow_failed_dependencies = 0.0
+        elif isinstance(allow_failed_dependencies, bool):
+            allow_failed_dependencies = float(allow_failed_dependencies)
+
+        #: Whether to expect multiple labels for this parameter.
         self.multiple = multiple
+        self.allow_failed_dependencies = allow_failed_dependencies
 
         #: Dict whose keys represent the string labels that distinguish multiple
         #: parameters if `multiple` is `True`.
@@ -533,6 +554,7 @@ class SchemaInput(SchemaParameter):
             "parameter": copy.deepcopy(self.parameter, memo),
             "multiple": self.multiple,
             "labels": copy.deepcopy(self.labels, memo),
+            "allow_failed_dependencies": self.allow_failed_dependencies,
         }
         obj = self.__class__(**kwargs)
         obj._task_schema = self._task_schema
@@ -719,7 +741,7 @@ class ValueSequence(JSONLike):
     def __init__(
         self,
         path: str,
-        values: list[Any] | None,
+        values: Sequence[Any] | None,
         nesting_order: int | float | None = None,
         label: str | int | None = None,
         value_class_method: str | None = None,
@@ -1726,6 +1748,12 @@ class ResourceSpec(JSONLike):
         Whether to use array jobs.
     max_array_items: int
         If using array jobs, up to how many items should be in the job array.
+    write_app_logs: bool
+        Whether an app log file should be written.
+    combine_jobscript_std: bool
+        Whether jobscript standard output and error streams should be combined.
+    combine_scripts: bool
+        Whether Python scripts should be combined.
     time_limit: str
         How long to run for.
     scheduler_args: dict[str, Any]
@@ -1736,6 +1764,13 @@ class ResourceSpec(JSONLike):
         Which OS to use.
     environments: dict
         Which execution environments to use.
+    resources_id: int
+        An arbitrary integer that can be used to force multiple jobscripts.
+    skip_downstream_on_failure: bool
+        Whether to skip downstream dependents on failure.
+    allow_failed_dependencies: int | float | bool | None
+        The failure tolerance with respect to dependencies, specified as a number or
+        proportion.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -1762,11 +1797,16 @@ class ResourceSpec(JSONLike):
         "shell",
         "use_job_array",
         "max_array_items",
+        "write_app_logs",
+        "combine_jobscript_std",
+        "combine_scripts",
         "time_limit",
         "scheduler_args",
         "shell_args",
         "os_name",
         "environments",
+        "resources_id",
+        "skip_downstream_on_failure",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -1819,11 +1859,16 @@ class ResourceSpec(JSONLike):
         shell: str | None = None,
         use_job_array: bool | None = None,
         max_array_items: int | None = None,
+        write_app_logs: bool | None = None,
+        combine_jobscript_std: bool | None = None,
+        combine_scripts: bool | None = None,
         time_limit: str | timedelta | None = None,
         scheduler_args: dict[str, Any] | None = None,
         shell_args: dict[str, Any] | None = None,
         os_name: str | None = None,
         environments: Mapping[str, Mapping[str, Any]] | None = None,
+        resources_id: int | None = None,
+        skip_downstream_on_failure: bool | None = None,
         SGE_parallel_env: str | None = None,
         SLURM_partition: str | None = None,
         SLURM_num_tasks: str | None = None,
@@ -1852,8 +1897,13 @@ class ResourceSpec(JSONLike):
         self._shell = self._process_string(shell)
         self._os_name = self._process_string(os_name)
         self._environments = environments
+        self._resources_id = resources_id
+        self._skip_downstream_on_failure = skip_downstream_on_failure
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
+        self._write_app_logs = write_app_logs
+        self._combine_jobscript_std = combine_jobscript_std
+        self._combine_scripts = combine_scripts
         self._time_limit = time_limit
         self._scheduler_args = scheduler_args
         self._shell_args = shell_args
@@ -1991,11 +2041,16 @@ class ResourceSpec(JSONLike):
             self._shell = None
             self._use_job_array = None
             self._max_array_items = None
+            self._write_app_logs = None
+            self._combine_jobscript_std = None
+            self._combine_scripts = None
             self._time_limit = None
             self._scheduler_args = None
             self._shell_args = None
             self._os_name = None
             self._environments = None
+            self._resources_id = None
+            self._skip_downstream_on_failure = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -2111,6 +2166,18 @@ class ResourceSpec(JSONLike):
         return self._get_value("max_array_items")
 
     @property
+    def write_app_logs(self) -> bool:
+        return self._get_value("write_app_logs")
+
+    @property
+    def combine_jobscript_std(self) -> bool:
+        return self._get_value("combine_jobscript_std")
+
+    @property
+    def combine_scripts(self) -> bool:
+        return self._get_value("combine_scripts")
+
+    @property
     def time_limit(self) -> str | None:
         """
         How long to run for.
@@ -2149,6 +2216,14 @@ class ResourceSpec(JSONLike):
         Which execution environments to use.
         """
         return self._get_value("environments")
+
+    @property
+    def resources_id(self) -> int:
+        return self._get_value("resources_id")
+
+    @property
+    def skip_downstream_on_failure(self) -> bool:
+        return self._get_value("skip_downstream_on_failure")
 
     @property
     def SGE_parallel_env(self) -> str | None:

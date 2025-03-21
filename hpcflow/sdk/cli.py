@@ -3,8 +3,10 @@ Command line interface implementation.
 """
 
 from __future__ import annotations
+import contextlib
 import json
 import os
+import time
 import click
 from colorama import init as colorama_init
 from termcolor import colored  # type: ignore
@@ -32,7 +34,9 @@ from hpcflow.sdk.cli_common import (
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    force_arr_opt,
     make_status_opt,
+    add_sub_opt,
     zip_path_opt,
     zip_overwrite_opt,
     zip_log_opt,
@@ -43,6 +47,13 @@ from hpcflow.sdk.cli_common import (
     rechunk_backup_opt,
     rechunk_chunk_size_opt,
     rechunk_status_opt,
+    cancel_status_opt,
+    list_js_max_js_opt,
+    list_js_jobscripts_opt,
+    list_task_js_max_js_opt,
+    list_task_js_task_names_opt,
+    list_js_width_opt,
+    jobscript_std_array_idx_opt,
     _add_doc_from_help,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
@@ -84,6 +95,45 @@ _pass_js = click.make_pass_decorator(Jobscript)
 _add_doc_from_help(string_option, workflow_ref_type_opt)
 
 
+class ErrorPropagatingClickContext(click.Context):
+    """A click Context class that passes on exception information.
+
+    Using the standard `click.Context` class, exceptions raised when using a resource specified
+    with `ctx.with_resource(my_ctx_manager())` are not passed on to the `__exit__` method of
+    `my_ctx_manager`. See: https://github.com/pallets/click/issues/2447.
+
+    Examples
+    --------
+    >>> @click.group()
+    ... @click.pass_context
+    ... def cli(ctx):
+    ...     ctx.with_resource(my_context_manager())
+    ... cli.context_class = ErrorPropagatingClickContext
+
+    """
+
+    def __exit__(self, exc_type, exc_value, tb):
+        self._depth -= 1
+        if self._depth == 0:
+            self._exit_stack.__exit__(exc_type, exc_value, tb)
+            self._exit_stack = contextlib.ExitStack()
+        click.core.pop_context()
+
+
+@contextlib.contextmanager
+def redirect_std_to_file_click(file, mode: str = "a"):
+    def ignore(exc):
+        """Do not intercept Click's `Exit` exception when the exit code is zero."""
+        if type(exc) is click.exceptions.Exit:
+            if exc.exit_code == 0:
+                return True
+            return exc.exit_code
+        return 1  # default exit code
+
+    with utils.redirect_std_to_file(file=file, ignore=ignore):
+        yield
+
+
 def parse_jobscript_wait_spec(jobscripts: str) -> dict[int, list[int]]:
     """
     Parse a jobscript wait specification.
@@ -118,6 +168,7 @@ def _make_API_CLI(app: BaseApp):
     @ts_name_fmt_option
     @variables_option
     @make_status_opt
+    @add_sub_opt
     def make_workflow(
         template_file_or_str: str,
         string: bool,
@@ -130,6 +181,7 @@ def _make_API_CLI(app: BaseApp):
         ts_name_fmt: str | None = None,
         variables: list[tuple[str, str]] | None = None,
         status: bool = True,
+        add_submission: bool = False,
     ):
         """Generate a new {app_name} workflow.
 
@@ -149,7 +201,9 @@ def _make_API_CLI(app: BaseApp):
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables) if variables is not None else None,
             status=status,
+            add_submission=add_submission,
         )
+        assert isinstance(wk, Workflow)
         click.echo(wk.path)
 
     @click.command(name="go")
@@ -297,6 +351,20 @@ def _make_workflow_submission_jobscript_CLI(app: BaseApp):
         with job.jobscript_path.open("rt") as fp:
             click.echo(fp.read())
 
+    @jobscript.command()
+    @jobscript_std_array_idx_opt
+    @_pass_js
+    def stdout(job: Jobscript, array_idx: int):
+        """Print the contents of the standard output stream file."""
+        job.print_stdout(array_idx=array_idx)
+
+    @jobscript.command()
+    @jobscript_std_array_idx_opt
+    @_pass_js
+    def stderr(job: Jobscript, array_idx: int):
+        """Print the contents of the standard error stream file."""
+        job.print_stderr(array_idx=array_idx)
+
     _set_help_name(jobscript, app)
     return jobscript
 
@@ -345,6 +413,49 @@ def _make_workflow_submission_CLI(app: BaseApp):
     def get_active_jobscripts(sb: Submission):
         """Show active jobscripts and their jobscript-element states."""
         pprint(sb.get_active_jobscripts(as_json=True))
+
+    @submission.command()
+    @_pass_submission
+    def get_scheduler_job_IDs(sb: Submission):
+        """Print jobscript scheduler job IDs."""
+        job_IDs = sb.get_scheduler_job_IDs()
+        if job_IDs:
+            print("\n".join(job_IDs))
+
+    @submission.command()
+    @_pass_submission
+    def get_process_IDs(sb: Submission):
+        """Print jobscript process IDs."""
+        proc_IDs = sb.get_process_IDs()
+        if proc_IDs:
+            print("\n".join(str(i) for i in proc_IDs))
+
+    @submission.command()
+    @list_js_max_js_opt
+    @list_js_jobscripts_opt
+    @list_js_width_opt
+    @_pass_submission
+    def list_jobscripts(
+        sb: Submission, max_js: int | None, jobscripts: str | None, width: int | None
+    ):
+        """Print a table listing jobscripts and associated information."""
+        jobscripts_ = [int(i) for i in jobscripts.split(",")] if jobscripts else None
+        sb.list_jobscripts(max_js=max_js, jobscripts=jobscripts_, width=width)
+
+    @submission.command()
+    @list_task_js_max_js_opt
+    @list_task_js_task_names_opt
+    @list_js_width_opt
+    @_pass_submission
+    def list_task_jobscripts(
+        sb: Submission,
+        max_js: int | None,
+        task_names: str | None,
+        width: int | None,
+    ):
+        """Print a table listing tasks and their associated jobscripts."""
+        task_names_ = list(task_names.split(",")) if task_names else None
+        sb.list_task_jobscripts(task_names=task_names_, max_js=max_js, width=width)
 
     _set_help_name(submission, app)
     submission.add_command(_make_workflow_submission_jobscript_CLI(app))
@@ -398,6 +509,27 @@ def _make_workflow_CLI(app: BaseApp):
         )
         if print_idx:
             click.echo(out)
+
+    @workflow.command(name="add-submission")
+    @js_parallelism_option
+    @tasks_opt
+    @force_arr_opt
+    @submit_status_opt
+    @click.pass_context
+    def add_submission(
+        ctx,
+        js_parallelism=None,
+        tasks=None,
+        force_array=False,
+        status=True,
+    ):
+        """Add a new submission to the workflow, but do not submit."""
+        ctx.obj["workflow"].add_submission(
+            JS_parallelism=js_parallelism,
+            tasks=tasks,
+            force_array=force_array,
+            status=status,
+        )
 
     @workflow.command(name="wait")
     @click.option(
@@ -525,6 +657,72 @@ def _make_workflow_CLI(app: BaseApp):
         """Rechunk the parameters/base array."""
         wf.rechunk_parameter_base(backup=backup, chunk_size=chunk_size, status=status)
 
+    @workflow.command()
+    @_pass_workflow
+    def get_scheduler_job_IDs(wf: Workflow):
+        """Print jobscript scheduler job IDs from all submissions of this workflow."""
+        job_IDs = wf.get_scheduler_job_IDs()
+        if job_IDs:
+            print("\n".join(job_IDs))
+
+    @workflow.command()
+    @_pass_workflow
+    def get_process_IDs(wf: Workflow):
+        """Print jobscript process IDs from all submissions of this workflow."""
+        proc_IDs = wf.get_process_IDs()
+        if proc_IDs:
+            print("\n".join(str(i) for i in proc_IDs))
+
+    @workflow.command()
+    @click.option(
+        "--sub-idx",
+        type=click.INT,
+        default=0,
+        help="Submission index whose jobscripts are to be shown.",
+    )
+    @list_js_max_js_opt
+    @list_js_jobscripts_opt
+    @list_js_width_opt
+    @_pass_workflow
+    def list_jobscripts(
+        wf: Workflow,
+        sub_idx: int,
+        max_js: int | None,
+        jobscripts: str | None,
+        width: int | None,
+    ):
+        """Print a table listing jobscripts and associated information from the specified
+        submission."""
+        jobscripts_ = [int(i) for i in jobscripts.split(",")] if jobscripts else None
+        wf.list_jobscripts(
+            sub_idx=sub_idx, max_js=max_js, jobscripts=jobscripts_, width=width
+        )
+
+    @workflow.command()
+    @click.option(
+        "--sub-idx",
+        type=click.INT,
+        default=0,
+        help="Submission index whose tasks are to be shown.",
+    )
+    @list_task_js_max_js_opt
+    @list_task_js_task_names_opt
+    @list_js_width_opt
+    @_pass_workflow
+    def list_task_jobscripts(
+        wf: Workflow,
+        sub_idx: int,
+        max_js: int | None,
+        task_names: str | None,
+        width: int | None,
+    ):
+        """Print a table listing tasks and their associated jobscripts from the specified
+        submission."""
+        task_names_ = list(task_names.split(",")) if task_names else None
+        wf.list_task_jobscripts(
+            sub_idx=sub_idx, task_names=task_names_, max_js=max_js, width=width
+        )
+
     _set_help_name(workflow, app)
     workflow.add_command(_make_workflow_submission_CLI(app))
     return workflow
@@ -606,6 +804,20 @@ def _make_internal_CLI(app: BaseApp):
         """Get the invocation command for this app instance."""
         click.echo(app.run_time_info.invocation_command)
 
+    @internal.command()
+    @click.pass_context
+    @click.option("--raise", "raise_opt", is_flag=True)
+    @click.option("--click-exit-code", type=click.INT)
+    @click.option("--sleep", type=click.INT)
+    def noop(ctx, raise_opt, click_exit_code, sleep):
+        """Used only in CLI tests."""
+        if raise_opt:
+            raise ValueError("internal noop raised!")
+        elif click_exit_code is not None:
+            ctx.exit(click_exit_code)
+        elif sleep:
+            time.sleep(sleep)
+
     @internal.group()
     @click.argument("path", type=click.Path(exists=True))
     @click.pass_context
@@ -615,38 +827,51 @@ def _make_internal_CLI(app: BaseApp):
 
     @workflow.command()
     @_pass_workflow
-    @click.pass_context
     @click.argument("submission_idx", type=click.INT)
     @click.argument("jobscript_idx", type=click.INT)
-    @click.argument("js_action_idx", type=click.INT)
-    @click.argument("ear_id", type=click.INT)
-    def write_commands(
-        ctx: click.Context,
+    @click.argument("block_idx", type=click.INT)
+    @click.argument("block_action_idx", type=click.INT)
+    @click.argument("run_id", type=click.INT)
+    def execute_run(
         wf: Workflow,
         submission_idx: int,
         jobscript_idx: int,
-        js_action_idx: int,
-        ear_id: int,
+        block_idx: int,
+        block_action_idx: int,
+        run_id: int,
     ):
-        app.CLI_logger.info(f"write commands for EAR ID {ear_id!r}.")
-        wf.write_commands(
-            submission_idx,
-            jobscript_idx,
-            js_action_idx,
-            ear_id,
+        app.CLI_logger.info(f"execute commands for EAR ID {run_id!r}.")
+        wf.execute_run(
+            submission_idx=submission_idx,
+            block_act_key=(jobscript_idx, block_idx, block_action_idx),
+            run_ID=run_id,
         )
-        ctx.exit()
 
     @workflow.command()
     @_pass_workflow
-    @click.pass_context
+    @click.argument("submission_idx", type=click.INT)
+    @click.argument("jobscript_idx", type=click.INT)
+    def execute_combined_runs(
+        wf: Workflow,
+        submission_idx: int,
+        jobscript_idx: int,
+    ):
+        app.CLI_logger.info(
+            f"execute command for combined scripts of jobscript {jobscript_idx}."
+        )
+        wf.execute_combined_runs(
+            submission_idx=submission_idx,
+            jobscript_idx=jobscript_idx,
+        )
+
+    @workflow.command()
+    @_pass_workflow
     @click.argument("name")
     @click.argument("value")
     @click.argument("ear_id", type=click.INT)
     @click.argument("cmd_idx", type=click.INT)
     @click.option("--stderr", is_flag=True, default=False)
     def save_parameter(
-        ctx: click.Context,
         wf: Workflow,
         name: str,
         value: str,
@@ -668,71 +893,7 @@ def _make_internal_CLI(app: BaseApp):
                 stderr=stderr,
             )
             app.CLI_logger.debug(f"save parameter processed value is: {value!r}")
-            ctx.exit(wf.save_parameter(name=name, value=value, EAR_ID=ear_id))
-
-    @workflow.command()
-    @_pass_workflow
-    @click.pass_context
-    @click.argument("ear_id", type=click.INT)
-    def set_EAR_start(ctx: click.Context, wf: Workflow, ear_id: int):
-        app.CLI_logger.info(f"set EAR start for EAR ID {ear_id!r}.")
-        wf.set_EAR_start(ear_id)
-        ctx.exit()
-
-    @workflow.command()
-    @_pass_workflow
-    @click.pass_context
-    @click.argument("js_idx", type=click.INT)
-    @click.argument("js_act_idx", type=click.INT)
-    @click.argument("ear_id", type=click.INT)
-    @click.argument("exit_code", type=click.INT)
-    def set_EAR_end(
-        ctx: click.Context,
-        wf: Workflow,
-        js_idx: int,
-        js_act_idx: int,
-        ear_id: int,
-        exit_code: int,
-    ):
-        app.CLI_logger.info(
-            f"set EAR end for EAR ID {ear_id!r} with exit code {exit_code!r}."
-        )
-        wf.set_EAR_end(
-            js_idx=js_idx,
-            js_act_idx=js_act_idx,
-            EAR_ID=ear_id,
-            exit_code=exit_code,
-        )
-        ctx.exit()
-
-    @workflow.command()
-    @_pass_workflow
-    @click.pass_context
-    @click.argument("ear_id", type=click.INT)
-    def set_EAR_skip(ctx: click.Context, wf: Workflow, ear_id: int):
-        app.CLI_logger.info(f"set EAR skip for EAR ID {ear_id!r}.")
-        wf.set_EAR_skip(ear_id)
-        ctx.exit()
-
-    @workflow.command()
-    @_pass_workflow
-    @click.pass_context
-    @click.argument("ear_id", type=click.INT)
-    def get_EAR_skipped(ctx: click.Context, wf: Workflow, ear_id: int):
-        """Return 1 if the given EAR is to be skipped, else return 0."""
-        app.CLI_logger.info(f"get EAR skip for EAR ID {ear_id!r}.")
-        click.echo(int(wf.get_EAR_skipped(ear_id)))
-
-    @workflow.command()
-    @_pass_workflow
-    @click.pass_context
-    @click.argument("loop_name", type=click.STRING)
-    @click.argument("ear_id", type=click.INT)
-    def check_loop(ctx: click.Context, wf: Workflow, loop_name: str, ear_id: int):
-        """Check if an iteration has met its loop's termination condition."""
-        app.CLI_logger.info(f"check_loop for loop {loop_name!r} and EAR ID {ear_id!r}.")
-        wf.check_loop_termination(loop_name, ear_id)
-        ctx.exit()
+            wf.save_parameter(name=name, value=value, EAR_ID=ear_id)
 
     # TODO: in general, maybe the workflow command group can expose the simple Workflow
     # properties; maybe use a decorator on the Workflow property object to signify
@@ -856,14 +1017,15 @@ def _make_cancel_CLI(app: BaseApp):
     @click.command()
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
-    def cancel(workflow_ref: str, ref_type: str | None):
+    @cancel_status_opt
+    def cancel(workflow_ref: str, ref_type: str | None, status: bool):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
         workflow path.
 
         """
-        app.cancel(workflow_ref, ref_type)
+        app.cancel(workflow_ref=workflow_ref, ref_is_path=ref_type, status=status)
 
     return cancel
 
@@ -1204,10 +1366,25 @@ def make_cli(app: BaseApp):
             "`TimeIt.decorator` are included."
         ),
     )
+    @click.option(
+        "--std-stream",
+        help="File to redirect standard output and error to, and to print exceptions to.",
+    )
     @click.pass_context
     def new_CLI(
-        ctx: click.Context, config_dir, config_key, with_config, timeit, timeit_file
+        ctx: click.Context,
+        config_dir,
+        config_key,
+        with_config,
+        timeit,
+        timeit_file,
+        std_stream: str,
     ):
+        ctx.ensure_object(dict)
+
+        if std_stream:
+            ctx.with_resource(redirect_std_to_file_click(std_stream))
+
         app.run_time_info.from_CLI = True
         TimeIt.active = timeit or timeit_file
         TimeIt.file_path = timeit_file
@@ -1249,6 +1426,8 @@ def make_cli(app: BaseApp):
             use_current_env=use_current_env,
             env_source_file=None if env_source_file is None else Path(env_source_file),
         )
+
+    new_CLI.context_class = ErrorPropagatingClickContext
 
     new_CLI.__doc__ = app.description
     new_CLI.add_command(get_config_CLI(app))

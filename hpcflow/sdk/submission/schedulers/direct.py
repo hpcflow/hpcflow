@@ -23,6 +23,20 @@ if TYPE_CHECKING:
 DirectRef: TypeAlias = "tuple[int, list[str]]"
 
 
+def _is_process_cmdline_equal(proc: psutil.Process, cmdline: list[str]) -> bool:
+    """Check if the `cmdline` of a psutil `Process` is equal to the specified
+    `cmdline`."""
+    try:
+        if proc.cmdline() == cmdline:
+            return True
+        else:
+            return False
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        # process no longer exists or, on unix, process has completed but still has a
+        # record
+        return False
+
+
 class DirectScheduler(Scheduler[DirectRef]):
     """
     A direct scheduler, that just runs jobs immediately as direct subprocesses.
@@ -95,8 +109,7 @@ class DirectScheduler(Scheduler[DirectRef]):
             except psutil.NoSuchProcess:
                 # process might have completed already
                 continue
-            if proc_i.cmdline() == p_cmdline:
-                # additional check this is the same process that we submitted
+            if _is_process_cmdline_equal(proc_i, p_cmdline):
                 procs.append(proc_i)
         return procs
 
@@ -131,23 +144,18 @@ class DirectScheduler(Scheduler[DirectRef]):
 
     @override
     def get_job_state_info(
-        self,
-        *,
-        js_refs: Sequence[DirectRef] | None = None,
-        num_js_elements: int = 0,
-    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
+        self, *, js_refs: Sequence[DirectRef] | None = None
+    ) -> Mapping[str, JobscriptElementState]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.
 
         Jobs that are not in the scheduler's status output will not appear in the output
         of this method."""
-        info: dict[str, Mapping[int | None, JobscriptElementState]] = {}
+        info: dict[str, JobscriptElementState] = {}
         for p_id, p_cmdline in js_refs or ():
             if self.is_jobscript_active(p_id, p_cmdline):
                 # as far as the "scheduler" is concerned, all elements are running:
-                info[str(p_id)] = {
-                    i: JobscriptElementState.running for i in range(num_js_elements)
-                }
+                info[str(p_id)] = JobscriptElementState.running
 
         return info
 
@@ -156,7 +164,6 @@ class DirectScheduler(Scheduler[DirectRef]):
         self,
         js_refs: list[DirectRef],
         jobscripts: list[Jobscript] | None = None,
-        num_js_elements: int = 0,  # Ignored!
     ):
         """
         Cancel some jobs.
@@ -166,18 +173,13 @@ class DirectScheduler(Scheduler[DirectRef]):
 
         def callback(proc: psutil.Process):
             try:
-                js = js_proc_id[proc.pid]
+                js_proc_id[proc.pid]
             except KeyError:
                 # child process of one of the jobscripts
                 self._app.submission_logger.debug(
                     f"jobscript child process ({proc.pid}) killed"
                 )
                 return
-            assert hasattr(proc, "returncode")
-            print(
-                f"Jobscript {js.index} from submission {js.submission.index} "
-                f"terminated (user-initiated cancel) with exit code {proc.returncode}."
-            )
 
         procs = self.__get_jobscript_processes(js_refs)
         self._app.submission_logger.info(
@@ -185,6 +187,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         )
         js_proc_id = {i.pid: jobscripts[idx] for idx, i in enumerate(procs) if jobscripts}
         self.__kill_processes(procs, timeout=3, on_terminate=callback)
+        print(f"Cancelled {len(procs)} jobscript{'s' if len(procs) > 1 else ''}.")
         self._app.submission_logger.info("jobscripts cancel command executed.")
 
     def is_jobscript_active(self, process_ID: int, process_cmdline: list[str]):
@@ -198,8 +201,19 @@ class DirectScheduler(Scheduler[DirectRef]):
             proc = psutil.Process(process_ID)
         except psutil.NoSuchProcess:
             return False
+        return _is_process_cmdline_equal(proc, process_cmdline)
 
-        return proc.cmdline() == process_cmdline
+    def get_std_out_err_filename(self, js_idx: int, **kwargs) -> str:
+        """File name of combined standard output and error streams."""
+        return f"js_{js_idx}_std.log"
+
+    def get_stdout_filename(self, js_idx: int, **kwargs) -> str:
+        """File name of the standard output stream file."""
+        return f"js_{js_idx}_stdout.log"
+
+    def get_stderr_filename(self, js_idx: int, **kwargs) -> str:
+        """File name of the standard error stream file."""
+        return f"js_{js_idx}_stderr.log"
 
 
 @hydrate

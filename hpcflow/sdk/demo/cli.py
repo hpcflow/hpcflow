@@ -1,6 +1,7 @@
 """
 CLI components for demonstration code.
 """
+
 from __future__ import annotations
 from pathlib import Path
 from random import randint
@@ -25,12 +26,14 @@ from hpcflow.sdk.cli_common import (
     cancel_opt,
     submit_status_opt,
     make_status_opt,
+    add_sub_opt,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Literal
     from ..app import BaseApp
+    from ..core.workflow import Workflow
 
 
 def get_demo_software_CLI(app: BaseApp):
@@ -116,6 +119,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @ts_name_fmt_option
     @variables_option
     @make_status_opt
+    @add_sub_opt
     def make_demo_workflow(
         workflow_name: str,
         format: Literal["json", "yaml"] | None,
@@ -127,6 +131,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         ts_name_fmt: str | None = None,
         variables: Iterable[tuple[str, str]] = (),
         status: bool = True,
+        add_submission: bool = False,
     ):
         wk = app.make_demo_workflow(
             workflow_name=workflow_name,
@@ -139,7 +144,9 @@ def get_demo_workflow_CLI(app: BaseApp):
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables),
             status=status,
+            add_submission=add_submission,
         )
+        assert isinstance(wk, Workflow)
         click.echo(wk.path)
 
     @demo_workflow.command("go")

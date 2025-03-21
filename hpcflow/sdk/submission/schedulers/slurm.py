@@ -5,7 +5,7 @@ An interface to SLURM.
 from __future__ import annotations
 import subprocess
 import time
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import ParallelMode
@@ -344,17 +344,37 @@ class SlurmPosix(QueuedScheduler):
         max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
+    def get_stdout_filename(
+        self, js_idx: int, job_ID: str, array_idx: int | None = None
+    ) -> str:
+        """File name of the standard output stream file."""
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh_{job_ID}{array_idx_str}.out"
+
+    def get_stderr_filename(
+        self, js_idx: int, job_ID: str, array_idx: int | None = None
+    ) -> str:
+        """File name of the standard error stream file."""
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh_{job_ID}{array_idx_str}.err"
+
     def __format_std_stream_file_option_lines(
-        self, is_array: bool, sub_idx: int
+        self, is_array: bool, sub_idx: int, js_idx: int, combine_std: bool
     ) -> Iterator[str]:
         pattern = R"%x_%A.%a" if is_array else R"%x_%j"
-        base = f"./artifacts/submissions/{sub_idx}/{pattern}"
-        yield f"{self.js_cmd} -o {base}.out"
-        yield f"{self.js_cmd} -e {base}.err"
+        base = f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}/{pattern}"
+        yield f"{self.js_cmd} --output {base}.out"
+        if not combine_std:
+            yield f"{self.js_cmd} --error {base}.err"
 
     @override
     def format_options(
-        self, resources: ElementResources, num_elements: int, is_array: bool, sub_idx: int
+        self,
+        resources: ElementResources,
+        num_elements: int,
+        is_array: bool,
+        sub_idx: int,
+        js_idx: int,
     ) -> str:
         """
         Format the options to the scheduler.
@@ -365,7 +385,11 @@ class SlurmPosix(QueuedScheduler):
         if is_array:
             opts.append(self.__format_array_request(num_elements, resources))
 
-        opts.extend(self.__format_std_stream_file_option_lines(is_array, sub_idx))
+        opts.extend(
+            self.__format_std_stream_file_option_lines(
+                is_array, sub_idx, js_idx, resources.combine_jobscript_std
+            )
+        )
 
         for opt_k, opt_v in self.options.items():
             if isinstance(opt_v, list):
@@ -468,9 +492,9 @@ class SlurmPosix(QueuedScheduler):
 
     def __parse_job_states(
         self, stdout: str
-    ) -> dict[str, dict[int | None, JobscriptElementState]]:
+    ) -> dict[str, JobscriptElementState | dict[int, JobscriptElementState]]:
         """Parse output from Slurm `squeue` command with a simple format."""
-        info: dict[str, dict[int | None, JobscriptElementState]] = {}
+        info: dict[str, JobscriptElementState | dict[int, JobscriptElementState]] = {}
         for ln in stdout.split("\n"):
             if not ln:
                 continue
@@ -478,9 +502,14 @@ class SlurmPosix(QueuedScheduler):
             base_job_ID, arr_idx = self._parse_job_IDs(job_id)
             state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
-            entry = info.setdefault(base_job_ID, {})
-            for arr_idx_i in arr_idx or ():
-                entry[arr_idx_i] = state
+            if arr_idx is not None:
+                entry = cast(
+                    dict[int, JobscriptElementState], info.setdefault(base_job_ID, {})
+                )
+                for arr_idx_i in arr_idx:
+                    entry[arr_idx_i] = state
+            else:
+                info[base_job_ID] = state
 
         return info
 
@@ -490,7 +519,7 @@ class SlurmPosix(QueuedScheduler):
             *self.show_cmd,
             "--noheader",
             "--format",
-            R"%40i %30T",
+            R"%200i %30T",  # job ID (<base_job_id>_<index> for array job) and job state
             "--jobs",
             ",".join(job_IDs),
         ]
@@ -515,8 +544,8 @@ class SlurmPosix(QueuedScheduler):
 
     @override
     def get_job_state_info(
-        self, *, js_refs: Sequence[str] | None = None, num_js_elements: int = 0
-    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
+        self, *, js_refs: Sequence[str] | None = None
+    ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.
 
@@ -555,7 +584,6 @@ class SlurmPosix(QueuedScheduler):
         self,
         js_refs: list[str],
         jobscripts: list[Jobscript] | None = None,
-        num_js_elements: int = 0,  # Ignored!
     ):
         """
         Cancel submitted jobs.

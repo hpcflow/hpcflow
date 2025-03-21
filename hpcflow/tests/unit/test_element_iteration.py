@@ -39,3 +39,50 @@ def test_decode(null_config, tmp_path: Path, store: str):
     assert sorted(iter_i.schema_parameters) == sorted(
         ["resources.any", "inputs.p1", "outputs.p2"]
     )
+
+
+@pytest.mark.integration
+def test_loop_skipped_true_single_action_elements(null_config, tmp_path):
+    ts = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaInput("p1")],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        command="echo $(( <<parameter:p1>> + 100 ))",
+                        stdout="<<int(parameter:p1)>>",
+                    ),
+                ]
+            ),
+        ],
+    )
+    loop_term = hf.Rule(path="outputs.p1", condition={"value.equal_to": 300})
+    wk = hf.Workflow.from_template_data(
+        template_name="test_loop_skipped",
+        path=tmp_path,
+        tasks=[hf.Task(schema=ts, inputs={"p1": 100})],
+        loops=[
+            hf.Loop(name="my_loop", tasks=[0], termination=loop_term, num_iterations=3)
+        ],
+    )
+    # loop should terminate after the second iteration; third iteration should
+    # be loop-skipped
+    wk.submit(wait=True, add_to_known=False, status=False)
+    iters = wk.get_all_element_iterations()
+
+    assert not iters[0].loop_skipped
+    assert not iters[1].loop_skipped
+    assert iters[2].loop_skipped
+
+    # check latest iteration is the latest non-loop-skipped iteration:
+    assert wk.tasks[0].elements[0].latest_iteration_non_skipped.id_ == iters[1].id_
+
+    # check element inputs are from latest non-loop-skipped iteration:
+    assert wk.tasks[0].elements[0].inputs.p1.value == 200
+    assert wk.tasks[0].elements[0].get("inputs.p1") == 200
+
+    # check element outputs are from latest non-loop-skipped iteration:
+    assert wk.tasks[0].elements[0].outputs.p1.value == 300
+    assert wk.tasks[0].elements[0].get("outputs.p1") == 300

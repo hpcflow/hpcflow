@@ -799,3 +799,179 @@ def test_command_rules_prevent_runs_initialised_with_valid_action_rules(
     assert len(wk.tasks[0].elements[0].action_runs[0].commands_idx) == 1
 
     assert not wk.tasks[1].elements[0].iterations[0].EARs_initialised
+
+
+def test_get_commands_file_hash_distinct_act_idx(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    data_idx = {"inputs.p1": 0}
+    h1 = act.get_commands_file_hash(data_idx=data_idx, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx=data_idx, action_idx=1)
+    assert h1 != h2
+
+
+def test_get_commands_file_hash_distinct_data_idx_vals(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    h1 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx={"inputs.p1": 1}, action_idx=0)
+    assert h1 != h2
+
+
+def test_get_commands_file_hash_distinct_data_idx_sub_vals(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    di_1 = {"inputs.p1": 0, "inputs.p1.a": 1}
+    di_2 = {"inputs.p1": 0, "inputs.p1.a": 2}
+    h1 = act.get_commands_file_hash(data_idx=di_1, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx=di_2, action_idx=0)
+    assert h1 != h2
+
+
+def test_get_commands_file_hash_equivalent_data_idx_outputs(null_config):
+    """Different output data indices should not generate distinct hashes."""
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    di_1 = {"inputs.p1": 0, "outputs.p2": 1}
+    di_2 = {"inputs.p1": 0, "outputs.p2": 2}
+    h1 = act.get_commands_file_hash(data_idx=di_1, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx=di_2, action_idx=0)
+    assert h1 == h2
+
+
+def test_get_commands_file_hash_return_int(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    h1 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
+    assert type(h1) == int
+
+
+def test_get_commands_file_hash_distinct_schema(null_config):
+    act_1 = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    act_2 = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1")], actions=[act_1])
+    hf.TaskSchema(objective="t2", inputs=[hf.SchemaInput("p1")], actions=[act_2])
+    assert act_1.task_schema
+    assert act_2.task_schema
+    h1 = act_1.get_commands_file_hash(data_idx={}, action_idx=0)
+    h2 = act_2.get_commands_file_hash(data_idx={}, action_idx=0)
+    assert h1 != h2
+
+
+def test_get_commands_file_hash_equivalent_cmd_rule_inputs_path(null_config):
+    """Input-path rule does not affect hash, given equivalent data indices."""
+    act = hf.Action(
+        commands=[
+            hf.Command(
+                command="echo <<parameter:p1>>",
+                rules=[hf.ActionRule(path="inputs.p1", condition={"value.equal_to": 1})],
+            )
+        ],
+    )
+    h1 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
+    assert h1 == h2
+
+
+def test_get_commands_file_hash_distinct_cmd_rule_resources_path(null_config):
+    """Resource-path rule affects hash given distinct resource data indices."""
+    act = hf.Action(
+        commands=[
+            hf.Command(
+                command="echo <<parameter:p1>>",
+                rules=[
+                    hf.ActionRule(
+                        path="resources.num_cores", condition={"value.equal_to": 8}
+                    )
+                ],
+            )
+        ],
+    )
+    di_1 = {"inputs.p1": 0, "resources.any.num_cores": 2}
+    di_2 = {"inputs.p1": 0, "resources.any.num_cores": 3}
+    h1 = act.get_commands_file_hash(data_idx=di_1, action_idx=0)
+    h2 = act.get_commands_file_hash(data_idx=di_2, action_idx=0)
+    assert h1 != h2
+
+
+def test_get_script_input_output_file_paths_json_in_json_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_json_in_json_out.py>>",
+        script_data_in="json",
+        script_data_out="json",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
+        "inputs": {"json": Path("js_0_block_1_act_2_inputs.json")},
+        "outputs": {"json": Path("js_0_block_1_act_2_outputs.json")},
+    }
+
+
+def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_hdf5_in_obj_2.py>>",
+        script_data_in="hdf5",
+        script_data_out="direct",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
+        "inputs": {"hdf5": Path("js_0_block_1_act_2_inputs.h5")},
+        "outputs": {},
+    }
+
+
+def test_get_script_input_output_file_command_args_json_in_json_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_json_in_json_out.py>>",
+        script_data_in="json",
+        script_data_out="json",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
+    assert s1.actions[0].get_script_input_output_file_command_args() == [
+        "--inputs-json",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.json",
+        "--outputs-json",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_outputs.json",
+    ]
+
+
+def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_config):
+    act = hf.Action(
+        script="<<script:main_script_test_hdf5_in_obj_2.py>>",
+        script_data_in="hdf5",
+        script_data_out="direct",
+        script_exe="python_script",
+        environments=[hf.ActionEnvironment(environment="python_env")],
+        requires_dir=True,
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+    )
+    js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
+    assert s1.actions[0].get_script_input_output_file_command_args() == [
+        "--inputs-hdf5",
+        f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.h5",
+    ]
