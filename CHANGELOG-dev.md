@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a197"></a>
+## [v0.2.0a197](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a196...v0.2.0a197) - 2025.03.25
+
+### 🐛 Bug Fixes
+
+* pyinstaller build
+
+
 <a name="v0.2.0a196"></a>
 ## [v0.2.0a196](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a195...v0.2.0a196) - 2025.03.25
 
