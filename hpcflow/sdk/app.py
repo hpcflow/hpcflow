@@ -135,6 +135,7 @@ if TYPE_CHECKING:
         ResourceSpec,
         SchemaOutput,
         ValueSequence,
+        MultiPathSequence,
         SchemaInput,
     )
     from .core.rule import Rule
@@ -768,6 +769,15 @@ class BaseApp(metaclass=Singleton):
         :meta private:
         """
         return self._get_app_core_class("ValueSequence")
+
+    @property
+    def MultiPathSequence(self) -> type[MultiPathSequence]:
+        """
+        The :class:`MultiPathSequence` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("MultiPathSequence")
 
     @property
     def SchemaInput(self) -> type[SchemaInput]:

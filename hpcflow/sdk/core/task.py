@@ -67,6 +67,7 @@ if TYPE_CHECKING:
         InputValue,
         InputSource,
         ValueSequence,
+        MultiPathSequence,
         SchemaInput,
         SchemaOutput,
         ParameterPath,
@@ -132,6 +133,8 @@ class ElementSet(JSONLike):
         Input files to the set of elements.
     sequences: list[~hpcflow.app.ValueSequence]
         Input value sequences to parameterise over.
+    multi_path_sequences: list[~hpcflow.app.MultiPathSequence]
+        Multi-path sequences to parameterise over.
     resources: ~hpcflow.app.ResourceList
         Resources to use for the set of elements.
     repeats: list[dict]
@@ -154,9 +157,10 @@ class ElementSet(JSONLike):
         If True, if more than one parameter is sourced from the same task, then allow
         these sources to come from distinct element sub-sets. If False (default),
         only the intersection of element sub-sets for all parameters are included.
-    merge_envs: bool
-        If True, merge ``environments`` into ``resources`` using the "any" scope. If
-        False, ``environments`` are ignored. This is required on first initialisation,
+    is_creation: bool
+        If True, merge ``environments`` into ``resources`` using the "any" scope, and
+        merge sequences belonging to multi-path sequences into the value-sequences list.
+        If False, ``environments`` are ignored. This is required on first initialisation,
         but not on subsequent re-initialisation from a persistent workflow.
     """
 
@@ -189,6 +193,12 @@ class ElementSet(JSONLike):
             parent_ref="_element_set",
         ),
         ChildObjectSpec(
+            name="multi_path_sequences",
+            class_name="MultiPathSequence",
+            is_multiple=True,
+            parent_ref="_element_set",
+        ),
+        ChildObjectSpec(
             name="input_sources",
             class_name="InputSource",
             is_multiple=True,
@@ -207,6 +217,7 @@ class ElementSet(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         resources: Resources = None,
         repeats: list[RepeatsDescriptor] | int | None = None,
         groups: list[ElementGroup] | None = None,
@@ -216,7 +227,7 @@ class ElementSet(JSONLike):
         environments: Mapping[str, Mapping[str, Any]] | None = None,
         sourceable_elem_iters: list[int] | None = None,
         allow_non_coincident_task_sources: bool = False,
-        merge_envs: bool = True,
+        is_creation: bool = True,
     ):
         #: Inputs to the set of elements.
         self.inputs = self.__decode_inputs(inputs or [])
@@ -230,6 +241,8 @@ class ElementSet(JSONLike):
         self.resources = self._app.ResourceList.normalise(resources)
         #: Input value sequences to parameterise over.
         self.sequences = sequences or []
+        #: Input value multi-path sequences to parameterise over.
+        self.multi_path_sequences = multi_path_sequences or []
         #: Input source descriptors.
         self.input_sources = input_sources or {}
         #: How to handle nesting of iterations.
@@ -244,9 +257,11 @@ class ElementSet(JSONLike):
         self.sourceable_elem_iters = sourceable_elem_iters
         #: Whether to allow sources to come from distinct element sub-sets.
         self.allow_non_coincident_task_sources = allow_non_coincident_task_sources
-        #: Whether to merge ``environments`` into ``resources`` using the "any" scope
-        #: on first initialisation.
-        self.merge_envs = merge_envs
+        #: Whether this initialisation is the first for this data (i.e. not a
+        #: reconstruction from persistent workflow data), in which case, we merge
+        #: ``environments`` into ``resources`` using the "any" scope, and merge any multi-
+        #: path sequences into the sequences list.
+        self.is_creation = is_creation
         self.original_input_sources: dict[str, list[InputSource]] | None = None
         self.original_nesting_order: dict[str, float] | None = None
 
@@ -260,16 +275,23 @@ class ElementSet(JSONLike):
         # assigned by WorkflowTask._add_element_set
         self._element_local_idx_range: list[int] | None = None
 
-        # merge `environments` into element set resources (this mutates `resources`, and
-        # should only happen on creation of the element set, not re-initialisation from a
-        # persistent workflow):
-        if self.environments and self.merge_envs:
-            self.resources.merge_one(
-                self._app.ResourceSpec(scope="any", environments=self.environments)
-            )
-            self.merge_envs = False
+        if self.is_creation:
 
-        # note: `env_preset` is merged into resources by the Task init.
+            # merge `environments` into element set resources (this mutates `resources`, and
+            # should only happen on creation of the element set, not re-initialisation from a
+            # persistent workflow):
+            if self.environments:
+                self.resources.merge_one(
+                    self._app.ResourceSpec(scope="any", environments=self.environments)
+                )
+            # note: `env_preset` is merged into resources by the Task init.
+
+            # merge sequences belonging to multi-path sequences into the value-sequences list:
+            if self.multi_path_sequences:
+                for mp_seq in self.multi_path_sequences:
+                    mp_seq._move_to_sequence_list(self.sequences)
+
+            self.is_creation = False
 
     def __deepcopy__(self, memo: dict[int, Any] | None) -> Self:
         dct = self.to_dict()
@@ -450,6 +472,7 @@ class ElementSet(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         resources: Resources = None,
         repeats: list[RepeatsDescriptor] | int | None = None,
         groups: list[ElementGroup] | None = None,
@@ -468,6 +491,7 @@ class ElementSet(JSONLike):
             inputs,
             input_files,
             sequences,
+            multi_path_sequences,
             resources,
             repeats,
             groups,
@@ -692,6 +716,9 @@ class Task(JSONLike):
         A list of `InputValue` objects.
     input_files: list[~hpcflow.app.InputFile]
     sequences: list[~hpcflow.app.ValueSequence]
+        Input value sequences to parameterise over.
+    multi_path_sequences: list[~hpcflow.app.MultiPathSequence]
+        Multi-path sequences to parameterise over.
     input_sources: dict[str, ~hpcflow.app.InputSource]
     nesting_order: list
     env_preset: str
@@ -745,6 +772,7 @@ class Task(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         input_sources: dict[str, list[InputSource]] | None = None,
         nesting_order: dict[str, float] | None = None,
         env_preset: str | None = None,
@@ -790,6 +818,7 @@ class Task(JSONLike):
             inputs=inputs,
             input_files=input_files,
             sequences=sequences,
+            multi_path_sequences=multi_path_sequences,
             resources=resources,
             repeats=repeats,
             groups=groups,

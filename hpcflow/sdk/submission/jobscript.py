@@ -106,8 +106,8 @@ def generate_EAR_resource_map(
     resource_map[:] = none_val
     EAR_ID_map[:] = none_val
 
-    assert cache.elements
-    assert cache.iterations
+    assert cache.elements is not None
+    assert cache.iterations is not None
 
     for elem_id in task.element_IDs:
         element = cache.elements[elem_id]

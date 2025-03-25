@@ -691,7 +691,7 @@ class Submission(JSONLike):
             status.update(f"Adding new submission: processing run 1/{num_runs_tot}.")
 
         all_runs = cache.runs
-        assert all_runs
+        assert all_runs is not None
         runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
         with self.workflow.cached_merged_parameters():
@@ -868,8 +868,8 @@ class Submission(JSONLike):
         cache: ObjectCache,
     ) -> tuple[np.ndarray, np.ndarray]:
 
-        assert cache.elements
-        assert cache.iterations
+        assert cache.elements is not None
+        assert cache.iterations is not None
         # get the multiplicities of all tasks, elements, iterations, and runs:
         wk_num_tasks = self.workflow.num_tasks
         task_num_elems = {}

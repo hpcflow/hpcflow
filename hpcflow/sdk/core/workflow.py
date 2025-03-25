@@ -420,6 +420,16 @@ class WorkflowTemplate(JSONLike):
                         "element_sets": [task_dat],
                         "output_labels": out_labels,
                     }
+                # move sequences with `paths` (note: plural) to multi_path_sequences:
+                for elem_set in task_lst[task_idx]["element_sets"]:
+                    new_mps = []
+                    seqs = list(elem_set["sequences"])
+                    # loop in reverse so indices for pop are valid:
+                    for seq_idx, seq_dat in zip(range(len(seqs) - 1, -1, -1), seqs[::-1]):
+                        if "paths" in seq_dat:  # (note: plural)
+                            # move to a multi-path sequence:
+                            new_mps.append(elem_set["sequences"].pop(seq_idx))
+                    elem_set.setdefault("multi_path_sequences", []).extend(new_mps[::-1])
 
         meta_tasks = data.pop("meta_tasks", {})
         if meta_tasks:
@@ -536,6 +546,7 @@ class WorkflowTemplate(JSONLike):
             cls._app.task_schemas.add_objects(meta_ts, skip_duplicates=True)
 
         wkt = cls.from_json_like(data, shared_data=cls._app._shared_data)
+
         # print(f"WorkflowTemplate._from_data: {wkt=!r}")
         # TODO: what is this for!?
         # for idx, task in enumerate(wkt.tasks):
@@ -3700,7 +3711,7 @@ class Workflow(AppAware):
         EAR_map: NDArray,
         cache: ObjectCache,
     ) -> Mapping[int, ElementActionRun]:
-        assert cache.runs
+        assert cache.runs is not None
         all_EAR_IDs: list[int] = []
         for js_elem_idx, (elem_idx, act_indices) in enumerate(
             js_desc["elements"].items()
