@@ -423,7 +423,7 @@ class WorkflowTemplate(JSONLike):
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
                 for elem_set in task_lst[task_idx]["element_sets"]:
                     new_mps = []
-                    seqs = list(elem_set["sequences"])
+                    seqs = list(elem_set.get("sequences", []))
                     # loop in reverse so indices for pop are valid:
                     for seq_idx, seq_dat in zip(range(len(seqs) - 1, -1, -1), seqs[::-1]):
                         if "paths" in seq_dat:  # (note: plural)
