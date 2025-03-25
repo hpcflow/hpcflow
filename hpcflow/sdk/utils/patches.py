@@ -8,4 +8,5 @@ def resolve_path(path):
     See: https://github.com/python/cpython/issues/82852
 
     """
+    # TODO: this only seems to be used in a test; remove?
     return Path.cwd() / Path(path).resolve()  # cwd is ignored if already absolute
