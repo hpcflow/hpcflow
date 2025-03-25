@@ -13,6 +13,7 @@ hiddenimports = [
     "hpcflow.data.workflows",
     "hpcflow.tests.data",
     "hpcflow.sdk.core.test_utils",
+    "hpcflow.sdk.utils.patches",
     "click.testing",
     "requests",  # for GitHub fsspec file system
     "fsspec.implementations.github",  # for GitHub fsspec file system
