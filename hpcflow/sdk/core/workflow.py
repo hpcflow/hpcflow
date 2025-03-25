@@ -112,6 +112,7 @@ if TYPE_CHECKING:
         Pending,
         Resources,
         WorkflowTemplateTaskData,
+        WorkflowTemplateElementSetData,
         BlockActionKey,
     )
     from ..submission.submission import Submission
@@ -415,15 +416,18 @@ class WorkflowTemplate(JSONLike):
                 else:
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
-                    task_lst[task_idx] = {
+                    es_dat = cast("WorkflowTemplateElementSetData", task_dat)
+                    new_task_dat: WorkflowTemplateTaskData = {
                         "schema": schema_list,
-                        "element_sets": [task_dat],
+                        "element_sets": [es_dat],
                         "output_labels": out_labels,
                     }
+                    task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
                 for elem_set in task_lst[task_idx]["element_sets"]:
                     new_mps = []
-                    seqs = list(elem_set.get("sequences", []))
+                    seqs = elem_set.get("sequences", [])
+                    seqs = list(seqs)  # copy
                     # loop in reverse so indices for pop are valid:
                     for seq_idx, seq_dat in zip(range(len(seqs) - 1, -1, -1), seqs[::-1]):
                         if "paths" in seq_dat:  # (note: plural)
