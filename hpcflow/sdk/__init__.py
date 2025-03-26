@@ -70,6 +70,7 @@ sdk_classes: Final[Mapping[str, str]] = {
     "SchemaInput": "hpcflow.sdk.core.parameters",
     "SchemaOutput": "hpcflow.sdk.core.parameters",
     "ValueSequence": "hpcflow.sdk.core.parameters",
+    "MultiPathSequence": "hpcflow.sdk.core.parameters",
     "ValuePerturbation": "hpcflow.sdk.core.parameters",
     "InputValue": "hpcflow.sdk.core.parameters",
     "ResourceSpec": "hpcflow.sdk.core.parameters",

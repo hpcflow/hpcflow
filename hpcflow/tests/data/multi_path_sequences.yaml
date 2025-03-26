@@ -1,0 +1,29 @@
+template_components:
+  task_schemas:
+    - objective: add_p1_components
+      inputs:
+        - parameter: p1
+      outputs:
+        - parameter: p2
+      actions:
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: posix }
+          commands:
+            - command: echo "$((<<parameter:p1.a>> + <<parameter:p1.b>>))"
+              stdout: <<int(parameter:p2)>>
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: nt }
+          commands:
+            - command: Write-Output ((<<parameter:p1.a>> + <<parameter:p1.b>>))
+              stdout: <<int(parameter:p2)>>
+tasks:
+  - schema: add_p1_components
+    inputs:
+      p1: {}
+    multi_path_sequences:
+      - paths: [inputs.p1.a, inputs.p1.b]
+        values:
+          - [101, 102]
+          - [201, 202]

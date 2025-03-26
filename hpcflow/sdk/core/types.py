@@ -337,9 +337,49 @@ class WorkflowTemplateTaskData(TypedDict):
     #: The schema, if known.
     schema: NotRequired[Any | list[Any]]
     #: The element sets, if known.
-    element_sets: NotRequired[list["WorkflowTemplateTaskData"]]
+    element_sets: NotRequired[list[WorkflowTemplateElementSetData]]
     #: The output labels, if known.
     output_labels: NotRequired[list[str]]
+
+
+class WorkflowTemplateElementSetData(TypedDict):
+    """
+    Descriptor for element set data within a workflow template parametrisation.
+    """
+
+    #: Inputs to the set of elements.
+    inputs: NotRequired[list[dict[str, Any]]]
+    #: Input files to the set of elements.
+    input_files: NotRequired[list[dict[str, Any]]]
+    #: Description of how to repeat the set of elements.
+    repeats: NotRequired[int | list[RepeatsDescriptor]]
+    #: Groupings in the set of elements.
+    groups: NotRequired[list[dict[str, Any]]]
+    #: Resources to use for the set of elements.
+    resources: NotRequired[dict[str, Any]]
+    #: Input value sequences to parameterise over.
+    sequences: NotRequired[list[dict[str, Any]]]
+    #: Input value multi-path sequences to parameterise over.
+    multi_path_sequences: NotRequired[list[dict[str, Any]]]
+    #: Input source descriptors.
+    input_sources: NotRequired[dict[str, list]]
+    #: How to handle nesting of iterations.
+    nesting_order: NotRequired[dict[str, float]]
+    #: Which environment preset to use.
+    env_preset: NotRequired[str]
+    #: Environment descriptors to use.
+    environments: NotRequired[dict[str, dict[str, Any]]]
+    #: List of global element iteration indices from which inputs for
+    #: the new elements associated with this element set may be sourced.
+    #: If ``None``, all iterations are valid.
+    sourceable_elem_iters: NotRequired[list[int]]
+    #: Whether to allow sources to come from distinct element sub-sets.
+    allow_non_coincident_task_sources: NotRequired[bool]
+    #: Whether this initialisation is the first for this data (i.e. not a
+    #: reconstruction from persistent workflow data), in which case, we merge
+    #: ``environments`` into ``resources`` using the "any" scope, and merge any multi-
+    #: path sequences into the sequences list.
+    is_creation: NotRequired[bool]
 
 
 class Pending(TypedDict):
