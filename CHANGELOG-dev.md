@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a198"></a>
+## [v0.2.0a198](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a197...v0.2.0a198) - 2025.03.26
+
+### ✨ Features
+
+* add `MultiPathSequence` to support sequences over multiple paths
+
+### 🐛 Bug Fixes
+
+* type checking
+* tests
+
+
 <a name="v0.2.0a197"></a>
 ## [v0.2.0a197](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a196...v0.2.0a197) - 2025.03.25
 
