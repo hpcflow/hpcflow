@@ -1191,7 +1191,7 @@ class ElementActionRun(AppAware):
     @contextlib.contextmanager
     def raise_on_failure_threshold(self) -> Iterator[dict[str, UnsetParamTracker]]:
         """Context manager to track parameter types and associated run IDs for which those
-        parameters were found to be unset when acccessed via
+        parameters were found to be unset when accessed via
         `WorkflowTask._get_merged_parameter_data`.
 
         """
@@ -2185,7 +2185,7 @@ class Action(JSONLike):
     def get_script_determinant_hash(self, env_specs: dict | None = None) -> int:
         """Get a hash of the instance attributes that uniquely determine the script.
 
-        The hash is not stable accross sessions or machines.
+        The hash is not stable across sessions or machines.
 
         """
         env_specs = env_specs or {}
@@ -3235,7 +3235,7 @@ class Action(JSONLike):
         # note we don't need to consider action-level rules, since these determine
         # whether a run will be included in a submission or not; this method is only
         # called on runs that are part of a submission, at which point action-level rules
-        # are irrelevent.
+        # are irrelevant.
 
         relevant_data_idx = {k: v for k, v in data_idx.items() if k in relevant_paths}
 
