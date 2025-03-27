@@ -414,20 +414,44 @@ def substitute_string_vars(string: str, variables: dict[str, str]):
 
 @TimeIt.decorator
 def read_YAML_str(
-    yaml_str: str, typ="safe", variables: dict[str, str] | None = None
+    yaml_str: str, typ="safe", variables: dict[str, str] | Literal[False] | None = None
 ) -> Any:
-    """Load a YAML string. This will produce basic objects."""
-    if variables is not None and "<<var:" in yaml_str:
-        yaml_str = substitute_string_vars(yaml_str, variables=variables)
+    """Load a YAML string. This will produce basic objects.
+
+    Parameters
+    ----------
+    yaml_str:
+        The YAML string to parse.
+    typ:
+        Load type passed to the YAML library.
+    variables:
+        String variables to substitute in `yaml_str`. Substitutions will be attempted if
+        the file looks to contain variable references (like "<<var:name>>"). If set to
+        `False`, no substitutions will occur.
+    """
+    if variables is not False and "<<var:" in yaml_str:
+        yaml_str = substitute_string_vars(yaml_str, variables=variables or {})
     yaml = YAML(typ=typ)
     return yaml.load(yaml_str)
 
 
 @TimeIt.decorator
 def read_YAML_file(
-    path: PathLike, typ="safe", variables: dict[str, str] | None = None
+    path: PathLike, typ="safe", variables: dict[str, str] | Literal[False] | None = None
 ) -> Any:
-    """Load a YAML file. This will produce basic objects."""
+    """Load a YAML file. This will produce basic objects.
+
+    Parameters
+    ----------
+    path:
+        Path to the YAML file to parse.
+    typ:
+        Load type passed to the YAML library.
+    variables:
+        String variables to substitute in the file given by `path`. Substitutions will be
+        attempted if the file looks to contain variable references (like "<<var:name>>").
+        If set to `False`, no substitutions will occur.
+    """
     with fsspec.open(path, "rt") as f:
         yaml_str: str = f.read()
     return read_YAML_str(yaml_str, typ=typ, variables=variables)
@@ -440,15 +464,37 @@ def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
         yaml.dump(obj, fp)
 
 
-def read_JSON_string(json_str: str, variables: dict[str, str] | None = None) -> Any:
-    """Load a JSON string. This will produce basic objects."""
-    if variables is not None and "<<var:" in json_str:
-        json_str = substitute_string_vars(json_str, variables=variables)
+def read_JSON_string(
+    json_str: str, variables: dict[str, str] | Literal[False] | None = None
+) -> Any:
+    """Load a JSON string. This will produce basic objects.
+
+    Parameters
+    ----------
+    json_str:
+        The JSON string to parse.
+    variables:
+        String variables to substitute in `json_str`. Substitutions will be attempted if
+        the file looks to contain variable references (like "<<var:name>>"). If set to
+        `False`, no substitutions will occur.
+    """
+    if variables is not False and "<<var:" in json_str:
+        json_str = substitute_string_vars(json_str, variables=variables or {})
     return json.loads(json_str)
 
 
-def read_JSON_file(path, variables: dict[str, str] | None = None) -> Any:
-    """Load a JSON file. This will produce basic objects."""
+def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = None) -> Any:
+    """Load a JSON file. This will produce basic objects.
+
+    Parameters
+    ----------
+    path:
+        Path to the JSON file to parse.
+    variables:
+        String variables to substitute in the file given by `path`. Substitutions will be
+        attempted if the file looks to contain variable references (like "<<var:name>>").
+        If set to `False`, no substitutions will occur.
+    """
     with fsspec.open(path, "rt") as f:
         json_str: str = f.read()
     return read_JSON_string(json_str, variables=variables)

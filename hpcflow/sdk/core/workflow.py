@@ -564,7 +564,7 @@ class WorkflowTemplate(JSONLike):
     def from_YAML_string(
         cls,
         string: str,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML string.
 
@@ -573,7 +573,10 @@ class WorkflowTemplate(JSONLike):
         string
             The YAML string containing the workflow template parametrisation.
         variables
-            String variables to substitute in `string`.
+            String variables to substitute in `string`. Substitutions will be attempted if
+            the YAML string looks to contain variable references (like "<<var:name>>"). If
+            set to `False`, no substitutions will occur, which may result in an invalid
+            workflow template!
         """
         return cls._from_data(read_YAML_str(string, variables=variables))
 
@@ -597,7 +600,7 @@ class WorkflowTemplate(JSONLike):
     def from_YAML_file(
         cls,
         path: PathLike,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML file.
 
@@ -606,7 +609,10 @@ class WorkflowTemplate(JSONLike):
         path
             The path to the YAML file containing the workflow template parametrisation.
         variables
-            String variables to substitute in the file given by `path`.
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the YAML file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
@@ -620,7 +626,7 @@ class WorkflowTemplate(JSONLike):
     def from_JSON_string(
         cls,
         string: str,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON string.
 
@@ -629,7 +635,10 @@ class WorkflowTemplate(JSONLike):
         string
             The JSON string containing the workflow template parametrisation.
         variables
-            String variables to substitute in `string`.
+            String variables to substitute in `string`. Substitutions will be attempted if
+            the JSON string looks to contain variable references (like "<<var:name>>"). If
+            set to `False`, no substitutions will occur, which may result in an invalid
+            workflow template!
         """
         return cls._from_data(read_JSON_string(string, variables=variables))
 
@@ -638,7 +647,7 @@ class WorkflowTemplate(JSONLike):
     def from_JSON_file(
         cls,
         path: PathLike,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON file.
 
@@ -647,7 +656,10 @@ class WorkflowTemplate(JSONLike):
         path
             The path to the JSON file containing the workflow template parametrisation.
         variables
-            String variables to substitute in the file given by `path`.
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the JSON file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
         data = read_JSON_file(path, variables=variables)
@@ -661,7 +673,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         template_format: Literal["yaml", "json"] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from either a YAML or JSON file, depending on the file extension.
 
@@ -673,8 +685,10 @@ class WorkflowTemplate(JSONLike):
             The file format to expect at `path`. One of "json" or "yaml", if specified. By
             default, "yaml".
         variables
-            String variables to substitute in the file given by `path`.
-
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         path_ = Path(path or ".")
         fmt = template_format.lower() if template_format else None
@@ -983,7 +997,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> Workflow:
         """Generate from a YAML file.
 
@@ -1013,7 +1027,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the file given by `YAML_path`.
+            String variables to substitute in the file given by `YAML_path`. Substitutions
+            will be attempted if the YAML file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_YAML_file(
             path=YAML_path,
@@ -1041,7 +1058,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a YAML string.
@@ -1072,7 +1089,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the string `YAML_str`.
+            String variables to substitute in the string `YAML_str`. Substitutions will be
+            attempted if the YAML string looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_YAML_string(
             string=YAML_str,
@@ -1101,7 +1121,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON file.
@@ -1132,7 +1152,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the file given by `JSON_path`.
+            String variables to substitute in the file given by `JSON_path`. Substitutions
+            will be attempted if the JSON file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_JSON_file(
             path=JSON_path,
@@ -1161,7 +1184,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON string.
@@ -1192,7 +1215,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the string `JSON_str`.
+            String variables to substitute in the string `JSON_str`. Substitutions will be
+            attempted if the JSON string looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_JSON_string(
             string=JSON_str,
@@ -1223,7 +1249,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from either a YAML or JSON file, depending on the file extension.
@@ -1259,6 +1285,9 @@ class Workflow(AppAware):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
             String variables to substitute in the file given by `template_path`.
+            Substitutions will be attempted if the file looks to contain variable
+            references (like "<<var:name>>"). If set to `False`, no substitutions will
+            occur, which may result in an invalid workflow template!
         """
         try:
             template = cls._app.WorkflowTemplate.from_file(

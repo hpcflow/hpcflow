@@ -2370,10 +2370,23 @@ class BaseApp(metaclass=Singleton):
             else:
                 print(contents)
 
-    def load_demo_workflow(self, name: str) -> _WorkflowTemplate:
-        """Load a WorkflowTemplate object from a builtin demo template file."""
+    def load_demo_workflow(
+        self, name: str, variables: dict[str, str] | Literal[False] | None = None
+    ) -> _WorkflowTemplate:
+        """Load a WorkflowTemplate object from a builtin demo template file.
+
+        Parameters
+        ----------
+        name:
+            Name of the demo workflow to load.
+        variables:
+            String variables to substitute in the demo workflow. Substitutions will be
+            attempted if the file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
+        """
         with self.get_demo_workflow_template_file(name) as path:
-            return self.WorkflowTemplate.from_file(path)
+            return self.WorkflowTemplate.from_file(path, variables=variables)
 
     def template_components_from_json_like(
         self, json_like: dict[str, dict]
