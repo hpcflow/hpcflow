@@ -1,5 +1,6 @@
 import pytest
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.errors import MissingVariableSubstitutionError
 from hpcflow.sdk.core.test_utils import (
     make_test_data_YAML_workflow_template,
 )
@@ -36,6 +37,11 @@ def test_workflow_template_vars(tmp_path, new_null_config):
         variables={"N": num_repeats},
     )
     assert wkt.tasks[0].element_sets[0].repeats[0]["number"] == num_repeats
+
+
+def test_workflow_template_vars_raise_no_vars(tmp_path, new_null_config):
+    with pytest.raises(MissingVariableSubstitutionError):
+        make_test_data_YAML_workflow_template("benchmark_N_elements.yaml")
 
 
 def test_env_preset_merge_simple(null_config):
