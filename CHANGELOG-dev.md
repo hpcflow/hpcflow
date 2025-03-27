@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a200"></a>
+## [v0.2.0a200](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a199...v0.2.0a200) - 2025.03.27
+
+### 🐛 Bug Fixes
+
+* add missing test workflow file
+* variable substitution
+* sync upstream shared docs and GHAs workflows
+* docs by adding myst-nb
+* sync upstream shared docs and GHAs workflows
+* sync upstream shared docs and GHAs workflows
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a199"></a>
 ## [v0.2.0a199](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a198...v0.2.0a199) - 2025.03.26
 
