@@ -240,6 +240,7 @@ extensions = [
     "sphinx_click",
     "sphinx_togglebutton",
     "sphinx_design",
+    "myst_nb",
 ]
 
 intersphinx_mapping = {
@@ -291,6 +292,8 @@ autosectionlabel_maxdepth = 4
 
 templates_path = ["_templates"]
 exclude_patterns = []
+
+nb_execution_mode = "off"
 
 text_newlines = "unix"
 html_static_path = ["_static"]
