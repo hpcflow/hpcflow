@@ -55,6 +55,10 @@ sphinx-design = "^0.4.1"
 sphinx-togglebutton = "^0.3.2"
 pydata-sphinx-theme = "^0.13.3"
 ipykernel = "^6.25.1"
+myst-nb = [
+    {version = "0.17.2", python = "<3.9"},
+    {version = "1.1.1", python = ">=3.9"}
+]
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.2.0"
