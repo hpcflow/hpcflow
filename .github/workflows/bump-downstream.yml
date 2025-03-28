@@ -44,7 +44,7 @@ jobs:
 
       - name: Checkout branch
         run: |
-          git checkout bump/hpcflow
+          git switch bump/hpcflow 2>/dev/null || git switch -c bump/hpcflow
           git merge develop
 
       - name: Remove and re-add hpcflow
@@ -53,7 +53,7 @@ jobs:
           poetry add hpcflow-new2
 
       - name: Commit changes
-        run: |          
+        run: |
           git add pyproject.toml poetry.lock
           git commit -m"feat: bump hpcflow version"
           git push
