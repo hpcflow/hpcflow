@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a201"></a>
+## [v0.2.0a201](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a200...v0.2.0a201) - 2025.03.28
+
+### 🐛 Bug Fixes
+
+* create downstream bump branch in GHAs workflow if required
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a200"></a>
 ## [v0.2.0a200](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a199...v0.2.0a200) - 2025.03.27
 
