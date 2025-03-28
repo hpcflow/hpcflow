@@ -56,7 +56,7 @@ jobs:
         run: |
           git add pyproject.toml poetry.lock
           git commit -m"feat: bump hpcflow version"
-          git push
+          git push --set-upstream origin bump/hpcflow
 
       - name: Create pull request
         run: gh pr create -B develop -H bump/hpcflow --title 'Bump hpcflow version' --body 'Created by Github action'
