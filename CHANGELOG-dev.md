@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a202"></a>
+## [v0.2.0a202](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a201...v0.2.0a202) - 2025.03.28
+
+### 🐛 Bug Fixes
+
+* add missing `--set-upstream` on push
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a201"></a>
 ## [v0.2.0a201](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a200...v0.2.0a201) - 2025.03.28
 
