@@ -42,7 +42,10 @@ requests = "^2.31.0"
 platformdirs = "^4.2.1"
 pyzmq = "^26.0.3"
 typing-extensions = "^4.12.2"
-numcodecs = {version = "~0.13.1", python = ">=3.13"}
+numcodecs = [
+    {version = "0.12.1", python = "<3.13"},
+    {version = "^0.13.1", python = ">=3.13"},
+]
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.12.2"
