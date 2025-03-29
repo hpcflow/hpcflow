@@ -10,7 +10,7 @@ from typing_extensions import Generic, TypeVar
 
 from hpcflow.sdk.core.utils import nth_key
 from hpcflow.sdk.log import TimeIt
-from hpcflow.sdk.core.cache import DependencyCache
+from hpcflow.sdk.core.cache import ObjectCache
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -222,7 +222,7 @@ class LoopCache:
     def build(cls, workflow: Workflow, loops: list[Loop] | None = None) -> Self:
         """Build a cache of data for use in adding loops and iterations."""
 
-        deps_cache = DependencyCache.build(workflow)
+        deps_cache = ObjectCache.build(workflow, dependencies=True, elements=True)
 
         loops = [*workflow.template.loops, *(loops or ())]
         task_iIDs = {t_id for loop in loops for t_id in loop.task_insert_IDs}
@@ -245,8 +245,8 @@ class LoopCache:
         zeroth_iters: dict[int, tuple[int, DataIndex]] = {}
         task_iterations = defaultdict(list)
         for task in tasks:
-            for elem_idx in task.element_IDs:
-                element = deps_cache.elements[elem_idx]
+            for elem_id in task.element_IDs:
+                element = deps_cache.elements[elem_id]
                 inp_statuses = task.template.get_input_statuses(element.element_set)
                 elements[element.id_] = {
                     "input_statuses": inp_statuses,

@@ -240,11 +240,13 @@ extensions = [
     "sphinx_click",
     "sphinx_togglebutton",
     "sphinx_design",
+    "myst_nb",
 ]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
     **additional_intersphinx,
 }
 
@@ -290,6 +292,8 @@ autosectionlabel_maxdepth = 4
 
 templates_path = ["_templates"]
 exclude_patterns = []
+
+nb_execution_mode = "off"
 
 text_newlines = "unix"
 html_static_path = ["_static"]

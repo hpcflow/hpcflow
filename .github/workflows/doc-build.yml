@@ -1,12 +1,13 @@
-name: Documentation test build
+name: Documentation
+run-name: doc
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "1.4"
 on: push
 jobs:
   sphinx:
-    # Note that we only do this on one platform and with the earliest reasonable Python
+    # Note that we only do this on one platform and with one Python version
     runs-on: ubuntu-latest
-    env:
-      PYTHON_VERSION: "3.12"
-      POETRY_VERSION: "1.4"          
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +26,7 @@ jobs:
           version: ${{ env.PYTHON_VERSION }}
       - name: Install Dependencies
         run: |
-          poetry install
+          poetry install --without pyinstaller
       - name: Configure Problem Matcher
         run: echo "::add-matcher::.github/problem-matchers/sphinx.json"
         # See: https://github.com/actions/toolkit/blob/main/docs/problem-matchers.md

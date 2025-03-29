@@ -39,25 +39,50 @@ class Bash(Shell):
     JS_ENV_SETUP_INDENT: ClassVar[str] = 2 * JS_INDENT
     #: Template for the jobscript shebang line.
     JS_SHEBANG: ClassVar[str] = """#!{shebang_executable} {shebang_args}"""
-    #: Template for the common part of the jobscript header.
-    JS_HEADER: ClassVar[str] = dedent(
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str] = dedent(
         """\
         {workflow_app_alias} () {{
         (
         {env_setup}{app_invoc}\\
-                --with-config log_file_path "`pwd`/{run_log_file}"\\
+                --with-config log_file_path "${app_caps}_LOG_PATH"\\
                 --config-dir "{config_dir}"\\
                 --config-key "{config_invoc_key}"\\
                 "$@"
         )
         }}
-
+    """
+    )
+    #: Template for the common part of the jobscript header.
+    JS_HEADER: ClassVar[str] = dedent(
+        """\
         WK_PATH=`pwd`
         WK_PATH_ARG="$WK_PATH"
         SUB_IDX={sub_idx}
         JS_IDX={js_idx}
-        EAR_ID_FILE="$WK_PATH/artifacts/submissions/${{SUB_IDX}}/{EAR_file_name}"
-        ELEM_RUN_DIR_FILE="$WK_PATH/artifacts/submissions/${{SUB_IDX}}/{element_run_dirs_file_path}"
+        APP_CAPS={app_caps}
+
+        SUB_DIR="$WK_PATH/artifacts/submissions/${{SUB_IDX}}"
+        JS_FUNCS_PATH="$SUB_DIR/{jobscript_functions_dir}/{jobscript_functions_name}"
+        . "$JS_FUNCS_PATH"        
+        
+        EAR_ID_FILE="$WK_PATH/artifacts/submissions/${{SUB_IDX}}/{run_IDs_file_dir}/{run_IDs_file_name}"
+        SUB_TMP_DIR="$SUB_DIR/{tmp_dir_name}"
+        SUB_LOG_DIR="$SUB_DIR/{log_dir_name}"
+        SUB_STD_DIR="$SUB_DIR/{app_std_dir_name}"
+        SUB_SCRIPTS_DIR="$SUB_DIR/{scripts_dir_name}"
+
+        export {app_caps}_WK_PATH=$WK_PATH
+        export {app_caps}_WK_PATH_ARG=$WK_PATH_ARG
+        export {app_caps}_SUB_IDX={sub_idx}
+        export {app_caps}_SUB_SCRIPTS_DIR=$SUB_SCRIPTS_DIR
+        export {app_caps}_SUB_TMP_DIR=$SUB_TMP_DIR
+        export {app_caps}_SUB_LOG_DIR=$SUB_LOG_DIR
+        export {app_caps}_SUB_STD_DIR=$SUB_STD_DIR
+        export {app_caps}_LOG_PATH="$SUB_LOG_DIR/js_${{JS_IDX}}.log"
+        export {app_caps}_JS_FUNCS_PATH=$JS_FUNCS_PATH
+        export {app_caps}_JS_IDX={js_idx}
+        export {app_caps}_RUN_ID_FILE=$EAR_ID_FILE
     """
     )
     #: Template for the jobscript header when scheduled.
@@ -73,76 +98,118 @@ class Bash(Shell):
     JS_DIRECT_HEADER: ClassVar[str] = dedent(
         """\
         {shebang}
-
         {header}
         {wait_command}
     """
     )
-    #: Template for the jobscript body.
+    #: Template for enabling writing of the app log.
+    JS_RUN_LOG_PATH_ENABLE: ClassVar[str] = '"$SUB_LOG_DIR/{run_log_file_name}"'
+    #: Template for disabling writing of the app log.
+    JS_RUN_LOG_PATH_DISABLE: ClassVar[str] = '" "'
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str] = (
+        '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-run '
+        "$SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
+    )
+    #: Template for the execution command for multiple combined runs.
+    JS_RUN_CMD_COMBINED: ClassVar[str] = (
+        '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-combined-runs '
+        "$SUB_IDX $JS_IDX\n"
+    )
+    #: Template for setting up run environment variables and executing the run.
+    JS_RUN: ClassVar[str] = dedent(
+        """\
+        EAR_ID="$(cut -d'{EAR_files_delimiter}' -f $(($block_act_idx + 1)) <<< $elem_EAR_IDs)"
+        if [ "$EAR_ID" = "-1" ]; then
+            continue
+        fi
+
+        export {app_caps}_RUN_ID=$EAR_ID
+        export {app_caps}_RUN_LOG_PATH={run_log_enable_disable}
+        export {app_caps}_LOG_PATH="${app_caps}_RUN_LOG_PATH"
+        export {app_caps}_RUN_STD_PATH="$SUB_STD_DIR/${app_caps}_RUN_ID.txt"
+        export {app_caps}_BLOCK_ACT_IDX=$block_act_idx
+                
+        cd "$SUB_TMP_DIR"
+        
+        {run_cmd}
+    """
+    )
+    #: Template for the action-run processing loop in a jobscript.
+    JS_ACT_MULTI: ClassVar[str] = dedent(
+        """\
+        for ((block_act_idx=0;block_act_idx<{num_actions};block_act_idx++))
+        do      
+        {run_block}
+        done  
+        """
+    )
+    #: Template for the single-action-run execution in a jobscript.
+    JS_ACT_SINGLE: ClassVar[str] = dedent(
+        """\
+        block_act_idx=0        
+        {run_block}
+        """
+    )
+    #: Template for setting up environment variables and running one or more action-runs.
     JS_MAIN: ClassVar[str] = dedent(
         """\
+        block_elem_idx=$(( $JS_elem_idx - {block_start_elem_idx} ))
         elem_EAR_IDs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$EAR_ID_FILE"`
-        elem_run_dirs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$ELEM_RUN_DIR_FILE"`
-
-        for ((JS_act_idx=0;JS_act_idx<{num_actions};JS_act_idx++))
-        do
-
-          EAR_ID="$(cut -d'{EAR_files_delimiter}' -f $(($JS_act_idx + 1)) <<< $elem_EAR_IDs)"
-          if [ "$EAR_ID" = "-1" ]; then
-              continue
-          fi
-
-          run_dir="$(cut -d'{EAR_files_delimiter}' -f $(($JS_act_idx + 1)) <<< $elem_run_dirs)"
-          cd "$WK_PATH/$run_dir"
-          app_stream_file="`pwd`/{run_stream_file}"
-
-          skip=`{workflow_app_alias} internal workflow "$WK_PATH_ARG" get-ear-skipped $EAR_ID 2>> "$app_stream_file"`
-          exc_sk=$?
-
-          if [ $exc_sk -eq 0 ]; then
-
-              if [ "$skip" = "1" ]; then
-                  continue
-              fi
-
-              {workflow_app_alias} internal workflow "$WK_PATH_ARG" write-commands $SUB_IDX $JS_IDX $JS_act_idx $EAR_ID >> "$app_stream_file" 2>&1
-              exc_wc=$?
-
-              {workflow_app_alias} internal workflow "$WK_PATH_ARG" set-ear-start $EAR_ID >> "$app_stream_file" 2>&1
-              exc_se=$?
-
-              if [ $exc_wc -eq 0 ] && [ $exc_se -eq 0 ]; then
-                  . {commands_file_name}
-                  exit_code=$?
-              else
-                  exit_code=$([ $exc_wc -ne 0 ] && echo "$exc_wc" || echo "$exc_se")
-              fi
-
-          else
-              exit_code=$exc_sk
-          fi
-
-          {workflow_app_alias} internal workflow "$WK_PATH_ARG" set-ear-end $JS_IDX $JS_act_idx $EAR_ID "--" "$exit_code" >> "$app_stream_file" 2>&1
-
-        done
+        export {app_caps}_JS_ELEM_IDX=$JS_elem_idx
+        export {app_caps}_BLOCK_ELEM_IDX=$block_elem_idx
+        
+        {action}
+    """
+    )
+    #: Template for a jobscript-block header.
+    JS_BLOCK_HEADER: ClassVar[str] = dedent(  # for single-block jobscripts only
+        """\
+        block_idx=0
+        export {app_caps}_BLOCK_IDX=0
+        """
+    )
+    #: Template for single-element execution.
+    JS_ELEMENT_SINGLE: ClassVar[str] = dedent(
+        """\
+        JS_elem_idx={block_start_elem_idx}
+        {main}
     """
     )
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_LOOP: ClassVar[str] = dedent(
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent(
         """\
-        for ((JS_elem_idx=0;JS_elem_idx<{num_elements};JS_elem_idx++))
+        for ((JS_elem_idx={block_start_elem_idx};JS_elem_idx<$(({block_start_elem_idx} + {num_elements}));JS_elem_idx++))
         do
         {main}
         done
-        cd "$WK_PATH"
     """
     )
     #: Template for the array handling code in a jobscript.
-    JS_ELEMENT_ARRAY: ClassVar[str] = dedent(
+    JS_ELEMENT_MULTI_ARRAY: ClassVar[str] = dedent(
         """\
         JS_elem_idx=$(({scheduler_array_item_var} - 1))
         {main}
-        cd "$WK_PATH"
+    """
+    )
+    #: Template for the jobscript block loop in a jobscript.
+    JS_BLOCK_LOOP: ClassVar[str] = dedent(
+        """\
+        num_elements={num_elements}
+        num_actions={num_actions}
+        block_start_elem_idx=0
+        for ((block_idx=0;block_idx<{num_blocks};block_idx++))
+        do
+            export {app_caps}_BLOCK_IDX=$block_idx
+        {element_loop}
+            block_start_elem_idx=$(($block_start_elem_idx + ${{num_elements[$block_idx]}}))
+        done
+    """
+    )
+    #: Template for the jobscript footer.
+    JS_FOOTER: ClassVar[str] = dedent(
+        """\
+        cd $WK_PATH
     """
     )
 
@@ -191,12 +258,51 @@ class Bash(Shell):
         return app_invoc_exe.replace(" ", r"\ ")
 
     @override
-    @staticmethod
-    def format_stream_assignment(shell_var_name: str, command: str) -> str:
+    def format_env_var_get(self, var: str) -> str:
+        """
+        Format retrieval of a shell environment variable.
+        """
+        return f"${var}"
+
+    @override
+    def format_array(self, lst: list) -> str:
+        """
+        Format construction of a shell array.
+        """
+        return "(" + " ".join(str(i) for i in lst) + ")"
+
+    @override
+    def format_array_get_item(self, arr_name: str, index: int | str) -> str:
+        """
+        Format retrieval of a shell array item at a specified index.
+        """
+        return f"${{{arr_name}[{index}]}}"
+
+    @override
+    def format_stream_assignment(self, shell_var_name: str, command: str) -> str:
         """
         Produce code to assign the output of the command to a shell variable.
         """
         return f"{shell_var_name}=`{command}`"
+
+    @override
+    def format_source_functions_file(self, app_name: str, commands: str) -> str:
+        """
+        Format sourcing (i.e. invocation) of the jobscript functions file.
+        """
+        return dedent(
+            """\
+            . "${app_caps}_JS_FUNCS_PATH"
+
+            """
+        ).format(app_caps=app_name.upper())
+
+    @override
+    def format_commands_file(self, app_name: str, commands: str) -> str:
+        """
+        Format the commands file.
+        """
+        return self.format_source_functions_file(app_name, commands) + commands
 
     @override
     def format_save_parameter(
@@ -204,9 +310,9 @@ class Bash(Shell):
         workflow_app_alias: str,
         param_name: str,
         shell_var_name: str,
-        EAR_ID: int,
         cmd_idx: int,
         stderr: bool,
+        app_name: str,
     ):
         """
         Produce code to save a parameter's value into the workflow persistent store.
@@ -214,78 +320,15 @@ class Bash(Shell):
         # TODO: quote shell_var_name as well? e.g. if it's a white-space delimited list?
         #   and test.
         stderr_str = " --stderr" if stderr else ""
+        app_caps = app_name.upper()
         return (
-            f"{workflow_app_alias} "
-            f'internal workflow "$WK_PATH_ARG" save-parameter '
-            f"{param_name} ${shell_var_name} {EAR_ID} {cmd_idx}{stderr_str} "
-            f'>> "$app_stream_file" 2>&1'
+            f'{workflow_app_alias} --std-stream "${app_caps}_RUN_STD_PATH" '
+            f'internal workflow "${app_caps}_WK_PATH_ARG" save-parameter {stderr_str}'
+            f'"--" {param_name} ${shell_var_name} ${app_caps}_RUN_ID {cmd_idx}'
             f"\n"
         )
 
-    @override
-    def format_loop_check(
-        self, workflow_app_alias: str, loop_name: str, run_ID: int
-    ) -> str:
-        """
-        Produce code to check the looping status of part of a workflow.
-        """
-        return (
-            f"{workflow_app_alias} "
-            f'internal workflow "$WK_PATH_ARG" check-loop '
-            f"{loop_name} {run_ID} "
-            f'>> "$app_stream_file" 2>&1'
-            f"\n"
-        )
 
-    @override
-    def wrap_in_subshell(self, commands: str, abortable: bool) -> str:
-        """Format commands to run within a subshell.
-
-        This assumes commands ends in a newline.
-
-        """
-        commands = indent(commands, self.JS_INDENT)
-        if abortable:
-            # run commands in the background, and poll a file to check for abort requests:
-            return dedent(
-                """\
-                (
-                {commands}) &
-
-                pid=$!
-                abort_file=$WK_PATH/artifacts/submissions/$SUB_IDX/abort_EARs.txt
-                while true
-                do
-                    is_abort=`sed "$(($EAR_ID + 1))q;d" $abort_file`
-                    ps -p $pid > /dev/null
-                    if [ $? == 1 ]; then
-                        wait $pid
-                        exitcode=$?
-                        break
-                    elif [ "$is_abort" = "1" ]; then
-                        echo "Abort instruction received; stopping commands..." >> "$app_stream_file"
-                        kill $pid
-                        wait $pid 2>/dev/null
-                        exitcode={abort_exit_code}
-                        break
-                    else
-                        sleep 1 # TODO: TEMP: increase for production
-                    fi
-                done
-                return $exitcode
-                """
-            ).format(commands=commands, abort_exit_code=ABORT_EXIT_CODE)
-        else:
-            # run commands in "foreground":
-            return dedent(
-                """\
-                (
-                {commands})
-            """
-            ).format(commands=commands)
-
-
-@hydrate
 class WSLBash(Bash):
     """
     A variant of bash that handles running under WSL on Windows.
@@ -294,13 +337,59 @@ class WSLBash(Bash):
     #: Default name of the WSL interface executable.
     DEFAULT_WSL_EXE: ClassVar[str] = "wsl"
 
+    #: Template for the jobscript functions file.
+    JS_FUNCS: ClassVar[str] = dedent(
+        """\
+        {{workflow_app_alias}} () {{{{
+        (
+        {log_path_block}
+        {{env_setup}}{{app_invoc}}\\
+                --with-config log_file_path "$LOG_FILE_PATH"\\
+                --config-dir "{{config_dir}}"\\
+                --config-key "{{config_invoc_key}}"\\
+                "$@"
+        )
+        }}}}
+    """
+    ).format(
+        log_path_block=indent(
+            dedent(
+                """\
+                    if [ -z "${app_caps}_LOG_PATH" ] || [ "${app_caps}_LOG_PATH" = " " ]; then                    
+                        LOG_FILE_PATH=" "
+                    else
+                        LOG_FILE_PATH="$(wslpath -m ${app_caps}_LOG_PATH)"
+                    fi                    
+                """
+            ),
+            prefix=Bash.JS_ENV_SETUP_INDENT,
+        )
+    )
     #: Template for the common part of the jobscript header.
     JS_HEADER: ClassVar[str] = Bash.JS_HEADER.replace(
         'WK_PATH_ARG="$WK_PATH"',
         'WK_PATH_ARG=`wslpath -m "$WK_PATH"`',
-    ).replace(
-        '--with-config log_file_path "`pwd`',
-        '--with-config log_file_path "$(wslpath -m `pwd`)',
+    )
+    #: Template for the run execution command.
+    JS_RUN_CMD: ClassVar[str] = (
+        dedent(
+            """\
+        WSLENV=$WSLENV:${{APP_CAPS}}_WK_PATH
+        WSLENV=$WSLENV:${{APP_CAPS}}_WK_PATH_ARG
+        WSLENV=$WSLENV:${{APP_CAPS}}_JS_FUNCS_PATH
+        WSLENV=$WSLENV:${{APP_CAPS}}_STD_STREAM_FILE
+        WSLENV=$WSLENV:${{APP_CAPS}}_SUB_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_JS_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_RUN_ID
+        WSLENV=$WSLENV:${{APP_CAPS}}_BLOCK_ACT_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_JS_ELEM_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_BLOCK_ELEM_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_BLOCK_IDX
+        WSLENV=$WSLENV:${{APP_CAPS}}_LOG_PATH/p
+
+    """
+        )
+        + Bash.JS_RUN_CMD
     )
 
     def __init__(
@@ -398,3 +487,7 @@ class WSLBash(Bash):
             vers_info.update(**get_OS_info_windows())
 
         return vers_info
+
+    def get_command_file_launch_command(self, cmd_file_path: str) -> list[str]:
+        """Get the command for launching the commands file for a given run."""
+        return self.executable + [self._convert_to_wsl_path(cmd_file_path)]

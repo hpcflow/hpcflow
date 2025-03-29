@@ -34,46 +34,48 @@ Strs: TypeAlias = "str | tuple[str, ...]"
 def make_schemas(
     *ins_outs: tuple[dict[str, Any], tuple[str, ...]]
     | tuple[dict[str, Any], tuple[str, ...], str]
+    | tuple[dict[str, Any], tuple[str, ...], str, dict[str, Any]]
 ) -> list[TaskSchema]:
     """
     Construct a collection of schemas.
     """
     out: list[TaskSchema] = []
     for idx, info in enumerate(ins_outs):
+        act_kwargs: dict[str, Any] = {}
         if len(info) == 2:
             (ins_i, outs_i) = info
             obj = f"t{idx}"
-        else:
+        elif len(info) == 3:
             (ins_i, outs_i, obj) = info
+        else:
+            (ins_i, outs_i, obj, act_kwargs) = info
 
-        # distribute outputs over stdout, stderr and out file parsers:
-        stdout = None
-        stderr = None
-        out_file_parsers = None
+        # distribute outputs over multiple commands' stdout:
+        cmds_lst = []
+        for out_idx, out_j in enumerate(outs_i):
+            cmd = hf.Command(
+                command=(
+                    "echo $(("
+                    + " + ".join(f"<<parameter:{i}>> + {100 + out_idx}" for i in ins_i)
+                    + "))"
+                ),
+                stdout=f"<<int(parameter:{out_j})>>",
+            )
+            cmds_lst.append(cmd)
 
-        if outs_i:
-            stdout = f"<<parameter:{outs_i[0]}>>"
-        if len(outs_i) > 1:
-            stderr = f"<<parameter:{outs_i[1]}>>"
-        if len(outs_i) > 2:
-            out_file_parsers = [
-                hf.OutputFileParser(
-                    output=hf.Parameter(out_i),
-                    output_files=[hf.FileSpec(label="file1", name="file1.txt")],
+        if not outs_i:
+            # no outputs
+            cmds_lst = [
+                hf.Command(
+                    command=(
+                        "echo $(("
+                        + " + ".join(f"<<parameter:{i}>> + 100" for i in ins_i)
+                        + "))"
+                    ),
                 )
-                for out_i in outs_i[2:]
             ]
-        cmd = hf.Command(
-            " ".join(f"echo $((<<parameter:{i}>> + 100))" for i in ins_i),
-            stdout=stdout,
-            stderr=stderr,
-        )
 
-        act_i = hf.Action(
-            commands=[cmd],
-            output_file_parsers=out_file_parsers,
-            environments=[hf.ActionEnvironment("env_1")],
-        )
+        act_i = hf.Action(commands=cmds_lst, **act_kwargs)
         out.append(
             hf.TaskSchema(
                 objective=obj,
@@ -402,3 +404,40 @@ class P1_parameter_cls(ParameterValue):
             sub_param = None
         obj = cls(a=a, d=d, sub_param=sub_param)
         workflow.set_parameter_value(param_id=param_id, value=obj, commit=True)
+
+
+def make_workflow_to_run_command(
+    command,
+    path,
+    outputs=None,
+    name="w1",
+    overwrite=False,
+    store="zarr",
+    requires_dir=False,
+):
+    """Generate a single-task single-action workflow that runs the specified command,
+    optionally generating some outputs."""
+
+    outputs = outputs or []
+    commands = [hf.Command(command=command)]
+    commands += [
+        hf.Command(command=f'echo "output_{out}"', stdout=f"<<parameter:{out}>>")
+        for out in outputs
+    ]
+    schema = hf.TaskSchema(
+        objective="run_command",
+        outputs=[hf.SchemaOutput(i) for i in outputs],
+        actions=[hf.Action(commands=commands, requires_dir=requires_dir)],
+    )
+    template = {
+        "name": name,
+        "tasks": [hf.Task(schema=schema)],
+    }
+    wk = hf.Workflow.from_template(
+        hf.WorkflowTemplate(**template),
+        path=path,
+        name=name,
+        overwrite=overwrite,
+        store=store,
+    )
+    return wk

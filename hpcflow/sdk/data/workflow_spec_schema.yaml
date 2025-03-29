@@ -6,10 +6,12 @@ rules:
         - name
         - source_file
         - resources
+        - config
         - environments
         - env_presets
         - template_components
         - tasks
+        - meta_tasks
         - loops
         - store_kwargs
         - merge_resources

@@ -5,12 +5,23 @@ Class to hold the state that is waiting to be committed to disk.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 import contextlib
 from dataclasses import dataclass, field, fields
+from functools import wraps
+import copy
 
-from typing import Any, Generic, TYPE_CHECKING
+from typing import Any, Generic, TYPE_CHECKING, TypeVar
+from typing_extensions import ParamSpec
+
+import numpy as np
 
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.submission.submission import SUBMISSION_SUBMIT_TIME_KEYS
+from hpcflow.sdk.typing import DataIndex
+from hpcflow.sdk.utils.strings import shorten_list_str
+
+
 from hpcflow.sdk.persistence.types import (
     AnySTask,
     AnySElement,
@@ -26,7 +37,14 @@ if TYPE_CHECKING:
     from .base import PersistentStore, FileDescriptor, LoopDescriptor
     from ..app import BaseApp
     from ..typing import ParamSource
-    from ..core.json_like import JSONDocument
+    from ..core.json_like import JSONed
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+_commit_method_data_map: dict[str, list[str]] = defaultdict(
+    list
+)  # note: this is updated at module-import time.
 
 
 class PendingChanges(
@@ -76,7 +94,7 @@ class PendingChanges(
         #: Keys are loop IDs, values are loop descriptors.
         self.add_loops: dict[int, LoopDescriptor] = {}
         #: Keys are submission IDs, values are submission descriptors.
-        self.add_submissions: dict[int, JSONDocument] = {}
+        self.add_submissions: dict[int, Mapping[str, JSONed]] = {}
         #: Keys are element IDs.
         self.add_elements: dict[int, AnySElement] = {}
         #: Keys are element iteration IDs.
@@ -100,25 +118,35 @@ class PendingChanges(
         #: Keys are element iteration IDs, then EAR action index, and values are EAR IDs.
         #: This is a list of EAR IDs to add to a given element iteration action.
         self.add_elem_iter_EAR_IDs: dict[int, dict[int, list[int]]] = {}
-        #: Submission parts to add.
-        self.add_submission_parts: dict[int, dict[str, list[int]]] = {}
+        #: Submission metadata added at submit-time, including submission parts.
+        self.update_at_submit_metadata: dict[int, dict[str, Any]] = {}
 
         #: IDs of EARs to mark as initialised.
         self.set_EARs_initialised: list[int] = []
-        #: Submission IDs to attach to EARs.
-        self.set_EAR_submission_indices: dict[int, int] = {}
+        #: Submission IDs and commands file IDs to attach to EARs.
+        self.set_EAR_submission_data: dict[int, tuple[int, int | None]] = {}
         #: IDs of EARs to mark as skipped.
-        self.set_EAR_skips: list[int] = []
-        #: Keys are EAR IDs and values are tuples of start time, and start dir snapshot.
-        self.set_EAR_starts: dict[int, tuple[datetime, dict[str, Any], str]] = {}
+        self.set_EAR_skips: dict[int, int] = {}
+        #: Keys are EAR IDs and values are tuples of start time, start dir snapshot, run
+        #: hostname, and port number.
+        self.set_EAR_starts: dict[
+            int, tuple[datetime, dict[str, Any] | None, str, int | None]
+        ] = {}
         #: Keys are EAR IDs and values are tuples of end time, end dir snapshot, exit
         #: code, and success boolean.
-        self.set_EAR_ends: dict[int, tuple[datetime, dict[str, Any], int, bool]] = {}
+        self.set_EAR_ends: dict[
+            int, tuple[datetime, dict[str, Any] | None, int, bool]
+        ] = {}
+        #: Each list item is a tuple of two arrays, the first of which is a run directory
+        #: indices array, and the second of which is an integer array indicating with
+        #: which run ID each run directory is associated.
+        self.set_run_dirs: list[tuple[np.ndarray, np.ndarray]] = []
 
         #: Keys are IDs of jobscripts.
         self.set_js_metadata: dict[int, dict[int, dict[str, Any]]] = {}
 
-        #: Keys are IDs of parameters to add or modify.
+        #: Keys are IDs of parameters to add or modify, and values are tuples of the
+        #: parameter value, and whether the parameter is a file.
         self.set_parameters: dict[int, tuple[Any, bool]] = {}
 
         #: Keys are parameter indices and values are dict parameter sources to merge
@@ -130,6 +158,9 @@ class PendingChanges(
         self.update_loop_num_iters: dict[int, list[list[list[int] | int]]] = {}
         #: Keys are indices of loops, values are list of parent names.
         self.update_loop_parents: dict[int, list[str]] = {}
+
+        self.update_iter_data_idx: dict[int, DataIndex] = {}
+        self.update_run_data_idx: dict[int, DataIndex] = {}
 
         self.reset(is_init=True)  # set up initial data structures
 
@@ -145,22 +176,25 @@ class PendingChanges(
             or bool(self.add_elem_IDs)
             or bool(self.add_elem_iter_IDs)
             or bool(self.add_elem_iter_EAR_IDs)
-            or bool(self.add_submission_parts)
+            or bool(self.update_at_submit_metadata)
             or bool(self.add_parameters)
             or bool(self.add_files)
             or bool(self.add_template_components)
             or bool(self.add_element_sets)
             or bool(self.set_EARs_initialised)
-            or bool(self.set_EAR_submission_indices)
+            or bool(self.set_EAR_submission_data)
             or bool(self.set_EAR_starts)
             or bool(self.set_EAR_ends)
             or bool(self.set_EAR_skips)
+            or bool(self.set_run_dirs)
             or bool(self.set_js_metadata)
             or bool(self.set_parameters)
             or bool(self.update_param_sources)
             or bool(self.update_loop_indices)
             or bool(self.update_loop_num_iters)
             or bool(self.update_loop_parents)
+            or bool(self.update_iter_data_idx)
+            or bool(self.update_run_data_idx)
         )
 
     def where_pending(self) -> list[str]:
@@ -177,6 +211,62 @@ class PendingChanges(
         """
         return self._app.persistence_logger
 
+    def commits_data(*data_list: str):
+        """Decorator that wraps `PendingChanges.commit_*` methods with arguments listing
+        which `PendingChanges` attributes must have non-trivial data in them for the method's
+        invocation to be required.
+
+        Notes
+        -----
+        This essentially provides a mapping between `PendingChanges` attributes and
+        `commit_*` methods. This allows us to only open the resources that need updating
+        in `PendingChanges.commit_all`.
+
+        We use a decorator rather than an explicitly declaring the map in
+        `_commit_method_data_map` to make the mapping obvious near the commit methods, and
+        hopefully avoid us forgetting to update `_commit_method_data_map` when we modify
+        or add commit methods in future!
+
+        """
+
+        def decorator(func: Callable[P, T]) -> Callable[P, T]:
+
+            _commit_method_data_map[func.__name__].extend(data_list)
+
+            @wraps(func)
+            def inner(*args, **kwargs) -> T:
+                return func(*args, **kwargs)
+
+            return inner
+
+        return decorator
+
+    def get_pending_resource_map_groups(self) -> dict[tuple[str, ...], list[str]]:
+        """Retrive resource map groups, where values are filtered to include only those
+        commit methods that must be invoked, due to pending data associated with those
+        methods.
+
+        Notes
+        -----
+        This method allows us to open only those resources that need to be updated, given
+        the state of pending data.
+        """
+
+        where_pending = self.where_pending()
+        pending_groups = {}
+        for res_names, methods in self.resource_map.groups.items():
+            req_methods = [
+                meth_i
+                for meth_i in methods
+                if any(
+                    dat_j in where_pending for dat_j in _commit_method_data_map[meth_i]
+                )
+            ]
+            if req_methods:
+                pending_groups[res_names] = req_methods
+
+        return pending_groups
+
     @TimeIt.decorator
     def commit_all(self) -> None:
         """Commit all pending changes to disk."""
@@ -186,11 +276,10 @@ class PendingChanges(
             self.logger.debug("commit: no pending changes to commit.")
             return
 
-        for resources, methods in self.resource_map.groups.items():
+        for resources, methods in self.get_pending_resource_map_groups().items():
             # for each resource, enter `using_resource` context manager in "update" mode:
             with contextlib.ExitStack() as stack:
                 for res in resources:
-                    # TODO: only enter required resources!
                     stack.enter_context(
                         self.store.using_resource(res, "update")  # type: ignore[call-overload]
                     )
@@ -200,6 +289,7 @@ class PendingChanges(
         assert not (self)
 
     @TimeIt.decorator
+    @commits_data("add_tasks")
     def commit_tasks(self) -> None:
         """Commit pending tasks to disk."""
         if self.add_tasks:
@@ -215,6 +305,7 @@ class PendingChanges(
         self._clear_add_tasks()
 
     @TimeIt.decorator
+    @commits_data("add_loops")
     def commit_loops(self) -> None:
         """Commit pending loops to disk."""
         if self.add_loops:
@@ -236,11 +327,14 @@ class PendingChanges(
         self._clear_add_loops()
 
     @TimeIt.decorator
+    @commits_data("add_submissions")
     def commit_submissions(self) -> None:
         """Commit pending submissions to disk."""
         if self.add_submissions:
             # retrieve pending submissions:
-            subs = self.store.get_submissions_by_ID(self.add_submissions)
+            subs = self.store.get_submissions_by_ID(
+                self.add_submissions
+            )  # TODO: I think this just returns add_submissions?
             sub_ids = set(self.add_submissions)
             self.logger.debug(
                 f"commit: adding pending submissions with indices {sub_ids!r}"
@@ -249,16 +343,18 @@ class PendingChanges(
         self._clear_add_submissions()
 
     @TimeIt.decorator
-    def commit_submission_parts(self) -> None:
+    @commits_data("update_at_submit_metadata")
+    def commit_at_submit_metadata(self) -> None:
         """
-        Commit pending submission parts to disk.
+        Commit to disk pending at-submit-time metadata, including submission parts.
         """
-        if self.add_submission_parts:
-            self.logger.debug("commit: adding pending submission parts")
-            self.store._append_submission_parts(self.add_submission_parts)
-        self._clear_add_submission_parts()
+        if self.update_at_submit_metadata:
+            self.logger.debug("commit: adding pending at-submit metadata")
+            self.store._update_at_submit_metadata(self.update_at_submit_metadata)
+        self._clear_at_submit_metadata()
 
     @TimeIt.decorator
+    @commits_data("add_elem_IDs")
     def commit_elem_IDs(self) -> None:
         """
         Commit pending element ID updates to disk.
@@ -273,6 +369,7 @@ class PendingChanges(
         self._clear_add_elem_IDs()
 
     @TimeIt.decorator
+    @commits_data("add_elements")
     def commit_elements(self) -> None:
         """
         Commit pending elements to disk.
@@ -289,6 +386,7 @@ class PendingChanges(
         self._clear_add_elements()
 
     @TimeIt.decorator
+    @commits_data("add_element_sets")
     def commit_element_sets(self) -> None:
         """
         Commit pending element sets to disk.
@@ -300,6 +398,7 @@ class PendingChanges(
         self._clear_add_element_sets()
 
     @TimeIt.decorator
+    @commits_data("add_elem_iter_IDs")
     def commit_elem_iter_IDs(self) -> None:
         """
         Commit pending element iteration ID updates to disk.
@@ -315,6 +414,7 @@ class PendingChanges(
         self._clear_add_elem_iter_IDs()
 
     @TimeIt.decorator
+    @commits_data("add_elem_iters")
     def commit_elem_iters(self) -> None:
         """
         Commit pending element iterations to disk.
@@ -327,9 +427,14 @@ class PendingChanges(
             )
             self.store._append_elem_iters(iters)
             # pending EAR IDs that belong to pending iters are now committed:
-            self.add_elem_iter_EAR_IDs = {
-                k: v for k, v in self.add_elem_iter_EAR_IDs.items() if k not in iter_ids
-            }
+            add_elem_iter_EAR_IDs_cur = copy.deepcopy(self.add_elem_iter_EAR_IDs)
+            self._clear_add_elem_iter_EAR_IDs()  # reset to empty nested defaultdict
+            for iter_id, all_run_IDs in add_elem_iter_EAR_IDs_cur.items():
+                # only re-assign iter_IDs that have not been comitted above:
+                if iter_id not in iter_ids:
+                    for act_idx, run_IDs in all_run_IDs.items():
+                        self.add_elem_iter_EAR_IDs[iter_id][act_idx].extend(run_IDs)
+
             # pending EARs_initialised that belong to pending iters are now committed:
             self.set_EARs_initialised = [
                 i for i in self.set_EARs_initialised if i not in iter_ids
@@ -337,6 +442,7 @@ class PendingChanges(
         self._clear_add_elem_iters()
 
     @TimeIt.decorator
+    @commits_data("add_elem_iter_EAR_IDs")
     def commit_elem_iter_EAR_IDs(self) -> None:
         """
         Commit pending element action run ID updates to disk.
@@ -353,6 +459,7 @@ class PendingChanges(
         self._clear_add_elem_iter_EAR_IDs()
 
     @TimeIt.decorator
+    @commits_data("add_EARs")
     def commit_EARs(self) -> None:
         """
         Commit pending element action runs to disk.
@@ -365,12 +472,12 @@ class PendingChanges(
             self.store.num_EARs_cache = None  # invalidate cache
             # pending start/end times/snapshots, submission indices, and skips that belong
             # to pending EARs are now committed (accounted for in `get_EARs` above):
-            self.set_EAR_submission_indices = {
-                k: v
-                for k, v in self.set_EAR_submission_indices.items()
-                if k not in EAR_ids
+            self.set_EAR_submission_data = {
+                k: v for k, v in self.set_EAR_submission_data.items() if k not in EAR_ids
             }
-            self.set_EAR_skips = [i for i in self.set_EAR_skips if i not in EAR_ids]
+            self.set_EAR_skips = {
+                k: v for k, v in self.set_EAR_skips.items() if k not in EAR_ids
+            }
             self.set_EAR_starts = {
                 k: v for k, v in self.set_EAR_starts.items() if k not in EAR_ids
             }
@@ -381,6 +488,17 @@ class PendingChanges(
         self._clear_add_EARs()
 
     @TimeIt.decorator
+    @commits_data("set_run_dirs")
+    def commit_set_run_dirs(self) -> None:
+        """
+        Commit pending run directory indices.
+        """
+        for run_dir_arr, run_idx in self.set_run_dirs:
+            self.store._set_run_dirs(run_dir_arr, run_idx)
+        self._clear_set_run_dirs()
+
+    @TimeIt.decorator
+    @commits_data("set_EARs_initialised")
     def commit_EARs_initialised(self) -> None:
         """
         Commit pending element action run init state updates to disk.
@@ -398,63 +516,71 @@ class PendingChanges(
         self._clear_set_EARs_initialised()
 
     @TimeIt.decorator
+    @commits_data("set_EAR_submission_data")
     def commit_EAR_submission_indices(self) -> None:
         """
         Commit pending element action run submission index updates to disk.
         """
-        if self.set_EAR_submission_indices:
+        if self.set_EAR_submission_data:
             self.logger.debug(
-                f"commit: updating submission indices: "
-                f"{self.set_EAR_submission_indices!r}."
+                f"commit: updating submission data: {self.set_EAR_submission_data!r}."
             )
-            self.store._update_EAR_submission_indices(self.set_EAR_submission_indices)
-            for EAR_ID_i in self.set_EAR_submission_indices:
+            self.store._update_EAR_submission_data(self.set_EAR_submission_data)
+            for EAR_ID_i in self.set_EAR_submission_data:
                 self.store.EAR_cache.pop(EAR_ID_i, None)  # invalidate cache
-            self._clear_set_EAR_submission_indices()
+            self._clear_EAR_submission_data()
 
     @TimeIt.decorator
+    @commits_data("set_EAR_starts")
     def commit_EAR_starts(self) -> None:
         """
         Commit pending element action run start information to disk.
         """
-        # TODO: could be batched up?
-        for EAR_id, (time, snap, hostname) in self.set_EAR_starts.items():
+        updates = self.set_EAR_starts
+        if updates:
             self.logger.debug(
-                f"commit: adding pending start time ({time!r}), run hostname "
-                f"({hostname!r}), and directory snapshot to EAR ID {EAR_id!r}."
+                f"commit: registering {len(updates)} run(s) as started: "
+                f"{shorten_list_str(updates)}."
             )
-            self.store._update_EAR_start(EAR_id, time, snap, hostname)
-            self.store.EAR_cache.pop(EAR_id, None)  # invalidate cache
+            self.store._update_EAR_start(updates)
+            for run_id in updates:
+                self.store.EAR_cache.pop(run_id, None)  # invalidate cache
         self._clear_set_EAR_starts()
 
     @TimeIt.decorator
+    @commits_data("set_EAR_ends")
     def commit_EAR_ends(self) -> None:
         """
         Commit pending element action run finish information to disk.
         """
-        # TODO: could be batched up?
-        for EAR_id, (time, snap, ext, suc) in self.set_EAR_ends.items():
+        updates = self.set_EAR_ends
+        if updates:
             self.logger.debug(
-                f"commit: adding pending end time ({time!r}), directory snapshot, "
-                f"exit code ({ext!r}), and success status {suc!r} to EAR ID {EAR_id!r}."
+                f"commit: registering {len(updates)} run(s) as ended: "
+                f"{shorten_list_str(updates)}, with exit codes: "
+                f"{shorten_list_str([i[2] for i in updates.values()])}."
             )
-            self.store._update_EAR_end(EAR_id, time, snap, ext, suc)
-            self.store.EAR_cache.pop(EAR_id, None)  # invalidate cache
+            self.store._update_EAR_end(updates)
+            for run_id in updates:
+                self.store.EAR_cache.pop(run_id, None)  # invalidate cache
         self._clear_set_EAR_ends()
 
     @TimeIt.decorator
+    @commits_data("set_EAR_skips")
     def commit_EAR_skips(self) -> None:
         """
         Commit pending element action skip flags to disk.
         """
-        # TODO: could be batched up?
-        for EAR_id in self.set_EAR_skips:
-            self.logger.debug(f"commit: setting EAR ID {EAR_id!r} as skipped.")
-            self.store._update_EAR_skip(EAR_id)
-            self.store.EAR_cache.pop(EAR_id, None)  # invalidate cache
+        updates = self.set_EAR_skips
+        if updates:
+            self.logger.debug(f"commit: setting {len(updates)} run IDs as skipped.")
+            self.store._update_EAR_skip(updates)
+            for run_ID in updates:
+                self.store.EAR_cache.pop(run_ID, None)  # invalidate cache
         self._clear_set_EAR_skips()
 
     @TimeIt.decorator
+    @commits_data("set_js_metadata")
     def commit_js_metadata(self) -> None:
         """
         Commit pending jobscript metadata changes to disk.
@@ -467,6 +593,7 @@ class PendingChanges(
         self._clear_set_js_metadata()
 
     @TimeIt.decorator
+    @commits_data("add_parameters", "set_parameters")
     def commit_parameters(self) -> None:
         """Make pending parameters persistent."""
         if self.add_parameters:
@@ -485,6 +612,7 @@ class PendingChanges(
         self._clear_set_parameters()
 
     @TimeIt.decorator
+    @commits_data("add_files")
     def commit_files(self) -> None:
         """Add pending files to the files directory."""
         if self.add_files:
@@ -493,6 +621,7 @@ class PendingChanges(
         self._clear_add_files()
 
     @TimeIt.decorator
+    @commits_data("add_template_components")
     def commit_template_components(self) -> None:
         """
         Commit pending template components to disk.
@@ -503,6 +632,7 @@ class PendingChanges(
         self._clear_add_template_components()
 
     @TimeIt.decorator
+    @commits_data("update_param_sources")
     def commit_param_sources(self) -> None:
         """Make pending changes to parameter sources persistent."""
         if self.update_param_sources:
@@ -514,19 +644,21 @@ class PendingChanges(
             self._clear_update_param_sources()
 
     @TimeIt.decorator
+    @commits_data("update_loop_indices")
     def commit_loop_indices(self) -> None:
         """Make pending update to element iteration loop indices persistent."""
-        # TODO: batch up
-        for iter_ID, loop_idx in self.update_loop_indices.items():
+        updates = self.update_loop_indices
+        if updates:
             self.logger.debug(
-                f"commit: updating loop indices of iteration ID {iter_ID!r} with "
-                f"{loop_idx!r}."
+                f"commit: updating loop indices of {len(updates)} iteration(s)."
             )
-            self.store._update_loop_index(iter_ID, loop_idx)
-            self.store.element_iter_cache.pop(iter_ID, None)  # invalidate cache
+            self.store._update_loop_index(updates)
+            for iter_ID in updates:
+                self.store.element_iter_cache.pop(iter_ID, None)  # invalidate cache
         self._clear_update_loop_indices()
 
     @TimeIt.decorator
+    @commits_data("update_loop_num_iters")
     def commit_loop_num_iters(self) -> None:
         """Make pending update to the number of loop iterations."""
         for index, num_iters in self.update_loop_num_iters.items():
@@ -537,12 +669,27 @@ class PendingChanges(
         self._clear_update_loop_num_iters()
 
     @TimeIt.decorator
+    @commits_data("update_loop_parents")
     def commit_loop_parents(self) -> None:
         """Make pending update to additional loop parents."""
         for index, parents in self.update_loop_parents.items():
             self.logger.debug(f"commit: updating loop {index!r} parents to {parents!r}.")
             self.store._update_loop_parents(index, parents)
         self._clear_update_loop_parents()
+
+    @TimeIt.decorator
+    @commits_data("update_iter_data_idx")
+    def commit_iter_data_idx(self) -> None:
+        if self.update_iter_data_idx:
+            self.store._update_iter_data_indices(self.update_iter_data_idx)
+            self._clear_update_iter_data_idx()
+
+    @TimeIt.decorator
+    @commits_data("update_run_data_idx")
+    def commit_run_data_idx(self) -> None:
+        if self.update_run_data_idx:
+            self.store._update_run_data_indices(self.update_run_data_idx)
+            self._clear_update_run_data_idx()
 
     def _clear_add_tasks(self) -> None:
         self.add_tasks = {}
@@ -553,8 +700,10 @@ class PendingChanges(
     def _clear_add_submissions(self) -> None:
         self.add_submissions = {}
 
-    def _clear_add_submission_parts(self) -> None:
-        self.add_submission_parts = defaultdict(dict)
+    def _clear_at_submit_metadata(self) -> None:
+        self.update_at_submit_metadata = defaultdict(
+            lambda: {i: None for i in SUBMISSION_SUBMIT_TIME_KEYS}
+        )
 
     def _clear_add_elements(self) -> None:
         self.add_elements = {}
@@ -568,6 +717,9 @@ class PendingChanges(
     def _clear_add_EARs(self) -> None:
         self.add_EARs = {}
 
+    def _clear_set_run_dirs(self):
+        self.set_run_dirs = []
+
     def _clear_add_elem_IDs(self) -> None:
         self.add_elem_IDs = defaultdict(list)
 
@@ -580,8 +732,8 @@ class PendingChanges(
     def _clear_set_EARs_initialised(self) -> None:
         self.set_EARs_initialised = []
 
-    def _clear_set_EAR_submission_indices(self) -> None:
-        self.set_EAR_submission_indices = {}
+    def _clear_EAR_submission_data(self) -> None:
+        self.set_EAR_submission_data = {}
 
     def _clear_set_EAR_starts(self) -> None:
         self.set_EAR_starts = {}
@@ -590,7 +742,7 @@ class PendingChanges(
         self.set_EAR_ends = {}
 
     def _clear_set_EAR_skips(self) -> None:
-        self.set_EAR_skips = []
+        self.set_EAR_skips = {}
 
     def _clear_set_js_metadata(self) -> None:
         self.set_js_metadata = defaultdict(lambda: defaultdict(dict))
@@ -619,6 +771,12 @@ class PendingChanges(
     def _clear_update_loop_parents(self) -> None:
         self.update_loop_parents = {}
 
+    def _clear_update_iter_data_idx(self):
+        self.update_iter_data_idx = defaultdict(dict)
+
+    def _clear_update_run_data_idx(self):
+        self.update_run_data_idx = defaultdict(dict)
+
     def reset(self, is_init: bool = False) -> None:
         """Clear all pending data and prepare to accept new pending data."""
 
@@ -632,11 +790,12 @@ class PendingChanges(
         self._clear_add_tasks()
         self._clear_add_loops()
         self._clear_add_submissions()
-        self._clear_add_submission_parts()
+        self._clear_at_submit_metadata()
         self._clear_add_elements()
         self._clear_add_element_sets()
         self._clear_add_elem_iters()
         self._clear_add_EARs()
+        self._clear_set_run_dirs()
 
         self._clear_set_EARs_initialised()
         self._clear_add_elem_IDs()
@@ -647,7 +806,7 @@ class PendingChanges(
         self._clear_add_files()
         self._clear_add_template_components()
 
-        self._clear_set_EAR_submission_indices()
+        self._clear_EAR_submission_data()
         self._clear_set_EAR_starts()
         self._clear_set_EAR_ends()
         self._clear_set_EAR_skips()
@@ -659,6 +818,8 @@ class PendingChanges(
         self._clear_update_loop_indices()
         self._clear_update_loop_num_iters()
         self._clear_update_loop_parents()
+        self._clear_update_iter_data_idx()
+        self._clear_update_run_data_idx()
 
 
 @dataclass
@@ -682,8 +843,8 @@ class CommitResourceMap:
     commit_loops: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_submissions`.
     commit_submissions: tuple[str, ...] | None = tuple()
-    #: Resources for :py:meth:`~.PendingChanges.commit_submission_parts`.
-    commit_submission_parts: tuple[str, ...] | None = tuple()
+    #: Resources for :py:meth:`~.PendingChanges.commit_at_submit_metadata`.
+    commit_at_submit_metadata: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elem_IDs`.
     commit_elem_IDs: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_elements`.
@@ -724,6 +885,13 @@ class CommitResourceMap:
     commit_loop_num_iters: tuple[str, ...] | None = tuple()
     #: Resources for :py:meth:`~.PendingChanges.commit_loop_parents`.
     commit_loop_parents: tuple[str, ...] | None = tuple()
+    #: Resources for :py:meth:`~.PendingChanges.commit_set_run_dirs`.
+    commit_set_run_dirs: tuple[str, ...] | None = tuple()
+    #: Resources for :py:meth:`~.PendingChanges.commit_iter_data_idx`.
+    commit_iter_data_idx: tuple[str, ...] | None = tuple()
+    #: Resources for :py:meth:`~.PendingChanges.commit_run_data_idx`.
+    commit_run_data_idx: tuple[str, ...] | None = tuple()
+
     #: A dict whose keys are tuples of resource labels and whose values are lists
     #: of :py:class:`PendingChanges` commit method names that require those resources.
     #:

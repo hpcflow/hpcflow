@@ -207,8 +207,45 @@ def check_load_data_files(config: Config, value: Any) -> None:
     config._app.reload_template_components(warn=False)
 
 
+def callback_log_file_path(config, value):
+    value = value.strip()
+    if value:
+        return config._resolve_path(value)
+    else:
+        return value
+
+
 def callback_update_log_console_level(config: Config, value: str) -> None:
     """
     Callback to set the logging level.
     """
-    config._app.log.update_console_level(value)
+    config._app.log.update_console_level(new_level=value)
+
+
+def callback_unset_log_console_level(config: Config) -> None:
+    """Reset the console handler to the default level."""
+    config._app.log.update_console_level()
+
+
+def callback_update_log_file_level(config: Config, value: str) -> None:
+    """Callback to set the level of the log file handler."""
+    config._app.log.update_file_level(new_level=value)
+
+
+def callback_update_log_file_path(config: Config, value: str) -> None:
+    """
+    Callback to update the log file path, or remove the file handler if no path specifed.
+    """
+    config._app.log.remove_file_handler()
+    if value:
+        config._app.log.add_file_logger(path=value, level=config.get("log_file_level"))
+
+
+def callback_unset_log_file_level(config: Config) -> None:
+    """Callback to reset the file handler to the default level."""
+    config._app.log.update_file_level()
+
+
+def callback_unset_log_file_path(config: Config) -> None:
+    """Callback to remove the log file handler."""
+    config._app.log.remove_file_handler()

@@ -5,7 +5,7 @@ An interface to SGE.
 from __future__ import annotations
 from collections.abc import Sequence
 import re
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import (
@@ -174,16 +174,42 @@ class SGEPosix(QueuedScheduler):
     def __format_array_request(self, num_elements: int) -> str:
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}"
 
+    def get_stdout_filename(
+        self, js_idx: int, job_ID: str, array_idx: int | None = None
+    ) -> str:
+        """File name of the standard output stream file."""
+        # TODO: untested, might not work!
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh.o{job_ID}{array_idx_str}"
+
+    def get_stderr_filename(
+        self, js_idx: int, job_ID: str, array_idx: int | None = None
+    ) -> str:
+        """File name of the standard error stream file."""
+        # TODO: untested, might not work!
+        array_idx_str = f".{array_idx}" if array_idx is not None else ""
+        return f"js_{js_idx}.sh.e{job_ID}{array_idx_str}"
+
     def __format_std_stream_file_option_lines(
-        self, is_array: bool, sub_idx: int
+        self, is_array: bool, sub_idx: int, js_idx: int, combine_std: bool
     ) -> Iterator[str]:
-        # note: we can't modify the file names
-        yield f"{self.js_cmd} -o ./artifacts/submissions/{sub_idx}"
-        yield f"{self.js_cmd} -e ./artifacts/submissions/{sub_idx}"
+        # note: if we modify the file names, there is, I believe, no way to include the
+        # job ID; so we don't modify the file names:
+        base = f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}"
+        yield f"{self.js_cmd} -o {base}"
+        if combine_std:
+            yield f"{self.js_cmd} -j y"  # redirect stderr to stdout
+        else:
+            yield f"{self.js_cmd} -e {base}"
 
     @override
     def format_options(
-        self, resources: ElementResources, num_elements: int, is_array: bool, sub_idx: int
+        self,
+        resources: ElementResources,
+        num_elements: int,
+        is_array: bool,
+        sub_idx: int,
+        js_idx: int,
     ) -> str:
         """
         Format the options to the jobscript command.
@@ -194,7 +220,11 @@ class SGEPosix(QueuedScheduler):
         if is_array:
             opts.append(self.__format_array_request(num_elements))
 
-        opts.extend(self.__format_std_stream_file_option_lines(is_array, sub_idx))
+        opts.extend(
+            self.__format_std_stream_file_option_lines(
+                is_array, sub_idx, js_idx, resources.combine_jobscript_std
+            )
+        )
 
         for opt_k, opt_v in self.options.items():
             if opt_v is None:
@@ -264,9 +294,9 @@ class SGEPosix(QueuedScheduler):
 
     def get_job_statuses(
         self,
-    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
-        """Get information about all of this user's jobscripts that currently listed by
-        the scheduler."""
+    ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
+        """Get information about all of this user's jobscripts that are currently listed
+        by the scheduler."""
         cmd = [*self.show_cmd, "-u", "$USER", "-g", "d"]  # "-g d": separate arrays items
         stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
         if stderr:
@@ -277,7 +307,7 @@ class SGEPosix(QueuedScheduler):
         elif not stdout:
             return {}
 
-        info: dict[str, dict[int | None, JobscriptElementState]] = {}
+        info: dict[str, dict[int, JobscriptElementState] | JobscriptElementState] = {}
         lines = stdout.split("\n")
         # assuming a job name with spaces means we can't split on spaces to get
         # anywhere beyond the job name, so get the column index of the state heading
@@ -300,13 +330,19 @@ class SGEPosix(QueuedScheduler):
                 else None
             )
 
-            info.setdefault(base_job_ID, {})[arr_idx] = state
+            if arr_idx is not None:
+                entry = cast(
+                    dict[int, JobscriptElementState], info.setdefault(base_job_ID, {})
+                )
+                entry[arr_idx] = state
+            else:
+                info[base_job_ID] = state
         return info
 
     @override
     def get_job_state_info(
-        self, *, js_refs: Sequence[str] | None = None, num_js_elements: int = 0
-    ) -> Mapping[str, Mapping[int | None, JobscriptElementState]]:
+        self, *, js_refs: Sequence[str] | None = None
+    ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
         """Query the scheduler to get the states of all of this user's jobs, optionally
         filtering by specified job IDs.
 
@@ -324,7 +360,6 @@ class SGEPosix(QueuedScheduler):
         self,
         js_refs: list[str],
         jobscripts: list[Jobscript] | None = None,
-        num_js_elements: int = 0,  # Ignored!
     ):
         """
         Cancel submitted jobs.

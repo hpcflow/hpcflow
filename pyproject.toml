@@ -1,11 +1,11 @@
 
 [tool.poetry]
 name = "hpcflow-new2"
-version = "0.2.0a190"
+version = "0.2.0a203"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
-license = "MIT"
+license = "MPL-2.0"
 readme = "README.md"
 packages = [
     { include = "hpcflow" }
@@ -14,8 +14,12 @@ exclude = ["hpcflow/data/demo_data"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.14"
-zarr = "~2.17.2"
+zarr = "2.17.2"
 numpy = "^1.26.4"
+scipy = [
+    {version = "^1.13.1", python = "<3.10"},
+    {version = "^1.15.2", python = ">=3.10"},
+]
 ruamel-yaml = "^0.18.6"
 colorama = "^0.4.6"
 termcolor = "^1.1.0"
@@ -33,6 +37,7 @@ h5py = "^3.9.0"
 valida = "^0.7.5"
 requests = "^2.31.0"
 platformdirs = "^4.2.1"
+pyzmq = "^26.0.3"
 typing-extensions = "^4.12.2"
 
 [tool.poetry.group.dev.dependencies]
@@ -50,6 +55,10 @@ sphinx-design = "^0.4.1"
 sphinx-togglebutton = "^0.3.2"
 pydata-sphinx-theme = "^0.13.3"
 ipykernel = "^6.25.1"
+myst-nb = [
+    {version = "0.17.2", python = "<3.9"},
+    {version = "1.1.1", python = ">=3.9"}
+]
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.2.0"
@@ -58,7 +67,7 @@ papermill = "^2.6.0"
 ipykernel = "^6.25.1"
 
 [tool.poetry.group.pyinstaller.dependencies]
-pyinstaller = "^6.11"
+pyinstaller = "^6.12.0"
 
 [tool.poetry.group.typecheck]
 optional = true
@@ -71,6 +80,7 @@ types-requests = "^2.32.0.20240622"
 types-setuptools = "^70.2.0.20240704"
 mypy = "^1.10.1"
 types-markupsafe = "^1.1.10"
+scipy-stubs = {version = "^1.15.2.1", python = ">=3.10"}
 
 [tool.poetry.extras]
 test = ["pytest"]
@@ -83,7 +93,7 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0a190"
+version = "0.2.0a203"
 tag_format = "v$version"
 version_files = [ 
     "pyproject.toml:version",

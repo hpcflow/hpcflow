@@ -1,5 +1,7 @@
+from textwrap import dedent
 import pytest
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.errors import MissingVariableSubstitutionError
 from hpcflow.sdk.core.test_utils import (
     make_test_data_YAML_workflow_template,
 )
@@ -36,6 +38,35 @@ def test_workflow_template_vars(tmp_path, new_null_config):
         variables={"N": num_repeats},
     )
     assert wkt.tasks[0].element_sets[0].repeats[0]["number"] == num_repeats
+
+
+def test_workflow_template_vars_raise_no_vars(tmp_path, new_null_config):
+    # no default value for the variable is provided in `benchmark_N_elements`, so should
+    # raise if the variables dict is not passed:
+    with pytest.raises(MissingVariableSubstitutionError):
+        make_test_data_YAML_workflow_template("benchmark_N_elements.yaml")
+
+
+def test_workflow_template_vars_defaults_used(tmp_path, new_null_config):
+    # `benchmark_script_runner` contains a default value for the variable `N`, so that
+    # should be used, since we don't pass any variables:
+    wkt = make_test_data_YAML_workflow_template("benchmark_script_runner.yaml")
+    assert wkt.tasks[0].element_sets[0].repeats[0]["number"] == 1
+
+
+def test_workflow_template_vars_False_no_substitution(tmp_path, new_null_config):
+    # read a yaml template, check variables are not substituted, when `variables=False`:
+    wkt_yaml = dedent(
+        """\
+        name: workflow_1
+        tasks:
+          - schema: test_t1_conditional_OS            
+            inputs:
+              p1: <<var:my_var>>
+    """
+    )
+    wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml, variables=False)
+    assert wkt.tasks[0].element_sets[0].inputs[0].value == "<<var:my_var>>"
 
 
 def test_env_preset_merge_simple(null_config):

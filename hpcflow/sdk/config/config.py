@@ -38,12 +38,18 @@ from hpcflow.sdk.config.callbacks import (
     callback_supported_schedulers,
     callback_supported_shells,
     callback_update_log_console_level,
+    callback_unset_log_console_level,
     callback_vars,
     callback_file_paths,
     exists_in_schedulers,
     set_callback_file_paths,
     check_load_data_files,
     set_scheduler_invocation_match,
+    callback_update_log_file_path,
+    callback_update_log_file_level,
+    callback_unset_log_file_level,
+    callback_unset_log_file_path,
+    callback_log_file_path,
 )
 from hpcflow.sdk.config.config_file import ConfigFile
 from hpcflow.sdk.config.errors import (
@@ -54,6 +60,7 @@ from hpcflow.sdk.config.errors import (
     ConfigItemAlreadyUnsetError,
     ConfigItemCallbackError,
     ConfigNonConfigurableError,
+    ConfigReadOnlyError,
     ConfigUnknownItemError,
     ConfigUnknownOverrideError,
     ConfigValidationError,
@@ -70,6 +77,7 @@ if TYPE_CHECKING:
         ShellConfigDescriptor,
         GetterCallback,
         SetterCallback,
+        UnsetterCallback,
         T,
     )
     from ..app import BaseApp
@@ -256,7 +264,7 @@ class Config:
             "environment_sources": (callback_file_paths,),
             "parameter_sources": (callback_file_paths,),
             "command_file_sources": (callback_file_paths,),
-            "log_file_path": (callback_vars, callback_file_paths),
+            "log_file_path": (callback_vars, callback_log_file_path),
             "telemetry": (callback_bool,),
             "schedulers": (callback_lowercase, callback_supported_schedulers),
             "shells": (callback_lowercase,),
@@ -275,9 +283,16 @@ class Config:
             "default_scheduler": (exists_in_schedulers, set_scheduler_invocation_match),
             "default_shell": (callback_supported_shells,),
             "schedulers": (callback_supported_schedulers, callback_scheduler_set_up),
-            "log_file_path": (set_callback_file_paths,),
+            "log_file_path": (callback_update_log_file_path,),
+            "log_file_level": (callback_update_log_file_level,),
             "log_console_level": (callback_update_log_console_level,),
             "demo_data_manifest_file": (set_callback_file_paths,),
+        }
+
+        self._unset_callbacks: dict[str, tuple[UnsetterCallback, ...]] = {
+            "log_console_level": (callback_unset_log_console_level,),
+            "log_file_level": (callback_unset_log_file_level,),
+            "log_file_path": (callback_unset_log_file_path,),
         }
 
         self._configurable_keys = self._options._configurable_keys
@@ -302,6 +317,11 @@ class Config:
         }
         self._meta_data = metadata
 
+        # used within context manager `cached_config`:
+        self._use_cache = False
+        self._config_cache: dict[tuple[str, bool, bool, bool], Any] = {}
+
+        # note: this must go at the end, after all instance attributes have been set!
         self._options.validate(
             data=self.get_all(include_overrides=True),
             logger=self._logger,
@@ -524,10 +544,12 @@ class Config:
     def _disable_callbacks(
         self, callbacks: Sequence[str]
     ) -> tuple[
-        dict[str, tuple[GetterCallback, ...]], dict[str, tuple[SetterCallback, ...]]
+        dict[str, tuple[GetterCallback, ...]],
+        dict[str, tuple[SetterCallback, ...]],
+        dict[str, tuple[UnsetterCallback, ...]],
     ]:
         """
-        Disable named get and set callbacks.
+        Disable named get, set, and unset callbacks.
 
         Returns
         -------
@@ -542,19 +564,28 @@ class Config:
             k: tuple(cb for cb in v if cb.__name__ not in callbacks)
             for k, v in self._set_callbacks.items()
         }
+        unset_callbacks_tmp = {
+            k: tuple(i for i in v if i.__name__ not in callbacks)
+            for k, v in self._unset_callbacks.items()
+        }
         get_callbacks = copy.deepcopy(self._get_callbacks)
         set_callbacks = copy.deepcopy(self._set_callbacks)
+        unset_callbacks = copy.deepcopy(self._unset_callbacks)
         self._get_callbacks = get_callbacks_tmp
         self._set_callbacks = set_callbacks_tmp
-        return (get_callbacks, set_callbacks)
+        self._unset_callbacks = unset_callbacks_tmp
+        return (get_callbacks, set_callbacks, unset_callbacks)
 
     @contextlib.contextmanager
     def _without_callbacks(self, *callbacks: str) -> Iterator[None]:
-        """Context manager to temporarily exclude named get and set callbacks."""
-        get_callbacks, set_callbacks = self._disable_callbacks(*callbacks)
-        yield
-        self._get_callbacks = get_callbacks
-        self._set_callbacks = set_callbacks
+        """Context manager to temporarily exclude named get, set, and unset callbacks."""
+        get_cb, set_cb, unset_cb = self._disable_callbacks(callbacks)
+        try:
+            yield
+        finally:
+            self._get_callbacks = get_cb
+            self._set_callbacks = set_cb
+            self._unset_callbacks = unset_cb
 
     def _validate(self) -> None:
         data = self.get_all(include_overrides=True)
@@ -737,6 +768,17 @@ class Config:
     ):
         """Get a configuration item."""
 
+        if self._use_cache:
+            # note: we default_value is not necessarily hashable, so we can't cache on it!
+            key = (
+                name,
+                include_overrides,
+                raise_on_missing,
+                as_str,
+            )
+            if key in self._config_cache:
+                return self._config_cache[key]
+
         if name not in self._all_keys:
             raise ConfigUnknownItemError(name=name)
 
@@ -769,9 +811,12 @@ class Config:
 
         if as_str:
             if isinstance(val, (list, tuple, set)):
-                return [str(i) for i in val]
+                val = [str(i) for i in val]
             else:
-                return str(val)
+                val = str(val)
+
+        if self._use_cache:
+            self._config_cache[key] = val
 
         return val
 
@@ -805,6 +850,9 @@ class Config:
         """
         Set a configuration item.
         """
+        if self._use_cache:
+            raise ConfigReadOnlyError()
+
         if name not in self._configurable_keys:
             raise ConfigNonConfigurableError(name=name)
         if is_json:
@@ -914,7 +962,7 @@ class Config:
             root = value
         self._set(name, root, quiet=quiet)
 
-    def unset(self, name: str) -> None:
+    def unset(self, name: str, callback: bool = True) -> None:
         """
         Unset the value of a configuration item.
 
@@ -935,6 +983,13 @@ class Config:
         self._unset_keys.add(name)
         try:
             self._validate()
+            if callback:
+                for cb in self._unset_callbacks.get(name, []):
+                    self._logger.debug(
+                        f"Invoking `config.unset` callback for item {name!r}: "
+                        f"{cb.__name__!r}."
+                    )
+                    cb(self)
         except ConfigValidationError as err:
             self._unset_keys.remove(name)
             raise ConfigChangeValidationError(name, validation_err=err) from None
@@ -1328,3 +1383,37 @@ class Config:
                 sha=sha, path=self._app.demo_data_dir.replace(".", "/")
             ),
         )
+
+    @contextlib.contextmanager
+    def cached_config(self) -> Iterator[None]:
+        try:
+            self._use_cache = True
+            yield
+        finally:
+            self._use_cache = False
+            self._config_cache = {}  # reset the cache
+
+    def _is_set(self, name: str) -> bool:
+        """Check if a (non-metadata) config item is set."""
+        if name in self._unset_keys:
+            return False
+        elif name in self._modified_keys:
+            return True
+        else:
+            return self._file.is_item_set(self._config_key, name)
+
+    @contextlib.contextmanager
+    def _with_updates(self, updates: dict[str, Any]) -> Iterator[None]:
+        # need to run callbacks for unsetting?
+        prev_unset = copy.deepcopy(self._unset_keys)
+        prev_modified = copy.deepcopy(self._modified_keys)
+        to_unset = []
+        try:
+            for k, v in updates.items():
+                if not self._is_set(k):
+                    to_unset.append(k)
+                self.set(k, v)
+            yield
+        finally:
+            self._unset_keys = prev_unset
+            self._modified_keys = prev_modified

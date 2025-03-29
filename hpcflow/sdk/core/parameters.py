@@ -14,6 +14,7 @@ from typing import TypeVar, cast, TYPE_CHECKING
 from typing_extensions import override, TypeIs
 
 import numpy as np
+from scipy.stats.qmc import LatinHypercube
 from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self, TypeAlias
     from h5py import Group  # type: ignore
+    from numpy.typing import NDArray
     from ..app import BaseApp
     from ..typing import ParamSource
     from .actions import ActionScope
@@ -117,6 +119,13 @@ class ParameterValue:
     def dump_to_HDF5_group(self, group: Group):
         """
         Write this parameter value to an HDF5 group.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def dump_element_group_to_HDF5_group(cls, objs: list[ParameterValue], group: Group):
+        """
+        Write a list (from an element group) of parameter values to an HDF5 group.
         """
         raise NotImplementedError
 
@@ -376,6 +385,13 @@ class SchemaInput(SchemaParameter):
         Determines the name of the element group from which this input should be sourced.
         This is a default value that will be applied to all `labels` if a "group" key
         does not exist.
+    allow_failed_dependencies
+        This controls whether failure to retrieve inputs (i.e. an
+        `UnsetParameterDataError` is raised for one of the input sources) should be
+        allowed. By default, the unset value, which is equivalent to `False`, means no
+        failures are allowed. If set to `True`, any number of failures are allowed. If an
+        integer is specified, that number of failures are permitted. Finally, if a float
+        is specified, that proportion of failures are allowed.
     """
 
     _task_schema: TaskSchema | None = None  # assigned by parent TaskSchema
@@ -397,6 +413,7 @@ class SchemaInput(SchemaParameter):
         default_value: InputValue | Any | NullDefault = NullDefault.NULL,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
         group: str | None = None,
+        allow_failed_dependencies: int | float | bool | None = False,
     ):
         # TODO: can we define elements groups on local inputs as well, or should these be
         # just for elements from other tasks?
@@ -413,8 +430,14 @@ class SchemaInput(SchemaParameter):
         else:
             self.parameter = parameter
 
-        #: Whether to expect more than of these parameters defined in the workflow.
+        if allow_failed_dependencies is None:
+            allow_failed_dependencies = 0.0
+        elif isinstance(allow_failed_dependencies, bool):
+            allow_failed_dependencies = float(allow_failed_dependencies)
+
+        #: Whether to expect multiple labels for this parameter.
         self.multiple = multiple
+        self.allow_failed_dependencies = allow_failed_dependencies
 
         #: Dict whose keys represent the string labels that distinguish multiple
         #: parameters if `multiple` is `True`.
@@ -533,6 +556,7 @@ class SchemaInput(SchemaParameter):
             "parameter": copy.deepcopy(self.parameter, memo),
             "multiple": self.multiple,
             "labels": copy.deepcopy(self.labels, memo),
+            "allow_failed_dependencies": self.allow_failed_dependencies,
         }
         obj = self.__class__(**kwargs)
         obj._task_schema = self._task_schema
@@ -698,7 +722,52 @@ class BuiltinSchemaParameter:
     pass
 
 
-class ValueSequence(JSONLike):
+class _BaseSequence(JSONLike):
+    """
+    A base class for shared methods of `ValueSequence` and `MultiPathSequence`.
+    """
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.to_dict() == other.to_dict()
+
+    @classmethod
+    def from_json_like(cls, json_like, shared_data=None):
+        if "path" in json_like:  # note: singular
+            # only applicable to ValueSequence, although not well-defined/useful anyway,
+            # I think.
+            if "::" in json_like["path"]:
+                path, cls_method = json_like["path"].split("::")
+                json_like["path"] = path
+                json_like["value_class_method"] = cls_method
+
+        val_key = next((item for item in json_like if "values" in item), "")
+        if "::" in val_key:
+            # class method (e.g. `from_range`, `from_file` etc):
+            _, method = val_key.split("::")
+            _values_method_args = json_like.pop(val_key)
+
+            if "paths" in json_like:  # note: plural
+                # only applicable to `MultiPathSequence`, where it is useful to know
+                # how many paths we are generating sequences for:
+                _values_method_args["paths"] = json_like["paths"]
+
+            _values_method = f"_values_{method}"
+            _values_method_args = _process_demo_data_strings(
+                cls._app, _values_method_args
+            )
+            json_like["values"] = getattr(cls, _values_method)(**_values_method_args)
+
+        obj = super().from_json_like(json_like, shared_data)
+        if "::" in val_key:
+            obj._values_method = method
+            obj._values_method_args = _values_method_args
+
+        return obj
+
+
+class ValueSequence(_BaseSequence):
     """
     A sequence of values.
 
@@ -719,7 +788,7 @@ class ValueSequence(JSONLike):
     def __init__(
         self,
         path: str,
-        values: list[Any] | None,
+        values: Sequence[Any] | None,
         nesting_order: int | float | None = None,
         label: str | int | None = None,
         value_class_method: str | None = None,
@@ -746,8 +815,8 @@ class ValueSequence(JSONLike):
             bool
         ] | None = None  # assigned initially on `make_persistent`
 
-        self._workflow: Workflow | None = None
-        self._element_set: ElementSet | None = None  # assigned by parent ElementSet
+        self._workflow: Workflow | None = None  # assigned in `make_persistent`
+        self._element_set: ElementSet | None = None  # assigned by parent `ElementSet`
 
         # assigned if this is an "inputs" sequence in `WorkflowTask._add_element_set`:
         self._parameter: Parameter | None = None
@@ -776,11 +845,6 @@ class ValueSequence(JSONLike):
             f")"
         )
 
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
-            return False
-        return self.to_dict() == other.to_dict()
-
     def __deepcopy__(self, memo: dict[int, Any]):
         kwargs = self.to_dict()
         kwargs["values"] = kwargs.pop("_values")
@@ -804,31 +868,6 @@ class ValueSequence(JSONLike):
 
         return obj
 
-    @classmethod
-    def from_json_like(cls, json_like, shared_data=None):
-        if "::" in json_like["path"]:
-            path, cls_method = json_like["path"].split("::")
-            json_like["path"] = path
-            json_like["value_class_method"] = cls_method
-
-        val_key = next((item for item in json_like if "values" in item), "")
-        if "::" in val_key:
-            # class method (e.g. `from_range`, `from_file` etc):
-            _, method = val_key.split("::")
-            _values_method_args = json_like.pop(val_key)
-            _values_method = f"_values_{method}"
-            _values_method_args = _process_demo_data_strings(
-                cls._app, _values_method_args
-            )
-            json_like["values"] = getattr(cls, _values_method)(**_values_method_args)
-
-        obj = super().from_json_like(json_like, shared_data)
-        if "::" in val_key:
-            obj._values_method = method
-            obj._values_method_args = _values_method_args
-
-        return obj
-
     @property
     def parameter(self) -> Parameter | None:
         """
@@ -839,7 +878,7 @@ class ValueSequence(JSONLike):
     @property
     def path_split(self) -> Sequence[str]:
         """
-        The components of ths path.
+        The components of this path.
         """
         if self._path_split is None:
             self._path_split = self.path.split(".")
@@ -1064,14 +1103,16 @@ class ValueSequence(JSONLike):
         The workflow containing this sequence.
         """
         if self._workflow:
+            # (assigned in `make_persistent`)
             return self._workflow
         elif self._element_set:
+            # (assigned by parent `ElementSet`)
             if tmpl := self._element_set.task_template.workflow_template:
                 return tmpl.workflow
         return None
 
     @property
-    def values(self) -> list[Any] | None:
+    def values(self) -> Sequence[Any] | None:
         """
         The values in this sequence.
         """
@@ -1352,6 +1393,253 @@ class ValueSequence(JSONLike):
         obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
         obj._values_method = "from_random_uniform"
         obj._values_method_args = args
+        return obj
+
+
+class MultiPathSequence(_BaseSequence):
+    """
+    A sequence of values to be distributed across one or more paths.
+
+    Notes
+    -----
+    This is useful when we would like to generate values for multiple input paths that
+    have some interdependency, or when they must be generate together in one go.
+
+    Parameters
+    ----------
+    paths:
+        The paths to this multi-path sequence.
+    values:
+        The values in this multi-path sequence.
+    nesting_order: int
+        A nesting order for this multi-path sequence. Can be used to compose sequences
+        together.
+    label: str
+        A label for this multi-path sequence.
+    value_class_method: str
+        Name of a method used to generate multi-path sequence values. Not normally used
+        directly.
+    """
+
+    # TODO: add a `path_axis` argument with doc string like:
+    # path_axis:
+    #    The axis (as in a Numpy axis) along `values` to which the different paths
+    #    correspond.
+
+    def __init__(
+        self,
+        paths: Sequence[str],
+        values: NDArray | Sequence[Sequence] | None,
+        nesting_order: int | float | None = None,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+    ):
+        self.paths = list(paths)
+        self.nesting_order = nesting_order
+        self.label = label
+        self.value_class_method = value_class_method
+
+        self._sequences: list[ValueSequence] | None = None
+        self._values: NDArray | Sequence[Sequence] | None = None
+
+        if values is not None:
+            if (len_paths := len(paths)) != (len_vals := len(values)):
+                raise ValueError(
+                    f"The number of values ({len_vals}) must be equal to the number of "
+                    f"paths provided ({len_paths})."
+                )
+            self._values = values
+            self._sequences = [
+                self._app.ValueSequence(
+                    path=path,
+                    values=values[idx],
+                    label=label,
+                    nesting_order=nesting_order,
+                    value_class_method=value_class_method,
+                )
+                for idx, path in enumerate(paths)
+            ]
+
+        # assigned by `_move_to_sequence_list` (invoked by first init of parent
+        # `ElementSet`), corresponds to the sequence indices with the element set's
+        # sequence list:
+        self._sequence_indices: Sequence[int] | None = None
+
+        self._element_set: ElementSet | None = None  # assigned by parent `ElementSet`
+
+        self._values_method: str | None = None
+        self._values_method_args: dict | None = None
+
+    def __repr__(self):
+
+        label_str = f"label={self.label!r}, " if self.label else ""
+        val_cls_str = (
+            f"value_class_method={self.value_class_method!r}, "
+            if self.value_class_method
+            else ""
+        )
+        return (
+            f"{self.__class__.__name__}("
+            f"paths={self.paths!r}, "
+            f"{label_str}"
+            f"nesting_order={self.nesting_order}, "
+            f"{val_cls_str}"
+            f"values={self.values}"
+            f")"
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]):
+        kwargs = self.to_dict()
+        kwargs["values"] = kwargs.pop("_values")
+
+        _sequences = kwargs.pop("_sequences", None)
+        _sequence_indices = kwargs.pop("_sequence_indices", None)
+        _values_method = kwargs.pop("_values_method", None)
+        _values_method_args = kwargs.pop("_values_method_args", None)
+
+        obj = self.__class__(**copy.deepcopy(kwargs, memo))
+
+        obj._sequences = _sequences
+        obj._sequence_indices = _sequence_indices
+        obj._values_method = _values_method
+        obj._values_method_args = _values_method_args
+
+        obj._element_set = self._element_set
+
+        return obj
+
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        dct = super()._postprocess_to_dict(d)
+        del dct["_sequences"]
+        return dct
+
+    @classmethod
+    def _json_like_constructor(cls, json_like):
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+
+        # pop the keys we don't accept in `__init__`, and then assign after `__init__`:
+        _sequence_indices = json_like.pop("_sequence_indices", None)
+
+        _values_method = json_like.pop("_values_method", None)
+        _values_method_args = json_like.pop("_values_method_args", None)
+        if "_values" in json_like:
+            json_like["values"] = json_like.pop("_values")
+
+        obj = cls(**json_like)
+        obj._sequence_indices = _sequence_indices
+        obj._values_method = _values_method
+        obj._values_method_args = _values_method_args
+        return obj
+
+    @property
+    def sequence_indices(self) -> Sequence[int] | None:
+        """
+        The range indices (start and stop) to the parent element set's sequences list that
+        correspond to the `ValueSequence`s generated by this multi-path sequence, if this
+        object is bound to a parent element set.
+        """
+        return self._sequence_indices
+
+    @property
+    def sequences(self) -> Sequence[ValueSequence]:
+        """
+        The child value sequences, one for each path.
+        """
+        if self._sequence_indices:
+            # they are stored in the parent `ElementSet`
+            assert self._element_set
+            return self._element_set.sequences[slice(*self._sequence_indices)]
+        else:
+            # not yet bound to a parent `ElementSet`
+            assert self._sequences
+            return self._sequences
+
+    @property
+    def values(self) -> list[Sequence[Any]]:
+        values = []
+        for seq_i in self.sequences:
+            assert seq_i.values
+            values.append(seq_i.values)
+        return values
+
+    def _move_to_sequence_list(self, sequences: list[ValueSequence]) -> None:
+        """
+        Move the individual value sequences to an external list of value sequences (i.e.,
+        the parent `ElementSet`'s), and update the `sequence_indices` attribute so we can
+        retrieve the sequences from that list at will.
+        """
+        len_ours = len(self.sequences)
+        len_ext = len(sequences)
+        sequences.extend(self.sequences)
+
+        # child sequences are now stored externally, and values retrieved via those:
+        self._sequences = None
+        self._values = None
+        self._sequence_indices = [len_ext, len_ext + len_ours]
+
+    @classmethod
+    def _values_from_latin_hypercube(
+        cls,
+        paths: Sequence[str],
+        num_samples: int,
+        *,
+        scramble: bool = True,
+        strength: int = 1,
+        optimization: Literal["random-cd", "lloyd"] | None = None,
+        rng=None,
+    ) -> NDArray:
+
+        num_paths = len(paths)
+        kwargs = dict(
+            d=num_paths,
+            scramble=scramble,
+            strength=strength,
+            optimization=optimization,
+            rng=rng,
+        )
+        try:
+            sampler = LatinHypercube(**kwargs)
+        except TypeError:
+            # `rng` was previously (<1.15.0) `seed`:
+            kwargs["seed"] = kwargs.pop("rng")
+            sampler = LatinHypercube(**kwargs)
+        return sampler.random(n=num_samples).T
+
+    @classmethod
+    def from_latin_hypercube(
+        cls,
+        paths: Sequence[str],
+        num_samples: int,
+        *,
+        scramble: bool = True,
+        strength: int = 1,
+        optimization: Literal["random-cd", "lloyd"] | None = None,
+        rng=None,
+        nesting_order: int | float | None = None,
+        label: str | int | None = None,
+    ) -> Self:
+        """
+        Generate values from SciPy's latin hypercube sampler: :class:`scipy.stats.qmc.LatinHypercube`.
+        """
+        kwargs = {
+            "paths": paths,
+            "num_samples": num_samples,
+            "scramble": scramble,
+            "strength": strength,
+            "optimization": optimization,
+            "rng": rng,
+        }
+        values = cls._values_from_latin_hypercube(**kwargs)
+        assert values is not None
+        obj = cls(
+            paths=paths,
+            values=values,
+            nesting_order=nesting_order,
+            label=label,
+        )
+        obj._values_method = "from_latin_hypercube"
+        obj._values_method_args = kwargs
         return obj
 
 
@@ -1665,11 +1953,15 @@ class InputValue(AbstractInputValue):
             json_like["label"] = label
 
         if "::" in json_like["parameter"]:
+            # double-colon syntax indicates a `ParameterValue`-subclass class method
+            # of the specified name should be used to construct the values:
             param, cls_method = json_like["parameter"].split("::")
             json_like["parameter"] = param
             json_like["value_class_method"] = cls_method
 
         if "path" not in json_like:
+            # in the case this value corresponds to some sub-part of the parameter's
+            # nested data structure:
             param, *path = json_like["parameter"].split(".")
             json_like["parameter"] = param
             json_like["path"] = ".".join(path)
@@ -1726,6 +2018,12 @@ class ResourceSpec(JSONLike):
         Whether to use array jobs.
     max_array_items: int
         If using array jobs, up to how many items should be in the job array.
+    write_app_logs: bool
+        Whether an app log file should be written.
+    combine_jobscript_std: bool
+        Whether jobscript standard output and error streams should be combined.
+    combine_scripts: bool
+        Whether Python scripts should be combined.
     time_limit: str
         How long to run for.
     scheduler_args: dict[str, Any]
@@ -1736,6 +2034,13 @@ class ResourceSpec(JSONLike):
         Which OS to use.
     environments: dict
         Which execution environments to use.
+    resources_id: int
+        An arbitrary integer that can be used to force multiple jobscripts.
+    skip_downstream_on_failure: bool
+        Whether to skip downstream dependents on failure.
+    allow_failed_dependencies: int | float | bool | None
+        The failure tolerance with respect to dependencies, specified as a number or
+        proportion.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -1762,11 +2067,16 @@ class ResourceSpec(JSONLike):
         "shell",
         "use_job_array",
         "max_array_items",
+        "write_app_logs",
+        "combine_jobscript_std",
+        "combine_scripts",
         "time_limit",
         "scheduler_args",
         "shell_args",
         "os_name",
         "environments",
+        "resources_id",
+        "skip_downstream_on_failure",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -1819,11 +2129,16 @@ class ResourceSpec(JSONLike):
         shell: str | None = None,
         use_job_array: bool | None = None,
         max_array_items: int | None = None,
+        write_app_logs: bool | None = None,
+        combine_jobscript_std: bool | None = None,
+        combine_scripts: bool | None = None,
         time_limit: str | timedelta | None = None,
         scheduler_args: dict[str, Any] | None = None,
         shell_args: dict[str, Any] | None = None,
         os_name: str | None = None,
         environments: Mapping[str, Mapping[str, Any]] | None = None,
+        resources_id: int | None = None,
+        skip_downstream_on_failure: bool | None = None,
         SGE_parallel_env: str | None = None,
         SLURM_partition: str | None = None,
         SLURM_num_tasks: str | None = None,
@@ -1852,8 +2167,13 @@ class ResourceSpec(JSONLike):
         self._shell = self._process_string(shell)
         self._os_name = self._process_string(os_name)
         self._environments = environments
+        self._resources_id = resources_id
+        self._skip_downstream_on_failure = skip_downstream_on_failure
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
+        self._write_app_logs = write_app_logs
+        self._combine_jobscript_std = combine_jobscript_std
+        self._combine_scripts = combine_scripts
         self._time_limit = time_limit
         self._scheduler_args = scheduler_args
         self._shell_args = shell_args
@@ -1991,11 +2311,16 @@ class ResourceSpec(JSONLike):
             self._shell = None
             self._use_job_array = None
             self._max_array_items = None
+            self._write_app_logs = None
+            self._combine_jobscript_std = None
+            self._combine_scripts = None
             self._time_limit = None
             self._scheduler_args = None
             self._shell_args = None
             self._os_name = None
             self._environments = None
+            self._resources_id = None
+            self._skip_downstream_on_failure = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -2111,6 +2436,18 @@ class ResourceSpec(JSONLike):
         return self._get_value("max_array_items")
 
     @property
+    def write_app_logs(self) -> bool:
+        return self._get_value("write_app_logs")
+
+    @property
+    def combine_jobscript_std(self) -> bool:
+        return self._get_value("combine_jobscript_std")
+
+    @property
+    def combine_scripts(self) -> bool:
+        return self._get_value("combine_scripts")
+
+    @property
     def time_limit(self) -> str | None:
         """
         How long to run for.
@@ -2149,6 +2486,14 @@ class ResourceSpec(JSONLike):
         Which execution environments to use.
         """
         return self._get_value("environments")
+
+    @property
+    def resources_id(self) -> int:
+        return self._get_value("resources_id")
+
+    @property
+    def skip_downstream_on_failure(self) -> bool:
+        return self._get_value("skip_downstream_on_failure")
 
     @property
     def SGE_parallel_env(self) -> str | None:

@@ -10,13 +10,14 @@ from textwrap import dedent
 from typing import Protocol, cast, overload, TYPE_CHECKING
 from typing_extensions import Final, override
 
-from hpcflow.sdk.typing import hydrate, ParamSource
+from hpcflow.sdk.typing import PathLike, hydrate, ParamSource
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
 from hpcflow.sdk.core.zarr_io import zarr_decode
 from hpcflow.sdk.core.parameters import _process_demo_data_strings
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Mapping
     from typing import Any, ClassVar
     from typing_extensions import Self
@@ -33,7 +34,7 @@ class FileNamePart(Protocol):
     A filename or piece of filename that can be expanded.
     """
 
-    def value(self, directory: str = ".") -> str | list[str]:
+    def value(self, directory: str | os.PathLike = ".") -> str | list[str]:
         """
         Get the part of the file, possibly with directory specified.
         Implementations of this may ignore the directory.
@@ -74,7 +75,7 @@ class FileSpec(JSONLike):
         self._hash_value = _hash_value
         self.__hash = hash((label, self.name))
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         The path to a file, optionally resolved with respect to a particular directory.
         """
@@ -178,17 +179,17 @@ class FileNameSpec(JSONLike):
         """
         return self._app.FileNameExt(self)
 
-    def value(self, directory: str = ".") -> list[str] | str:
+    def value(self, directory: str | os.PathLike = ".") -> list[str] | str:
         """
         Get the template-resolved name of the file
         (or files matched if the name is a regex pattern).
 
         Parameters
         ----------
-        directory: str
+        directory: PathLike
             Where to resolve values with respect to.
         """
-        format_args = [arg.value(directory) for arg in self.args]
+        format_args = [arg.value(Path(directory)) for arg in self.args]
         value = self.name.format(*format_args)
         if self.is_regex:
             return search_dir_files_by_regex(value, directory=directory)
@@ -207,7 +208,7 @@ class FileNameStem(JSONLike):
     #: The file specification this is derived from.
     file_name: FileNameSpec
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         Get the stem, possibly with directory specified.
         """
@@ -227,7 +228,7 @@ class FileNameExt(JSONLike):
     #: The file specification this is derived from.
     file_name: FileNameSpec
 
-    def value(self, directory: str = ".") -> str:
+    def value(self, directory: str | os.PathLike = ".") -> str:
         """
         Get the extension.
         """
@@ -301,6 +302,8 @@ class InputFileGenerator(JSONLike):
     abortable: bool = False
     #: User-specified rules for whether to run the generator.
     rules: list[ActionRule] = field(default_factory=list)
+    #: Whether the generator requires a working directory.
+    requires_dir: bool = True
 
     def get_action_rules(self) -> list[ActionRule]:
         """
@@ -310,58 +313,6 @@ class InputFileGenerator(JSONLike):
         return [
             self._app.ActionRule.check_missing(f"input_files.{self.input_file.label}")
         ] + self.rules
-
-    def compose_source(self, snip_path: Path) -> str:
-        """Generate the file contents of this input file generator source."""
-
-        script_main_func = snip_path.stem
-        with snip_path.open("rt") as fp:
-            script_str = fp.read()
-
-        main_block = dedent(
-            """\
-            if __name__ == "__main__":
-                import sys
-                from pathlib import Path
-                import {app_module} as app
-                app.load_config(
-                    log_file_path=Path("{run_log_file}").resolve(),
-                    config_dir=r"{cfg_dir}",
-                    config_key=r"{cfg_invoc_key}",
-                )
-                wk_path, EAR_ID = sys.argv[1:]
-                EAR_ID = int(EAR_ID)
-                wk = app.Workflow(wk_path)
-                EAR = wk.get_EARs_from_IDs([EAR_ID])[0]
-                {script_main_func}(path=Path({file_path!r}), **EAR.get_IFG_input_values())
-        """
-        )
-        main_block = main_block.format(
-            run_log_file=self._app.RunDirAppFiles.get_log_file_name(),
-            app_module=self._app.module,
-            cfg_dir=self._app.config.config_directory,
-            cfg_invoc_key=self._app.config.config_key,
-            script_main_func=script_main_func,
-            file_path=self.input_file.name.value(),
-        )
-
-        out = dedent(
-            """\
-            {script_str}
-            {main_block}
-        """
-        )
-
-        return out.format(script_str=script_str, main_block=main_block)
-
-    def write_source(self, action: Action, env_spec: Mapping[str, Any]) -> None:
-        """
-        Write the script if it is specified as a snippet script, otherwise we assume
-        the script already exists in the working directory.
-        """
-        if snip_path := action.get_snippet_script_path(self.script, env_spec):
-            with Path(snip_path.name).open("wt", newline="\n") as fp:
-                fp.write(self.compose_source(snip_path))
 
 
 @dataclass
@@ -449,7 +400,7 @@ class OutputFileParser(JSONLike):
     inputs: list[str] | None = None
     #: Optional multiple outputs from the upstream actions of the schema that are
     #: required to parametrise this parser.
-    #: Not to be confused with :py:attr:`output` (plural).
+    #: Not to be confused with :py:attr:`output` (singular).
     outputs: list[str] | None = None
     #: Miscellaneous options.
     options: dict[str, Any] | None = None
@@ -464,6 +415,8 @@ class OutputFileParser(JSONLike):
     clean_up: list[str] = field(default_factory=list)
     #: Rules for whether to enable this parser.
     rules: list[ActionRule] = field(default_factory=list)
+    #: Whether the parser requires a working directory.
+    requires_dir: bool = True
 
     def __post_init__(self, save_files: list[FileSpec] | bool) -> None:
         if not save_files:
@@ -500,73 +453,6 @@ class OutputFileParser(JSONLike):
             self._app.ActionRule.check_missing(f"output_files.{out_f.label}")
             for out_f in self.output_files
         ] + self.rules
-
-    def compose_source(self, snip_path: Path) -> str:
-        """Generate the file contents of this output file parser source."""
-
-        if self.output is None:
-            # might be used just for saving files:
-            return ""
-
-        script_main_func = snip_path.stem
-        with snip_path.open("rt") as fp:
-            script_str = fp.read()
-
-        main_block = dedent(
-            """\
-            if __name__ == "__main__":
-                import sys
-                from pathlib import Path
-                import {app_module} as app
-                app.load_config(
-                    log_file_path=Path("{run_log_file}").resolve(),
-                    config_dir=r"{cfg_dir}",
-                    config_key=r"{cfg_invoc_key}",
-                )
-                wk_path, EAR_ID = sys.argv[1:]
-                EAR_ID = int(EAR_ID)
-                wk = app.Workflow(wk_path)
-                EAR = wk.get_EARs_from_IDs([EAR_ID])[0]
-                value = {script_main_func}(
-                    **EAR.get_OFP_output_files(),
-                    **EAR.get_OFP_inputs(),
-                    **EAR.get_OFP_outputs(),
-                )
-                wk.save_parameter(name="{param_name}", value=value, EAR_ID=EAR_ID)
-
-        """
-        )
-        main_block = main_block.format(
-            run_log_file=self._app.RunDirAppFiles.get_log_file_name(),
-            app_module=self._app.module,
-            cfg_dir=self._app.config.config_directory,
-            cfg_invoc_key=self._app.config.config_key,
-            script_main_func=script_main_func,
-            param_name=f"outputs.{self.output.typ}",
-        )
-
-        out = dedent(
-            """\
-            {script_str}
-            {main_block}
-        """
-        )
-
-        return out.format(script_str=script_str, main_block=main_block)
-
-    def write_source(self, action: Action, env_spec: Mapping[str, Any]) -> None:
-        """
-        Write the actual output parser to a file so it can be enacted.
-        """
-        if self.output is None:
-            # might be used just for saving files:
-            return
-
-        # write the script if it is specified as a snippet script, otherwise we assume
-        # the script already exists in the working directory:
-        if snip_path := action.get_snippet_script_path(self.script, env_spec):
-            with Path(snip_path.name).open("wt", newline="\n") as fp:
-                fp.write(self.compose_source(snip_path))
 
 
 @hydrate

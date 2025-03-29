@@ -67,12 +67,13 @@ if TYPE_CHECKING:
         InputValue,
         InputSource,
         ValueSequence,
+        MultiPathSequence,
         SchemaInput,
         SchemaOutput,
         ParameterPath,
     )
     from .rule import Rule
-    from .task_schema import TaskObjective, TaskSchema
+    from .task_schema import TaskObjective, TaskSchema, MetaTaskSchema
     from .types import (
         MultiplicityDescriptor,
         RelevantData,
@@ -132,6 +133,8 @@ class ElementSet(JSONLike):
         Input files to the set of elements.
     sequences: list[~hpcflow.app.ValueSequence]
         Input value sequences to parameterise over.
+    multi_path_sequences: list[~hpcflow.app.MultiPathSequence]
+        Multi-path sequences to parameterise over.
     resources: ~hpcflow.app.ResourceList
         Resources to use for the set of elements.
     repeats: list[dict]
@@ -154,9 +157,10 @@ class ElementSet(JSONLike):
         If True, if more than one parameter is sourced from the same task, then allow
         these sources to come from distinct element sub-sets. If False (default),
         only the intersection of element sub-sets for all parameters are included.
-    merge_envs: bool
-        If True, merge ``environments`` into ``resources`` using the "any" scope. If
-        False, ``environments`` are ignored. This is required on first initialisation,
+    is_creation: bool
+        If True, merge ``environments`` into ``resources`` using the "any" scope, and
+        merge sequences belonging to multi-path sequences into the value-sequences list.
+        If False, ``environments`` are ignored. This is required on first initialisation,
         but not on subsequent re-initialisation from a persistent workflow.
     """
 
@@ -189,6 +193,12 @@ class ElementSet(JSONLike):
             parent_ref="_element_set",
         ),
         ChildObjectSpec(
+            name="multi_path_sequences",
+            class_name="MultiPathSequence",
+            is_multiple=True,
+            parent_ref="_element_set",
+        ),
+        ChildObjectSpec(
             name="input_sources",
             class_name="InputSource",
             is_multiple=True,
@@ -207,6 +217,7 @@ class ElementSet(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         resources: Resources = None,
         repeats: list[RepeatsDescriptor] | int | None = None,
         groups: list[ElementGroup] | None = None,
@@ -216,7 +227,7 @@ class ElementSet(JSONLike):
         environments: Mapping[str, Mapping[str, Any]] | None = None,
         sourceable_elem_iters: list[int] | None = None,
         allow_non_coincident_task_sources: bool = False,
-        merge_envs: bool = True,
+        is_creation: bool = True,
     ):
         #: Inputs to the set of elements.
         self.inputs = self.__decode_inputs(inputs or [])
@@ -230,6 +241,8 @@ class ElementSet(JSONLike):
         self.resources = self._app.ResourceList.normalise(resources)
         #: Input value sequences to parameterise over.
         self.sequences = sequences or []
+        #: Input value multi-path sequences to parameterise over.
+        self.multi_path_sequences = multi_path_sequences or []
         #: Input source descriptors.
         self.input_sources = input_sources or {}
         #: How to handle nesting of iterations.
@@ -244,9 +257,11 @@ class ElementSet(JSONLike):
         self.sourceable_elem_iters = sourceable_elem_iters
         #: Whether to allow sources to come from distinct element sub-sets.
         self.allow_non_coincident_task_sources = allow_non_coincident_task_sources
-        #: Whether to merge ``environments`` into ``resources`` using the "any" scope
-        #: on first initialisation.
-        self.merge_envs = merge_envs
+        #: Whether this initialisation is the first for this data (i.e. not a
+        #: reconstruction from persistent workflow data), in which case, we merge
+        #: ``environments`` into ``resources`` using the "any" scope, and merge any multi-
+        #: path sequences into the sequences list.
+        self.is_creation = is_creation
         self.original_input_sources: dict[str, list[InputSource]] | None = None
         self.original_nesting_order: dict[str, float] | None = None
 
@@ -260,16 +275,23 @@ class ElementSet(JSONLike):
         # assigned by WorkflowTask._add_element_set
         self._element_local_idx_range: list[int] | None = None
 
-        # merge `environments` into element set resources (this mutates `resources`, and
-        # should only happen on creation of the element set, not re-initialisation from a
-        # persistent workflow):
-        if self.environments and self.merge_envs:
-            self.resources.merge_one(
-                self._app.ResourceSpec(scope="any", environments=self.environments)
-            )
-            self.merge_envs = False
+        if self.is_creation:
 
-        # note: `env_preset` is merged into resources by the Task init.
+            # merge `environments` into element set resources (this mutates `resources`, and
+            # should only happen on creation of the element set, not re-initialisation from a
+            # persistent workflow):
+            if self.environments:
+                self.resources.merge_one(
+                    self._app.ResourceSpec(scope="any", environments=self.environments)
+                )
+            # note: `env_preset` is merged into resources by the Task init.
+
+            # merge sequences belonging to multi-path sequences into the value-sequences list:
+            if self.multi_path_sequences:
+                for mp_seq in self.multi_path_sequences:
+                    mp_seq._move_to_sequence_list(self.sequences)
+
+            self.is_creation = False
 
     def __deepcopy__(self, memo: dict[int, Any] | None) -> Self:
         dct = self.to_dict()
@@ -450,6 +472,7 @@ class ElementSet(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         resources: Resources = None,
         repeats: list[RepeatsDescriptor] | int | None = None,
         groups: list[ElementGroup] | None = None,
@@ -468,6 +491,7 @@ class ElementSet(JSONLike):
             inputs,
             input_files,
             sequences,
+            multi_path_sequences,
             resources,
             repeats,
             groups,
@@ -692,6 +716,9 @@ class Task(JSONLike):
         A list of `InputValue` objects.
     input_files: list[~hpcflow.app.InputFile]
     sequences: list[~hpcflow.app.ValueSequence]
+        Input value sequences to parameterise over.
+    multi_path_sequences: list[~hpcflow.app.MultiPathSequence]
+        Multi-path sequences to parameterise over.
     input_sources: dict[str, ~hpcflow.app.InputSource]
     nesting_order: list
     env_preset: str
@@ -745,6 +772,7 @@ class Task(JSONLike):
         inputs: list[InputValue] | dict[str, Any] | None = None,
         input_files: list[InputFile] | None = None,
         sequences: list[ValueSequence] | None = None,
+        multi_path_sequences: list[MultiPathSequence] | None = None,
         input_sources: dict[str, list[InputSource]] | None = None,
         nesting_order: dict[str, float] | None = None,
         env_preset: str | None = None,
@@ -790,6 +818,7 @@ class Task(JSONLike):
             inputs=inputs,
             input_files=input_files,
             sequences=sequences,
+            multi_path_sequences=multi_path_sequences,
             resources=resources,
             repeats=repeats,
             groups=groups,
@@ -1000,9 +1029,11 @@ class Task(JSONLike):
         )
 
         return [
-            f"{task.name}_{task_name_rep_idx[idx]}"
-            if task_name_rep_idx[idx] > 0
-            else task.name
+            (
+                f"{task.name}_{task_name_rep_idx[idx]}"
+                if task_name_rep_idx[idx] > 0
+                else task.name
+            )
             for idx, task in enumerate(tasks)
         ]
 
@@ -1684,6 +1715,7 @@ class WorkflowTask(AppAware):
         return self._element_IDs + self._pending_element_IDs
 
     @property
+    @TimeIt.decorator
     def num_elements(self) -> int:
         """
         The number of elements associated with this task.
@@ -1891,16 +1923,18 @@ class WorkflowTask(AppAware):
             input_data_idx[key] = list(seq_dat_ref)
             sequence_idx[key] = list(range(len(seq_dat_ref)))
             try:
-                key_ = key.removeprefix("inputs.")
+                key_ = key.split("inputs.")[1]
             except IndexError:
-                pass
+                # e.g. "resources."
+                key_ = ""
             try:
                 # TODO: wouldn't need to do this if we raise when an ValueSequence is
                 # provided for a parameter whose inputs sources do not include the local
                 # value.
-                source_idx[key] = [
-                    element_set.input_sources[key_].index(loc_inp_src)
-                ] * len(seq_dat_ref)
+                if key_:
+                    source_idx[key] = [
+                        element_set.input_sources[key_].index(loc_inp_src)
+                    ] * len(seq_dat_ref)
             except ValueError:
                 pass
 
@@ -2942,7 +2976,7 @@ class WorkflowTask(AppAware):
         return params
 
     @staticmethod
-    def __get_relevant_paths(
+    def _get_relevant_paths(
         data_index: Mapping[str, Any], path: list[str], children_of: str | None = None
     ) -> Mapping[str, RelevantPath]:
         relevant_paths: dict[str, RelevantPath] = {}
@@ -2968,7 +3002,12 @@ class WorkflowTask(AppAware):
         return relevant_paths
 
     def __get_relevant_data_item(
-        self, path: str | None, path_i: str, data_idx_ij: int, raise_on_unset: bool
+        self,
+        path: str | None,
+        path_i: str,
+        data_idx_ij: int,
+        raise_on_unset: bool,
+        len_dat_idx: int = 1,
     ) -> tuple[Any, bool, str | None]:
         if path_i.startswith("repeats."):
             # data is an integer repeats index, rather than a parameter ID:
@@ -3002,6 +3041,13 @@ class WorkflowTask(AppAware):
                 data_j = param_j.data
         if raise_on_unset and not is_set_i:
             raise UnsetParameterDataError(path, path_i)
+        if not is_set_i and self.workflow._is_tracking_unset:
+            src_run_id = param_j.source.get("EAR_ID")
+            unset_trackers = self.workflow._tracked_unset
+            assert src_run_id is not None
+            assert unset_trackers is not None
+            unset_trackers[path_i].run_ids.add(src_run_id)
+            unset_trackers[path_i].group_size = len_dat_idx
         return data_j, is_set_i, meth_i
 
     def __get_relevant_data(
@@ -3029,7 +3075,7 @@ class WorkflowTask(AppAware):
             is_param_set_i: list[bool] = []
             for data_idx_ij in data_idx_i:
                 data_j, is_set_i, meth_i = self.__get_relevant_data_item(
-                    path, path_i, data_idx_ij, raise_on_unset
+                    path, path_i, data_idx_ij, raise_on_unset, len_dat_idx=len(data_idx_i)
                 )
                 data_i.append(data_j)
                 methods_i.append(meth_i)
@@ -3041,6 +3087,7 @@ class WorkflowTask(AppAware):
                 "is_set": is_param_set_i,
                 "is_multi": True,
             }
+
         if not raise_on_unset:
             to_remove: set[str] = set()
             for key, dat_info in relevant_data.items():
@@ -3229,13 +3276,38 @@ class WorkflowTask(AppAware):
         """Get element data from the persistent store."""
         path_split = [] if not path else path.split(".")
 
-        if not (relevant_paths := self.__get_relevant_paths(data_index, path_split)):
+        if not (relevant_paths := self._get_relevant_paths(data_index, path_split)):
             if raise_on_missing:
                 # TODO: custom exception?
                 raise ValueError(f"Path {path!r} does not exist in the element data.")
             return default
 
         relevant_data_idx = {k: v for k, v in data_index.items() if k in relevant_paths}
+
+        cache = self.workflow._merged_parameters_cache
+        use_cache = (
+            self.workflow._use_merged_parameters_cache
+            and raise_on_missing is False
+            and raise_on_unset is False
+            and default is None  # cannot cache on default value, may not be hashable
+        )
+        add_to_cache = False
+        if use_cache:
+            # generate the key:
+            dat_idx_cache: list[tuple[str, tuple[int, ...] | int]] = []
+            for k, v in sorted(relevant_data_idx.items()):
+                dat_idx_cache.append((k, tuple(v) if isinstance(v, list) else v))
+            cache_key = (path, tuple(dat_idx_cache))
+
+            # check for cache hit:
+            if cache_key in cache:
+                self._app.logger.debug(
+                    f"_get_merged_parameter_data: cache hit with key: {cache_key}"
+                )
+                return cache[cache_key]
+            else:
+                add_to_cache = True
+
         PV_classes = self._paths_to_PV_classes(*relevant_paths, path)
         relevant_data = self.__get_relevant_data(relevant_data_idx, raise_on_unset, path)
 
@@ -3248,7 +3320,7 @@ class WorkflowTask(AppAware):
         except MayNeedObjectError as err:
             path_to_init = err.path
             path_to_init_split = path_to_init.split(".")
-            relevant_paths = self.__get_relevant_paths(data_index, path_to_init_split)
+            relevant_paths = self._get_relevant_paths(data_index, path_to_init_split)
             PV_classes = self._paths_to_PV_classes(*relevant_paths, path_to_init)
             relevant_data_idx = {
                 k: v for k, v in data_index.items() if k in relevant_paths
@@ -3295,6 +3367,14 @@ class WorkflowTask(AppAware):
                 # TODO: custom exception?
                 raise ValueError(f"Path {path!r} does not exist in the element data.")
             current_val = default
+
+        if add_to_cache:
+            self._app.logger.debug(
+                f"_get_merged_parameter_data: adding to cache with key: {cache_key!r}"
+            )
+            # tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]]
+            # tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]] | None
+            cache[cache_key] = current_val
 
         return current_val
 
@@ -3626,3 +3706,12 @@ class ElementPropagation(AppAware):
 
 #: A task used as a template for other tasks.
 TaskTemplate: TypeAlias = Task
+
+
+class MetaTask(JSONLike):
+    def __init__(self, schema: MetaTaskSchema, tasks: Sequence[Task]):
+        self.schema = schema
+        self.tasks = tasks
+
+        # TODO: validate schema's inputs and outputs are inputs and outputs of `tasks`
+        # schemas

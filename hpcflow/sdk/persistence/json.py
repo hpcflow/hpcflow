@@ -12,6 +12,8 @@ from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 
 from fsspec import filesystem, AbstractFileSystem  # type: ignore
+import numpy as np
+from hpcflow.sdk.core import RUN_DIR_ARR_DTYPE, RUN_DIR_ARR_FILL
 from hpcflow.sdk.core.errors import (
     MissingParameterData,
     MissingStoreEARError,
@@ -28,14 +30,17 @@ from hpcflow.sdk.persistence.base import (
     StoreTask,
     update_param_source_dict,
 )
+from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.store_resource import JSONFileStoreResource
+from hpcflow.sdk.typing import DataIndex
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from datetime import datetime
-    from typing import Any, ClassVar
+    from typing import Any, ClassVar, Literal
     from typing_extensions import Self
+    from numpy.typing import NDArray
     from ..app import BaseApp
     from ..core.json_like import JSONed, JSONDocument
     from ..core.workflow import Workflow
@@ -142,6 +147,7 @@ class JsonStoreEAR(StoreEAR["RunMeta", None]):
             "commands_idx": self.commands_idx,
             "data_idx": self.data_idx,
             "submission_idx": self.submission_idx,
+            "commands_file_ID": self.commands_file_ID,
             "success": self.success,
             "skip": self.skip,
             "start_time": self._encode_datetime(self.start_time, ts_fmt),
@@ -151,6 +157,7 @@ class JsonStoreEAR(StoreEAR["RunMeta", None]):
             "exit_code": self.exit_code,
             "metadata": self.metadata,
             "run_hostname": self.run_hostname,
+            "port_number": self.port_number,
         }
 
     @override
@@ -195,11 +202,13 @@ class JSONPersistentStore(
     _meta_res: ClassVar[str] = "metadata"
     _params_res: ClassVar[str] = "parameters"
     _subs_res: ClassVar[str] = "submissions"
+    _runs_res: ClassVar[str] = "runs"
 
     _res_file_names: ClassVar[Mapping[str, str]] = {
         _meta_res: "metadata.json",
         _params_res: "parameters.json",
         _subs_res: "submissions.json",
+        _runs_res: "runs.json",
     }
 
     _res_map: ClassVar[CommitResourceMap] = CommitResourceMap(
@@ -208,23 +217,27 @@ class JSONPersistentStore(
         commit_loop_num_iters=(_meta_res,),
         commit_loop_parents=(_meta_res,),
         commit_submissions=(_subs_res,),
-        commit_submission_parts=(_subs_res,),
+        commit_at_submit_metadata=(_subs_res,),
         commit_js_metadata=(_subs_res,),
         commit_elem_IDs=(_meta_res,),
         commit_elements=(_meta_res,),
+        commit_element_sets=(_meta_res,),
         commit_elem_iter_IDs=(_meta_res,),
         commit_elem_iters=(_meta_res,),
         commit_loop_indices=(_meta_res,),
         commit_elem_iter_EAR_IDs=(_meta_res,),
         commit_EARs_initialised=(_meta_res,),
-        commit_EARs=(_meta_res,),
-        commit_EAR_submission_indices=(_meta_res,),
-        commit_EAR_skips=(_meta_res,),
-        commit_EAR_starts=(_meta_res,),
-        commit_EAR_ends=(_meta_res,),
+        commit_EARs=(_runs_res,),
+        commit_EAR_submission_indices=(_runs_res,),
+        commit_EAR_skips=(_runs_res,),
+        commit_EAR_starts=(_runs_res,),
+        commit_EAR_ends=(_runs_res,),
         commit_template_components=(_meta_res,),
         commit_parameters=(_params_res,),
         commit_param_sources=(_params_res,),
+        commit_set_run_dirs=(_runs_res,),
+        commit_iter_data_idx=(_meta_res,),
+        commit_run_data_idx=(_runs_res,),
     )
 
     @classmethod
@@ -254,14 +267,63 @@ class JSONPersistentStore(
             self._meta_res: self._get_store_resource(app, "metadata", path, fs),
             self._params_res: self._get_store_resource(app, "parameters", path, fs),
             self._subs_res: self._get_store_resource(app, "submissions", path, fs),
+            self._runs_res: self._get_store_resource(app, "runs", path, fs),
         }
         super().__init__(app, workflow, path, fs)
+
+        # store-specific cache data, assigned in `using_resource()` when
+        # `_use_parameters_metadata_cache` is True, and set back to None when exiting the
+        # `parameters_metadata_cache` context manager.
+        self._parameters_file_dat: dict[str, dict[str, Any]] | None = None
 
     @contextmanager
     def cached_load(self) -> Iterator[None]:
         """Context manager to cache the metadata."""
         with self.using_resource("metadata", "read"):
+            with self.using_resource("runs", "read"):
+                yield
+
+    @contextmanager
+    def using_resource(
+        self,
+        res_label: Literal["metadata", "submissions", "parameters", "attrs", "runs"],
+        action: str,
+    ) -> Iterator[Any]:
+        """Context manager for managing `StoreResource` objects associated with the store.
+
+        Notes
+        -----
+        This overridden method facilitates easier use of the
+        `JSONPersistentStore`-specific implementation of the `parameters_metadata_cache`,
+        which in this case is just a copy of the `parameters.json` file data.
+
+        """
+
+        if (
+            self._use_parameters_metadata_cache
+            and res_label == "parameters"
+            and action == "read"
+        ):
+            if not self._parameters_file_dat:
+                with super().using_resource(
+                    cast("Literal['parameters']", res_label), action
+                ) as res:
+                    self._parameters_file_dat = res
+            yield self._parameters_file_dat
+
+        else:
+            with super().using_resource(res_label, action) as res:
+                yield res
+
+    @contextmanager
+    def parameters_metadata_cache(self) -> Iterator[None]:
+        """Context manager for using the parameters-metadata cache."""
+        self._use_parameters_metadata_cache = True
+        try:
             yield
+        finally:
+            self._use_parameters_metadata_cache = False
+            self._parameters_file_dat = None  # clear cache data
 
     def remove_replaced_dir(self) -> None:
         """
@@ -332,9 +394,12 @@ class JSONPersistentStore(
             "tasks": [],
             "elements": [],
             "iters": [],
-            "runs": [],
             "num_added_tasks": 0,
             "loops": [],
+        }
+        runs: dict[str, list] = {
+            "runs": [],
+            "run_dirs": [],
         }
         if replaced_wk:
             metadata["replaced_workflow"] = replaced_wk
@@ -342,6 +407,7 @@ class JSONPersistentStore(
         cls._get_store_resource(app, "metadata", wk_path, fs)._dump(metadata)
         cls._get_store_resource(app, "parameters", wk_path, fs)._dump(parameters)
         cls._get_store_resource(app, "submissions", wk_path, fs)._dump(submissions)
+        cls._get_store_resource(app, "runs", wk_path, fs)._dump(runs)
 
     def _append_tasks(self, tasks: Iterable[StoreTask]):
         with self.using_resource("metadata", action="update") as md:
@@ -360,12 +426,13 @@ class JSONPersistentStore(
                     {
                         "num_added_iterations": loop["num_added_iterations"],
                         "iterable_parameters": loop["iterable_parameters"],
+                        "output_parameters": loop["output_parameters"],
                         "parents": loop["parents"],
                     }
                 )
                 md["template"]["loops"].append(loop["loop_template"])
 
-    def _append_submissions(self, subs: dict[int, JSONDocument]):
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]):
         with self.using_resource("submissions", action="update") as subs_res:
             subs_res.extend(subs.values())
 
@@ -409,18 +476,19 @@ class JSONPersistentStore(
             assert "iters" in md
             md["iters"][iter_ID]["EARs_initialised"] = True
 
-    def _append_submission_parts(self, sub_parts: dict[int, dict[str, list[int]]]):
+    def _update_at_submit_metadata(self, at_submit_metadata: dict[int, dict[str, Any]]):
         with self.using_resource("submissions", action="update") as subs_res:
-            for sub_idx, sub_i_parts in sub_parts.items():
+            for sub_idx, metadata_i in at_submit_metadata.items():
                 sub = subs_res[sub_idx]
                 assert isinstance(sub, dict)
-                for dt_str, parts_j in sub_i_parts.items():
-                    sub["submission_parts"][dt_str] = parts_j
+                for dt_str, parts_j in metadata_i["submission_parts"].items():
+                    sub["at_submit_metadata"]["submission_parts"][dt_str] = parts_j
 
-    def _update_loop_index(self, iter_ID: int, loop_idx: Mapping[str, int]):
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]):
         with self.using_resource("metadata", action="update") as md:
             assert "iters" in md
-            md["iters"][iter_ID]["loop_idx"].update(loop_idx)
+            for iter_ID, loop_idx in loop_indices.items():
+                md["iters"][iter_ID]["loop_idx"].update(loop_idx)
 
     def _update_loop_num_iters(self, index: int, num_iters: list[list[list[int] | int]]):
         with self.using_resource("metadata", action="update") as md:
@@ -432,53 +500,87 @@ class JSONPersistentStore(
             assert "loops" in md
             md["loops"][index]["parents"] = parents
 
-    def _append_EARs(self, EARs: Sequence[JsonStoreEAR]):
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
         with self.using_resource("metadata", action="update") as md:
-            assert "runs" in md
-            md["runs"].extend(ear.encode(self.ts_fmt, None) for ear in EARs)
+            assert "iters" in md
+            for iter_ID, dat_idx in iter_data_indices.items():
+                md["iters"][iter_ID]["data_idx"].update(dat_idx)
 
-    def _update_EAR_submission_indices(self, sub_indices: Mapping[int, int]):
-        with self.using_resource("metadata", action="update") as md:
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
+        with self.using_resource("runs", action="update") as md:
             assert "runs" in md
-            for EAR_ID_i, sub_idx_i in sub_indices.items():
+            for run_ID, dat_idx in run_data_indices.items():
+                md["runs"][run_ID]["data_idx"].update(dat_idx)
+
+    def _append_EARs(self, EARs: Sequence[JsonStoreEAR]):
+        with self.using_resource("runs", action="update") as md:
+            assert "runs" in md
+            assert "run_dirs" in md
+            md["runs"].extend(i.encode(self.ts_fmt, None) for i in EARs)
+            md["run_dirs"].extend([None] * len(EARs))
+
+    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray):
+        with self.using_resource("runs", action="update") as md:
+            assert "run_dirs" in md
+            dirs_lst = md["run_dirs"]
+            for idx, r_idx in enumerate(run_idx):
+                dirs_lst[r_idx] = run_dir_arr[idx].item()
+            md["run_dirs"] = dirs_lst
+
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
+        with self.using_resource("runs", action="update") as md:
+            assert "runs" in md
+            for EAR_ID_i, (sub_idx_i, cmd_file_ID) in sub_data.items():
                 md["runs"][EAR_ID_i]["submission_idx"] = sub_idx_i
+                md["runs"][EAR_ID_i]["commands_file_ID"] = cmd_file_ID
 
     def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: dict[str, Any], s_hn: str
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ):
-        with self.using_resource("metadata", action="update") as md:
+        with self.using_resource("runs", action="update") as md:
             assert "runs" in md
-            md["runs"][EAR_id]["start_time"] = s_time.strftime(self.ts_fmt)
-            md["runs"][EAR_id]["snapshot_start"] = s_snap
-            md["runs"][EAR_id]["run_hostname"] = s_hn
+            for run_id, (s_time, s_snap, s_hn, port_number) in run_starts.items():
+                md["runs"][run_id]["start_time"] = s_time.strftime(self.ts_fmt)
+                md["runs"][run_id]["snapshot_start"] = s_snap
+                md["runs"][run_id]["run_hostname"] = s_hn
+                md["runs"][run_id]["port_number"] = port_number
 
     def _update_EAR_end(
-        self,
-        EAR_id: int,
-        e_time: datetime,
-        e_snap: dict[str, Any],
-        ext_code: int,
-        success: bool,
+        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
     ):
-        with self.using_resource("metadata", action="update") as md:
+        with self.using_resource("runs", action="update") as md:
             assert "runs" in md
-            md["runs"][EAR_id]["end_time"] = e_time.strftime(self.ts_fmt)
-            md["runs"][EAR_id]["snapshot_end"] = e_snap
-            md["runs"][EAR_id]["exit_code"] = ext_code
-            md["runs"][EAR_id]["success"] = success
+            for run_id, (e_time, e_snap, ext_code, success) in run_ends.items():
+                md["runs"][run_id]["end_time"] = e_time.strftime(self.ts_fmt)
+                md["runs"][run_id]["snapshot_end"] = e_snap
+                md["runs"][run_id]["exit_code"] = ext_code
+                md["runs"][run_id]["success"] = success
 
-    def _update_EAR_skip(self, EAR_id: int):
-        with self.using_resource("metadata", action="update") as md:
+    def _update_EAR_skip(self, skips: dict[int, int]):
+        with self.using_resource("runs", action="update") as md:
             assert "runs" in md
-            md["runs"][EAR_id]["skip"] = True
+            for run_ID, reason in skips.items():
+                md["runs"][run_ID]["skip"] = reason
 
     def _update_js_metadata(self, js_meta: dict[int, dict[int, dict[str, Any]]]):
         with self.using_resource("submissions", action="update") as sub_res:
             for sub_idx, all_js_md in js_meta.items():
                 sub = cast("dict[str, list[dict[str, Any]]]", sub_res[sub_idx])
                 for js_idx, js_meta_i in all_js_md.items():
-                    sub_i = sub["jobscripts"][js_idx]
-                    sub_i.update(**js_meta_i)
+                    self.logger.info(
+                        f"updating jobscript metadata for (sub={sub_idx}, js={js_idx}): "
+                        f"{js_meta_i!r}."
+                    )
+                    _at_submit_md = {
+                        k: js_meta_i.pop(k)
+                        for k in JOBSCRIPT_SUBMIT_TIME_KEYS
+                        if k in js_meta_i
+                    }
+                    sub["jobscripts"][js_idx].update(**js_meta_i)
+                    sub["jobscripts"][js_idx]["at_submit_metadata"].update(
+                        **_at_submit_md
+                    )
 
     def _append_parameters(self, params: Sequence[StoreParameter]):
         with self.using_resource("parameters", "update") as params_u:
@@ -552,7 +654,7 @@ class JSONPersistentStore(
         if self.use_cache and self.num_EARs_cache is not None:
             num = self.num_EARs_cache
         else:
-            with self.using_resource("metadata", action="read") as md:
+            with self.using_resource("runs", action="read") as md:
                 assert "runs" in md
                 num = len(md["runs"])
         if self.use_cache and self.num_EARs_cache is None:
@@ -560,8 +662,15 @@ class JSONPersistentStore(
         return num
 
     def _get_num_persistent_parameters(self) -> int:
-        with self.using_resource("parameters", "read") as params:
-            return len(params["data"])
+        if self.use_cache and self.num_params_cache is not None:
+            num = self.num_params_cache
+        else:
+            with self.using_resource("parameters", "read") as params:
+                assert "data" in params
+                num = len(params["data"])
+        if self.use_cache and self.num_params_cache is None:
+            self.num_params_cache = num
+        return num
 
     def _get_num_persistent_added_tasks(self) -> int:
         with self.using_resource("metadata", "read") as md:
@@ -620,7 +729,7 @@ class JSONPersistentStore(
                 assert "tasks" in md
                 new_tasks = {
                     i["id_"]: JsonStoreTask.decode({**i, "index": idx})
-                    for idx, i in enumerate(md["tasks"])
+                    for idx, i in enumerate(cast("Sequence[TaskMeta]", md["tasks"]))
                     if id_lst is None or i["id_"] in id_lst
                 }
                 self.task_cache.update(new_tasks)
@@ -640,7 +749,7 @@ class JSONPersistentStore(
 
     def _get_persistent_submissions(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, JSONDocument]:
+    ) -> dict[int, Mapping[str, JSONed]]:
         with self.using_resource("submissions", "read") as sub_res:
             subs_dat = copy.deepcopy(
                 {
@@ -649,13 +758,16 @@ class JSONPersistentStore(
                     if id_lst is None or idx in id_lst
                 }
             )
-            # cast jobscript submit-times and jobscript `task_elements` keys:
+            # cast jobscript `task_elements` keys:
             for sub in subs_dat.values():
-                js: dict[str, dict[str | int, Any]]
+                js: dict[str, Any]
                 assert isinstance(sub, dict)
                 for js in sub["jobscripts"]:
-                    for key in list(te := js["task_elements"]):
-                        te[int(key)] = te.pop(key)
+                    blk: dict[str, Any]
+                    assert isinstance(js, dict)
+                    for blk in js["blocks"]:
+                        for key in list(te := blk["task_elements"]):
+                            te[int(key)] = te.pop(key)
 
         return subs_dat
 
@@ -701,7 +813,7 @@ class JSONPersistentStore(
     def _get_persistent_EARs(self, id_lst: Iterable[int]) -> dict[int, JsonStoreEAR]:
         runs, id_lst_ = self._get_cached_persistent_EARs(id_lst)
         if id_lst_:
-            with self.using_resource("metadata", action="read") as md:
+            with self.using_resource("runs", action="read") as md:
                 try:
                     if "runs" not in md:
                         raise KeyError
@@ -824,3 +936,16 @@ class JSONPersistentStore(
         status: bool = True,
     ) -> Any:
         raise TypeError("unsupported operation: rechunk-json")
+
+    def get_dirs_array(self) -> NDArray:
+        """
+        Retrieve the run directories array.
+        """
+        with self.using_resource("runs", action="read") as md:
+            dirs_lst = md["run_dirs"]
+            dirs_arr = np.zeros(len(dirs_lst), dtype=RUN_DIR_ARR_DTYPE)
+            dirs_arr[:] = RUN_DIR_ARR_FILL
+            for idx, i in enumerate(dirs_lst):
+                if i is not None:
+                    dirs_arr[idx] = tuple(i)
+        return dirs_arr

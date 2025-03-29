@@ -3,6 +3,7 @@ Base persistence models.
 
 Store* classes represent the element-metadata in the store, in a store-agnostic way.
 """
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import contextlib
@@ -10,12 +11,15 @@ import copy
 from dataclasses import dataclass, field
 import enum
 from logging import Logger
+from functools import wraps
 import os
 from pathlib import Path
 import shutil
 import socket
 import time
 from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
+
+import numpy as np
 
 from hpcflow.sdk.core.utils import (
     flatten,
@@ -28,6 +32,12 @@ from hpcflow.sdk.core.utils import (
     parse_timestamp,
     current_timestamp,
 )
+from hpcflow.sdk.core.errors import ParametersMetadataReadOnlyError
+from hpcflow.sdk.submission.submission import (
+    JOBSCRIPT_SUBMIT_TIME_KEYS,
+    SUBMISSION_SUBMIT_TIME_KEYS,
+)
+from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.persistence.pending import PendingChanges
@@ -46,6 +56,7 @@ if TYPE_CHECKING:
     from typing import Any, ClassVar, Final, Literal
     from typing_extensions import Self, TypeIs
     from fsspec import AbstractFileSystem  # type: ignore
+    from numpy.typing import NDArray
     from .pending import CommitResourceMap
     from .store_resource import StoreResource
     from .types import (
@@ -59,6 +70,7 @@ if TYPE_CHECKING:
         StoreCreationInfo,
         TemplateMeta,
         TypeLookup,
+        IterableParam,
     )
     from .zarr import ZarrAttrsDict
     from ..app import BaseApp
@@ -66,7 +78,7 @@ if TYPE_CHECKING:
     from ..core.json_like import JSONed, JSONDocument
     from ..core.parameters import ParameterValue
     from ..core.workflow import Workflow
-    from ..submission.types import VersionInfo
+    from ..submission.types import VersionInfo, ResolvedJobscriptBlockDependencies
 
 T = TypeVar("T")
 #: Type of the serialized form.
@@ -96,6 +108,28 @@ def update_param_source_dict(source: ParamSource, update: ParamSource) -> ParamS
     Combine two dicts into a new dict that is ordered on its keys.
     """
     return cast("ParamSource", dict(sorted({**source, **update}.items())))
+
+
+def writes_parameter_data(func: Callable):
+    """Decorator function that should wrap `PersistentStore` methods that write
+    parameter-associated data.
+
+    Notes
+    -----
+    This decorator checks that the parameters-metadata cache is not in use, which should
+    not be used during writing of parameter-associated data.
+    """
+
+    @wraps(func)
+    def inner(self, *args, **kwargs):
+        if self._use_parameters_metadata_cache:
+            raise ParametersMetadataReadOnlyError(
+                "Cannot use the `parameters_metadata_cache` when writing parameter-"
+                "associated data!"
+            )
+        return func(self, *args, **kwargs)
+
+    return inner
 
 
 @dataclass
@@ -414,6 +448,26 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
             EARs_initialised=True,
         )
 
+    @TimeIt.decorator
+    def update_data_idx(self: AnySElementIter, data_idx: DataIndex) -> AnySElementIter:
+        """Return a copy with an updated `data_idx`.
+
+        The existing data index is updated, not overwritten.
+
+        """
+        new_data_idx = copy.deepcopy(self.data_idx)
+        new_data_idx.update(data_idx)
+        return self.__class__(
+            id_=self.id_,
+            is_pending=self.is_pending,
+            element_ID=self.element_ID,
+            EAR_IDs=self.EAR_IDs,
+            data_idx=new_data_idx,
+            schema_parameters=self.schema_parameters,
+            loop_idx=self.loop_idx,
+            EARs_initialised=self.EARs_initialised,
+        )
+
 
 @dataclass
 class StoreEAR(Generic[SerFormT, ContextT]):
@@ -478,8 +532,10 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     data_idx: DataIndex
     #: Which submission contained this EAR, if known.
     submission_idx: int | None = None
+    #: Run ID whose commands can be used for this run (may be this run's ID).
+    commands_file_ID: int | None = None
     #: Whether to skip this EAR.
-    skip: bool = False
+    skip: int = 0
     #: Whether this EAR was successful, if known.
     success: bool | None = None
     #: When this EAR started, if known.
@@ -496,6 +552,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     metadata: Metadata | None = None
     #: Where this EAR was submitted to run, if known.
     run_hostname: str | None = None
+    port_number: int | None = None
 
     @staticmethod
     def _encode_datetime(dt: datetime | None, ts_fmt: str) -> str | None:
@@ -530,6 +587,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "commands_idx": self.commands_idx,
             "data_idx": self.data_idx,
             "submission_idx": self.submission_idx,
+            "commands_file_ID": self.commands_file_ID,
             "success": self.success,
             "skip": self.skip,
             "start_time": _process_datetime(self.start_time),
@@ -539,13 +597,15 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "exit_code": self.exit_code,
             "metadata": self.metadata,
             "run_hostname": self.run_hostname,
+            "port_number": self.port_number,
         }
 
     @TimeIt.decorator
     def update(
         self,
         submission_idx: int | None = None,
-        skip: bool | None = None,
+        commands_file_ID: int | None = None,
+        skip: int | None = None,
         success: bool | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
@@ -553,6 +613,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         snapshot_end: dict[str, Any] | None = None,
         exit_code: int | None = None,
         run_hostname: str | None = None,
+        port_number: int | None = None,
+        data_idx: DataIndex | None = None,
     ) -> Self:
         """Return a shallow copy, with specified data updated."""
 
@@ -565,6 +627,16 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         snap_e = snapshot_end if snapshot_end is not None else self.snapshot_end
         exit_code = exit_code if exit_code is not None else self.exit_code
         run_hn = run_hostname if run_hostname is not None else self.run_hostname
+        port_num = port_number if port_number is not None else self.port_number
+        cmd_file = (
+            commands_file_ID if commands_file_ID is not None else self.commands_file_ID
+        )
+        if data_idx is not None:
+            new_data_idx = copy.deepcopy(self.data_idx)
+            new_data_idx.update(data_idx)
+            data_idx = new_data_idx
+        else:
+            data_idx = self.data_idx
 
         return self.__class__(
             id_=self.id_,
@@ -572,9 +644,10 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             elem_iter_ID=self.elem_iter_ID,
             action_idx=self.action_idx,
             commands_idx=self.commands_idx,
-            data_idx=self.data_idx,
+            data_idx=data_idx,
             metadata=self.metadata,
             submission_idx=sub_idx,
+            commands_file_ID=cmd_file,
             skip=skip,
             success=success,
             start_time=start_time,
@@ -583,6 +656,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             snapshot_end=snap_e,
             exit_code=exit_code,
             run_hostname=run_hn,
+            port_number=port_num,
         )
 
 
@@ -929,6 +1003,8 @@ class PersistentStore(
         self._use_cache = False
         self._reset_cache()
 
+        self._use_parameters_metadata_cache: bool = False  # subclass-specific cache
+
     @abstractmethod
     def cached_load(self) -> contextlib.AbstractContextManager[None]:
         """
@@ -1007,6 +1083,12 @@ class PersistentStore(
         status: bool = True,
     ) -> Any:
         ...
+
+    @abstractmethod
+    def get_dirs_array(self) -> NDArray:
+        """
+        Retrieve the run directories array.
+        """
 
     @classmethod
     @abstractmethod
@@ -1108,6 +1190,14 @@ class PersistentStore(
         self._cache["num_EARs"] = value
 
     @property
+    def num_params_cache(self) -> int | None:
+        return self._cache["num_params"]
+
+    @num_params_cache.setter
+    def num_params_cache(self, value: int | None):
+        self._cache["num_params"] = value
+
+    @property
     def param_sources_cache(self) -> dict[int, ParamSource]:
         """Cache for persistent parameter sources."""
         return self._cache["param_sources"]
@@ -1129,6 +1219,7 @@ class PersistentStore(
             "num_tasks": None,
             "parameters": {},
             "num_EARs": None,
+            "num_params": None,
         }
 
     @contextlib.contextmanager
@@ -1141,11 +1232,25 @@ class PersistentStore(
             self._use_cache = False
             self._reset_cache()
 
+    @contextlib.contextmanager
+    def parameters_metadata_cache(self):
+        """Context manager for using the parameters-metadata cache.
+
+        Notes
+        -----
+        This method can be overridden by a subclass to provide an implementation-specific
+        cache of metadata associated with parameters, or even parameter data itself.
+
+        Using this cache precludes writing/setting parameter data.
+
+        """
+        yield
+
     @staticmethod
     def prepare_test_store_from_spec(
         task_spec: Sequence[
             Mapping[str, Sequence[Mapping[str, Sequence[Mapping[str, Sequence]]]]]
-        ]
+        ],
     ) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
         """Generate a valid store from a specification in terms of nested
         elements/iterations/EARs.
@@ -1374,7 +1479,8 @@ class PersistentStore(
     def add_loop(
         self,
         loop_template: Mapping[str, Any],
-        iterable_parameters,
+        iterable_parameters: Mapping[str, IterableParam],
+        output_parameters: Mapping[str, int],
         parents: Sequence[str],
         num_added_iterations: Mapping[tuple[int, ...], int],
         iter_IDs: Iterable[int],
@@ -1388,7 +1494,8 @@ class PersistentStore(
         ]
         self._pending.add_loops[new_idx] = {
             "loop_template": dict(loop_template),
-            "iterable_parameters": iterable_parameters,
+            "iterable_parameters": cast("dict", iterable_parameters),
+            "output_parameters": cast("dict", output_parameters),
             "parents": list(parents),
             "num_added_iterations": added_iters,
         }
@@ -1400,7 +1507,9 @@ class PersistentStore(
             self.save()
 
     @TimeIt.decorator
-    def add_submission(self, sub_idx: int, sub_js: JSONDocument, save: bool = True):
+    def add_submission(
+        self, sub_idx: int, sub_js: Mapping[str, JSONed], save: bool = True
+    ):
         """Add a new submission."""
         self.logger.debug("Adding store submission.")
         self._pending.add_submissions[sub_idx] = sub_js
@@ -1495,58 +1604,121 @@ class PersistentStore(
             self.save()
         return new_ID
 
-    def add_submission_part(
-        self, sub_idx: int, dt_str: str, submitted_js_idx: list[int], save: bool = True
+    @TimeIt.decorator
+    def set_run_dirs(
+        self, run_dir_indices: np.ndarray, run_idx: np.ndarray, save: bool = True
+    ):
+        self.logger.debug(f"Setting {run_idx.size} run directory indices.")
+        self._pending.set_run_dirs.append((run_dir_indices, run_idx))
+        if save:
+            self.save()
+
+    def update_at_submit_metadata(
+        self, sub_idx: int, submission_parts: dict[str, list[int]], save: bool = True
     ):
         """
-        Add a submission part.
+        Update metadata that is set at submit-time.
         """
-        self._pending.add_submission_parts[sub_idx][dt_str] = submitted_js_idx
+        if submission_parts:
+            self._pending.update_at_submit_metadata[sub_idx][
+                "submission_parts"
+            ] = submission_parts
         if save:
             self.save()
 
     @TimeIt.decorator
-    def set_EAR_submission_index(
-        self, EAR_ID: int, sub_idx: int, save: bool = True
+    def set_run_submission_data(
+        self, EAR_ID: int, cmds_ID: int | None, sub_idx: int, save: bool = True
     ) -> None:
         """
-        Set the submission index for an element action run.
+        Set the run submission data, like the submission index for an element action run.
         """
-        self._pending.set_EAR_submission_indices[EAR_ID] = sub_idx
+        self._pending.set_EAR_submission_data[EAR_ID] = (sub_idx, cmds_ID)
         if save:
             self.save()
 
-    def set_EAR_start(self, EAR_ID: int, save: bool = True) -> datetime:
+    def set_EAR_start(
+        self,
+        EAR_ID: int,
+        run_dir: Path | None,
+        port_number: int | None,
+        save: bool = True,
+    ) -> datetime:
         """
         Mark an element action run as started.
         """
         dt = current_timestamp()
-        ss_js = self._app.RunDirAppFiles.take_snapshot()
+        ss_js = self._app.RunDirAppFiles.take_snapshot() if run_dir else None
         run_hostname = socket.gethostname()
-        self._pending.set_EAR_starts[EAR_ID] = (dt, ss_js, run_hostname)
+        self._pending.set_EAR_starts[EAR_ID] = (dt, ss_js, run_hostname, port_number)
+        if save:
+            self.save()
+        return dt
+
+    def set_multi_run_starts(
+        self,
+        run_ids: list[int],
+        run_dirs: list[Path | None],
+        port_number: int,
+        save: bool = True,
+    ) -> datetime:
+        dt = current_timestamp()
+        run_hostname = socket.gethostname()
+        run_start_data: dict[int, tuple] = {}
+        for id_i, dir_i in zip(run_ids, run_dirs):
+            ss_js_i = self._app.RunDirAppFiles.take_snapshot(dir_i) if dir_i else None
+            run_start_data[id_i] = (dt, ss_js_i, run_hostname, port_number)
+
+        self._pending.set_EAR_starts.update(run_start_data)
         if save:
             self.save()
         return dt
 
     def set_EAR_end(
-        self, EAR_ID: int, exit_code: int, success: bool, save: bool = True
+        self,
+        EAR_ID: int,
+        exit_code: int,
+        success: bool,
+        snapshot: bool,
+        save: bool = True,
     ) -> datetime:
         """
         Mark an element action run as finished.
         """
         # TODO: save output files
         dt = current_timestamp()
-        ss_js = self._app.RunDirAppFiles.take_snapshot()
+        ss_js = self._app.RunDirAppFiles.take_snapshot() if snapshot else None
         self._pending.set_EAR_ends[EAR_ID] = (dt, ss_js, exit_code, success)
         if save:
             self.save()
         return dt
 
-    def set_EAR_skip(self, EAR_ID: int, save: bool = True) -> None:
+    def set_multi_run_ends(
+        self,
+        run_ids: list[int],
+        run_dirs: list[Path | None],
+        exit_codes: list[int],
+        successes: list[bool],
+        save: bool = True,
+    ) -> datetime:
+        self.logger.info("PersistentStore.set_multi_run_ends.")
+        dt = current_timestamp()
+        run_end_data: dict[int, tuple] = {}
+        for id_i, dir_i, ex_i, sc_i in zip(run_ids, run_dirs, exit_codes, successes):
+            ss_js_i = self._app.RunDirAppFiles.take_snapshot(dir_i) if dir_i else None
+            run_end_data[id_i] = (dt, ss_js_i, ex_i, sc_i)
+
+        self._pending.set_EAR_ends.update(run_end_data)
+        if save:
+            self.save()
+        self.logger.info("PersistentStore.set_multi_run_ends finished.")
+        return dt
+
+    def set_EAR_skip(self, skip_reasons: dict[int, int], save: bool = True) -> None:
         """
-        Mark an element action run as skipped.
+        Mark element action runs as skipped for the specified reasons.
         """
-        self._pending.set_EAR_skips.append(EAR_ID)
+        self._pending.set_EAR_skips.update(skip_reasons)
         if save:
             self.save()
 
@@ -1566,6 +1738,7 @@ class PersistentStore(
         submit_time: str | None = None,
         submit_hostname: str | None = None,
         submit_machine: str | None = None,
+        shell_idx: int | None = None,
         submit_cmdline: list[str] | None = None,
         os_name: str | None = None,
         shell_name: str | None = None,
@@ -1586,6 +1759,8 @@ class PersistentStore(
             entry["submit_hostname"] = submit_hostname
         if submit_machine:
             entry["submit_machine"] = submit_machine
+        if shell_idx is not None:
+            entry["shell_idx"] = shell_idx
         if submit_cmdline:
             entry["submit_cmdline"] = submit_cmdline
         if os_name:
@@ -1594,13 +1769,14 @@ class PersistentStore(
             entry["shell_name"] = shell_name
         if scheduler_name:
             entry["scheduler_name"] = scheduler_name
-        if scheduler_job_ID:
+        if scheduler_job_ID or process_ID:
             entry["scheduler_job_ID"] = scheduler_job_ID
-        if process_ID:
+        if process_ID or scheduler_job_ID:
             entry["process_ID"] = process_ID
         if save:
             self.save()
 
+    @writes_parameter_data
     def _add_parameter(
         self,
         is_set: bool,
@@ -1749,6 +1925,7 @@ class PersistentStore(
                     with dst_path.open("wt") as fp:
                         fp.write(dat["contents"])
 
+    @writes_parameter_data
     def add_set_parameter(
         self,
         data: ParameterValue | list | tuple | set | dict | int | float | str | Any,
@@ -1760,6 +1937,7 @@ class PersistentStore(
         """
         return self._add_parameter(data=data, is_set=True, source=source, save=save)
 
+    @writes_parameter_data
     def add_unset_parameter(self, source: ParamSource, save: bool = True) -> int:
         """
         Add a parameter that is not set to any value.
@@ -1770,6 +1948,7 @@ class PersistentStore(
     def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
         ...
 
+    @writes_parameter_data
     def set_parameter_value(
         self, param_id: int, value: Any, is_file: bool = False, save: bool = True
     ):
@@ -1783,7 +1962,17 @@ class PersistentStore(
         if save:
             self.save()
 
+    @writes_parameter_data
+    def set_parameter_values(self, values: dict[int, Any], save: bool = True):
+        """Set multiple non-file parameter values by parameter IDs."""
+        param_ids = values.keys()
+        self.logger.debug(f"Setting multiple store parameter IDs {param_ids!r}.")
+        self._pending.set_parameters.update({k: (v, False) for k, v in values.items()})
+        if save:
+            self.save()
+
     @TimeIt.decorator
+    @writes_parameter_data
     def update_param_source(
         self, param_sources: Mapping[int, ParamSource], save: bool = True
     ) -> None:
@@ -1834,11 +2023,23 @@ class PersistentStore(
         if save:
             self.save()
 
+    def update_iter_data_indices(self, data_indices: dict[int, DataIndex]):
+        """Update data indices of one or more iterations."""
+        for k, v in data_indices.items():
+            self._pending.update_iter_data_idx[k].update(v)
+
+    def update_run_data_indices(self, data_indices: dict[int, DataIndex]):
+        """Update data indices of one or more runs."""
+        for k, v in data_indices.items():
+            self._pending.update_run_data_idx[k].update(v)
+
     def get_template_components(self) -> dict[str, Any]:
         """Get all template components, including pending."""
         tc = copy.deepcopy(self._get_persistent_template_components())
         for typ in TEMPLATE_COMP_TYPES:
-            for hash_i, dat_i in self._pending.add_template_components[typ].items():
+            for hash_i, dat_i in self._pending.add_template_components.get(
+                typ, {}
+            ).items():
                 tc.setdefault(typ, {})[hash_i] = dat_i
 
         return tc
@@ -1963,11 +2164,11 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_submissions(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, JSONDocument]:
+    ) -> dict[int, Mapping[str, JSONed]]:
         ...
 
     @TimeIt.decorator
-    def get_submissions(self) -> dict[int, JSONDocument]:
+    def get_submissions(self) -> dict[int, Mapping[str, JSONed]]:
         """Retrieve all submissions, including pending."""
 
         subs = self._get_persistent_submissions()
@@ -1977,7 +2178,113 @@ class PersistentStore(
         return dict(sorted(subs.items()))
 
     @TimeIt.decorator
-    def get_submissions_by_ID(self, ids: Iterable[int]) -> dict[int, JSONDocument]:
+    def get_submission_at_submit_metadata(
+        self, sub_idx: int, metadata_attr: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Retrieve the values of submission attributes that are stored at submit-time.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        return metadata_attr or {i: None for i in SUBMISSION_SUBMIT_TIME_KEYS}
+
+    @TimeIt.decorator
+    def get_jobscript_at_submit_metadata(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        metadata_attr: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """For the specified jobscript, retrieve the values of jobscript-submit-time
+        attributes.
+
+        Notes
+        -----
+        This method may need to be overridden if these jobscript-submit-time attributes
+        are stored separately from the remainder of the jobscript attributes.
+
+        """
+        return metadata_attr or {i: None for i in JOBSCRIPT_SUBMIT_TIME_KEYS}
+
+    @TimeIt.decorator
+    def get_jobscript_block_run_ID_array(
+        self, sub_idx: int, js_idx: int, blk_idx: int, run_ID_arr: NDArray | None
+    ) -> NDArray:
+        """For the specified jobscript-block, retrieve the run ID array.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        assert run_ID_arr is not None
+        return np.asarray(run_ID_arr)
+
+    @TimeIt.decorator
+    def get_jobscript_block_task_elements_map(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_elems_map: dict[int, list[int]] | None,
+    ) -> dict[int, list[int]]:
+        """For the specified jobscript-block, retrieve the task-elements mapping.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        assert task_elems_map is not None
+        return task_elems_map
+
+    @TimeIt.decorator
+    def get_jobscript_block_task_actions_array(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        task_actions_arr: NDArray | list[tuple[int, int, int]] | None,
+    ) -> NDArray:
+        """For the specified jobscript-block, retrieve the task-actions array.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        assert task_actions_arr is not None
+        return np.asarray(task_actions_arr)
+
+    @TimeIt.decorator
+    def get_jobscript_block_dependencies(
+        self,
+        sub_idx: int,
+        js_idx: int,
+        blk_idx: int,
+        js_dependencies: dict[tuple[int, int], ResolvedJobscriptBlockDependencies] | None,
+    ) -> dict[tuple[int, int], ResolvedJobscriptBlockDependencies]:
+        """For the specified jobscript-block, retrieve the dependencies.
+
+        Notes
+        -----
+        This method may need to be overridden if these attributes are stored separately
+        from the remainder of the submission attributes.
+
+        """
+        assert js_dependencies is not None
+        return js_dependencies
+
+    @TimeIt.decorator
+    def get_submissions_by_ID(
+        self, ids: Iterable[int]
+    ) -> dict[int, Mapping[str, JSONed]]:
         """
         Get submissions with the given IDs.
         """
@@ -2000,7 +2307,10 @@ class PersistentStore(
         """
         # separate pending and persistent IDs:
         ids, id_pers, id_pend = self.__split_pending(ids, self._pending.add_elements)
-        self.logger.debug(f"PersistentStore.get_elements: id_lst={ids!r}")
+        self.logger.debug(
+            f"PersistentStore.get_elements: {len(ids)} elements: "
+            f"{shorten_list_str(ids)}."
+        )
         elems = self._get_persistent_elements(id_pers) if id_pers else {}
         elems.update((id_, self._pending.add_elements[id_]) for id_ in id_pend)
 
@@ -2028,7 +2338,10 @@ class PersistentStore(
         """
         # separate pending and persistent IDs:
         ids, id_pers, id_pend = self.__split_pending(ids, self._pending.add_elem_iters)
-        self.logger.debug(f"PersistentStore.get_element_iterations: id_lst={ids!r}")
+        self.logger.debug(
+            f"PersistentStore.get_element_iterations: {len(ids)} iterations: "
+            f"{shorten_list_str(ids)}."
+        )
         iters = self._get_persistent_element_iters(id_pers) if id_pers else {}
         iters.update((id_, self._pending.add_elem_iters[id_]) for id_ in id_pend)
 
@@ -2062,7 +2375,9 @@ class PersistentStore(
         """
         # separate pending and persistent IDs:
         ids, id_pers, id_pend = self.__split_pending(ids, self._pending.add_EARs)
-        self.logger.debug(f"PersistentStore.get_EARs: id_lst={ids!r}")
+        self.logger.debug(
+            f"PersistentStore.get_EARs: {len(ids)} EARs: {shorten_list_str(ids)}."
+        )
         EARs = self._get_persistent_EARs(id_pers) if id_pers else {}
         EARs.update((id_, self._pending.add_EARs[id_]) for id_ in id_pend)
 
@@ -2070,16 +2385,19 @@ class PersistentStore(
         # order as requested:
         for EAR_i in (EARs[id_] for id_ in ids):
             # consider updates:
-            updates: dict[str, Any] = {
-                "submission_idx": self._pending.set_EAR_submission_indices.get(EAR_i.id_)
-            }
+            updates: dict[str, Any] = {}
             if EAR_i.id_ in self._pending.set_EAR_skips:
                 updates["skip"] = True
+            (
+                updates["submission_idx"],
+                updates["commands_file_ID"],
+            ) = self._pending.set_EAR_submission_data.get(EAR_i.id_, (None, None))
             (
                 updates["start_time"],
                 updates["snapshot_start"],
                 updates["run_hostname"],
-            ) = self._pending.set_EAR_starts.get(EAR_i.id_, (None, None, None))
+                updates["port_number"],
+            ) = self._pending.set_EAR_starts.get(EAR_i.id_, (None, None, None, None))
             (
                 updates["end_time"],
                 updates["snapshot_end"],
@@ -2138,7 +2456,7 @@ class PersistentStore(
     ) -> tuple[dict[int, AnySParameter], list[int]]:
         return self.__get_cached_persistent_items(id_lst, self.parameter_cache)
 
-    def get_EAR_skipped(self, EAR_ID: int) -> bool:
+    def get_EAR_skipped(self, EAR_ID: int) -> int:
         """
         Whether the element action run with the given ID was skipped.
         """
@@ -2294,12 +2612,12 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _append_submissions(self, subs: dict[int, JSONDocument]) -> None:
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]) -> None:
         ...
 
     @abstractmethod
-    def _append_submission_parts(
-        self, sub_parts: dict[int, dict[str, list[int]]]
+    def _update_at_submit_metadata(
+        self, at_submit_metadata: dict[int, dict[str, Any]]
     ) -> None:
         ...
 
@@ -2334,28 +2652,24 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _update_EAR_submission_indices(self, sub_indices: Mapping[int, int]) -> None:
+    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
         ...
 
     @abstractmethod
     def _update_EAR_start(
-        self, EAR_id: int, s_time: datetime, s_snap: dict[str, Any], s_hn: str
+        self,
+        run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
     ) -> None:
         ...
 
     @abstractmethod
     def _update_EAR_end(
-        self,
-        EAR_id: int,
-        e_time: datetime,
-        e_snap: dict[str, Any],
-        ext_code: int,
-        success: bool,
+        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
     ) -> None:
         ...
 
     @abstractmethod
-    def _update_EAR_skip(self, EAR_id: int) -> None:
+    def _update_EAR_skip(self, skips: dict[int, int]) -> None:
         ...
 
     @abstractmethod
@@ -2375,7 +2689,7 @@ class PersistentStore(
         ...
 
     @abstractmethod
-    def _update_loop_index(self, iter_ID: int, loop_idx: dict[str, int]) -> None:
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]) -> None:
         ...
 
     @abstractmethod
@@ -2397,7 +2711,7 @@ class PersistentStore(
     @overload
     def using_resource(
         self, res_label: Literal["submissions"], action: str
-    ) -> AbstractContextManager[list[JSONDocument]]:
+    ) -> AbstractContextManager[list[dict[str, JSONed]]]:
         ...
 
     @overload
@@ -2408,12 +2722,22 @@ class PersistentStore(
 
     @overload
     def using_resource(
+        self, res_label: Literal["runs"], action: str
+    ) -> AbstractContextManager[dict[str, Any]]:
+        ...
+
+    @overload
+    def using_resource(
         self, res_label: Literal["attrs"], action: str
     ) -> AbstractContextManager[ZarrAttrsDict]:
         ...
 
     @contextlib.contextmanager
-    def using_resource(self, res_label: str, action: str) -> Iterator[Any]:
+    def using_resource(
+        self,
+        res_label: Literal["metadata", "submissions", "parameters", "attrs", "runs"],
+        action: str,
+    ) -> Iterator[Any]:
         """Context manager for managing `StoreResource` objects associated with the store."""
 
         try:
@@ -2485,6 +2809,34 @@ class PersistentStore(
 
         return _delete_no_confirm()
 
+    def get_text_file(self, path: str | Path) -> str:
+        """Retrieve the contents of a text file stored within the workflow.
+
+        Parameters
+        ----------
+        path
+            The path to a text file stored within the workflow. This can either be an
+            absolute path or a path that is relative to the workflow root.
+        """
+        path = Path(path)
+        if not path.is_absolute():
+            path = Path(self.path).joinpath(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"File at location {path!r} does not exist.")
+        return path.read_text()
+
     @abstractmethod
     def _append_task_element_IDs(self, task_ID: int, elem_IDs: list[int]):
         raise NotImplementedError
+
+    @abstractmethod
+    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray) -> None:
+        ...
+
+    @abstractmethod
+    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]) -> None:
+        ...
+
+    @abstractmethod
+    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]) -> None:
+        ...

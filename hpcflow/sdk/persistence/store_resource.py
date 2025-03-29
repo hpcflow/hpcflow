@@ -66,6 +66,9 @@ class StoreResource(ABC):
         action:
             What we are opening the store for; typically either ``read`` or ``update``.
         """
+
+        # TODO: some tests?
+
         if action == "read":
             # reuse "update" data if set, rather than re-loading from disk -- but copy,
             # so changes made in the "read" scope do not update!
@@ -167,8 +170,6 @@ class JSONFileStoreResource(StoreResource):
 
     def _dump(self, data: Mapping | list):
         self.logger.debug(f"{self!r}: dumping JSON to file")
-        if isinstance(data, dict) and "runs" in data:
-            self.logger.debug(f"...runs: {data['runs']}")
         with self.fs.open(self._full_path, mode="wt") as fp:
             json.dump(data, fp, indent=2)
 

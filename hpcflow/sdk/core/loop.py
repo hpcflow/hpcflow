@@ -6,24 +6,33 @@ notably looping over a set of values or until a condition holds.
 
 from __future__ import annotations
 
+from collections import defaultdict
 import copy
+from pprint import pp
+import pprint
+from typing import Dict, List, Optional, Tuple, Union, Any
+from warnings import warn
 from collections import defaultdict
 from itertools import chain
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 
 from hpcflow.sdk.core.app_aware import AppAware
+from hpcflow.sdk.core.actions import EARStatus
+from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import LoopTaskSubsetError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
-from hpcflow.sdk.core.enums import InputSourceType
+from hpcflow.sdk.core.enums import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.utils import check_valid_py_identifier, nth_key, nth_value
+from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.log import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from typing import Any, ClassVar
     from typing_extensions import Self, TypeIs
+    from rich.status import Status
     from ..typing import DataIndex, ParamSource
     from .parameters import SchemaInput, InputSource
     from .rule import Rule
@@ -62,6 +71,8 @@ class Loop(JSONLike):
         Specify input parameters that should not iterate.
     termination: v~hpcflow.app.Rule
         Stopping criterion, expressed as a rule.
+    termination_task: int | ~hpcflow.app.WorkflowTask
+        Task at which to evaluate the termination condition.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -79,6 +90,7 @@ class Loop(JSONLike):
         name: str | None = None,
         non_iterable_parameters: list[str] | None = None,
         termination: Rule | None = None,
+        termination_task: int | WorkflowTask | None = None,
     ) -> None:
         _task_insert_IDs: list[int] = []
         for task in tasks:
@@ -89,14 +101,34 @@ class Loop(JSONLike):
             else:
                 raise TypeError(
                     f"`tasks` must be a list whose elements are either task insert IDs "
-                    f"or WorkflowTask objects, but received the following: {tasks!r}."
+                    f"or `WorkflowTask` objects, but received the following: {tasks!r}."
                 )
+
+        if termination_task is None:
+            _term_task_iID = _task_insert_IDs[-1]  # terminate on final task by default
+        elif self.__is_WorkflowTask(termination_task):
+            _term_task_iID = termination_task.insert_ID
+        elif isinstance(task, int):
+            _term_task_iID = termination_task
+        else:
+            raise TypeError(
+                f"`termination_task` must be a task insert ID or a `WorkflowTask` "
+                f"object, but received the following: {termination_task!r}."
+            )
+
+        if _term_task_iID not in _task_insert_IDs:
+            raise ValueError(
+                f"If specified, `termination_task` (provided: {termination_task!r}) must "
+                f"refer to a task that is part of the loop. Available task insert IDs "
+                f"are: {_task_insert_IDs!r}."
+            )
 
         self._task_insert_IDs = _task_insert_IDs
         self._num_iterations = num_iterations
         self._name = check_valid_py_identifier(name) if name else name
         self._non_iterable_parameters = non_iterable_parameters or []
         self._termination = termination
+        self._termination_task_insert_ID = _term_task_iID
 
         self._workflow_template: WorkflowTemplate | None = (
             None  # assigned by parent WorkflowTemplate
@@ -114,7 +146,15 @@ class Loop(JSONLike):
             insert_IDs = json_like.pop("task_insert_IDs")
         else:
             insert_IDs = json_like.pop("tasks")
-        return cls(tasks=insert_IDs, **json_like)
+
+        if "termination_task_insert_ID" in json_like:
+            tt_iID = json_like.pop("termination_task_insert_ID")
+        elif "termination_task" in json_like:
+            tt_iID = json_like.pop("termination_task")
+        else:
+            tt_iID = None
+
+        return cls(tasks=insert_IDs, termination_task=tt_iID, **json_like)
 
     @property
     def task_insert_IDs(self) -> tuple[int, ...]:
@@ -148,6 +188,25 @@ class Loop(JSONLike):
         A termination rule for the loop, if one is provided.
         """
         return self._termination
+
+    @property
+    def termination_task_insert_ID(self) -> int:
+        """
+        The insert ID of the task at which the loop will terminate.
+        """
+        return self._termination_task_insert_ID
+
+    @property
+    def termination_task(self) -> WorkflowTask:
+        """
+        The task at which the loop will terminate.
+        """
+        if (wt := self.workflow_template) is None:
+            raise RuntimeError(
+                "Workflow template must be assigned to retrieve task objects of the loop."
+            )
+        assert wt.workflow
+        return wt.workflow.tasks.get(insert_ID=self.termination_task_insert_ID)
 
     @property
     def workflow_template(self) -> WorkflowTemplate | None:
@@ -212,6 +271,7 @@ class Loop(JSONLike):
     def __deepcopy__(self, memo: dict[int, Any]) -> Self:
         kwargs = self.to_dict()
         kwargs["tasks"] = kwargs.pop("task_insert_IDs")
+        kwargs["termination_task"] = kwargs.pop("termination_task_insert_ID")
         obj = self.__class__(**copy.deepcopy(kwargs, memo))
         obj._workflow_template = self._workflow_template
         return obj
@@ -234,6 +294,9 @@ class WorkflowLoop(AppAware):
         Description of what iterations have been added.
     iterable_parameters:
         Description of what parameters are being iterated over.
+    output_parameters:
+        Decription of what parameter are output from this loop, and the final task insert
+        ID from which they are output.
     parents: list[str]
         The paths to the parent entities of this loop.
     """
@@ -245,6 +308,7 @@ class WorkflowLoop(AppAware):
         template: Loop,
         num_added_iterations: dict[tuple[int, ...], int],
         iterable_parameters: dict[str, IterableParam],
+        output_parameters: dict[str, int],
         parents: list[str],
     ) -> None:
         self._index = index
@@ -252,10 +316,11 @@ class WorkflowLoop(AppAware):
         self._template = template
         self._num_added_iterations = num_added_iterations
         self._iterable_parameters = iterable_parameters
+        self._output_parameters = output_parameters
         self._parents = parents
 
-        # appended to on adding a empty loop to the workflow that's a parent of this loop,
-        # reset and added to `self._parents` on dump to disk:
+        # appended to when adding an empty loop to the workflow that is a parent of this
+        # loop; reset and added to `self._parents` on dump to disk:
         self._pending_parents: list[str] = []
 
         # used for `num_added_iterations` when a new loop iteration is added, or when
@@ -272,16 +337,6 @@ class WorkflowLoop(AppAware):
         task_min, task_max = task_indices[0], task_indices[-1]
         if task_indices != tuple(range(task_min, task_max + 1)):
             raise LoopTaskSubsetError(self.name, self.task_indices)
-
-        for task in self.downstream_tasks:
-            for param in self.iterable_parameters:
-                if param in task.template.all_schema_input_types:
-                    raise NotImplementedError(
-                        f"Downstream task {task.unique_name!r} of loop {self.name!r} "
-                        f"has as one of its input parameters this loop's iterable "
-                        f"parameter {param!r}. This parameter cannot be sourced "
-                        f"correctly."
-                    )
 
     def __repr__(self) -> str:
         return (
@@ -404,11 +459,19 @@ class WorkflowLoop(AppAware):
         return self.template.name
 
     @property
-    def iterable_parameters(self) -> Mapping[str, IterableParam]:
+    def iterable_parameters(self) -> dict[str, IterableParam]:
         """
         The parameters that are being iterated over.
         """
         return self._iterable_parameters
+
+    @property
+    def output_parameters(self) -> dict[str, int]:
+        """
+        The parameters that are outputs of this loop, and the final task insert ID from
+        which each parameter is output.
+        """
+        return self._output_parameters
 
     @property
     def num_iterations(self) -> int:
@@ -433,7 +496,9 @@ class WorkflowLoop(AppAware):
 
     @staticmethod
     @TimeIt.decorator
-    def _find_iterable_parameters(loop_template: Loop) -> dict[str, IterableParam]:
+    def _find_iterable_and_output_parameters(
+        loop_template: Loop,
+    ) -> tuple[dict[str, IterableParam], dict[str, int]]:
         all_inputs_first_idx: dict[str, int] = {}
         all_outputs_idx: dict[str, list[int]] = defaultdict(list)
         for task in loop_template.task_objects:
@@ -442,6 +507,7 @@ class WorkflowLoop(AppAware):
             for typ in task.template.all_schema_output_types:
                 all_outputs_idx[typ].append(task.insert_ID)
 
+        # find input parameters that are also output parameters at a later/same task:
         iterable_params: dict[str, IterableParam] = {}
         for typ, first_idx in all_inputs_first_idx.items():
             if typ in all_outputs_idx and first_idx <= all_outputs_idx[typ][0]:
@@ -453,7 +519,9 @@ class WorkflowLoop(AppAware):
         for non_iter in loop_template.non_iterable_parameters:
             iterable_params.pop(non_iter, None)
 
-        return iterable_params
+        final_out_tasks = {k: v[-1] for k, v in all_outputs_idx.items()}
+
+        return iterable_params, final_out_tasks
 
     @classmethod
     @TimeIt.decorator
@@ -478,21 +546,20 @@ class WorkflowLoop(AppAware):
         iter_loop_idx: list[dict]
             Iteration information from parent loops.
         """
-        parent_names = [
-            loop.name
-            for loop in cls._get_parent_loops(index, workflow, template)
-            if loop.name
-        ]
-        num_added_iters = {
-            tuple(l_idx[nm] for nm in parent_names): 1 for l_idx in iter_loop_idx
-        }
+        parent_loops = cls._get_parent_loops(index, workflow, template)
+        parent_names = [i.name for i in parent_loops]
+        num_added_iters: dict[tuple[int, ...], int] = {}
+        for i in iter_loop_idx:
+            num_added_iters[tuple([i[j] for j in parent_names])] = 1
 
+        iter_params, out_params = cls._find_iterable_and_output_parameters(template)
         return cls(
             index=index,
             workflow=workflow,
             template=template,
             num_added_iterations=num_added_iters,
-            iterable_parameters=cls._find_iterable_parameters(template),
+            iterable_parameters=iter_params,
+            output_parameters=out_params,
             parents=parent_names,
         )
 
@@ -551,6 +618,7 @@ class WorkflowLoop(AppAware):
         self,
         parent_loop_indices: Mapping[str, int] | None = None,
         cache: LoopCache | None = None,
+        status: Status | None = None,
     ) -> None:
         """
         Add an iteration to this loop.
@@ -586,6 +654,13 @@ class WorkflowLoop(AppAware):
         for child in child_loops:
             child._initialise_pending_added_iters(
                 iters_key_dct.get(j, 0) for j in child.parents
+            )
+
+            # needed for the case where an inner loop has only one iteration, meaning
+            # `add_iteration` will not be called recursively on it:
+            self.workflow._store.update_loop_num_iters(
+                index=child.index,
+                num_added_iters=child.num_added_iterations,
             )
 
         for task in self.task_objects:
@@ -723,21 +798,40 @@ class WorkflowLoop(AppAware):
         # add iterations to fixed-number-iteration children only:
         for child in child_loops[::-1]:
             if child.num_iterations is not None:
-                for _ in range(child.num_iterations - 1):
+                if status:
+                    status_prev = str(status.status).rstrip(".")
+                for iter_idx in range(child.num_iterations - 1):
+                    if status:
+                        status.update(
+                            f"{status_prev} --> ({child.name!r}): iteration "
+                            f"{iter_idx + 2}/{child.num_iterations}."
+                        )
                     par_idx = {parent_name: 0 for parent_name in child.parents}
                     if parent_loop_indices:
                         par_idx.update(parent_loop_indices)
                     par_idx[self.name] = cur_loop_idx + 1
                     child.add_iteration(parent_loop_indices=par_idx, cache=cache)
 
+        self.__update_loop_downstream_data_idx(parent_loop_indices_)
+
     def __get_src_ID_and_groups(
-        self, elem_ID: int, iter_dat: IterableParam, inp: SchemaInput, cache: LoopCache
+        self,
+        elem_ID: int,
+        iter_dat: IterableParam,
+        inp: SchemaInput,
+        cache: LoopCache,
+        task: WorkflowTask,
     ) -> tuple[int, Sequence[int]]:
-        src_elem_IDs = {
-            k: v
-            for k, v in cache.element_dependents[elem_ID].items()
-            if cache.elements[k]["task_insert_ID"] == iter_dat["output_tasks"][-1]
-        }
+        # `cache.elements` contains only elements that are part of the
+        # loop, so indexing a dependent element may raise:
+        src_elem_IDs = {}
+        for k, v in cache.element_dependents[elem_ID].items():
+            try:
+                if cache.elements[k]["task_insert_ID"] == iter_dat["output_tasks"][-1]:
+                    src_elem_IDs[k] = v
+            except KeyError:
+                continue
+
         # consider groups
         single_data = inp.single_labelled_data
         assert single_data is not None
@@ -753,7 +847,8 @@ class WorkflowLoop(AppAware):
                 f"Multiple elements found in the iterable parameter "
                 f"{inp!r}'s latest output task (insert ID: "
                 f"{iter_dat['output_tasks'][-1]}) that can be used "
-                f"to parametrise the next iteration: "
+                f"to parametrise the next iteration of task "
+                f"{task.unique_name!r}: "
                 f"{list(src_elem_IDs)!r}."
             )
 
@@ -787,11 +882,13 @@ class WorkflowLoop(AppAware):
         # identify element(s) from which this iterable input should be
         # parametrised:
         if task.insert_ID == iter_dat["output_tasks"][-1]:
+            # single-task loop
             src_elem_ID = elem_ID
             grouped_elems: Sequence[int] = []
         else:
+            # multi-task loop
             src_elem_ID, grouped_elems = self.__get_src_ID_and_groups(
-                elem_ID, iter_dat, inp, cache
+                elem_ID, iter_dat, inp, cache, task
             )
 
         child_loop_max_iters: dict[str, int] = {}
@@ -803,12 +900,13 @@ class WorkflowLoop(AppAware):
             self.name: cur_loop_idx,
         }
         for loop in child_loops:
-            i_num_iters = loop.num_added_iterations[
-                tuple(child_iter_parents[j] for j in loop.parents)
-            ]
-            i_max = i_num_iters - 1
-            child_iter_parents[loop.name] = i_max
-            child_loop_max_iters[loop.name] = i_max
+            if iter_dat["output_tasks"][-1] in loop.task_insert_IDs:
+                i_num_iters = loop.num_added_iterations[
+                    tuple(child_iter_parents[j] for j in loop.parents)
+                ]
+                i_max = i_num_iters - 1
+                child_iter_parents[loop.name] = i_max
+                child_loop_max_iters[loop.name] = i_max
 
         loop_idx_key = LoopIndex(child_loop_max_iters)
         loop_idx_key.update(parent_loop_same_iters)
@@ -872,13 +970,20 @@ class WorkflowLoop(AppAware):
                 src_elem_IDs = cache.element_dependents[
                     self.workflow.tasks.get(insert_ID=tiID).element_IDs[e_idx]
                 ]
-                # filter src_elem_IDs_i for matching element IDs:
-                src_elem_IDs_i = [
-                    k
-                    for k, _v in src_elem_IDs.items()
-                    if cache.elements[k]["task_insert_ID"] == task.insert_ID
-                    and k == elem_ID
-                ]
+                # `cache.elements` contains only elements that are part of the loop, so
+                # indexing a dependent element may raise:
+                src_elem_IDs_i = []
+                for k, _v in src_elem_IDs.items():
+                    try:
+                        if (
+                            cache.elements[k]["task_insert_ID"] == task.insert_ID
+                            and k == elem_ID
+                            # filter src_elem_IDs_i for matching element IDs
+                        ):
+
+                            src_elem_IDs_i.append(k)
+                    except KeyError:
+                        continue
 
                 if len(src_elem_IDs_i) == 1:
                     new_sources.append((tiID, e_idx))
@@ -902,9 +1007,262 @@ class WorkflowLoop(AppAware):
         else:
             yield from seq
 
+    def __update_loop_downstream_data_idx(
+        self,
+        parent_loop_indices: Mapping[str, int],
+    ):
+        # update data indices of loop-downstream tasks that depend on task outputs from
+        # this loop:
+
+        # keys: iter or run ID, values: dict of param type and new parameter index
+        iter_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
+        run_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
+
+        param_sources = self.workflow.get_all_parameter_sources()
+
+        # keys are parameter type, then task insert ID, then data index keys mapping to
+        # their updated values:
+        all_updates: dict[str, dict[int, dict[int, int]]] = defaultdict(
+            lambda: defaultdict(dict)
+        )
+
+        for task in self.downstream_tasks:
+            for elem in task.elements:
+                for param_typ, param_out_task_iID in self.output_parameters.items():
+                    if param_typ in task.template.all_schema_input_types:
+                        # this element's input *might* need updating, only if it has a
+                        # task input source type that is this loop's output task for this
+                        # parameter:
+                        elem_src = elem.input_sources[f"inputs.{param_typ}"]
+                        if (
+                            elem_src.source_type is InputSourceType.TASK
+                            and elem_src.task_source_type is TaskSourceType.OUTPUT
+                            and elem_src.task_ref == param_out_task_iID
+                        ):
+                            for iter_i in elem.iterations:
+
+                                # do not modify element-iterations of previous iterations
+                                # of the current loop:
+                                skip_iter = False
+                                for k, v in parent_loop_indices.items():
+                                    if iter_i.loop_idx.get(k) != v:
+                                        skip_iter = True
+                                        break
+
+                                if skip_iter:
+                                    continue
+
+                                # update the iteration data index and any pending runs:
+                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+
+                                is_group = True
+                                if not isinstance(iter_old_di, list):
+                                    is_group = False
+                                    iter_old_di = [iter_old_di]
+
+                                iter_old_run_source = [
+                                    param_sources[i]["EAR_ID"] for i in iter_old_di
+                                ]
+                                iter_old_run_objs = self.workflow.get_EARs_from_IDs(
+                                    iter_old_run_source
+                                )  # TODO: use cache
+
+                                # need to check the run source is actually from the loop
+                                # output task (it could be from a previous iteration of a
+                                # separate loop in this task):
+                                if any(
+                                    i.task.insert_ID != param_out_task_iID
+                                    for i in iter_old_run_objs
+                                ):
+                                    continue
+
+                                iter_new_iters = [
+                                    i.element.iterations[-1] for i in iter_old_run_objs
+                                ]
+
+                                # note: we can cast to int, because output keys never
+                                # have multiple data indices (unlike input keys):
+                                iter_new_dis = [
+                                    cast("int", i.get_data_idx()[f"outputs.{param_typ}"])
+                                    for i in iter_new_iters
+                                ]
+
+                                # keep track of updates so we can also update task-input
+                                # type sources:
+                                all_updates[param_typ][task.insert_ID].update(
+                                    dict(zip(iter_old_di, iter_new_dis))
+                                )
+
+                                iter_new_data_idx[iter_i.id_][f"inputs.{param_typ}"] = (
+                                    iter_new_dis if is_group else iter_new_dis[0]
+                                )
+
+                                for run_j in iter_i.action_runs:
+                                    if run_j.status is EARStatus.pending:
+                                        try:
+                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
+                                        except KeyError:
+                                            # not all actions will include this input
+                                            continue
+
+                                        is_group = True
+                                        if not isinstance(old_di, list):
+                                            is_group = False
+                                            old_di = [old_di]
+
+                                        old_run_source = [
+                                            param_sources[i]["EAR_ID"] for i in old_di
+                                        ]
+                                        old_run_objs = self.workflow.get_EARs_from_IDs(
+                                            old_run_source
+                                        )  # TODO: use cache
+
+                                        # need to check the run source is actually from the loop
+                                        # output task (it could be from a previous action in this
+                                        # element-iteration):
+                                        if any(
+                                            i.task.insert_ID != param_out_task_iID
+                                            for i in old_run_objs
+                                        ):
+                                            continue
+
+                                        new_iters = [
+                                            i.element.iterations[-1] for i in old_run_objs
+                                        ]
+
+                                        # note: we can cast to int, because output keys
+                                        # never have multiple data indices (unlike input
+                                        # keys):
+                                        new_dis = [
+                                            cast(
+                                                "int",
+                                                i.get_data_idx()[f"outputs.{param_typ}"],
+                                            )
+                                            for i in new_iters
+                                        ]
+
+                                        run_new_data_idx[run_j.id_][
+                                            f"inputs.{param_typ}"
+                                        ] = (new_dis if is_group else new_dis[0])
+
+                        elif (
+                            elem_src.source_type is InputSourceType.TASK
+                            and elem_src.task_source_type is TaskSourceType.INPUT
+                        ):
+                            # parameters are that sourced from inputs of other tasks,
+                            # might need to be updated if those other tasks have
+                            # themselves had their data indices updated:
+                            assert elem_src.task_ref
+                            ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
+
+                            if ups_i:
+                                # if a further-downstream task has a task-input source
+                                # that points to this task, this will also need updating:
+                                all_updates[param_typ][task.insert_ID].update(ups_i)
+
+                            else:
+                                continue
+
+                            for iter_i in elem.iterations:
+
+                                # update the iteration data index and any pending runs:
+                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+
+                                is_group = True
+                                if not isinstance(iter_old_di, list):
+                                    is_group = False
+                                    iter_old_di = [iter_old_di]
+
+                                iter_new_dis = [ups_i.get(i, i) for i in iter_old_di]
+
+                                if iter_new_dis != iter_old_di:
+                                    iter_new_data_idx[iter_i.id_][
+                                        f"inputs.{param_typ}"
+                                    ] = (iter_new_dis if is_group else iter_new_dis[0])
+
+                                for run_j in iter_i.action_runs:
+                                    if run_j.status is EARStatus.pending:
+                                        try:
+                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
+                                        except KeyError:
+                                            # not all actions will include this input
+                                            continue
+
+                                        is_group = True
+                                        if not isinstance(old_di, list):
+                                            is_group = False
+                                            old_di = [old_di]
+
+                                        new_dis = [ups_i.get(i, i) for i in old_di]
+
+                                        if new_dis != old_di:
+                                            run_new_data_idx[run_j.id_][
+                                                f"inputs.{param_typ}"
+                                            ] = (new_dis if is_group else new_dis[0])
+
+        # now update data indices (TODO: including in cache!)
+        if iter_new_data_idx:
+            self.workflow._store.update_iter_data_indices(iter_new_data_idx)
+
+        if run_new_data_idx:
+            self.workflow._store.update_run_data_indices(run_new_data_idx)
+
     def test_termination(self, element_iter) -> bool:
         """Check if a loop should terminate, given the specified completed element
         iteration."""
         if self.template.termination:
             return self.template.termination.test(element_iter)
         return False
+
+    @TimeIt.decorator
+    def get_element_IDs(self):
+        elem_IDs = [
+            j
+            for i in self.task_insert_IDs
+            for j in self.workflow.tasks.get(insert_ID=i).element_IDs
+        ]
+        return elem_IDs
+
+    @TimeIt.decorator
+    def get_elements(self):
+        return self.workflow.get_elements_from_IDs(self.get_element_IDs())
+
+    @TimeIt.decorator
+    def skip_downstream_iterations(self, elem_iter) -> list[int]:
+        """
+        Parameters
+        ----------
+        elem_iter
+            The element iteration whose subsequent iterations should be skipped.
+        dep_element_IDs
+            List of elements that are dependent (recursively) on the element
+            of `elem_iter`.
+        """
+        current_iter_idx = elem_iter.loop_idx[self.name]
+        current_task_iID = elem_iter.task.insert_ID
+        self._app.logger.info(
+            f"setting loop {self.name!r} iterations downstream of current iteration "
+            f"index {current_iter_idx} to skip"
+        )
+        elements = self.get_elements()
+
+        # TODO: fix for multiple loop cycles
+        warn(
+            "skip downstream iterations does not work correctly for multiple loop cycles!"
+        )
+
+        to_skip = []
+        for elem in elements:
+            for iter_i in elem.iterations:
+                if iter_i.loop_idx[self.name] > current_iter_idx or (
+                    iter_i.loop_idx[self.name] == current_iter_idx
+                    and iter_i.task.insert_ID > current_task_iID
+                ):
+                    to_skip.extend(iter_i.EAR_IDs_flat)
+
+        self._app.logger.info(
+            f"{len(to_skip)} runs will be set to skip: {shorten_list_str(to_skip)}"
+        )
+        self.workflow.set_EAR_skip({k: SkipReason.LOOP_TERMINATION for k in to_skip})
+
+        return to_skip

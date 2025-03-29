@@ -4,28 +4,53 @@ Main workflow model.
 
 from __future__ import annotations
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 import copy
 from dataclasses import dataclass, field
 
+from functools import wraps
+import os
 from pathlib import Path
 import random
+import shutil
 import string
 from threading import Thread
 import time
-from typing import overload, cast, TYPE_CHECKING
+from typing import overload, cast, TYPE_CHECKING, TypeVar
+from typing_extensions import ParamSpec, Concatenate
+
 from uuid import uuid4
 from warnings import warn
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 import numpy as np
 from fsspec.core import url_to_fs  # type: ignore
+from rich import print as rich_print
 import rich.console
+import rich.panel
+import rich.table
+import rich.text
+import rich.box
 
+
+from hpcflow.sdk import app
 from hpcflow.sdk.typing import hydrate
-from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS, ABORT_EXIT_CODE
+from hpcflow.sdk.config.errors import (
+    ConfigNonConfigurableError,
+    UnknownMetaTaskConstitutiveSchema,
+)
+from hpcflow.sdk.core import (
+    ALL_TEMPLATE_FORMATS,
+    ABORT_EXIT_CODE,
+    RUN_DIR_ARR_FILL,
+    SKIPPED_EXIT_CODE,
+    NO_COMMANDS_EXIT_CODE,
+)
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.skip_reason import SkipReason
+from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
@@ -35,18 +60,22 @@ from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.submission.jobscript import (
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
-    jobscripts_to_list,
+    is_jobscript_array,
     merge_jobscripts_across_tasks,
+    resolve_jobscript_blocks,
     resolve_jobscript_dependencies,
 )
 from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
+from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.core.utils import (
     read_JSON_file,
     read_JSON_string,
     read_YAML_str,
     read_YAML_file,
+    redirect_std_to_file,
     replace_items,
     current_timestamp,
     normalise_timestamp,
@@ -58,6 +87,7 @@ from hpcflow.sdk.core.errors import (
     OutputFileParserNoOutputError,
     RunNotAbortableError,
     SubmissionFailure,
+    UnsetParameterDataErrorBase,
     WorkflowSubmissionFailure,
 )
 
@@ -70,7 +100,7 @@ if TYPE_CHECKING:
     import psutil
     from rich.status import Status
     from ..typing import DataIndex, ParamSource, PathLike, TemplateComponents
-    from .actions import ElementActionRun
+    from .actions import ElementActionRun, UnsetParamTracker
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
@@ -82,6 +112,8 @@ if TYPE_CHECKING:
         Pending,
         Resources,
         WorkflowTemplateTaskData,
+        WorkflowTemplateElementSetData,
+        BlockActionKey,
     )
     from ..submission.submission import Submission
     from ..submission.jobscript import (
@@ -97,9 +129,14 @@ if TYPE_CHECKING:
         StoreEAR,
     )
     from ..persistence.types import TemplateMeta
+    from .json_like import JSONed
 
     #: Convenience alias
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
+
+P = ParamSpec("P")
+T = TypeVar("T")
+S = TypeVar("S", bound="Workflow")
 
 
 @dataclass
@@ -202,6 +239,7 @@ class WorkflowTemplate(JSONLike):
     workflow: Workflow | None = None
     #: Template-level resources to apply to all tasks as default values.
     resources: Resources = None
+    config: dict = field(default_factory=lambda: {})
     #: The execution environments to use.
     environments: Mapping[str, Mapping[str, Any]] | None = None
     #: The environment presets to use.
@@ -216,6 +254,34 @@ class WorkflowTemplate(JSONLike):
     merge_envs: bool = True
 
     def __post_init__(self) -> None:
+
+        # TODO: in what scenario is the reindex required? are loops initialised?
+
+        # replace metatasks with tasks
+        new_tasks: list[Task] = []
+        do_reindex = False
+        reindex = {}
+        for task_idx, i in enumerate(self.tasks):
+            if isinstance(i, app.MetaTask):
+                do_reindex = True
+                tasks_from_meta = copy.deepcopy(i.tasks)
+                reindex[task_idx] = [
+                    len(new_tasks) + i for i in range(len(tasks_from_meta))
+                ]
+                new_tasks.extend(tasks_from_meta)
+            else:
+                reindex[task_idx] = [len(new_tasks)]
+                new_tasks.append(i)
+        if do_reindex:
+            if self.loops:
+                for loop_idx, loop in enumerate(cast("list[dict[str, Any]]", self.loops)):
+                    loop["tasks"] = [j for i in loop["tasks"] for j in reindex[i]]
+                    term_task = loop.get("termination_task")
+                    if term_task is not None:
+                        loop["termination_task"] = reindex[term_task][0]
+
+        self.tasks = new_tasks
+
         resources = self._app.ResourceList.normalise(self.resources)
         self.resources = resources
         self._set_parent_refs()
@@ -234,6 +300,13 @@ class WorkflowTemplate(JSONLike):
 
         if self.doc and not isinstance(self.doc, list):
             self.doc = [self.doc]
+
+        if self.config:
+            # don't do a full validation (which would require loading the config file),
+            # just check all specified keys are configurable:
+            bad_keys = set(self.config) - set(self._app.config_options._configurable_keys)
+            if bad_keys:
+                raise ConfigNonConfigurableError(name=bad_keys)
 
     @property
     def _resources(self) -> ResourceList:
@@ -324,22 +397,121 @@ class WorkflowTemplate(JSONLike):
     @classmethod
     @TimeIt.decorator
     def _from_data(cls, data: dict[str, Any]) -> WorkflowTemplate:
-        task_dat: WorkflowTemplateTaskData
-        # use element_sets if not already:
-        for task_idx, task_dat in enumerate(data["tasks"]):
-            schema = task_dat.pop("schema")
-            schema_list: list = schema if isinstance(schema, list) else [schema]
-            if "element_sets" in task_dat:
-                # just update the schema to a list:
-                data["tasks"][task_idx]["schema"] = schema_list
-            else:
-                # add a single element set, and update the schema to a list:
-                out_labels = task_dat.pop("output_labels", [])
-                data["tasks"][task_idx] = {
-                    "schema": schema_list,
-                    "element_sets": [task_dat],
-                    "output_labels": out_labels,
-                }
+        def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
+            """
+            For each dict in a list of task parametrisations, ensure the `schema` key is
+            a list of values, and ensure `element_sets` are defined.
+
+            This mutates `task_lst`.
+
+            """
+            # use element_sets if not already:
+            task_dat: WorkflowTemplateTaskData
+            for task_idx, task_dat in enumerate(task_lst):
+                schema = task_dat.pop("schema")
+                schema_list: list = schema if isinstance(schema, list) else [schema]
+                if "element_sets" in task_dat:
+                    # just update the schema to a list:
+                    task_lst[task_idx]["schema"] = schema_list
+                else:
+                    # add a single element set, and update the schema to a list:
+                    out_labels = task_dat.pop("output_labels", [])
+                    es_dat = cast("WorkflowTemplateElementSetData", task_dat)
+                    new_task_dat: WorkflowTemplateTaskData = {
+                        "schema": schema_list,
+                        "element_sets": [es_dat],
+                        "output_labels": out_labels,
+                    }
+                    task_lst[task_idx] = new_task_dat
+                # move sequences with `paths` (note: plural) to multi_path_sequences:
+                for elem_set in task_lst[task_idx]["element_sets"]:
+                    new_mps = []
+                    seqs = elem_set.get("sequences", [])
+                    seqs = list(seqs)  # copy
+                    # loop in reverse so indices for pop are valid:
+                    for seq_idx, seq_dat in zip(range(len(seqs) - 1, -1, -1), seqs[::-1]):
+                        if "paths" in seq_dat:  # (note: plural)
+                            # move to a multi-path sequence:
+                            new_mps.append(elem_set["sequences"].pop(seq_idx))
+                    elem_set.setdefault("multi_path_sequences", []).extend(new_mps[::-1])
+
+        meta_tasks = data.pop("meta_tasks", {})
+        if meta_tasks:
+            for i in list(meta_tasks):
+                _normalise_task_parametrisation(meta_tasks[i])
+            new_task_dat: list[WorkflowTemplateTaskData] = []
+            reindex = {}
+            for task_idx, task_dat in enumerate(data["tasks"]):
+                if meta_task_dat := meta_tasks.get(task_dat["schema"]):
+                    reindex[task_idx] = [
+                        len(new_task_dat) + i for i in range(len(meta_task_dat))
+                    ]
+
+                    all_schema_names = [j for i in meta_task_dat for j in i["schema"]]
+
+                    # update any parametrisation provided in the task list:
+                    base_data = copy.deepcopy(meta_task_dat)
+
+                    # any other keys in `task_dat` should be mappings whose keys are
+                    # the schema name (within the meta task) optionally suffixed by
+                    # a period and the element set index to which the updates should be
+                    # copied (no integer suffix indicates the zeroth element set):
+                    for k, v in task_dat.items():
+                        if k == "schema":
+                            continue
+
+                        for elem_set_id, dat in v.items():
+
+                            elem_set_id_split = elem_set_id.split(".")
+                            try:
+                                es_idx = int(elem_set_id_split[-1])
+                                schema_name = ".".join(elem_set_id_split[:-1])
+                            except ValueError:
+                                es_idx = 0
+                                schema_name = ".".join(elem_set_id_split)
+                            schema_name = schema_name.strip(".")
+
+                            # check valid schema name:
+                            if schema_name not in all_schema_names:
+                                raise UnknownMetaTaskConstitutiveSchema(
+                                    f"Task schema with objective {schema_name!r} is not "
+                                    f"part of the meta-task with objective "
+                                    f"{task_dat['schema']!r}. The constitutive schemas of"
+                                    f" this meta-task have objectives: "
+                                    f"{all_schema_names!r}."
+                                )
+
+                            # copy `dat` to the correct schema and element set in the
+                            # meta-task:
+                            for s_idx, s in enumerate(base_data):
+                                if s["schema"] == [schema_name]:
+                                    if k == "inputs":
+                                        # special case; merge inputs
+                                        base_data[s_idx]["element_sets"][es_idx][
+                                            k
+                                        ].update(dat)
+                                    else:
+                                        # just overwrite
+                                        base_data[s_idx]["element_sets"][es_idx][k] = dat
+
+                    new_task_dat.extend(base_data)
+
+                else:
+                    reindex[task_idx] = [len(new_task_dat)]
+                    new_task_dat.append(task_dat)
+
+            data["tasks"] = new_task_dat
+
+            if loops := data.get("loops"):
+                for loop_idx, loop in enumerate(loops):
+                    loops[loop_idx]["tasks"] = [
+                        j for i in loop["tasks"] for j in reindex[i]
+                    ]
+                    term_task = loop.get("termination_task")
+                    if term_task is not None:
+                        loops[loop_idx]["termination_task"] = reindex[term_task][0]
+
+        _normalise_task_parametrisation(data["tasks"])
 
         # extract out any template components:
         # TODO: TypedDict for data
@@ -368,14 +540,31 @@ class WorkflowTemplate(JSONLike):
             )
             cls._app.task_schemas.add_objects(task_schemas, skip_duplicates=True)
 
-        return cls.from_json_like(data, shared_data=cls._app._shared_data)
+        if mts_dat := tcs.pop("meta_task_schemas", []):
+            meta_ts = [
+                cls._app.MetaTaskSchema.from_json_like(
+                    i, shared_data=cls._app.template_components
+                )
+                for i in mts_dat
+            ]
+            cls._app.task_schemas.add_objects(meta_ts, skip_duplicates=True)
+
+        wkt = cls.from_json_like(data, shared_data=cls._app._shared_data)
+
+        # print(f"WorkflowTemplate._from_data: {wkt=!r}")
+        # TODO: what is this for!?
+        # for idx, task in enumerate(wkt.tasks):
+        #     if isinstance(task.schema, cls._app.MetaTaskSchema):
+        #         print(f"{task=!r}")
+        #         wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
+        return wkt
 
     @classmethod
     @TimeIt.decorator
     def from_YAML_string(
         cls,
         string: str,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML string.
 
@@ -384,7 +573,10 @@ class WorkflowTemplate(JSONLike):
         string
             The YAML string containing the workflow template parametrisation.
         variables
-            String variables to substitute in `string`.
+            String variables to substitute in `string`. Substitutions will be attempted if
+            the YAML string looks to contain variable references (like "<<var:name>>"). If
+            set to `False`, no substitutions will occur, which may result in an invalid
+            workflow template!
         """
         return cls._from_data(read_YAML_str(string, variables=variables))
 
@@ -408,7 +600,7 @@ class WorkflowTemplate(JSONLike):
     def from_YAML_file(
         cls,
         path: PathLike,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML file.
 
@@ -417,7 +609,10 @@ class WorkflowTemplate(JSONLike):
         path
             The path to the YAML file containing the workflow template parametrisation.
         variables
-            String variables to substitute in the file given by `path`.
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the YAML file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
@@ -431,7 +626,7 @@ class WorkflowTemplate(JSONLike):
     def from_JSON_string(
         cls,
         string: str,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON string.
 
@@ -440,7 +635,10 @@ class WorkflowTemplate(JSONLike):
         string
             The JSON string containing the workflow template parametrisation.
         variables
-            String variables to substitute in `string`.
+            String variables to substitute in `string`. Substitutions will be attempted if
+            the JSON string looks to contain variable references (like "<<var:name>>"). If
+            set to `False`, no substitutions will occur, which may result in an invalid
+            workflow template!
         """
         return cls._from_data(read_JSON_string(string, variables=variables))
 
@@ -449,7 +647,7 @@ class WorkflowTemplate(JSONLike):
     def from_JSON_file(
         cls,
         path: PathLike,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON file.
 
@@ -458,7 +656,10 @@ class WorkflowTemplate(JSONLike):
         path
             The path to the JSON file containing the workflow template parametrisation.
         variables
-            String variables to substitute in the file given by `path`.
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the JSON file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
         data = read_JSON_file(path, variables=variables)
@@ -472,7 +673,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         template_format: Literal["yaml", "json"] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> WorkflowTemplate:
         """Load from either a YAML or JSON file, depending on the file extension.
 
@@ -484,8 +685,10 @@ class WorkflowTemplate(JSONLike):
             The file format to expect at `path`. One of "json" or "yaml", if specified. By
             default, "yaml".
         variables
-            String variables to substitute in the file given by `path`.
-
+            String variables to substitute in the file given by `path`. Substitutions will
+            be attempted if the file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         path_ = Path(path or ".")
         fmt = template_format.lower() if template_format else None
@@ -571,6 +774,25 @@ class _IterationData:
     idx: int
 
 
+def load_workflow_config(
+    func: Callable[Concatenate[S, P], T],
+) -> Callable[Concatenate[S, P], T]:
+    """Decorator to apply workflow-level config items during execution of a Workflow
+    method."""
+
+    @wraps(func)
+    def wrapped(self: S, *args: P.args, **kwargs: P.kwargs) -> T:
+
+        updates = self.template.config
+        if updates:
+            with self._app.config._with_updates(updates):
+                return func(self, *args, **kwargs)
+        else:
+            return func(self, *args, **kwargs)
+
+    return wrapped
+
+
 class Workflow(AppAware):
     """
     A concrete workflow.
@@ -630,8 +852,17 @@ class Workflow(AppAware):
         self._store = store_cls(self._app, self, self.path, fs)
         self._in_batch_mode = False  # flag to track when processing batch updates
 
+        self._use_merged_parameters_cache = False
+        self._merged_parameters_cache: dict[
+            tuple[str | None, tuple[tuple[str, tuple[int, ...] | int], ...]], Any
+        ] = {}
+
         # store indices of updates during batch update, so we can revert on failure:
         self._pending = self._get_empty_pending()
+
+        # reassigned within `ElementActionRun.raise_on_failure_threshold` context manager:
+        self._is_tracking_unset: bool = False
+        self._tracked_unset: dict[str, UnsetParamTracker] | None = None
 
     def reload(self) -> Self:
         """Reload the workflow from disk."""
@@ -743,7 +974,12 @@ class Workflow(AppAware):
                                 f"{len(template.loops)} ({loop.name!r})"
                             )
                         wk._add_loop(loop, cache=cache, status=status)
-        except Exception:
+                    if status:
+                        status.update(
+                            f"Added {len(template.loops)} loops. "
+                            f"Committing to store..."
+                        )
+        except (Exception, NotImplementedError):
             if status:
                 status.stop()
             raise
@@ -761,7 +997,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
     ) -> Workflow:
         """Generate from a YAML file.
 
@@ -791,7 +1027,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the file given by `YAML_path`.
+            String variables to substitute in the file given by `YAML_path`. Substitutions
+            will be attempted if the YAML file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_YAML_file(
             path=YAML_path,
@@ -819,7 +1058,8 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
+        status: Status | None = None,
     ) -> Workflow:
         """Generate from a YAML string.
 
@@ -849,7 +1089,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the string `YAML_str`.
+            String variables to substitute in the string `YAML_str`. Substitutions will be
+            attempted if the YAML string looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_YAML_string(
             string=YAML_str,
@@ -864,6 +1107,7 @@ class Workflow(AppAware):
             ts_fmt,
             ts_name_fmt,
             store_kwargs,
+            status,
         )
 
     @classmethod
@@ -877,7 +1121,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON file.
@@ -908,7 +1152,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the file given by `JSON_path`.
+            String variables to substitute in the file given by `JSON_path`. Substitutions
+            will be attempted if the JSON file looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_JSON_file(
             path=JSON_path,
@@ -937,7 +1184,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON string.
@@ -968,7 +1215,10 @@ class Workflow(AppAware):
         store_kwargs:
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
-            String variables to substitute in the string `JSON_str`.
+            String variables to substitute in the string `JSON_str`. Substitutions will be
+            attempted if the JSON string looks to contain variable references (like
+            "<<var:name>>"). If set to `False`, no substitutions will occur, which may
+            result in an invalid workflow template!
         """
         template = cls._app.WorkflowTemplate.from_JSON_string(
             string=JSON_str,
@@ -999,7 +1249,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
-        variables: dict[str, str] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from either a YAML or JSON file, depending on the file extension.
@@ -1035,6 +1285,9 @@ class Workflow(AppAware):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables:
             String variables to substitute in the file given by `template_path`.
+            Substitutions will be attempted if the file looks to contain variable
+            references (like "<<var:name>>"). If set to `False`, no substitutions will
+            occur, which may result in an invalid workflow template!
         """
         try:
             template = cls._app.WorkflowTemplate.from_file(
@@ -1066,6 +1319,7 @@ class Workflow(AppAware):
         tasks: list[Task] | None = None,
         loops: list[Loop] | None = None,
         resources: Resources = None,
+        config: dict | None = None,
         path: PathLike | None = None,
         workflow_name: str | None = None,
         overwrite: bool = False,
@@ -1089,6 +1343,9 @@ class Workflow(AppAware):
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
             precedence of those defined here for the whole workflow.
+        config:
+            Configuration items that should be set whenever the resulting workflow is
+            loaded. This includes config items that apply during workflow execution.
         path:
             The directory in which the workflow will be generated. The current directory
             if not specified.
@@ -1116,6 +1373,7 @@ class Workflow(AppAware):
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
+            config=config or {},
         )
         return cls.from_template(
             template,
@@ -1248,6 +1506,7 @@ class Workflow(AppAware):
         self._store.add_loop(
             loop_template=cast("Mapping", loop_js),
             iterable_parameters=wk_loop.iterable_parameters,
+            output_parameters=wk_loop.output_parameters,
             parents=wk_loop.parents,
             num_added_iterations=wk_loop.num_added_iterations,
             iter_IDs=iter_IDs,
@@ -1275,7 +1534,7 @@ class Workflow(AppAware):
                     status.update(
                         f"{status_prev}: iteration {iter_idx + 2}/{loop.num_iterations}."
                     )
-                new_wk_loop.add_iteration(cache=cache_)
+                new_wk_loop.add_iteration(cache=cache_, status=status)
 
     def add_loop(self, loop: Loop) -> None:
         """Add a loop to a subset of workflow tasks."""
@@ -1360,6 +1619,7 @@ class Workflow(AppAware):
         return self._template
 
     @property
+    @TimeIt.decorator
     def tasks(self) -> WorkflowTaskList:
         """
         The tasks in this workflow.
@@ -1410,12 +1670,14 @@ class Workflow(AppAware):
                             repack_iteration_tuples(loop_dat["num_added_iterations"])
                         ),
                         iterable_parameters=loop_dat["iterable_parameters"],
+                        output_parameters=loop_dat["output_parameters"],
                     )
                     for idx, loop_dat in self._store.get_loops().items()
                 )
         return self._loops
 
     @property
+    @TimeIt.decorator
     def submissions(self) -> list[Submission]:
         """
         The job submissions done by this workflow.
@@ -1587,56 +1849,70 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def get_EARs_from_IDs(
-        self, ids: Iterable[int] | int
-    ) -> list[ElementActionRun] | ElementActionRun:
+        self, ids: Iterable[int] | int, as_dict: bool = False
+    ) -> list[ElementActionRun] | dict[int, ElementActionRun] | ElementActionRun:
         """Get element action run objects from a list of IDs."""
         id_lst = [ids] if isinstance(ids, int) else list(ids)
-        self._app.persistence_logger.debug(f"get_EARs_from_IDs: id_lst={id_lst!r}")
 
-        store_EARs = self.get_store_EARs(id_lst)
-        store_iters = self.get_store_element_iterations(
-            ear.elem_iter_ID for ear in store_EARs
-        )
-        store_elems = self.get_store_elements(it.element_ID for it in store_iters)
-        store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
+        with self._store.cached_load(), self._store.cache_ctx():
 
-        # to allow for bulk retrieval of elements/iterations
-        element_idx_by_task: dict[int, set[int]] = defaultdict(set)
-        iter_idx_by_task_elem: dict[int, dict[int, set[int]]] = defaultdict(
-            lambda: defaultdict(set)
-        )
-
-        index_paths: list[Workflow._IndexPath3] = []
-        for rn, it, el, tk in zip(store_EARs, store_iters, store_elems, store_tasks):
-            act_idx = rn.action_idx
-            run_idx = it.EAR_IDs[act_idx].index(rn.id_) if it.EAR_IDs is not None else -1
-            iter_idx = el.iteration_IDs.index(it.id_)
-            elem_idx = tk.element_IDs.index(el.id_)
-            index_paths.append(
-                Workflow._IndexPath3(run_idx, act_idx, iter_idx, elem_idx, tk.index)
+            self._app.persistence_logger.debug(
+                f"get_EARs_from_IDs: {len(id_lst)} EARs: {shorten_list_str(id_lst)}."
             )
-            element_idx_by_task[tk.index].add(elem_idx)
-            iter_idx_by_task_elem[tk.index][elem_idx].add(iter_idx)
 
-        # retrieve elements/iterations:
-        iters = {
-            task_idx: {
-                elem_i.index: {
-                    iter_idx: elem_i.iterations[iter_idx]
-                    for iter_idx in iter_idx_by_task_elem[task_idx][elem_i.index]
+            store_EARs = self.get_store_EARs(id_lst)
+            store_iters = self.get_store_element_iterations(
+                ear.elem_iter_ID for ear in store_EARs
+            )
+            store_elems = self.get_store_elements(it.element_ID for it in store_iters)
+            store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
+
+            # to allow for bulk retrieval of elements/iterations
+            element_idx_by_task: dict[int, set[int]] = defaultdict(set)
+            iter_idx_by_task_elem: dict[int, dict[int, set[int]]] = defaultdict(
+                lambda: defaultdict(set)
+            )
+
+            index_paths: list[Workflow._IndexPath3] = []
+            for rn, it, el, tk in zip(store_EARs, store_iters, store_elems, store_tasks):
+                act_idx = rn.action_idx
+                run_idx = (
+                    it.EAR_IDs[act_idx].index(rn.id_) if it.EAR_IDs is not None else -1
+                )
+                iter_idx = el.iteration_IDs.index(it.id_)
+                elem_idx = tk.element_IDs.index(el.id_)
+                index_paths.append(
+                    Workflow._IndexPath3(run_idx, act_idx, iter_idx, elem_idx, tk.index)
+                )
+                element_idx_by_task[tk.index].add(elem_idx)
+                iter_idx_by_task_elem[tk.index][elem_idx].add(iter_idx)
+
+            # retrieve elements/iterations:
+            iters = {
+                task_idx: {
+                    elem_i.index: {
+                        iter_idx: elem_i.iterations[iter_idx]
+                        for iter_idx in iter_idx_by_task_elem[task_idx][elem_i.index]
+                    }
+                    for elem_i in self.tasks[task_idx].elements[list(elem_idxes)]
                 }
-                for elem_i in self.tasks[task_idx].elements[list(elem_idxes)]
+                for task_idx, elem_idxes in element_idx_by_task.items()
             }
-            for task_idx, elem_idxes in element_idx_by_task.items()
-        }
 
-        result = [
-            iters[path.task][path.elem][path.iter].actions[path.act].runs[path.run]
-            for path in index_paths
-        ]
-        if isinstance(ids, int):
-            return result[0]
-        return result
+            result = {}
+            for path in index_paths:
+                run = (
+                    iters[path.task][path.elem][path.iter]
+                    .actions[path.act]
+                    .runs[path.run]
+                )
+                result[run.id_] = run
+
+            if not as_dict:
+                res_lst = list(result.values())
+                return res_lst[0] if isinstance(ids, int) else res_lst
+
+            return result
 
     @TimeIt.decorator
     def get_all_elements(self) -> list[Element]:
@@ -1721,6 +1997,20 @@ class Workflow(AppAware):
 
                 self._app.persistence_logger.info("exiting batch update")
                 self._in_batch_mode = False
+
+    @contextmanager
+    def cached_merged_parameters(self):
+        if self._use_merged_parameters_cache:
+            yield
+        else:
+            try:
+                self._app.logger.debug("entering merged-parameters cache.")
+                self._use_merged_parameters_cache = True
+                yield
+            finally:
+                self._app.logger.debug("exiting merged-parameters cache.")
+                self._use_merged_parameters_cache = False
+                self._merged_parameters_cache = {}  # reset the cache
 
     @classmethod
     def temporary_rename(cls, path: str, fs: AbstractFileSystem) -> str:
@@ -1883,7 +2173,7 @@ class Workflow(AppAware):
         if template.source_file:
             wk.artifacts_path.mkdir(exist_ok=False)
             src = Path(template.source_file)
-            wk.artifacts_path.joinpath(src.name).write_text(src.read_text())
+            shutil.copy(src, wk.artifacts_path.joinpath(src.name))
 
         return wk
 
@@ -2193,7 +2483,11 @@ class Workflow(AppAware):
         """
         The total number of job submissions.
         """
-        return self._store._get_num_total_submissions()
+        return (
+            len(self._submissions)
+            if self._submissions is not None
+            else self._store._get_num_total_submissions()
+        )
 
     @property
     def num_elements(self) -> int:
@@ -2276,22 +2570,26 @@ class Workflow(AppAware):
             for te in self._store.get_task_elements(task.insert_ID, idx_lst)
         ]
 
-    def set_EAR_submission_index(self, EAR_ID: int, sub_idx: int) -> None:
-        """Set the submission index of an EAR."""
-        with self._store.cached_load(), self.batch_update():
-            self._store.set_EAR_submission_index(EAR_ID, sub_idx)
-
-    def set_EAR_start(self, EAR_ID: int) -> None:
+    def set_EAR_start(
+        self, run_id: int, run_dir: Path | None, port_number: int | None
+    ) -> None:
         """Set the start time on an EAR."""
-        self._app.logger.debug(f"Setting start for EAR ID {EAR_ID!r}")
+        self._app.logger.debug(f"Setting start for EAR ID {run_id!r}")
         with self._store.cached_load(), self.batch_update():
-            self._store.set_EAR_start(EAR_ID)
+            self._store.set_EAR_start(run_id, run_dir, port_number)
+
+    def set_multi_run_starts(
+        self, run_ids: list[int], run_dirs: list[Path | None], port_number: int
+    ) -> None:
+        """Set the start time on multiple runs."""
+        self._app.logger.debug(f"Setting start for multiple run IDs {run_ids!r}")
+        with self._store.cached_load(), self.batch_update():
+            self._store.set_multi_run_starts(run_ids, run_dirs, port_number)
 
     def set_EAR_end(
         self,
-        js_idx: int,
-        js_act_idx: int,
-        EAR_ID: int,
+        block_act_key: BlockActionKey,
+        run: ElementActionRun,
         exit_code: int,
     ) -> None:
         """Set the end time and exit code on an EAR.
@@ -2301,108 +2599,430 @@ class Workflow(AppAware):
 
         """
         self._app.logger.debug(
-            f"Setting end for EAR ID {EAR_ID!r} with exit code {exit_code!r}."
+            f"Setting end for run ID {run.id_!r} with exit code {exit_code!r}."
         )
-        with self._store.cached_load():
-            EAR = self.get_EARs_from_IDs(EAR_ID)
-            with self.batch_update():
-                success = exit_code == 0  # TODO  more sophisticated success heuristics
-                if EAR.action.abortable and exit_code == ABORT_EXIT_CODE:
+        param_id: int | list[int] | None
+        with self._store.cached_load(), self.batch_update():
+            success = exit_code == 0  # TODO  more sophisticated success heuristics
+            if not run.skip:
+
+                is_aborted = False
+                if run.action.abortable and exit_code == ABORT_EXIT_CODE:
                     # the point of aborting an EAR is to continue with the workflow:
+                    is_aborted = True
                     success = True
 
-                for IFG_i in EAR.action.input_file_generators:
-                    inp_file = IFG_i.input_file
-                    self._app.logger.debug(
-                        f"Saving EAR input file: {inp_file.label!r} for EAR ID "
-                        f"{EAR_ID!r}."
-                    )
-                    param_id = EAR.data_idx[f"input_files.{inp_file.label}"]
-
-                    file_paths = inp_file.value()
-                    for path_i in (
-                        file_paths if isinstance(file_paths, list) else [file_paths]
-                    ):
-                        self._set_file(
-                            param_id=param_id,
-                            store_contents=True,  # TODO: make optional according to IFG
-                            is_input=False,
-                            path=Path(path_i).resolve(),
-                        )
-
-                if EAR.action.script_data_out_has_files:
-                    EAR._param_save(js_idx=js_idx, js_act_idx=js_act_idx)
-
-                # Save action-level files: (TODO: refactor with below for OFPs)
-                for save_file_j in EAR.action.save_files:
-                    self._app.logger.debug(
-                        f"Saving file: {save_file_j.label!r} for EAR ID " f"{EAR_ID!r}."
-                    )
-                    # We might be saving a file that is not a defined
-                    # "output file"; this will avoid saving a reference in the
-                    # parameter data in that case
-                    param_id_j = EAR.data_idx.get(f"output_files.{save_file_j.label}")
-
-                    file_paths = save_file_j.value()
-                    self._app.logger.debug(f"Saving output file paths: {file_paths!r}")
-                    for path_i in (
-                        file_paths if isinstance(file_paths, list) else [file_paths]
-                    ):
-                        self._set_file(
-                            param_id=param_id_j,
-                            store_contents=True,
-                            is_input=False,
-                            path=Path(path_i).resolve(),
-                            clean_up=(save_file_j in EAR.action.clean_up),
-                        )
-
-                for OFP_i in EAR.action.output_file_parsers:
-                    for save_file_j in OFP_i._save_files:
+                run_dir = run.get_directory()
+                if run_dir:
+                    assert isinstance(run_dir, Path)
+                    for IFG_i in run.action.input_file_generators:
+                        inp_file = IFG_i.input_file
                         self._app.logger.debug(
-                            f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
-                            f"{EAR_ID!r}."
+                            f"Saving EAR input file: {inp_file.label!r} for EAR ID "
+                            f"{run.id_!r}."
                         )
-                        # We might be saving a file that is not a defined
-                        # "output file"; this will avoid saving a reference in the
-                        # parameter data in that case
-                        param_id_j = EAR.data_idx.get(f"output_files.{save_file_j.label}")
+                        param_id = run.data_idx[f"input_files.{inp_file.label}"]
 
-                        file_paths = save_file_j.value()
-                        self._app.logger.debug(
-                            f"Saving EAR output file paths: {file_paths!r}"
-                        )
+                        file_paths = inp_file.value(directory=run_dir)
                         for path_i in (
                             file_paths if isinstance(file_paths, list) else [file_paths]
                         ):
-                            self._set_file(
-                                param_id=param_id_j,
-                                store_contents=True,  # TODO: make optional according to OFP
-                                is_input=False,
-                                path=Path(path_i).resolve(),
-                                clean_up=(save_file_j in OFP_i.clean_up),
+                            full_path = run_dir.joinpath(path_i)
+                            if not full_path.exists():
+                                self._app.logger.debug(
+                                    f"expected input file {path_i!r} does not "
+                                    f"exist, so setting run to an error state "
+                                    f"(if not aborted)."
+                                )
+                                if not is_aborted and success is True:
+                                    # this is unlikely to happen, but could happen
+                                    # if the input file is deleted in between
+                                    # the input file generator completing and this
+                                    # code being run
+                                    success = False
+                                    exit_code = 1  # TODO more custom exit codes?
+                            else:
+                                self._set_file(
+                                    param_id=param_id,
+                                    store_contents=True,  # TODO: make optional according to IFG
+                                    is_input=False,
+                                    path=full_path,
+                                )
+
+                    if run.action.script_data_out_has_files:
+                        try:
+                            run._param_save(block_act_key, run_dir)
+                        except FileNotFoundError:
+                            self._app.logger.debug(
+                                f"script did not generate an expected output parameter "
+                                f"file (block_act_key={block_act_key!r}), so setting run "
+                                f"to an error state (if not aborted)."
+                            )
+                            if not is_aborted and success is True:
+                                success = False
+                                exit_code = 1  # TODO more custom exit codes?
+
+                    # Save action-level files: (TODO: refactor with below for OFPs)
+                    for save_file_j in run.action.save_files:
+                        self._app.logger.debug(
+                            f"Saving file: {save_file_j.label!r} for EAR ID "
+                            f"{run.id_!r}."
+                        )
+                        try:
+                            param_id = run.data_idx[f"output_files.{save_file_j.label}"]
+                        except KeyError:
+                            # We might be saving a file that is not a defined
+                            # "output file"; this will avoid saving a reference in the
+                            # parameter data:
+                            param_id = None
+
+                        file_paths = save_file_j.value(directory=run_dir)
+                        self._app.logger.debug(
+                            f"Saving output file paths: {file_paths!r}"
+                        )
+
+                        for path_i in (
+                            file_paths if isinstance(file_paths, list) else [file_paths]
+                        ):
+                            full_path = run_dir.joinpath(path_i)
+                            if not full_path.exists():
+                                self._app.logger.debug(
+                                    f"expected file to save {path_i!r} does not "
+                                    f"exist, so setting run to an error state "
+                                    f"(if not aborted)."
+                                )
+                                if not is_aborted and success is True:
+                                    # this is unlikely to happen, but could happen
+                                    # if the input file is deleted in between
+                                    # the input file generator completing and this
+                                    # code being run
+                                    success = False
+                                    exit_code = 1  # TODO more custom exit codes?
+                            else:
+                                self._set_file(
+                                    param_id=param_id,
+                                    store_contents=True,
+                                    is_input=False,
+                                    path=full_path,
+                                    clean_up=(save_file_j in run.action.clean_up),
+                                )
+
+                    for OFP_i in run.action.output_file_parsers:
+                        for save_file_j in OFP_i._save_files:
+                            self._app.logger.debug(
+                                f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
+                                f"{run.id_!r}."
+                            )
+                            try:
+                                param_id = run.data_idx[
+                                    f"output_files.{save_file_j.label}"
+                                ]
+                            except KeyError:
+                                # We might be saving a file that is not a defined
+                                # "output file"; this will avoid saving a reference in the
+                                # parameter data:
+                                param_id = None
+
+                            file_paths = save_file_j.value(directory=run_dir)
+                            self._app.logger.debug(
+                                f"Saving EAR output file paths: {file_paths!r}"
                             )
 
-                if not success:
-                    for EAR_dep_ID in EAR.get_dependent_EARs():
-                        # TODO: this needs to be recursive?
-                        self._app.logger.debug(
-                            f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
-                            f" EAR ID {EAR_ID!r}, which exited with a non-zero exit code:"
-                            f" {exit_code!r}."
+                            for path_i in (
+                                file_paths
+                                if isinstance(file_paths, list)
+                                else [file_paths]
+                            ):
+                                full_path = run_dir.joinpath(path_i)
+                                if not full_path.exists():
+                                    self._app.logger.debug(
+                                        f"expected output file parser `save_files` file "
+                                        f"{path_i!r} does not exist, so setting run "
+                                        f"to an error state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
+                                else:
+                                    self._set_file(
+                                        param_id=param_id,
+                                        store_contents=True,  # TODO: make optional according to OFP
+                                        is_input=False,
+                                        path=full_path,
+                                        clean_up=(save_file_j in OFP_i.clean_up),
+                                    )
+
+            if (
+                run.resources.skip_downstream_on_failure
+                and not success
+                and run.skip_reason is not SkipReason.LOOP_TERMINATION
+            ):
+                # loop termination skips are already propagated
+                for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
+                    self._app.logger.debug(
+                        f"Setting EAR ID {EAR_dep_ID!r} to skip because it depends on"
+                        f" EAR ID {run.id_!r}, which exited with a non-zero exit code:"
+                        f" {exit_code!r}."
+                    )
+                    self._store.set_EAR_skip(
+                        {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
+                    )
+
+            self._store.set_EAR_end(run.id_, exit_code, success, run.action.requires_dir)
+
+    def set_multi_run_ends(
+        self,
+        runs: dict[
+            BlockActionKey,
+            list[tuple[ElementActionRun, int, Path | None]],
+        ],
+    ) -> None:
+        """Set end times and exit codes on multiple runs.
+
+        If the exit code is non-zero, also set all downstream dependent runs to be
+        skipped. Also save any generated input/output files."""
+
+        self._app.logger.debug(f"Setting end for multiple run IDs.")
+        param_id: int | list[int] | None
+        with self._store.cached_load(), self.batch_update():
+            run_ids = []
+            run_dirs = []
+            exit_codes = []
+            successes = []
+            for block_act_key, run_dat in runs.items():
+                for run, exit_code, run_dir in run_dat:
+
+                    success = (
+                        exit_code == 0
+                    )  # TODO  more sophisticated success heuristics
+                    self._app.logger.info(
+                        f"setting end for run {run.id_} with exit_code={exit_code}, "
+                        f"success={success}, skip={run.skip!r}, and skip_reason="
+                        f"{run.skip_reason!r}."
+                    )
+                    if not run.skip:
+                        self._app.logger.info(f"run was not skipped.")
+                        is_aborted = False
+                        if run.action.abortable and exit_code == ABORT_EXIT_CODE:
+                            # the point of aborting an EAR is to continue with the
+                            # workflow:
+                            self._app.logger.info(
+                                "run was abortable and exit code was ABORT_EXIT_CODE,"
+                                " so setting success to True."
+                            )
+                            is_aborted = True
+                            success = True
+
+                        run_dir = run.get_directory()
+                        if run_dir:
+                            assert isinstance(run_dir, Path)
+                            for IFG_i in run.action.input_file_generators:
+                                self._app.logger.info(f"setting IFG file {IFG_i!r}")
+                                inp_file = IFG_i.input_file
+                                self._app.logger.debug(
+                                    f"Saving EAR input file: {inp_file.label!r} for EAR "
+                                    f"ID {run.id_!r}."
+                                )
+                                param_id = run.data_idx[f"input_files.{inp_file.label}"]
+
+                                file_paths = inp_file.value(directory=run_dir)
+                                for path_i in (
+                                    file_paths
+                                    if isinstance(file_paths, list)
+                                    else [file_paths]
+                                ):
+                                    full_path = run_dir.joinpath(path_i)
+                                    if not full_path.exists():
+                                        self._app.logger.debug(
+                                            f"expected input file {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
+                                        )
+                                        if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
+                                            success = False
+                                            exit_code = 1  # TODO more custom exit codes?
+                                    else:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,  # TODO: make optional according to IFG
+                                            is_input=False,
+                                            path=full_path,
+                                        )
+
+                            if run.action.script_data_out_has_files:
+                                self._app.logger.info(
+                                    f"saving script-generated parameters."
+                                )
+                                try:
+                                    run._param_save(block_act_key, run_dir)
+                                except FileNotFoundError:
+                                    # script did not generate the output parameter file, so
+                                    # set a failed exit code (if we did not abort the run):
+                                    self._app.logger.debug(
+                                        f"script did not generate an expected output "
+                                        f"parameter file (block_act_key="
+                                        f"{block_act_key!r}), so setting run to an error "
+                                        f"state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
+
+                            # Save action-level files: (TODO: refactor with below for OFPs)
+                            for save_file_j in run.action.save_files:
+                                self._app.logger.info(
+                                    f"saving action-level file {save_file_j!r}."
+                                )
+                                self._app.logger.debug(
+                                    f"Saving file: {save_file_j.label!r} for EAR ID "
+                                    f"{run.id_!r}."
+                                )
+                                try:
+                                    param_id = run.data_idx[
+                                        f"output_files.{save_file_j.label}"
+                                    ]
+                                except KeyError:
+                                    # We might be saving a file that is not a defined
+                                    # "output file"; this will avoid saving a reference in
+                                    # the parameter data:
+                                    param_id = None
+
+                                file_paths = save_file_j.value(directory=run_dir)
+                                self._app.logger.debug(
+                                    f"Saving output file paths: {file_paths!r}"
+                                )
+                                for path_i in (
+                                    file_paths
+                                    if isinstance(file_paths, list)
+                                    else [file_paths]
+                                ):
+                                    full_path = run_dir.joinpath(path_i)
+                                    if not full_path.exists():
+                                        self._app.logger.debug(
+                                            f"expected file to save {path_i!r} does not "
+                                            f"exist, so setting run to an error state "
+                                            f"(if not aborted)."
+                                        )
+                                        if not is_aborted and success is True:
+                                            # this is unlikely to happen, but could happen
+                                            # if the input file is deleted in between
+                                            # the input file generator completing and this
+                                            # code being run
+                                            success = False
+                                            exit_code = 1  # TODO more custom exit codes?
+                                    else:
+                                        self._set_file(
+                                            param_id=param_id,
+                                            store_contents=True,
+                                            is_input=False,
+                                            path=full_path,
+                                            clean_up=(save_file_j in run.action.clean_up),
+                                        )
+
+                            for OFP_i in run.action.output_file_parsers:
+                                self._app.logger.info(
+                                    f"saving files from OFP: {OFP_i!r}."
+                                )
+                                for save_file_j in OFP_i._save_files:
+                                    self._app.logger.debug(
+                                        f"Saving EAR output file: {save_file_j.label!r} "
+                                        f"for EAR ID {run.id_!r}."
+                                    )
+                                    try:
+                                        param_id = run.data_idx[
+                                            f"output_files.{save_file_j.label}"
+                                        ]
+                                    except KeyError:
+                                        # We might be saving a file that is not a defined
+                                        # "output file"; this will avoid saving a
+                                        # reference in the parameter data:
+                                        param_id = None
+
+                                    file_paths = save_file_j.value(directory=run_dir)
+                                    self._app.logger.debug(
+                                        f"Saving EAR output file paths: {file_paths!r}"
+                                    )
+
+                                    for path_i in (
+                                        file_paths
+                                        if isinstance(file_paths, list)
+                                        else [file_paths]
+                                    ):
+                                        full_path = run_dir.joinpath(path_i)
+                                        if not full_path.exists():
+                                            self._app.logger.debug(
+                                                f"expected output file parser `save_files` file "
+                                                f"{path_i!r} does not exist, so setting run "
+                                                f"to an error state (if not aborted)."
+                                            )
+                                            if not is_aborted and success is True:
+                                                success = False
+                                                exit_code = (
+                                                    1  # TODO more custom exit codes?
+                                                )
+                                        else:
+                                            self._set_file(
+                                                param_id=param_id,
+                                                store_contents=True,  # TODO: make optional according to OFP
+                                                is_input=False,
+                                                path=full_path,
+                                                clean_up=(save_file_j in OFP_i.clean_up),
+                                            )
+
+                    else:
+                        self._app.logger.info(
+                            f"run was skipped: reason: {run.skip_reason!r}."
                         )
-                        self._store.set_EAR_skip(EAR_dep_ID)
 
-                self._store.set_EAR_end(EAR_ID, exit_code, success)
+                    if (
+                        run.resources.skip_downstream_on_failure
+                        and not success
+                        and run.skip_reason is not SkipReason.LOOP_TERMINATION
+                    ):
+                        # run failed
+                        self._app.logger.info(
+                            "run was not succcess and skip reason was not "
+                            "LOOP_TERMINATION."
+                        )
+                        # loop termination skips are already propagated
+                        for EAR_dep_ID in run.get_dependent_EARs(as_objects=False):
+                            # TODO: `get_dependent_EARs` seems to be stuck in a
+                            # recursion for some workflows
+                            # TODO: this needs to be recursive?
+                            self._app.logger.info(
+                                f"Setting EAR ID {EAR_dep_ID!r} to skip because it "
+                                f"depends on EAR ID {run.id_!r}, which exited with a "
+                                f"non-zero exit code: {exit_code!r}."
+                            )
+                            self._store.set_EAR_skip(
+                                {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
+                            )
+                    else:
+                        self._app.logger.info(
+                            "`skip_downstream_on_failure` is False, run was "
+                            "succcess, or skip reason was LOOP_TERMINATION."
+                        )
 
-    def set_EAR_skip(self, EAR_ID: int) -> None:
+                    run_ids.append(run.id_)
+                    run_dirs.append(run_dir)
+                    exit_codes.append(exit_code)
+                    successes.append(success)
+
+            self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
+
+    def set_EAR_skip(self, skip_reasons: dict[int, SkipReason]) -> None:
         """
         Record that an EAR is to be skipped due to an upstream failure or loop
         termination condition being met.
         """
         with self._store.cached_load(), self.batch_update():
-            self._store.set_EAR_skip(EAR_ID)
+            self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
 
-    def get_EAR_skipped(self, EAR_ID: int) -> bool:
+    def get_EAR_skipped(self, EAR_ID: int) -> int:
         """Check if an EAR is to be skipped."""
         with self._store.cached_load():
             return self._store.get_EAR_skipped(EAR_ID)
@@ -2416,6 +3036,15 @@ class Workflow(AppAware):
         """
         with self._store.cached_load(), self.batch_update():
             self._store.set_parameter_value(cast("int", param_id), value)
+
+        if commit:
+            # force commit now:
+            self._store._pending.commit_all()
+
+    @TimeIt.decorator
+    def set_parameter_values(self, values: dict[int, Any], commit: bool = False) -> None:
+        with self._store.cached_load(), self.batch_update(), self._store.cache_ctx():
+            self._store.set_parameter_values(values)
 
         if commit:
             # force commit now:
@@ -2549,7 +3178,7 @@ class Workflow(AppAware):
         self,
         status: Status | None = None,
         ignore_errors: bool = False,
-        JS_parallelism: bool | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
@@ -2560,16 +3189,23 @@ class Workflow(AppAware):
         if not (pending := [sub for sub in self.submissions if sub.needs_submit]):
             if status:
                 status.update("Adding new submission...")
-            if not (new_sub := self._add_submission(tasks, JS_parallelism)):
+            if not (
+                new_sub := self._add_submission(
+                    tasks=tasks,
+                    JS_parallelism=JS_parallelism,
+                    status=status,
+                )
+            ):
+                if status:
+                    status.stop()
                 raise ValueError("No pending element action runs to submit!")
             pending = [new_sub]
 
-        self.submissions_path.mkdir(exist_ok=True, parents=True)
         self.execution_path.mkdir(exist_ok=True, parents=True)
         self.task_artifacts_path.mkdir(exist_ok=True, parents=True)
 
-        # for direct execution the submission must be persistent at submit-time, because
-        # it will be read by a new instance of the app:
+        # the submission must be persistent at submit-time, because it will be read by a
+        # new instance of the app:
         if status:
             status.update("Committing to the store...")
         self._store._pending.commit_all()
@@ -2598,7 +3234,7 @@ class Workflow(AppAware):
         self,
         *,
         ignore_errors: bool = False,
-        JS_parallelism: bool | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -2614,7 +3250,7 @@ class Workflow(AppAware):
         self,
         *,
         ignore_errors: bool = False,
-        JS_parallelism: bool | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -2629,7 +3265,7 @@ class Workflow(AppAware):
         self,
         *,
         ignore_errors: bool = False,
-        JS_parallelism: bool | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -2646,9 +3282,12 @@ class Workflow(AppAware):
             If True, ignore jobscript submission errors. If False (the default) jobscript
             submission will halt when a jobscript fails to submit.
         JS_parallelism
-            If True, allow multiple jobscripts to execute simultaneously. Raises if set to
-            True but the store type does not support the `jobscript_parallelism` feature.
-            If not set, jobscript parallelism will be used if the store type supports it.
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
         print_stdout
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
@@ -2679,7 +3318,11 @@ class Workflow(AppAware):
             if not self._store.is_submittable:
                 raise NotImplementedError("The workflow is not submittable.")
             # commit updates before raising exception:
-            with self.batch_update(), self._store.cache_ctx():
+            with (
+                self.batch_update(),
+                self._store.parameters_metadata_cache(),
+                self._store.cache_ctx(),
+            ):
                 exceptions, submitted_js = self._submit(
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
@@ -2693,7 +3336,7 @@ class Workflow(AppAware):
             raise WorkflowSubmissionFailure(exceptions)
 
         if cancel:
-            self.cancel()
+            self.cancel(status=status)
 
         elif wait:
             self.wait(submitted_js)
@@ -2822,14 +3465,16 @@ class Workflow(AppAware):
         # keys are task_insert_IDs, values are element indices:
         active_elems: dict[int, set[int]] = defaultdict(set)
         sub = self.submissions[submission_idx]
-        for js_idx, states in sub.get_active_jobscripts().items():
+        for js_idx, block_states in sub.get_active_jobscripts().items():
             js = sub.jobscripts[js_idx]
-            for js_elem_idx, state in states.items():
-                if state is JobscriptElementState.running:
-                    for task_iID, elem_idx in zip(
-                        js.task_insert_IDs, js.task_elements[js_elem_idx]
-                    ):
-                        active_elems[task_iID].add(elem_idx)
+            for block_idx, block in enumerate(js.blocks):
+                states = block_states[block_idx]
+                for js_elem_idx, state in states.items():
+                    if state is JobscriptElementState.running:
+                        for task_iID, elem_idx in zip(
+                            block.task_insert_IDs, block.task_elements[js_elem_idx]
+                        ):
+                            active_elems[task_iID].add(elem_idx)
 
         # retrieve Element objects:
         out: list[Element] = []
@@ -2862,18 +3507,22 @@ class Workflow(AppAware):
         for elem in elems:
             if element_idx is not None and elem.index != element_idx:
                 continue
-            # for a given element, only one iteration will be running (assume for now the
-            # this is the latest iteration, as provided by `action_runs`):
-            for act_run in elem.action_runs:
-                if act_run.status is EARStatus.running:
-                    out.append(act_run)
-                    break  # only one element action may be running at a time
+            for iter_i in elem.iterations:
+                for elem_acts in iter_i.actions.values():
+                    for run in elem_acts.runs:
+                        if run.status is EARStatus.running:
+                            out.append(run)
+                            # for a given element and submission, only one run
+                            # may be running at a time:
+                            break
         return out
 
-    def _abort_run_ID(self, submission_idx: int, run_ID: int):
-        """Modify the submission abort runs text file to signal that a run should be
-        aborted."""
-        self.submissions[submission_idx]._set_run_abort(run_ID)
+    def _abort_run(self, run: ElementActionRun):
+        # connect to the ZeroMQ server on the worker node:
+        self._app.logger.info(f"abort run: {run!r}")
+        self._app.Executor.send_abort(
+            hostname=run.run_hostname, port_number=run.port_number
+        )
 
     def abort_run(
         self,
@@ -2916,38 +3565,77 @@ class Workflow(AppAware):
         run = running[0]
         if not run.action.abortable:
             raise RunNotAbortableError()
-        self._abort_run_ID(submission_idx, run.id_)
+        self._abort_run(run)
 
     @TimeIt.decorator
-    def cancel(self, hard: bool = False):
+    def cancel(self, status: bool = True):
         """Cancel any running jobscripts."""
-        for sub in self.submissions:
-            sub.cancel()
+        status_msg = f"Cancelling jobscripts of workflow {self.path!r}"
+        # Type hint for mypy
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            rich.console.Console().status(status_msg) if status else nullcontext()
+        )
+        with status_context as status_, self._store.cached_load():
+            for sub in self.submissions:
+                sub.cancel()
 
     def add_submission(
-        self, tasks: list[int] | None = None, JS_parallelism: bool | None = None
+        self,
+        tasks: list[int] | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        force_array: bool = False,
+        status: bool = True,
     ) -> Submission | None:
-        """
-        Add a job submission to this workflow.
+        """Add a new submission.
+
+        Parameters
+        ----------
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
         """
         # JS_parallelism=None means guess
-        with self._store.cached_load(), self.batch_update():
-            return self._add_submission(tasks, JS_parallelism)
+        # Type hint for mypy
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            rich.console.Console().status("") if status else nullcontext()
+        )
+        with status_context as status_, self._store.cached_load(), self.batch_update():
+            return self._add_submission(tasks, JS_parallelism, force_array, status_)
 
     @TimeIt.decorator
+    @load_workflow_config
     def _add_submission(
-        self, tasks: Sequence[int] | None = None, JS_parallelism: bool | None = None
+        self,
+        tasks: Sequence[int] | None = None,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        force_array: bool = False,
+        status: Status | None = None,
     ) -> Submission | None:
+        """Add a new submission.
+
+        Parameters
+        ----------
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+        """
         new_idx = self.num_submissions
         _ = self.submissions  # TODO: just to ensure `submissions` is loaded
+        if status:
+            status.update("Adding new submission: resolving jobscripts...")
+
+        cache = ObjectCache.build(self, elements=True, iterations=True, runs=True)
+
         sub_obj: Submission = self._app.Submission(
             index=new_idx,
             workflow=self,
-            jobscripts=self.resolve_jobscripts(tasks),
+            jobscripts=self.resolve_jobscripts(cache, tasks, force_array),
             JS_parallelism=JS_parallelism,
         )
+        if status:
+            status.update("Adding new submission: setting environments...")
         sub_obj._set_environments()
-        all_EAR_ID = [i for js in sub_obj.jobscripts for i in js.EAR_ID.flatten()]
+        all_EAR_ID = sub_obj.all_EAR_IDs
         if not all_EAR_ID:
             print(
                 "There are no pending element action runs, so a new submission was not "
@@ -2955,33 +3643,97 @@ class Workflow(AppAware):
             )
             return None
 
+        if status:
+            status.update("Adding new submission: making artifact directories...")
+
+        # TODO: a submission should only be "submitted" once shouldn't it?
+        # no; there could be an IO error (e.g. internet connectivity), so might
+        # need to be able to reattempt submission of outstanding jobscripts.
+        self.submissions_path.mkdir(exist_ok=True, parents=True)
+        sub_obj.path.mkdir(exist_ok=True)
+        sub_obj.tmp_path.mkdir(exist_ok=True)
+        sub_obj.app_std_path.mkdir(exist_ok=True)
+        sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
+        sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
+        sub_obj.js_funcs_path.mkdir(exist_ok=True)
+        sub_obj.js_run_ids_path.mkdir(exist_ok=True)
+        sub_obj.scripts_path.mkdir(exist_ok=True)
+        sub_obj.commands_path.mkdir(exist_ok=True)
+
+        if sub_obj.needs_app_log_dir:
+            sub_obj.app_log_path.mkdir(exist_ok=True)
+
+        if sub_obj.needs_win_pids_dir:
+            sub_obj.js_win_pids_path.mkdir(exist_ok=True)
+
+        if sub_obj.needs_script_indices_dir:
+            sub_obj.js_script_indices_path.mkdir(exist_ok=True)
+
+        if status:
+            status.update("Adding new submission: writing scripts and command files...")
+
+        # write scripts and command files where possible to the submission directory:
+        cmd_file_IDs, run_indices, run_inp_files = sub_obj._write_scripts(cache, status)
+
+        sub_obj._write_execute_dirs(run_indices, run_inp_files, cache, status)
+
+        if status:
+            status.update("Adding new submission: updating the store...")
+
         with self._store.cached_load(), self.batch_update():
             for id_ in all_EAR_ID:
-                self._store.set_EAR_submission_index(EAR_ID=id_, sub_idx=new_idx)
+                self._store.set_run_submission_data(
+                    EAR_ID=id_,
+                    cmds_ID=cmd_file_IDs[id_],
+                    sub_idx=new_idx,
+                )
 
+        sub_obj._ensure_JS_parallelism_set()
         sub_obj_js, _ = sub_obj.to_json_like()
         assert self._submissions is not None
         self._submissions.append(sub_obj)
         self._pending["submissions"].append(new_idx)
         with self._store.cached_load(), self.batch_update():
-            self._store.add_submission(new_idx, sub_obj_js)
+            self._store.add_submission(new_idx, cast("Mapping[str, JSONed]", sub_obj_js))
 
         return self.submissions[new_idx]
 
     @TimeIt.decorator
-    def resolve_jobscripts(self, tasks: Sequence[int] | None = None) -> list[Jobscript]:
+    def resolve_jobscripts(
+        self,
+        cache: ObjectCache,
+        tasks: Sequence[int] | None = None,
+        force_array: bool = False,
+    ) -> list[Jobscript]:
         """
-        Resolve this workflow to a set of job scripts to run.
+        Resolve this workflow to a set of jobscripts to run for a new submission.
+
+        Parameters
+        ----------
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+
         """
-        js, element_deps = self._resolve_singular_jobscripts(tasks)
-        js_deps = resolve_jobscript_dependencies(js, element_deps)
+        with self._app.config.cached_config():
+            with self.cached_merged_parameters():
+                js, element_deps = self._resolve_singular_jobscripts(
+                    cache, tasks, force_array
+                )
 
-        for js_idx, jsca in js.items():
-            if js_idx in js_deps:
-                jsca["dependencies"] = js_deps[js_idx]
+            js_deps = resolve_jobscript_dependencies(js, element_deps)
 
-        js = merge_jobscripts_across_tasks(js)
-        return [self._app.Jobscript(**jsca) for jsca in jobscripts_to_list(js)]
+            for js_idx, jsca in js.items():
+                if js_idx in js_deps:
+                    jsca["dependencies"] = js_deps[js_idx]  # type: ignore
+
+            js = merge_jobscripts_across_tasks(js)
+
+            # for direct or (non-array scheduled), combine into jobscripts of multiple
+            # blocks for dependent jobscripts that have the same resource hashes
+            js_ = resolve_jobscript_blocks(js)
+
+            return [self._app.Jobscript(**i, index=idx) for idx, i in enumerate(js_)]
 
     def __EAR_obj_map(
         self,
@@ -2990,7 +3742,9 @@ class Workflow(AppAware):
         task: WorkflowTask,
         task_actions: Sequence[tuple[int, int, int]],
         EAR_map: NDArray,
+        cache: ObjectCache,
     ) -> Mapping[int, ElementActionRun]:
+        assert cache.runs is not None
         all_EAR_IDs: list[int] = []
         for js_elem_idx, (elem_idx, act_indices) in enumerate(
             js_desc["elements"].items()
@@ -3000,11 +3754,14 @@ class Workflow(AppAware):
                 all_EAR_IDs.append(EAR_ID_i)
                 js_act_idx = task_actions.index((task.insert_ID, act_idx, 0))
                 jsca["EAR_ID"][js_act_idx][js_elem_idx] = EAR_ID_i
-        return dict(zip(all_EAR_IDs, self.get_EARs_from_IDs(all_EAR_IDs)))
+        return dict(zip(all_EAR_IDs, (cache.runs[i] for i in all_EAR_IDs)))
 
     @TimeIt.decorator
     def _resolve_singular_jobscripts(
-        self, tasks: Sequence[int] | None = None
+        self,
+        cache: ObjectCache,
+        tasks: Sequence[int] | None = None,
+        force_array: bool = False,
     ) -> tuple[
         Mapping[int, JobScriptCreationArguments],
         Mapping[int, Mapping[int, Sequence[int]]],
@@ -3012,6 +3769,12 @@ class Workflow(AppAware):
         """
         We arrange EARs into `EARs` and `elements` so we can quickly look up membership
         by EAR idx in the `EARs` dict.
+
+        Parameters
+        ----------
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
 
         Returns
         -------
@@ -3025,6 +3788,7 @@ class Workflow(AppAware):
 
         if self._store.use_cache:
             # pre-cache parameter sources (used in `EAR.get_EAR_dependencies`):
+            # note: this cache is unrelated to the `cache` argument
             self.get_all_parameter_sources()
 
         submission_jobscripts: dict[int, JobScriptCreationArguments] = {}
@@ -3034,7 +3798,9 @@ class Workflow(AppAware):
             task = self.tasks.get(insert_ID=task_iID)
             if task.index not in task_set:
                 continue
-            res, res_hash, res_map, EAR_map = generate_EAR_resource_map(task, loop_idx_i)
+            res, res_hash, res_map, EAR_map = generate_EAR_resource_map(
+                task, loop_idx_i, cache
+            )
             jobscripts, _ = group_resource_map_into_jobscripts(res_map)
 
             for js_dat in jobscripts:
@@ -3063,6 +3829,11 @@ class Workflow(AppAware):
 
                 new_js_idx = len(submission_jobscripts)
 
+                is_array = force_array or is_jobscript_array(
+                    res[js_dat["resources"]],
+                    EAR_ID_arr.shape[1],
+                    self._store,
+                )
                 js_i: JobScriptCreationArguments = {
                     "task_insert_IDs": [task.insert_ID],
                     "task_loop_idx": [loop_idx_i],
@@ -3072,10 +3843,11 @@ class Workflow(AppAware):
                     "resources": res[js_dat["resources"]],
                     "resource_hash": res_hash[js_dat["resources"]],
                     "dependencies": {},
+                    "is_array": is_array,
                 }
 
                 all_EAR_objs = self.__EAR_obj_map(
-                    js_dat, js_i, task, task_actions, EAR_map
+                    js_dat, js_i, task, task_actions, EAR_map, cache
                 )
 
                 for js_elem_idx, (elem_idx, act_indices) in enumerate(
@@ -3104,76 +3876,290 @@ class Workflow(AppAware):
 
         return submission_jobscripts, all_element_deps
 
-    def __get_commands(
-        self, jobscript: Jobscript, JS_action_idx: int, ear: ElementActionRun
-    ):
-        try:
-            commands, shell_vars = ear.compose_commands(jobscript, JS_action_idx)
-        except OutputFileParserNoOutputError:
-            # no commands to write but still need to write the file,
-            # the jobscript is expecting it.
-            return ""
-
-        self._app.persistence_logger.debug("need to write commands")
-        pieces = [commands]
-        for cmd_idx, var_dat in shell_vars.items():
-            for param_name, shell_var_name, st_typ in var_dat:
-                pieces.append(
-                    jobscript.shell.format_save_parameter(
-                        workflow_app_alias=jobscript.workflow_app_alias,
-                        param_name=param_name,
-                        shell_var_name=shell_var_name,
-                        EAR_ID=ear.id_,
-                        cmd_idx=cmd_idx,
-                        stderr=(st_typ == "stderr"),
-                    )
-                )
-        commands = jobscript.shell.wrap_in_subshell("".join(pieces), ear.action.abortable)
-
-        # add loop-check command if this is the last action of this loop iteration
-        # for this element:
-        if self.loops:
-            final_runs = (
-                # TODO: excessive reads here
-                self.get_iteration_final_run_IDs(id_lst=jobscript.all_EAR_IDs)
-            )
-            self._app.persistence_logger.debug(f"final_runs: {final_runs!r}")
-            pieces = []
-            for loop_name, run_IDs in final_runs.items():
-                if ear.id_ in run_IDs:
-                    loop_cmd = jobscript.shell.format_loop_check(
-                        workflow_app_alias=jobscript.workflow_app_alias,
-                        loop_name=loop_name,
-                        run_ID=ear.id_,
-                    )
-                    pieces.append(jobscript.shell.wrap_in_subshell(loop_cmd, False))
-            commands += "".join(pieces)
-        return commands
-
-    def write_commands(
+    @load_workflow_config
+    def execute_run(
         self,
         submission_idx: int,
-        jobscript_idx: int,
-        JS_action_idx: int,
-        EAR_ID: int,
+        block_act_key: BlockActionKey,
+        run_ID: int,
     ) -> None:
-        """Write run-time commands for a given EAR."""
-        with self._store.cached_load():
-            self._app.persistence_logger.debug("Workflow.write_commands")
-            self._app.persistence_logger.debug(
-                f"loading jobscript (submission index: {submission_idx}; jobscript "
-                f"index: {jobscript_idx})"
+        """Execute commands of a run via a subprocess."""
+
+        # CD to submission tmp dir to ensure std streams and exceptions have somewhere
+        # sensible to go:
+        os.chdir(Submission.get_tmp_path(self.submissions_path, submission_idx))
+
+        sub_str_path = Submission.get_app_std_path(self.submissions_path, submission_idx)
+        run_std_path = sub_str_path / f"{str(run_ID)}.txt"  # TODO: refactor
+        has_commands = False
+
+        # redirect (as much as possible) app-generated stdout/err to a dedicated file:
+        with redirect_std_to_file(run_std_path):
+            with self._store.cached_load():
+                js_idx = cast("int", block_act_key[0])
+                run = self.get_EARs_from_IDs([run_ID])[0]
+                run_dir = None
+                if run.action.requires_dir:
+                    run_dir = run.get_directory()
+                    assert run_dir
+                    self._app.submission_logger.debug(
+                        f"changing directory to run execution directory: {run_dir}."
+                    )
+                    os.chdir(run_dir)
+                self._app.submission_logger.debug(f"{run.skip=}; {run.skip_reason=}")
+
+                # check if we should skip:
+                if not run.skip:
+
+                    try:
+                        with run.raise_on_failure_threshold() as unset_params:
+                            if run.action.script:
+                                run.write_script_input_files(block_act_key)
+
+                            # write the command file that will be executed:
+                            cmd_file_path = self.ensure_commands_file(
+                                submission_idx, js_idx, run
+                            )
+
+                    except UnsetParameterDataErrorBase:
+                        # not all required parameter data is set, so fail this run:
+                        self._app.submission_logger.debug(
+                            f"unset parameter threshold satisfied (or any unset "
+                            f"parameters found when trying to write commands file), so "
+                            f"not attempting run. unset_params={unset_params!r}."
+                        )
+                        self.set_EAR_start(run_ID, run_dir, port_number=None)
+                        self._check_loop_termination(run)  # not sure if this is required
+                        self.set_EAR_end(
+                            block_act_key=block_act_key,
+                            run=run,
+                            exit_code=1,
+                        )
+                        return
+
+                    # sufficient parameter data is set so far, but need to pass `unset_params`
+                    # on as an environment variable so it can be appended to and failure
+                    # thresholds can be rechecked if necessary (i.e. in a Python script
+                    # where we also load input parameters "directly")
+                    if unset_params:
+                        self._app.submission_logger.debug(
+                            f"some unset parameters found, but no unset-thresholds met: "
+                            f"unset_params={unset_params!r}."
+                        )
+
+                    # TODO: pass on unset_params to script as environment variable
+
+                    if has_commands := bool(cmd_file_path):
+
+                        assert isinstance(cmd_file_path, Path)
+                        if not cmd_file_path.is_file():
+                            raise RuntimeError(
+                                f"Command file {cmd_file_path!r} does not exist."
+                            )
+                        # prepare subprocess command:
+                        jobscript = self.submissions[submission_idx].jobscripts[js_idx]
+                        cmd = jobscript.shell.get_command_file_launch_command(
+                            str(cmd_file_path)
+                        )
+                        loop_idx_str = ";".join(
+                            f"{k}={v}" for k, v in run.element_iteration.loop_idx.items()
+                        )
+                        app_caps = self._app.package_name.upper()
+
+                        # TODO: make these optionally set (more difficult to set in combine_script,
+                        # so have the option to turn off) [default ON]
+                        add_env = {
+                            f"{app_caps}_RUN_ID": str(run_ID),
+                            f"{app_caps}_RUN_IDX": str(run.index),
+                            f"{app_caps}_ELEMENT_IDX": str(run.element.index),
+                            f"{app_caps}_ELEMENT_ID": str(run.element.id_),
+                            f"{app_caps}_ELEMENT_ITER_IDX": str(
+                                run.element_iteration.index
+                            ),
+                            f"{app_caps}_ELEMENT_ITER_ID": str(run.element_iteration.id_),
+                            f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
+                        }
+
+                        if run.action.script:
+                            if run.is_snippet_script:
+                                script_artifact_name = run.get_script_artifact_name()
+                                script_dir = Path(
+                                    os.environ[f"{app_caps}_SUB_SCRIPTS_DIR"]
+                                )
+                                script_name = script_artifact_name
+                            else:
+                                # not a snippet script; expect the script in the run execute
+                                # directory (i.e. created by a previous action)
+                                script_dir = Path.cwd()
+                                script_name = run.action.script
+                            script_name_no_ext = Path(script_name).stem
+                            add_env.update(
+                                {
+                                    f"{app_caps}_RUN_SCRIPT_NAME": script_name,
+                                    f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT": script_name_no_ext,
+                                    f"{app_caps}_RUN_SCRIPT_DIR": str(script_dir),
+                                    f"{app_caps}_RUN_SCRIPT_PATH": str(
+                                        script_dir / script_name
+                                    ),
+                                }
+                            )
+
+                        env = {**dict(os.environ), **add_env}
+
+                        self._app.submission_logger.debug(
+                            f"Executing run commands via subprocess with command {cmd!r}, and "
+                            f"environment variables as below."
+                        )
+                        for k, v in env.items():
+                            if k.startswith(app_caps):
+                                self._app.submission_logger.debug(f"{k} = {v!r}")
+                        exe = self._app.Executor(cmd, env, self._app.package_name)
+                        port = (
+                            exe.start_zmq_server()
+                        )  # start the server so we know the port
+
+                        try:
+                            self.set_EAR_start(run_ID, run_dir, port)
+                        except:
+                            self._app.submission_logger.error(f"Failed to set run start.")
+                            exe.stop_zmq_server()
+                            raise
+
+        # this subprocess may include commands that redirect to the std_stream file (e.g.
+        # calling the app to save a parameter from a shell command output):
+        if not run.skip and has_commands:
+            ret_code = exe.run()  # this also shuts down the server
+
+        # redirect (as much as possible) app-generated stdout/err to a dedicated file:
+        with redirect_std_to_file(run_std_path):
+            if run.skip:
+                ret_code = SKIPPED_EXIT_CODE
+            elif not has_commands:
+                ret_code = NO_COMMANDS_EXIT_CODE
+            else:
+                self._check_loop_termination(run)
+
+            # set run end:
+            self.set_EAR_end(
+                block_act_key=block_act_key,
+                run=run,
+                exit_code=ret_code,
             )
-            jobscript = self.submissions[submission_idx].jobscripts[jobscript_idx]
-            self._app.persistence_logger.debug(f"loading run {EAR_ID!r}")
-            EAR = self.get_EARs_from_IDs(EAR_ID)
-            self._app.persistence_logger.debug(f"run {EAR_ID!r} loaded: {EAR!r}")
-            commands = self.__get_commands(jobscript, JS_action_idx, EAR)
-            self._app.persistence_logger.debug(f"commands to write: {commands!r}")
-            cmd_file_name = jobscript.get_commands_file_name(JS_action_idx)
-            with Path(cmd_file_name).open("wt", newline="\n") as fp:
-                # (assuming we have CD'd correctly to the element run directory)
-                fp.write(commands)
+
+    def _check_loop_termination(self, run: ElementActionRun) -> set[int]:
+        """Check if we need to terminate a loop if this is the last action of the loop
+        iteration for this element, and set downstream iteration runs to skip."""
+
+        elem_iter = run.element_iteration
+        task = elem_iter.task
+        check_loops = []
+        to_skip = set()
+        for loop_name in elem_iter.loop_idx:
+            self._app.logger.info(f"checking loop termination of loop {loop_name!r}.")
+            loop = self.loops.get(loop_name)
+            if (
+                loop.template.termination
+                and task.insert_ID == loop.template.termination_task_insert_ID
+                and run.element_action.action_idx == max(elem_iter.actions)
+            ):
+                check_loops.append(loop_name)
+                # TODO: test with condition actions
+                if loop.test_termination(elem_iter):
+                    self._app.logger.info(
+                        f"loop {loop_name!r} termination condition met for run "
+                        f"ID {run.id_!r}."
+                    )
+                    to_skip.update(loop.skip_downstream_iterations(elem_iter))
+        return to_skip
+
+    @load_workflow_config
+    def execute_combined_runs(self, submission_idx: int, jobscript_idx: int) -> None:
+        """Execute a combined script (multiple runs) via a subprocess."""
+
+        # CD to submission tmp dir to ensure std streams and exceptions have somewhere
+        # sensible to go:
+        os.chdir(Submission.get_tmp_path(self.submissions_path, submission_idx))
+
+        sub = self.submissions[submission_idx]
+        js = sub.jobscripts[jobscript_idx]
+
+        app_caps = self._app.package_name.upper()
+        script_dir = Path(os.environ[f"{app_caps}_SUB_SCRIPTS_DIR"])
+        script_name = f"js_{jobscript_idx}.py"  # TODO: refactor script name
+        script_path = script_dir / script_name
+
+        add_env = {
+            f"{app_caps}_RUN_SCRIPT_NAME": script_name,
+            f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT": script_path.stem,
+            f"{app_caps}_RUN_SCRIPT_DIR": str(script_dir),
+            f"{app_caps}_RUN_SCRIPT_PATH": str(script_path),
+            f"{app_caps}_SCRIPT_INDICES_FILE": str(js.combined_script_indices_file_path),
+        }
+        env = {**dict(os.environ), **add_env}
+
+        # note: unlike in `Workflow.execute_run`, here we can be reasonably sure the
+        # commands file already exists, because we call `Action.try_write_commands` with
+        # `raise_on_unset=True` in `Workflow._add_submission` during submission.
+
+        # TODO: refactor cmd file name:
+        cmd_file_path = sub.commands_path / f"js_{jobscript_idx}{js.shell.JS_EXT}"
+        cmd = js.shell.get_command_file_launch_command(str(cmd_file_path))
+
+        self._app.submission_logger.debug(
+            f"Executing combined runs via subprocess with command {cmd!r}, and "
+            f"environment variables as below."
+        )
+        for k, v in env.items():
+            if k.startswith(app_caps):
+                self._app.submission_logger.debug(f"{k} = {v}")
+
+        exe = self._app.Executor(cmd, env, self._app.package_name)
+        exe.start_zmq_server()  # start the server
+        exe.run()  # this also shuts down the server
+
+    def ensure_commands_file(
+        self,
+        submission_idx: int,
+        js_idx: int,
+        run: ElementActionRun,
+    ) -> Path | bool:
+        """Ensure a commands file exists for the specified run."""
+        self._app.persistence_logger.debug("Workflow.ensure_commands_file")
+
+        if run.commands_file_ID is None:
+            # no commands to write
+            return False
+
+        with self._store.cached_load():
+            sub = self.submissions[submission_idx]
+            jobscript = sub.jobscripts[js_idx]
+
+            # check if a commands file already exists, first checking using the run ID:
+            cmd_file_name = f"{run.id_}{jobscript.shell.JS_EXT}"  # TODO: refactor
+            cmd_file_path = jobscript.submission.commands_path / cmd_file_name
+
+            if not cmd_file_path.is_file():
+                # then check for a file from the "root" run ID (the run ID of a run that
+                # shares the same commands file):
+
+                cmd_file_name = (
+                    f"{run.commands_file_ID}{jobscript.shell.JS_EXT}"  # TODO: refactor
+                )
+                cmd_file_path = jobscript.submission.commands_path / cmd_file_name
+
+            if not cmd_file_path.is_file():
+                # no file available, so write (using the run ID):
+                try:
+                    cmd_file_path = run.try_write_commands(
+                        jobscript=jobscript,
+                        environments=sub.environments,
+                        raise_on_unset=True,
+                    )
+                except OutputFileParserNoOutputError:
+                    # no commands to write, might be used just for saving files
+                    return False
+
+        return cmd_file_path
 
     def process_shell_parameter_output(
         self, name: str, value: str, EAR_ID: int, cmd_idx: int, stderr: bool = False
@@ -3257,9 +4243,11 @@ class Workflow(AppAware):
                     input_source.task_ref = uniq_names_cur[input_source.task_ref]
                 except KeyError:
                     raise InvalidInputSourceTaskReference(
-                        input_source, input_source.task_ref
+                        f"Input source {input_source.to_string()!r} refers to a missing "
+                        f"or inaccessible task: {input_source.task_ref!r}."
                     )
 
+    @TimeIt.decorator
     def get_all_submission_run_IDs(self) -> Iterable[int]:
         """
         Get the run IDs of all submissions.
@@ -3267,68 +4255,6 @@ class Workflow(AppAware):
         self._app.persistence_logger.debug("Workflow.get_all_submission_run_IDs")
         for sub in self.submissions:
             yield from sub.all_EAR_IDs
-
-    def check_loop_termination(self, loop_name: str, run_ID: int) -> None:
-        """Check if a loop should terminate, given the specified completed run, and if so,
-        set downstream iteration runs to be skipped."""
-        loop = self.loops.get(loop_name)
-        elem_iter = self.get_EARs_from_IDs(run_ID).element_iteration
-        if loop.test_termination(elem_iter):
-            # run IDs of downstream iterations that can be skipped
-            to_skip: set[int] = set()
-            elem_id = elem_iter.element.id_
-            loop_map = self.get_loop_map()  # over all jobscripts
-            for iter_idx, iter_dat in loop_map[loop_name][elem_id].items():
-                if iter_idx > elem_iter.index:
-                    to_skip.update(itr_d.id_ for itr_d in iter_dat)
-            self._app.logger.info(
-                f"Loop {loop_name!r} termination condition met for run_ID {run_ID!r}."
-            )
-            for run_ID in to_skip:
-                self.set_EAR_skip(run_ID)
-
-    def get_loop_map(
-        self, id_lst: Iterable[int] | None = None
-    ) -> Mapping[str, Mapping[int, Mapping[int, Sequence[_IterationData]]]]:
-        """
-        Get a description of what is going on with looping.
-        """
-        # TODO: test this works across multiple jobscripts
-        self._app.persistence_logger.debug("Workflow.get_loop_map")
-        if id_lst is None:
-            id_lst = self.get_all_submission_run_IDs()
-        loop_map: dict[str, dict[int, dict[int, list[_IterationData]]]] = defaultdict(
-            lambda: defaultdict(lambda: defaultdict(list))
-        )
-        for EAR in self.get_EARs_from_IDs(id_lst):
-            for loop_name, iter_idx in EAR.element_iteration.loop_idx.items():
-                act_idx = EAR.element_action.action_idx
-                loop_map[loop_name][EAR.element.id_][iter_idx].append(
-                    _IterationData(EAR.id_, act_idx)
-                )
-        return loop_map
-
-    def get_iteration_final_run_IDs(
-        self,
-        id_lst: Iterable[int] | None = None,
-    ) -> Mapping[str, Sequence[int]]:
-        """Retrieve the run IDs of those runs that correspond to the final action within
-        a named loop iteration.
-
-        These runs represent the final action of a given element-iteration; this is used to
-        identify which commands file to append a loop-termination check to.
-        """
-        self._app.persistence_logger.debug("Workflow.get_iteration_final_run_IDs")
-
-        loop_map = self.get_loop_map(id_lst)
-
-        # find final EARs for each loop:
-        final_runs: dict[str, list[int]] = defaultdict(list)
-        for loop_name, dat in loop_map.items():
-            for elem_dat in dat.values():
-                for iter_dat in elem_dat.values():
-                    final_runs[loop_name].append(max(iter_dat, key=lambda x: x.idx).id_)
-        return final_runs
 
     def rechunk_runs(
         self,
@@ -3348,7 +4274,7 @@ class Workflow(AppAware):
         status: bool = True,
     ):
         """
-        Reorganise the stored data chunks for parameterss to be more efficient.
+        Reorganise the stored data chunks for parameters to be more efficient.
         """
         self._store.rechunk_parameter_base(
             chunk_size=chunk_size, backup=backup, status=status
@@ -3365,6 +4291,311 @@ class Workflow(AppAware):
         """
         self.rechunk_runs(chunk_size=chunk_size, backup=backup, status=status)
         self.rechunk_parameter_base(chunk_size=chunk_size, backup=backup, status=status)
+
+    @TimeIt.decorator
+    def get_run_directories(
+        self,
+        run_ids: list[int] | None = None,
+        dir_indices_arr: np.ndarray | None = None,
+    ) -> list[Path | None]:
+        """"""
+
+        @TimeIt.decorator
+        def _get_depth_dirs(
+            item_idx: int,
+            max_per_dir: int,
+            max_depth: int,
+            depth_idx_cache: dict[tuple[int, int], NDArray],
+            prefix: str,
+        ) -> list[str]:
+            dirs = []
+            max_avail_items = max_per_dir**max_depth
+            for depth_i in range(1, max_depth):
+                tot_items_per_level = int(max_avail_items / max_per_dir**depth_i)
+                key = (max_avail_items, tot_items_per_level)
+                if (depth_idx := depth_idx_cache.get(key)) is None:
+                    depth_idx = np.repeat(
+                        np.arange(max_avail_items / tot_items_per_level, dtype=int),
+                        tot_items_per_level,
+                    )
+                    depth_idx_cache[key] = depth_idx
+                idx_i = cast("NDArray", depth_idx)[item_idx]
+                start_idx = idx_i * tot_items_per_level
+                end_idx = start_idx + tot_items_per_level - 1
+                dirs.append(f"{prefix}_{start_idx}-{end_idx}")
+            return dirs
+
+        if dir_indices_arr is None:  # TODO: document behaviour!
+            dir_indices_arr = self._store.get_dirs_array()
+            if run_ids is not None:
+                dir_indices_arr = dir_indices_arr[run_ids]
+
+        # TODO: make these configurable so easier to test!
+        MAX_ELEMS_PER_DIR = 1000  # TODO: configurable (add `workflow_defaults` to Config)
+        MAX_ITERS_PER_DIR = 1000
+
+        exec_path = self.execution_path
+
+        # a fill value means no sub directory should be created
+        T_FILL, E_FILL, I_FILL, A_FILL, R_FILL, _, _ = RUN_DIR_ARR_FILL
+
+        depth_idx_cache: dict[
+            tuple[int, int], NDArray
+        ] = {}  # keys are (max_avail, tot_elems_per_dir_level)
+
+        # format run directories:
+        dirs = []
+        for dir_data in dir_indices_arr:
+
+            # TODO: retrieve task,element,iteration,action,run dir formats from
+            # (t_iID, act_idx) combo (cached)?
+
+            t_iID, e_idx, i_idx, _, r_idx, e_depth, i_depth = dir_data
+            path_args = []
+
+            if t_iID != T_FILL:
+                path_args.append(f"t_{t_iID}")
+
+            if e_idx != E_FILL:
+                if e_depth > 1:
+                    path_args.extend(
+                        _get_depth_dirs(
+                            item_idx=e_idx,
+                            max_per_dir=MAX_ELEMS_PER_DIR,
+                            max_depth=e_depth,
+                            depth_idx_cache=depth_idx_cache,
+                            prefix="e",
+                        )
+                    )
+                path_args.append(f"e_{e_idx}")
+
+            if i_idx != I_FILL:
+                if i_depth > 1:
+                    path_args.extend(
+                        _get_depth_dirs(
+                            item_idx=i_idx,
+                            max_per_dir=MAX_ITERS_PER_DIR,
+                            max_depth=i_depth,
+                            depth_idx_cache=depth_idx_cache,
+                            prefix="i",
+                        )
+                    )
+                path_args.append(f"i_{i_idx}")
+
+            if r_idx != R_FILL:
+                path_args.append(f"r_{r_idx}")
+
+            if path_args:
+                run_dir = exec_path.joinpath(*path_args)
+            elif e_depth == 1:
+                run_dir = exec_path
+            else:
+                run_dir = None
+
+            dirs.append(run_dir)
+
+        return dirs
+
+    @TimeIt.decorator
+    def get_scheduler_job_IDs(self) -> tuple[str, ...]:
+        """Return jobscript scheduler job IDs from all submissions of this workflow."""
+        return tuple(
+            IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_scheduler_job_IDs()
+        )
+
+    @TimeIt.decorator
+    def get_process_IDs(self) -> tuple[int, ...]:
+        """Return jobscript process IDs from all submissions of this workflow."""
+        return tuple(
+            IDs_j for sub_i in self.submissions for IDs_j in sub_i.get_process_IDs()
+        )
+
+    @TimeIt.decorator
+    def list_jobscripts(
+        self,
+        sub_idx: int = 0,
+        max_js: int | None = None,
+        jobscripts: list[int] | None = None,
+        width: int | None = None,
+    ) -> None:
+        """Print a table listing jobscripts and associated information from the specified
+        submission.
+
+        Parameters
+        ----------
+        sub_idx
+            The submission index whose jobscripts are to be displayed.
+        max_js
+            Maximum jobscript index to display. This cannot be specified with `jobscripts`.
+        jobscripts
+            A list of jobscripts to display. This cannot be specified with `max_js`.
+        width
+            Width in characters of the printed table.
+        """
+
+        with self._store.cached_load():
+
+            if max_js is not None and jobscripts is not None:
+                raise ValueError("Do not specify both `max_js` and `jobscripts`.")
+
+            loop_names = [i.name for i in self.loops][::-1]
+            loop_names_panel: rich.panel.Panel | str = ""
+            if loop_names:
+                loop_names_panel = rich.panel.Panel(
+                    "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
+                    title="[b]Loops[/b]",
+                    title_align="left",
+                    box=rich.box.SIMPLE,
+                )
+
+            table = rich.table.Table(width=width)
+
+            table.add_column("Jobscript", justify="right", style="cyan", no_wrap=True)
+            table.add_column("Acts, Elms", justify="right", style="green")
+            table.add_column("Deps.", style="orange3")
+            table.add_column("Tasks", overflow="fold")
+            table.add_column("Loops")
+
+            sub_js = self.submissions[sub_idx].jobscripts
+            max_js = max_js if max_js is not None else len(sub_js)
+            for js in sub_js:
+                if jobscripts is not None and js.index not in jobscripts:
+                    continue
+                if js.index > max_js:
+                    break
+                for blk in js.blocks:
+                    blk_task_actions = blk.task_actions
+                    num_actions = blk_task_actions.shape[0]
+
+                    if blk.index == 0:
+                        c1 = f"{js.index} - {blk.index}"
+                    else:
+                        c1 = f"{blk.index}"
+                    c3 = f"{num_actions}, {blk.num_elements}"
+
+                    deps = "; ".join(f"{i[0],i[1]}" for i in blk.dependencies)
+
+                    for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
+
+                        # loop indices are the same for all actions within a task, so get the
+                        # first `task_action` for this task insert ID:
+                        for i in blk_task_actions:
+                            if i[0] == t_iID:
+                                loop_idx = [
+                                    blk.task_loop_idx[i[2]].get(loop_name_i, "-")
+                                    for loop_name_i in loop_names
+                                ]
+                                break
+
+                        c2 = self.tasks.get(insert_ID=t_iID).unique_name
+
+                        if blk_t_idx > 0:
+                            c1 = ""
+                            c3 = ""
+                            deps = ""
+
+                        table.add_row(
+                            c1, c3, deps, c2, (" | ".join(f"{i}" for i in loop_idx))
+                        )
+
+                table.add_section()
+
+        group = rich.console.Group(
+            rich.text.Text(f"Workflow: {self.name}"),
+            rich.text.Text(f"Submission: {sub_idx}" + ("\n" if loop_names_panel else "")),
+            loop_names_panel,
+            table,
+        )
+        rich_print(group)
+
+    def list_task_jobscripts(
+        self,
+        sub_idx: int = 0,
+        task_names: list[str] | None = None,
+        max_js: int | None = None,
+        width: int | None = None,
+    ):
+        """Print a table listing the jobscripts associated with the specified (or all)
+        tasks for the specified submission.
+
+        Parameters
+        ----------
+        sub_idx
+            The submission index whose jobscripts are to be displayed.
+        task_names
+            List of sub-strings to match to task names. Only matching task names will be
+            included.
+        max_js
+            Maximum jobscript index to display.
+        width
+            Width in characters of the printed table.
+        """
+
+        with self._store.cached_load():
+            loop_names = [i.name for i in self.loops][::-1]
+            loop_names_panel: rich.panel.Panel | str = ""
+            if loop_names:
+                loop_names_panel = rich.panel.Panel(
+                    "\n".join(f"{idx}: {i}" for idx, i in enumerate(loop_names)),
+                    title="[b]Loops[/b]",
+                    title_align="left",
+                    box=rich.box.SIMPLE,
+                )
+
+            sub_js = self.submissions[sub_idx].jobscripts
+            all_task_names = {i.insert_ID: i.unique_name for i in self.tasks}
+
+            # filter task names by those matching the specified names
+            matched = all_task_names
+            if task_names:
+                matched = {
+                    k: v
+                    for k, v in all_task_names.items()
+                    if any(i in v for i in task_names)
+                }
+
+            task_jobscripts = defaultdict(list)
+            for js in sub_js:
+                if max_js is not None and js.index > max_js:
+                    break
+                for blk in js.blocks:
+                    blk_task_actions = blk.task_actions
+                    for i in blk.task_insert_IDs:
+                        if i in matched:
+                            for j in blk_task_actions:
+                                if j[0] == i:
+                                    loop_idx = [
+                                        blk.task_loop_idx[j[2]].get(loop_name_i, "-")
+                                        for loop_name_i in loop_names
+                                    ]
+                                    break
+                            task_jobscripts[i].append((js.index, blk.index, loop_idx))
+
+            table = rich.table.Table(width=width)
+            table.add_column("Task")
+            table.add_column("Jobscripts", style="cyan", no_wrap=True)
+            table.add_column("Loops")
+            for insert_ID_i, jobscripts_i in task_jobscripts.items():
+                for idx, js_j in enumerate(jobscripts_i):
+                    js_idx, blk_idx, loop_idx = js_j
+                    table.add_row(
+                        matched[insert_ID_i] if idx == 0 else "",
+                        f"({js_idx}, {blk_idx})",
+                        (" | ".join(f"{i}" for i in loop_idx)),
+                    )
+                table.add_section()
+
+        group = rich.console.Group(
+            rich.text.Text(f"Workflow: {self.name}"),
+            rich.text.Text(f"Submission: {sub_idx}" + ("\n" if loop_names_panel else "")),
+            loop_names_panel,
+            table,
+        )
+        rich_print(group)
+
+    def get_text_file(self, path: str | Path) -> str:
+        """Retrieve the contents of a text file stored within the workflow."""
+        return self._store.get_text_file(path)
 
 
 @dataclass

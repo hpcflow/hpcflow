@@ -58,6 +58,17 @@ class TimeIt:
     #: Preceding trace indices.
     trace_idx_prev: ClassVar[list[int]] = []
 
+    def __enter__(self):
+        self.__class__.active = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self.__class__.summarise_string()
+        finally:
+            self.__class__.reset()
+            self.__class__.active = False
+
     @classmethod
     def decorator(cls, func: Callable[P, T]) -> Callable[P, T]:
         """
@@ -167,6 +178,14 @@ class TimeIt:
         else:
             print(out_str)
 
+    @classmethod
+    def reset(cls):
+        cls.timers = defaultdict(list)
+        cls.trace = []
+        cls.trace_idx = []
+        cls.trace_prev = []
+        cls.trace_idx_prev = []
+
 
 class AppLog:
     """
@@ -176,11 +195,11 @@ class AppLog:
     #: Default logging level for the console.
     DEFAULT_LOG_CONSOLE_LEVEL: ClassVar = "WARNING"
     #: Default logging level for log files.
-    DEFAULT_LOG_FILE_LEVEL: ClassVar = "INFO"
+    DEFAULT_LOG_FILE_LEVEL: ClassVar = "WARNING"
 
     def __init__(self, app: BaseApp, log_console_level: str | None = None) -> None:
         #: The application context.
-        self.app = app
+        self._app = app
         #: The base logger for the application.
         self.logger = logging.getLogger(app.package_name)
         self.logger.setLevel(logging.DEBUG)
@@ -188,6 +207,7 @@ class AppLog:
         self.console_handler = self.__add_console_logger(
             level=log_console_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
         )
+        self.file_handler: logging.FileHandler | None = None
 
     def __add_console_logger(self, level: str, fmt: str | None = None) -> logging.Handler:
         fmt = fmt or "%(levelname)s %(name)s: %(message)s"
@@ -197,23 +217,29 @@ class AppLog:
         self.logger.addHandler(handler)
         return handler
 
-    def update_console_level(self, new_level: str) -> None:
+    def update_console_level(self, new_level: str | None = None) -> None:
         """
         Set the logging level for console messages.
         """
-        if new_level:
-            self.console_handler.setLevel(new_level.upper())
+        new_level = new_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
+        self.console_handler.setLevel(new_level.upper())
+
+    def update_file_level(self, new_level: str | None = None) -> None:
+        if self.file_handler:
+            new_level = new_level or AppLog.DEFAULT_LOG_FILE_LEVEL
+            self.file_handler.setLevel(new_level.upper())
 
     def add_file_logger(
         self,
-        path: Path,
+        path: str | Path,
         level: str | None = None,
         fmt: str | None = None,
         max_bytes: int | None = None,
-    ) -> logging.Handler:
+    ) -> None:
         """
         Add a log file.
         """
+        path = Path(path)
         fmt = fmt or "%(asctime)s %(levelname)s %(name)s: %(message)s"
         level = level or AppLog.DEFAULT_LOG_FILE_LEVEL
         max_bytes = max_bytes or int(10e6)
@@ -226,12 +252,13 @@ class AppLog:
         handler.setFormatter(logging.Formatter(fmt))
         handler.setLevel(level.upper())
         self.logger.addHandler(handler)
-        return handler
+        self.file_handler = handler
 
-    def remove_file_handlers(self) -> None:
-        """Remove all file handlers."""
-        # TODO: store a `file_handlers` attribute as well as `console_handlers`
-        for hdlr in self.logger.handlers:
-            if isinstance(hdlr, logging.FileHandler):
-                self.logger.debug(f"Removing file handler from the AppLog: {hdlr!r}.")
-                self.logger.removeHandler(hdlr)
+    def remove_file_handler(self) -> None:
+        """Remove the file handler."""
+        if self.file_handler:
+            self.logger.debug(
+                f"Removing file handler from the AppLog: {self.file_handler!r}."
+            )
+            self.logger.removeHandler(self.file_handler)
+            self.file_handler = None

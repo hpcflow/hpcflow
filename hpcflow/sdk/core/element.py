@@ -4,12 +4,23 @@ Elements are components of tasks.
 
 from __future__ import annotations
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from operator import attrgetter
 from itertools import chain
 import os
-from typing import cast, overload, TYPE_CHECKING
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    cast,
+    overload,
+    TYPE_CHECKING,
+)
 
 from hpcflow.sdk.core.enums import ParallelMode
+from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import UnsupportedOSError, UnsupportedSchedulerError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.loop_cache import LoopIndex
@@ -23,6 +34,7 @@ from hpcflow.sdk.core.utils import (
 )
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.shells import get_shell
+from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -270,6 +282,12 @@ class ElementResources(JSONLike):
         Whether to use array jobs.
     max_array_items: int
         If using array jobs, up to how many items should be in the job array.
+    write_app_logs: bool
+        Whether an app log file should be written.
+    combine_jobscript_std: bool
+        Whether jobscript standard output and error streams should be combined.
+    combine_scripts: bool
+        Whether Python scripts should be combined.
     time_limit: str
         How long to run for.
     scheduler_args: dict[str, Any]
@@ -280,6 +298,13 @@ class ElementResources(JSONLike):
         Which OS to use.
     environments: dict
         Which execution environments to use.
+    resources_id: int
+        An arbitrary integer that can be used to force multiple jobscripts.
+    skip_downstream_on_failure: bool
+        Whether to skip downstream dependents on failure.
+    allow_failed_dependencies: int | float | bool | None
+        The failure tolerance with respect to dependencies, specified as a number or
+        proportion.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -317,6 +342,12 @@ class ElementResources(JSONLike):
     use_job_array: bool | None = None
     #: If using array jobs, up to how many items should be in the job array.
     max_array_items: int | None = None
+    #: Whether an app log file should be written.
+    write_app_logs: bool = False
+    #: Whether jobscript standard output and error streams should be combined.
+    combine_jobscript_std: bool = field(default_factory=lambda: os.name != "nt")
+    #: Whether Python scripts should be combined.
+    combine_scripts: bool | None = None
     #: How long to run for.
     time_limit: str | None = None
 
@@ -328,6 +359,13 @@ class ElementResources(JSONLike):
     os_name: str | None = None
     #: Which execution environments to use.
     environments: dict[str, dict[str, Any]] | None = None
+    #: An arbitrary integer that can be used to force multiple jobscripts.
+    resources_id: int | None = None
+    #: Whether to skip downstream dependents on failure.
+    skip_downstream_on_failure: bool = True
+    #: The failure tolerance with respect to dependencies, specified as a number or
+    #: proportion.
+    allow_failed_dependencies: int | float | bool | None = False
 
     # SGE scheduler specific:
     #: Which SGE parallel environment to request.
@@ -357,37 +395,34 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
+        self.scheduler_args = self.scheduler_args or {}
+        self.shell_args = self.shell_args or {}
 
+    def __eq__(self, other) -> bool:
+        if type(self) != type(other):
+            return False
+        else:
+            return self.__dict__ == other.__dict__
+
+    @TimeIt.decorator
     def get_jobscript_hash(self) -> int:
         """Get hash from all arguments that distinguish jobscripts."""
 
-        def _hash_dict(d: dict) -> int:
-            if not d:
-                return -1
-            keys, vals = zip(*d.items())
-            return hash(tuple((keys, vals)))
+        exclude = ["time_limit", "skip_downstream_on_failure"]
+        if not self.combine_scripts:
+            # usually environment selection need not distinguish jobscripts because
+            # environments become effective/active within the command files, but if we
+            # are combining scripts, then the environments must be the same:
+            exclude.append("environments")
 
-        exclude = {"time_limit"}
         dct = {k: copy.deepcopy(v) for k, v in self.__dict__.items() if k not in exclude}
 
-        scheduler_args = dct["scheduler_args"]
-        shell_args = dct["shell_args"]
-        envs = dct["environments"]
+        # `combine_scripts==False` and `combine_scripts==None` should have an equivalent
+        # contribution to the hash, so always set it to `False` if unset at this point:
+        if self.combine_scripts is None:
+            dct["combine_scripts"] = False
 
-        if "options" in scheduler_args:
-            dct["scheduler_args"]["options"] = _hash_dict(scheduler_args["options"])
-        dct["scheduler_args"] = _hash_dict(dct["scheduler_args"])
-
-        dct["shell_args"] = _hash_dict(shell_args)
-
-        if isinstance(envs, dict):
-            for k, v in envs.items():
-                dct["environments"][k] = _hash_dict(v)
-            dct["environments"] = _hash_dict(dct["environments"])
-
-        return _hash_dict(dct)
+        return get_hash(dct)
 
     @property
     def is_parallel(self) -> bool:
@@ -416,6 +451,7 @@ class ElementResources(JSONLike):
         return ("num_cores",)  # TODO: filter on `parallel_mode` later
 
     @staticmethod
+    @TimeIt.decorator
     def get_default_os_name() -> str:
         """
         Get the default value for OS name.
@@ -423,6 +459,7 @@ class ElementResources(JSONLike):
         return os.name
 
     @classmethod
+    @TimeIt.decorator
     def get_default_shell(cls) -> str:
         """
         Get the default value for name.
@@ -430,6 +467,7 @@ class ElementResources(JSONLike):
         return cls._app.config.default_shell
 
     @classmethod
+    @TimeIt.decorator
     def get_default_scheduler(cls, os_name: str, shell_name: str) -> str:
         """
         Get the default value for scheduler.
@@ -439,6 +477,7 @@ class ElementResources(JSONLike):
             return "direct_posix"
         return cls._app.config.default_scheduler
 
+    @TimeIt.decorator
     def set_defaults(self):
         """
         Set defaults for unspecified values that need defaults.
@@ -464,9 +503,11 @@ class ElementResources(JSONLike):
         cfg_defs = cfg_sched.get("defaults", {})
         cfg_opts = cfg_defs.pop("options", {})
         opts = {**cfg_opts, **self.scheduler_args.get("options", {})}
-        self.scheduler_args["options"] = opts
+        if opts:
+            self.scheduler_args["options"] = opts
         self.scheduler_args = {**cfg_defs, **self.scheduler_args}
 
+    @TimeIt.decorator
     def validate_against_machine(self):
         """Validate the values for `os_name`, `shell` and `scheduler` against those
         supported on this machine (as specified by the app configuration)."""
@@ -477,6 +518,12 @@ class ElementResources(JSONLike):
                 scheduler=self.scheduler,
                 supported=self._app.config.schedulers,
             )
+
+        if self.os_name == "nt" and self.combine_jobscript_std:
+            raise NotImplementedError(
+                "`combine_jobscript_std` is not yet supported on Windows."
+            )
+
         # might raise `UnsupportedShellError`:
         get_shell(shell_name=self.shell, os_name=self.os_name)
 
@@ -626,9 +673,20 @@ class ElementIteration(AppAware):
     @property
     def EAR_IDs(self) -> Mapping[int, Sequence[int]]:
         """
-        Mapping from iteration number to EAR ID, where known.
+        Mapping from action index to EAR ID, where known.
         """
         return self._EAR_IDs
+
+    @property
+    def loop_skipped(self) -> bool:
+        """True if the the iteration was skipped entirely due to a loop termination."""
+        if not self.action_runs:
+            # this includes when runs are not initialised
+            return False
+        else:
+            return all(
+                i.skip_reason is SkipReason.LOOP_TERMINATION for i in self.action_runs
+            )
 
     @property
     def EAR_IDs_flat(self) -> Iterable[int]:
@@ -1256,6 +1314,10 @@ class ElementIteration(AppAware):
                     resources["os_name"], resources["shell"]
                 )
 
+        # unset inapplicable items:
+        if "combine_scripts" in resources and not action.script_is_python_snippet:
+            del resources["combine_scripts"]
+
         return resources
 
     def get_resources_obj(
@@ -1447,46 +1509,59 @@ class Element(AppAware):
         return self.iterations[-1]
 
     @property
+    def latest_iteration_non_skipped(self):
+        """Get the latest iteration that is not loop-skipped."""
+        for iter_i in self.iterations[::-1]:
+            if not iter_i.loop_skipped:
+                return iter_i
+
+    @property
     def inputs(self) -> ElementInputs:
         """
-        The inputs to this element (or its most recent iteration).
+        The inputs to this element's most recent iteration (that was not skipped due to
+        loop termination).
         """
-        return self.latest_iteration.inputs
+        return self.latest_iteration_non_skipped.inputs
 
     @property
     def outputs(self) -> ElementOutputs:
         """
-        The outputs from this element (or its most recent iteration).
+        The outputs from this element's most recent iteration (that was not skipped due to
+        loop termination).
         """
-        return self.latest_iteration.outputs
+        return self.latest_iteration_non_skipped.outputs
 
     @property
     def input_files(self) -> ElementInputFiles:
         """
-        The input files to this element (or its most recent iteration).
+        The input files to this element's most recent iteration (that was not skipped due
+        to loop termination).
         """
-        return self.latest_iteration.input_files
+        return self.latest_iteration_non_skipped.input_files
 
     @property
     def output_files(self) -> ElementOutputFiles:
         """
-        The output files from this element (or its most recent iteration).
+        The output files from this element's most recent iteration (that was not skipped
+        due to loop termination).
         """
-        return self.latest_iteration.output_files
+        return self.latest_iteration_non_skipped.output_files
 
     @property
     def schema_parameters(self) -> Sequence[str]:
         """
-        The schema-defined parameters to this element (or its most recent iteration).
+        The schema-defined parameters to this element's most recent iteration (that was
+        not skipped due to loop termination).
         """
-        return self.latest_iteration.schema_parameters
+        return self.latest_iteration_non_skipped.schema_parameters
 
     @property
     def actions(self) -> Mapping[int, ElementAction]:
         """
-        The actions of this element (or its most recent iteration).
+        The actions of this element's most recent iteration (that was not skipped due to
+        loop termination).
         """
-        return self.latest_iteration.actions
+        return self.latest_iteration_non_skipped.actions
 
     @property
     def action_runs(self) -> Sequence[ElementActionRun]:
@@ -1494,13 +1569,7 @@ class Element(AppAware):
         A list of element action runs from the latest iteration, where only the
         final run is taken for each element action.
         """
-        return self.latest_iteration.action_runs
-
-    def init_loop_index(self, loop_name: str) -> None:
-        """
-        Initialise the loop index if necessary.
-        """
-        pass
+        return self.latest_iteration_non_skipped.action_runs
 
     def to_element_set_data(self) -> tuple[list[InputValue], list[ResourceSpec]]:
         """Generate lists of workflow-bound InputValues and ResourceList."""
@@ -1550,14 +1619,15 @@ class Element(AppAware):
         action_idx: int | None = None,
         run_idx: int = -1,
     ) -> DataIndex:
-        """Get the data index of the most recent element iteration.
+        """Get the data index of the most recent element iteration that
+        is not loop-skipped.
 
         Parameters
         ----------
         action_idx
             The index of the action within the schema.
         """
-        return self.latest_iteration.get_data_idx(
+        return self.latest_iteration_non_skipped.get_data_idx(
             path=path,
             action_idx=action_idx,
             run_idx=run_idx,
@@ -1633,8 +1703,9 @@ class Element(AppAware):
         raise_on_missing: bool = False,
         raise_on_unset: bool = False,
     ) -> Any:
-        """Get element data of the most recent iteration from the persistent store."""
-        return self.latest_iteration.get(
+        """Get element data of the most recent iteration that is not
+        loop-skipped."""
+        return self.latest_iteration_non_skipped.get(
             path=path,
             action_idx=action_idx,
             run_idx=run_idx,
@@ -1651,6 +1722,7 @@ class Element(AppAware):
     def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
         ...
 
+    @TimeIt.decorator
     def get_EAR_dependencies(
         self, as_objects: bool = False
     ) -> set[int] | list[ElementActionRun]:

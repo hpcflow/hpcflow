@@ -1,6 +1,7 @@
 """
 Types for the submission subsystem.
 """
+
 from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 from typing_extensions import NotRequired, TypeAlias, TypedDict
@@ -22,14 +23,15 @@ class JobScriptDescriptor(TypedDict):
     #: Elements handled by the jobscript.
     elements: dict[int, list[int]]
     #: Dependencies of the jobscript.
-    dependencies: NotRequired[dict[int, ResolvedDependencies]]
+    dependencies: NotRequired[dict[int, ResolvedJobscriptBlockDependencies]]
     #: Hash of resources.
     resource_hash: NotRequired[str]
 
 
-class ResolvedDependencies(TypedDict):
+class ResolvedJobscriptBlockDependencies(TypedDict):
     """
-    The resolution of a dependency.
+    The resolution of a jobscript block dependency. This represents the dependency of one
+    jobscript block on another.
     """
 
     #: Mapping of jobscript elements.
@@ -43,6 +45,9 @@ class JobScriptCreationArguments(TypedDict):
     Arguments to pass to create a :class:`Jobscript`.
     """
 
+    # TODO: this currently represents a mix of arguments for both jobscripts and jobscript
+    # blocks; need to separate
+
     #: The task insertion IDs.
     task_insert_IDs: list[int]
     #: The actions of the tasks.
@@ -52,11 +57,13 @@ class JobScriptCreationArguments(TypedDict):
     #: Element action run information.
     EAR_ID: NDArray
     #: Resources to use.
-    resources: ElementResources
+    resources: NotRequired[ElementResources]
     #: Description of what loops are in play.
     task_loop_idx: list[dict[str, int]]
     #: Description of dependencies.
-    dependencies: dict[int, ResolvedDependencies]
+    dependencies: dict[int | tuple[int, int], ResolvedJobscriptBlockDependencies]
+    #: Whether this is an array jobscript.
+    is_array: NotRequired[bool]
     #: When the jobscript was submitted, if known.
     submit_time: NotRequired[datetime]
     #: Where the jobscript was submitted, if known.
@@ -121,23 +128,13 @@ class JobscriptHeaderArgs(TypedDict):
 
     #: Application invocation. (Arguments, etc.)
     app_invoc: str | Sequence[str]
+    #: Workflow application alias.
+    workflow_app_alias: NotRequired[str]
+    #: Environment setup.
+    env_setup: NotRequired[str]
+    #: Application name in CAPS
+    app_caps: NotRequired[str]
     #: Configuration directory.
     config_dir: NotRequired[str]
     #: Configuration key.
     config_invoc_key: NotRequired[Any]
-    #: Name of EAR file.
-    EAR_file_name: NotRequired[str]
-    #: Name of file containing run directories.
-    element_run_dirs_file_path: NotRequired[str]
-    #: Environment setup.
-    env_setup: NotRequired[str]
-    #: Jobscript index.
-    js_idx: NotRequired[int]
-    #: Log file for the run.
-    run_log_file: NotRequired[str]
-    #: Submission index.
-    sub_idx: NotRequired[int]
-    #: Workflow application alias.
-    workflow_app_alias: NotRequired[str]
-    #: Path to workflow.
-    workflow_path: NotRequired[str]

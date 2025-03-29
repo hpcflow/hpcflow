@@ -39,7 +39,7 @@ on:
 
 jobs:
   test:
-    uses: hpcflow/github-support/.github/workflows/test-impl.yml@0.2
+    uses: hpcflow/github-support/.github/workflows/test-impl.yml@main
     with:
       pre_commit: ${{ github.event_name == 'pull_request' || github.event.inputs.pre_commit == 'true' }}
       unit_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.unit_tests == 'true' }}
@@ -55,7 +55,7 @@ jobs:
       CLI_path: hpcflow/cli.py
       CLI_path_win: hpcflow\cli.py
       executable_name: hpcflow
-      pytest_args: 
+      pytest_args: ""
       python-versions: |
         ["3.9", "3.10", "3.11", "3.12", "3.13"]
     secrets:

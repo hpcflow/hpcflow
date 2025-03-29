@@ -915,3 +915,71 @@ class TaskSchema(JSONLike):
     def multi_input_types(self) -> list[str]:
         """Get a list of input types that have multiple labels."""
         return [inp.parameter.typ for inp in self.inputs if inp.multiple]
+
+
+class MetaTaskSchema(TaskSchema):
+    """Class to represent a task schema with no actions, that can be used to represent the
+    effect of multiple task schemas.
+
+    Parameters
+    ----------
+    objective:
+        This is a string representing the objective of the task schema.
+    method:
+        An optional string to label the task schema by its method.
+    implementation:
+        An optional string to label the task schema by its implementation.
+    inputs:
+        A list of SchemaInput objects that define the inputs to the task.
+    outputs:
+        A list of SchemaOutput objects that define the outputs of the task.
+    version:
+        The version of this task schema.
+    web_doc:
+        True if this object should be included in the Sphinx documentation
+        (normally only relevant for built-in task schemas). True by default.
+    environment_presets:
+        Information about default execution environments. Can be overridden in specific
+        cases in the concrete tasks.
+    """
+
+    _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
+    _hash_value = None
+    _validate_actions = False
+
+    _child_objects = (
+        ChildObjectSpec(name="objective", class_name="TaskObjective"),
+        ChildObjectSpec(
+            name="inputs",
+            class_name="SchemaInput",
+            is_multiple=True,
+            parent_ref="_task_schema",
+        ),
+        ChildObjectSpec(name="outputs", class_name="SchemaOutput", is_multiple=True),
+    )
+
+    def __init__(
+        self,
+        objective: TaskObjective | str,
+        method: str | None = None,
+        implementation: str | None = None,
+        inputs: list[Parameter | SchemaInput] | None = None,
+        outputs: list[Parameter | SchemaParameter] | None = None,
+        version: str | None = None,
+        web_doc: bool | None = True,
+        environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+        doc: str = "",
+        _hash_value: str | None = None,
+    ):
+        super().__init__(
+            objective=objective,
+            method=method,
+            implementation=implementation,
+            inputs=inputs,
+            outputs=outputs,
+            version=version,
+            web_doc=web_doc,
+            environment_presets=environment_presets,
+            doc=doc,
+            _hash_value=_hash_value,
+        )

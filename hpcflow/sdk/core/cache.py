@@ -14,41 +14,50 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing_extensions import Self
     from .element import Element, ElementIteration
+    from .actions import ElementActionRun
     from .workflow import Workflow
     from ..persistence.base import StoreEAR, StoreElement, StoreElementIter
 
 
 @dataclass
-class DependencyCache:
-    """
-    Class to bulk-retrieve dependencies between elements, iterations, and runs.
-    """
-
-    #: What EARs (by ID) a given EAR depends on.
-    run_dependencies: dict[int, set[int]]
-    #: What EARs (by ID) are depending on a given EAR.
-    run_dependents: dict[int, set[int]]
-    #: What EARs (by ID) a given iteration depends on.
-    iter_run_dependencies: dict[int, set[int]]
-    #: What iterations (by ID) a given iteration depends on.
-    iter_iter_dependencies: dict[int, set[int]]
-    #: What iterations (by ID) a given element depends on.
-    elem_iter_dependencies: dict[int, set[int]]
-    #: What elements (by ID) a given element depends on.
-    elem_elem_dependencies: dict[int, set[int]]
-    #: What elements (by ID) are depending on a given element.
-    elem_elem_dependents: dict[int, set[int]]
-    #: Transitive closure of :py:attr:`elem_elem_dependents`.
-    elem_elem_dependents_rec: dict[int, set[int]]
+class ObjectCache:
+    """Class to bulk-retrieve and store elements, iterations, runs and their various
+    dependencies."""
 
     #: The elements of the workflow that this cache was built from.
-    elements: list[Element]
+    elements: list[Element] | None = None
     #: The iterations of the workflow that this cache was built from.
-    iterations: list[ElementIteration]
+    iterations: list[ElementIteration] | None = None
+    #: The runs of the workflow that this cache was built from.
+    runs: list[ElementActionRun] | None = None
+
+    #: What EARs (by ID) a given EAR depends on.
+    run_dependencies: dict[int, set[int]] | None = None
+    #: What EARs (by ID) are depending on a given EAR.
+    run_dependents: dict[int, set[int]] | None = None
+    #: What EARs (by ID) a given iteration depends on.
+    iter_run_dependencies: dict[int, set[int]] | None = None
+    #: What iterations (by ID) a given iteration depends on.
+    iter_iter_dependencies: dict[int, set[int]] | None = None
+    #: What iterations (by ID) a given element depends on.
+    elem_iter_dependencies: dict[int, set[int]] | None = None
+    #: What elements (by ID) a given element depends on.
+    elem_elem_dependencies: dict[int, set[int]] | None = None
+    #: What elements (by ID) are depending on a given element.
+    elem_elem_dependents: dict[int, set[int]] | None = None
+    #: Transitive closure of :py:attr:`elem_elem_dependents`.
+    elem_elem_dependents_rec: dict[int, set[int]] | None = None
 
     @classmethod
     @TimeIt.decorator
-    def build(cls, workflow: Workflow) -> Self:
+    def build(
+        cls,
+        workflow: Workflow,
+        dependencies: bool = False,
+        elements: bool = False,
+        iterations: bool = False,
+        runs: bool = False,
+    ):
         """
         Build a cache instance.
 
@@ -56,7 +65,51 @@ class DependencyCache:
         ----------
         workflow: ~hpcflow.app.Workflow
             The workflow to build the cache from.
+        dependencies
+            If True, calculate dependencies.
+        elements
+            If True, include elements in the cache.
+        iterations
+            If True, include iterations in the cache.
+        runs
+            If True, include runs in the cache.
+
         """
+        kwargs = {}
+        if dependencies:
+            kwargs.update(cls._get_dependencies(workflow))
+
+        if elements:
+            kwargs["elements"] = workflow.get_all_elements()
+
+        if iterations:
+            kwargs["iterations"] = workflow.get_all_element_iterations()
+
+        if runs:
+            kwargs["runs"] = workflow.get_all_EARs()
+
+        return cls(**kwargs)
+
+    @classmethod
+    @TimeIt.decorator
+    def _get_dependencies(cls, workflow: Workflow):
+        def _get_recursive_deps(elem_id: int, seen_ids: list[int] | None = None):
+            if seen_ids is None:
+                seen_ids = [elem_id]
+            elif elem_id in seen_ids:
+                # stop recursion
+                return set()
+            else:
+                seen_ids.append(elem_id)
+            return set(elem_elem_dependents[elem_id]).union(
+                [
+                    j
+                    for i in elem_elem_dependents[elem_id]
+                    for j in _get_recursive_deps(i, seen_ids)
+                    if j != elem_id
+                ]
+            )
+
         num_iters = workflow.num_element_iterations
         num_elems = workflow.num_elements
         num_runs = workflow.num_EARs
@@ -84,8 +137,8 @@ class DependencyCache:
         for idx, dict_i in enumerate(all_data_idx):
             run_i_sources = set(
                 run_k
-                for idx in chain.from_iterable(dict_i.values())
-                if (run_k := all_param_sources[idx].get("EAR_ID")) is not None
+                for dat_idx_k in chain.from_iterable(dict_i.values())
+                if (run_k := all_param_sources[dat_idx_k].get("EAR_ID")) is not None
                 and run_k != idx
             )
             run_dependencies[idx] = run_i_sources
@@ -149,14 +202,8 @@ class DependencyCache:
 
         # for each element, which elements depend on it (recursively)?
         elem_elem_dependents_rec: defaultdict[int, set[int]] = defaultdict(set)
-        for k in tuple(elem_elem_dependents):
-            # NB: code below modifies elem_elem_dependents during this loop;
-            # copy above is mandatory!
-            for i in elem_elem_dependents[k]:
-                elem_elem_dependents_rec[k].add(i)
-                elem_elem_dependents_rec[k].update(
-                    m for m in elem_elem_dependents[i] if m != k
-                )
+        for i in list(elem_elem_dependents):
+            elem_elem_dependents_rec[i] = _get_recursive_deps(i)
 
         # add missing keys and downgrade to dict:
         for elem_idx in range(num_elems):
@@ -165,10 +212,7 @@ class DependencyCache:
         elem_elem_dependents.default_factory = None
         elem_elem_dependents_rec.default_factory = None
 
-        elements = workflow.get_all_elements()
-        iterations = workflow.get_all_element_iterations()
-
-        return cls(
+        return dict(
             run_dependencies=run_dependencies,
             run_dependents=run_dependents,
             iter_run_dependencies=iter_run_dependencies,
@@ -177,6 +221,4 @@ class DependencyCache:
             elem_elem_dependencies=elem_elem_dependencies,
             elem_elem_dependents=elem_elem_dependents,
             elem_elem_dependents_rec=elem_elem_dependents_rec,
-            elements=elements,
-            iterations=iterations,
         )
