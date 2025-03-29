@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a203"></a>
+## [v0.2.0a203](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a202...v0.2.0a203) - 2025.03.29
+
+### 🐛 Bug Fixes
+
+* indent error in `show` introduced in refactor/jobscript PR
+* bump pyinstaller
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a202"></a>
 ## [v0.2.0a202](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a201...v0.2.0a202) - 2025.03.28
 
