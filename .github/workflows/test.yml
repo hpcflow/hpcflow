@@ -56,6 +56,8 @@ jobs:
       CLI_path_win: hpcflow\cli.py
       executable_name: hpcflow
       pytest_args: ""
+      python-versions: |
+        ["3.9", "3.10", "3.11", "3.12", "3.13"]
     secrets:
       pre-commit-token: ${{ secrets.HPCFLOW_ACTIONS_TOKEN || secrets.GITHUB_TOKEN }}
     permissions:
