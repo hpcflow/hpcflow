@@ -1152,19 +1152,19 @@ class ValueSequence(_BaseSequence):
     def _values_from_geometric_space(
         cls, start: float, stop: float, num: int, **kwargs
     ) -> list[float]:
-        return np.geomspace(start, stop, num=num, **kwargs).tolist()
+        return np.geomspace(start, stop, num=num, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def _values_from_log_space(
         cls, start: float, stop: float, num: int, base: float = 10.0, **kwargs
     ) -> list[float]:
-        return np.logspace(start, stop, num=num, base=base, **kwargs).tolist()
+        return np.logspace(start, stop, num=num, base=base, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def _values_from_range(
         cls, start: int | float, stop: int | float, step: int | float, **kwargs
     ) -> list[float]:
-        return np.arange(start, stop, step, **kwargs).tolist()
+        return np.arange(start, stop, step, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def _values_from_file(cls, file_path: str | Path) -> list[str]:
@@ -1185,7 +1185,7 @@ class ValueSequence(_BaseSequence):
         if coord is not None:
             return vals[coord].tolist()
         else:
-            return (vals.T).tolist()
+            return (vals.T).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def _values_from_random_uniform(
@@ -1196,7 +1196,7 @@ class ValueSequence(_BaseSequence):
         seed: int | list[int] | None = None,
     ) -> list[float]:
         rng = np.random.default_rng(seed)
-        return rng.uniform(low=low, high=high, size=num).tolist()
+        return rng.uniform(low=low, high=high, size=num).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def from_linear_space(
