@@ -1,4 +1,20 @@
 
+<a name="v0.2.0a204"></a>
+## [v0.2.0a204](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a203...v0.2.0a204) - 2025.03.29
+
+### 🐛 Bug Fixes
+
+* add type ignore to avoid mypy bug
+* more version refinements
+* try some version refinements
+
+### 👷 Build changes
+
+* specify py3.13 in build-exes and release workflows
+* update binary download links file [skip ci]
+* merge in develop
+
+
 <a name="v0.2.0a203"></a>
 ## [v0.2.0a203](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a202...v0.2.0a203) - 2025.03.29
 
