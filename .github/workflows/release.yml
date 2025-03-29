@@ -27,6 +27,7 @@ jobs:
       version_file: hpcflow/_version.py
       website_source_org: hpcflow
       website_source_repo: hpcflow.github.io
+      python-version: "3.13"
     secrets:
       general-token: ${{ secrets.GITHUB_TOKEN }}
       commit-token: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
