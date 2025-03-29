@@ -3580,27 +3580,27 @@ class BaseApp(metaclass=Singleton):
                 style_wk_name = "grey42 strike" if deleted else style
                 style_it = "italic grey42" if (no_access or not act_js) else "italic"
 
-            all_cells: dict[str, str | Text | Padding] = {}
-            if "status" in columns:
-                if act_js:
-                    act_js_states = set(
-                        state_i
-                        for js_dat in act_js.values()
-                        for block_dat in js_dat.values()
-                        for state_i in block_dat.values()
-                    )
-                    all_cells["status"] = "/".join(
-                        js_state.rich_repr
-                        for js_state in sorted(act_js_states, key=lambda x: x.value)
-                    )
-                else:
-                    if deleted:
-                        txt = "deleted"
-                    elif unloadable:
-                        txt = "unloadable"
+                all_cells: dict[str, str | Text | Padding] = {}
+                if "status" in columns:
+                    if act_js:
+                        act_js_states = set(
+                            state_i
+                            for js_dat in act_js.values()
+                            for block_dat in js_dat.values()
+                            for state_i in block_dat.values()
+                        )
+                        all_cells["status"] = "/".join(
+                            js_state.rich_repr
+                            for js_state in sorted(act_js_states, key=lambda x: x.value)
+                        )
                     else:
-                        txt = "inactive"
-                    all_cells["status"] = Text(txt, style=style_it)
+                        if deleted:
+                            txt = "deleted"
+                        elif unloadable:
+                            txt = "unloadable"
+                        else:
+                            txt = "inactive"
+                        all_cells["status"] = Text(txt, style=style_it)
 
                 if "id" in columns:
                     all_cells["id"] = Text(str(dat_i["local_id"]), style=style)
