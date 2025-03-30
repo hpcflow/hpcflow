@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a205"></a>
+## [v0.2.0a205](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a204...v0.2.0a205) - 2025.03.30
+
+### 🐛 Bug Fixes
+
+* use py3.13 in doc-build
+* missing `open` in sphinx conf.py
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a204"></a>
 ## [v0.2.0a204](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a203...v0.2.0a204) - 2025.03.29
 
