@@ -17,7 +17,7 @@ Welcome to hpcFlow's documentation!
 
 hpcFlow is a workflow system, principally designed for running on
 High Performance Computing clusters.
-It's usually used (as matFlow, a derived software package) for Materials Science.
+It's usually used (as `matFlow <matflow_>`_, a derived software package) for Materials Science.
 
 Unlike many workflow engines, hpcFlow supports running without an orchestration process
 on the head node of the cluster, and can handle iterative looping over a sequence of
@@ -29,3 +29,5 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+.. _matflow: https://docs.matflow.io/
