@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
     from typing import Any, ClassVar, Literal
     from typing_extensions import Self, TypeAlias
-    from h5py import Group  # type: ignore
+    from h5py import Group as HDF5Group  # type: ignore
     from numpy.typing import NDArray
     from ..app import BaseApp
     from ..typing import ParamSource
@@ -116,21 +116,21 @@ class ParameterValue:
         """
         raise NotImplementedError
 
-    def dump_to_HDF5_group(self, group: Group):
+    def dump_to_HDF5_group(self, group: HDF5Group):
         """
         Write this parameter value to an HDF5 group.
         """
         raise NotImplementedError
 
     @classmethod
-    def dump_element_group_to_HDF5_group(cls, objs: list[ParameterValue], group: Group):
+    def dump_element_group_to_HDF5_group(cls, objs: list[Self], group: HDF5Group):
         """
         Write a list (from an element group) of parameter values to an HDF5 group.
         """
         raise NotImplementedError
 
     @classmethod
-    def save_from_HDF5_group(cls, group: Group, param_id: int, workflow: Workflow):
+    def save_from_HDF5_group(cls, group: HDF5Group, param_id: int, workflow: Workflow):
         """
         Extract a parameter value from an HDF5 group.
         """

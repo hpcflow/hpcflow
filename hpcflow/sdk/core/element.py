@@ -66,10 +66,11 @@ class _ElementPrefixedParameter(AppAware):
 
     def __getattr__(self, name: str) -> ElementParameter | Mapping[str, ElementParameter]:
         if name not in self.prefixed_names_unlabelled:
-            raise ValueError(
-                f"No {self._prefix} named {name!r}. Available {self._prefix} are: "
-                f"{self.prefixed_names_unlabelled_str}."
-            )
+            if names_str := self.prefixed_names_unlabelled_str:
+                msg_info = f"Available {self._prefix} are: {names_str}."
+            else:
+                msg_info = f"There are no {self._prefix} available."
+            raise ValueError(f"No {self._prefix} named {name!r}. {msg_info}")
 
         if labels := self.prefixed_names_unlabelled.get(name):
             # is multiple; return a dict of `ElementParameter`s

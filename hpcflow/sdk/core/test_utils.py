@@ -13,8 +13,8 @@ from hpcflow.sdk.typing import hydrate
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
-    from typing_extensions import TypeAlias
-    from h5py import Group as HDFSGroup  # type: ignore
+    from typing_extensions import TypeAlias, Self
+    from h5py import Group as HDF5Group  # type: ignore
     from .actions import Action
     from .element import ElementGroup
     from .loop import Loop
@@ -272,7 +272,7 @@ class P1_sub_parameter_cls(ParameterValue):
     def prepare_JSON_dump(self) -> dict[str, Any]:
         return {"e": self.e}
 
-    def dump_to_HDF5_group(self, group: HDFSGroup):
+    def dump_to_HDF5_group(self, group: HDF5Group):
         group.attrs["e"] = self.e
 
 
@@ -376,7 +376,7 @@ class P1_parameter_cls(ParameterValue):
         sub_param_js = self.sub_param.prepare_JSON_dump() if self.sub_param else None
         return {"a": self.a, "d": self.d, "sub_param": sub_param_js}
 
-    def dump_to_HDF5_group(self, group: HDFSGroup):
+    def dump_to_HDF5_group(self, group: HDF5Group):
         group.attrs["a"] = self.a
         if self.d is not None:
             group.attrs["d"] = self.d
@@ -385,12 +385,27 @@ class P1_parameter_cls(ParameterValue):
             self.sub_param.dump_to_HDF5_group(sub_group)
 
     @classmethod
+    def dump_element_group_to_HDF5_group(self, objs: list[Self], group: HDF5Group):
+        """
+        Write a list (from an element group) of parameter values to an HDF5 group.
+        """
+
+        for obj_idx, p1_obj in enumerate(objs):
+            grp_i = group.create_group(f"{obj_idx}")
+            grp_i.attrs["a"] = p1_obj.a
+            if p1_obj.d is not None:
+                group.attrs["d"] = p1_obj.d
+            if p1_obj.sub_param:
+                sub_group = grp_i.create_group("sub_param")
+                p1_obj.sub_param.dump_to_HDF5_group(sub_group)
+
+    @classmethod
     def save_from_JSON(cls, data: dict, param_id: int | list[int], workflow: Workflow):
         obj = cls(**data)  # TODO: pass sub-param
         workflow.set_parameter_value(param_id=param_id, value=obj, commit=True)
 
     @classmethod
-    def save_from_HDF5_group(cls, group: HDFSGroup, param_id: int, workflow: Workflow):
+    def save_from_HDF5_group(cls, group: HDF5Group, param_id: int, workflow: Workflow):
         a = group.attrs["a"].item()
         if "d" in group.attrs:
             d = group.attrs["d"].item()
