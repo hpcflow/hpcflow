@@ -461,6 +461,50 @@ def test_script_hdf5_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
 @pytest.mark.integration
 @pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_hdf5_in_obj_group(null_config, tmp_path: Path, combine_scripts: bool):
+    s0 = hf.TaskSchema(
+        objective="define_p1c",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1c"))],
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1c"), group="my_group")],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_hdf5_in_obj_group.py>>",
+                script_data_in="hdf5",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            )
+        ],
+        parameter_class_modules=["hpcflow.sdk.core.test_utils"],
+    )
+    a_vals = (1, 2)
+    t0 = hf.Task(
+        schema=s0,
+        sequences=[hf.ValueSequence(path="inputs.p1c", values=[P1(a=i) for i in a_vals])],
+        groups=[hf.ElementGroup("my_group")],
+    )
+    t1 = hf.Task(schema=s1)
+    wk = hf.Workflow.from_template_data(
+        tasks=[t0, t1],
+        template_name="main_script_test",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts}},
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    p2 = wk.tasks[1].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == sum(a_vals) + 100
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("hf.run_time_info.is_frozen")
+@pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_out_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON saver defined in the P1 class."""
     s1 = hf.TaskSchema(
