@@ -385,6 +385,22 @@ class P1_parameter_cls(ParameterValue):
             self.sub_param.dump_to_HDF5_group(sub_group)
 
     @classmethod
+    def dump_element_group_to_HDF5_group(
+        self, objs: list[ParameterValue], group: HDF5Group
+    ):
+        """
+        Write a list (from an element group) of parameter values to an HDF5 group.
+        """
+        for obj_idx, p1_obj in enumerate(objs):
+            grp_i = group.create_group(f"{obj_idx}")
+            grp_i.attrs["a"] = p1_obj.a
+            if p1_obj.d is not None:
+                group.attrs["d"] = p1_obj.d
+            if p1_obj.sub_param:
+                sub_group = grp_i.create_group("sub_param")
+                p1_obj.sub_param.dump_to_HDF5_group(sub_group)
+
+    @classmethod
     def save_from_JSON(cls, data: dict, param_id: int | list[int], workflow: Workflow):
         obj = cls(**data)  # TODO: pass sub-param
         workflow.set_parameter_value(param_id=param_id, value=obj, commit=True)

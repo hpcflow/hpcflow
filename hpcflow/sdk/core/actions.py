@@ -988,7 +988,7 @@ class ElementActionRun(AppAware):
                 try:
                     assert isinstance(v, ParameterValue)
                     v.dump_to_HDF5_group(grp_k)
-                except AttributeError:
+                except AssertionError:
                     # probably an element group (i.e. v is a list of `ParameterValue`
                     # objects):
                     assert isinstance(v, list)
