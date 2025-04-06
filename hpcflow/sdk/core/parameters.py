@@ -123,9 +123,7 @@ class ParameterValue:
         raise NotImplementedError
 
     @classmethod
-    def dump_element_group_to_HDF5_group(
-        cls, objs: list[ParameterValue], group: HDF5Group
-    ):
+    def dump_element_group_to_HDF5_group(cls, objs: list[Self], group: HDF5Group):
         """
         Write a list (from an element group) of parameter values to an HDF5 group.
         """

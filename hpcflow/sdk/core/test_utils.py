@@ -13,7 +13,7 @@ from hpcflow.sdk.typing import hydrate
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
-    from typing_extensions import TypeAlias
+    from typing_extensions import TypeAlias, Self
     from h5py import Group as HDF5Group  # type: ignore
     from .actions import Action
     from .element import ElementGroup
@@ -385,12 +385,11 @@ class P1_parameter_cls(ParameterValue):
             self.sub_param.dump_to_HDF5_group(sub_group)
 
     @classmethod
-    def dump_element_group_to_HDF5_group(
-        self, objs: list[ParameterValue], group: HDF5Group
-    ):
+    def dump_element_group_to_HDF5_group(self, objs: list[Self], group: HDF5Group):
         """
         Write a list (from an element group) of parameter values to an HDF5 group.
         """
+
         for obj_idx, p1_obj in enumerate(objs):
             grp_i = group.create_group(f"{obj_idx}")
             grp_i.attrs["a"] = p1_obj.a
