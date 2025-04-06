@@ -2217,7 +2217,7 @@ class WorkflowTask(AppAware):
             self.__enforce_some_sanity(sources_by_task, element_set)
 
         if missing:
-            raise MissingInputs(missing)
+            raise MissingInputs(self.template, missing)
         return padded_elem_iters
 
     def __enforce_some_sanity(

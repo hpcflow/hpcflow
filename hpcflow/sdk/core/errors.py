@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .object_list import WorkflowLoopList
     from .parameters import InputSource, ValueSequence, SchemaInput
     from .types import ScriptData
-    from .task import WorkflowTask
+    from .task import WorkflowTask, Task
 
 
 class InputValueDuplicateSequenceAddress(ValueError):
@@ -94,10 +94,12 @@ class MissingInputs(Exception):
 
     # TODO: add links to doc pages for common user-exceptions?
 
-    def __init__(self, missing_inputs: Iterable[str]) -> None:
+    def __init__(self, task: Task, missing_inputs: Iterable[str]) -> None:
         self.missing_inputs = tuple(missing_inputs)
         missing_str = ", ".join(map(repr, missing_inputs))
-        super().__init__(f"The following inputs have no sources: {missing_str}.")
+        super().__init__(
+            f"Task {task.name}: the following inputs have no sources: {missing_str}."
+        )
 
 
 class UnrequiredInputSources(ValueError):
