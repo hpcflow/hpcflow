@@ -17,3 +17,4 @@ jobs:
           baseBranch: "develop"
           openPR: true
           allowSkipped: false
+          githubToken: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
