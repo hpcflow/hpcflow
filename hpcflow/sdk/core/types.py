@@ -206,7 +206,7 @@ class SchemaInputKwargs(TypedDict):
     multiple: bool
     #: The labels.
     labels: dict[str, LabelInfo] | None
-    #: The number or proportional of permitted unset parameter data found when reolving
+    #: The number or proportion of permitted unset parameter data found when resolving
     #: this input from upstream outputs.
     allow_failed_dependencies: int | float | bool | None
 

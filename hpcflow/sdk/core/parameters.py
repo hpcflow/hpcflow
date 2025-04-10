@@ -296,7 +296,7 @@ class SubParameter:
     A parameter that is a component of another parameter.
     """
 
-    #: How to find this within the containing paraneter.
+    #: How to find this within the containing parameter.
     address: Address
     #: The containing main parameter.
     parameter: Parameter
@@ -592,7 +592,7 @@ class SchemaInput(SchemaParameter):
     @property
     def single_label(self) -> str | None:
         """
-        The label of this input, assuming it is not mulitple.
+        The label of this input, assuming it is not multiple.
         """
         if not self.multiple:
             return next(iter(self.labels))
@@ -601,7 +601,7 @@ class SchemaInput(SchemaParameter):
     @property
     def single_labelled_type(self) -> str | None:
         """
-        The type code of this input, assuming it is not mulitple.
+        The type code of this input, assuming it is not multiple.
         """
         if not self.multiple:
             return next(iter(self.labelled_info()))["labelled_type"]
@@ -610,7 +610,7 @@ class SchemaInput(SchemaParameter):
     @property
     def single_labelled_data(self) -> LabelInfo | None:
         """
-        The value of this input, assuming it is not mulitple.
+        The value of this input, assuming it is not multiple.
         """
         if (label := self.single_label) is not None:
             return self.labels[label]

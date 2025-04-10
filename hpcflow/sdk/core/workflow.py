@@ -202,7 +202,7 @@ class WorkflowTemplate(JSONLike):
         If True, merge template-level `resources` into element set resources. If False,
         template-level resources are ignored.
     merge_envs:
-        Whether to merge the environemtns into task resources.
+        Whether to merge the environments into task resources.
     """
 
     _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
@@ -250,7 +250,7 @@ class WorkflowTemplate(JSONLike):
     store_kwargs: dict[str, Any] = field(default_factory=dict)
     #: Whether to merge template-level `resources` into element set resources.
     merge_resources: bool = True
-    #: Whether to merge the environemtns into task resources.
+    #: Whether to merge the environments into task resources.
     merge_envs: bool = True
 
     def __post_init__(self) -> None:

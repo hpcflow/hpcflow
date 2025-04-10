@@ -183,7 +183,7 @@ class Environment(JSONLike):
     setup: list[str]
         Commands to run to enter the environment.
     specifiers: dict[str, str]
-        Dictionary of attributes that may be used to supply addional key/value pairs to
+        Dictionary of attributes that may be used to supply additional key/value pairs to
         look up an environment by.
     executables: list[Executable]
         List of abstract executables in the environment.
@@ -211,7 +211,7 @@ class Environment(JSONLike):
         self.name = name
         #: Documentation for the environment.
         self.doc = doc
-        #: Dictionary of attributes that may be used to supply addional key/value pairs
+        #: Dictionary of attributes that may be used to supply additional key/value pairs
         #: to look up an environment by.
         self.specifiers: Mapping[str, str] = specifiers or {}
         #: List of abstract executables in the environment.
