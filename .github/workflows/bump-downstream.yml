@@ -26,7 +26,7 @@ jobs:
           ref: develop
 
       - name: Configure git
-        uses: hpcflow/github-support/configure-git@0.1
+        uses: hpcflow/github-support/configure-git@0.3
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -34,7 +34,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION_MAKE_PRs }}
 
       - name: Setup poetry
-        uses: hpcflow/github-support/setup-poetry@0.1
+        uses: hpcflow/github-support/setup-poetry@0.3
         with:
           version: ${{ env.POETRY_VERSION }}
 
