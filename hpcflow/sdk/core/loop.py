@@ -295,7 +295,7 @@ class WorkflowLoop(AppAware):
     iterable_parameters:
         Description of what parameters are being iterated over.
     output_parameters:
-        Decription of what parameter are output from this loop, and the final task insert
+        Description of what parameter are output from this loop, and the final task insert
         ID from which they are output.
     parents: list[str]
         The paths to the parent entities of this loop.
