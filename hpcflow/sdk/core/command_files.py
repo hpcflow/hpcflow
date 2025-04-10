@@ -344,7 +344,7 @@ class OutputFileParser(JSONLike):
         Whether this script can be aborted.
     save_files: list[str]
         The files that should be saved to the persistent store for the workflow.
-    clean_files: list[str]
+    clean_up: list[str]
         The files that should be immediately removed.
     rules: list[~hpcflow.app.ActionRule]
         Rules for whether to enable this parser.
