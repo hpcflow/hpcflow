@@ -17,11 +17,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install and configure poetry ${{ env.POETRY_VERSION }}
-        uses: hpcflow/github-support/setup-poetry@0.1
+        uses: hpcflow/github-support/setup-poetry@0.3
         with:
           version: ${{ env.POETRY_VERSION }}
       - name: Cache Virtual Environment
-        uses: hpcflow/github-support/init-cache@0.1
+        uses: hpcflow/github-support/init-cache@0.3
         with:
           name: typecheck
           version: ${{ matrix.python-version }}

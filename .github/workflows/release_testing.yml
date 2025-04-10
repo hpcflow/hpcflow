@@ -37,11 +37,11 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: hpcflow/github-support/init-cache@0.1
+      - uses: hpcflow/github-support/init-cache@0.3
         with:
           name: build
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: hpcflow/github-support/setup-poetry@0.1
+      - uses: hpcflow/github-support/setup-poetry@0.3
         with:
           version: 1.2.2
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Configure poetry
         run: poetry config virtualenvs.in-project true
-      - uses: hpcflow/github-support/init-cache@0.1
+      - uses: hpcflow/github-support/init-cache@0.3
         with:
           name: build
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
@@ -150,11 +150,11 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION_RELEASE }}
-      - uses: hpcflow/github-support/init-cache@0.1
+      - uses: hpcflow/github-support/init-cache@0.3
         with:
           name: release
           version: ${{ env.PYTHON_VERSION_RELEASE }}
-      - uses: hpcflow/github-support/setup-poetry@0.1
+      - uses: hpcflow/github-support/setup-poetry@0.3
         with:
           version: 1.2.2
 
