@@ -4433,14 +4433,14 @@ propcache = ">=0.2.0"
 
 [[package]]
 name = "zarr"
-version = "2.17.2"
+version = "2.18.2"
 description = "An implementation of chunked, compressed, N-dimensional arrays for Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "zarr-2.17.2-py3-none-any.whl", hash = "sha256:70d7cc07c24280c380ef80644151d136b7503b0d83c9f214e8000ddc0f57f69b"},
-    {file = "zarr-2.17.2.tar.gz", hash = "sha256:2cbaa6cb4e342d45152d4a7a4b2013c337fcd3a8e7bc98253560180de60552ce"},
+    {file = "zarr-2.18.2-py3-none-any.whl", hash = "sha256:a638754902f97efa99b406083fdc807a0e2ccf12a949117389d2a4ba9b05df38"},
+    {file = "zarr-2.18.2.tar.gz", hash = "sha256:9bb393b8a0a38fb121dbb913b047d75db28de9890f6d644a217a73cf4ae74f47"},
 ]
 
 [package.dependencies]
@@ -4480,4 +4480,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<3.14"
-content-hash = "c9f10868c4bbf52bf03399b4e14c35c919a85260eeefa3128a62180c797ea1ba"
+content-hash = "906b0859c91838cb6fcf31be54fb4cd75bf75554615115e5f93dff2daa724c41"
