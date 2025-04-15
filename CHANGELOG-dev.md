@@ -1,4 +1,27 @@
 
+<a name="v0.2.0a211"></a>
+## [v0.2.0a211](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a210...v0.2.0a211) - 2025.04.15
+
+### 🐛 Bug Fixes
+
+* do not trigger testing on PR edit event
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump aiohttp from 3.11.14 to 3.11.16
+* **deps:** bump actions/checkout from 3 to 4
+* **deps:** bump actions/add-to-project from 0.4.0 to 1.0.2
+* **deps:** bump valida from 0.2.0 to 0.7.5
+* **deps:** bump fasteners from 0.17.3 to 0.19
+* **deps:** bump click from 8.0.4 to 8.1.8
+* **deps:** bump hpcflow/github-support from 0.1 to 0.3
+* **deps:** bump softprops/action-gh-release from 1 to 2
+* **deps:** bump actions/upload-artifact from 3 to 4
+* **deps:** bump Vampire/setup-wsl from 3 to 5
+* **deps-dev:** bump black from 22.12.0 to 25.1.0
+
+
 <a name="v0.2.0a210"></a>
 ## [v0.2.0a210](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a209...v0.2.0a210) - 2025.04.10
 
