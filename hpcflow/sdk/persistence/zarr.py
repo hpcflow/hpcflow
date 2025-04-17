@@ -462,9 +462,9 @@ class ZarrPersistentStore(
                 app, name="attrs", open_call=self._get_root_group
             ),
         }
-        self._jobscript_at_submit_metadata: dict[
-            int, dict[str, Any]
-        ] = {}  # this is a cache
+        self._jobscript_at_submit_metadata: dict[int, dict[str, Any]] = (
+            {}
+        )  # this is a cache
 
         # these are caches; keys are submission index and then tuples of
         # (jobscript index, jobscript-block index):
@@ -472,9 +472,9 @@ class ZarrPersistentStore(
         self._jobscript_task_element_maps: dict[
             int, dict[tuple[int, int], dict[int, list[int]]]
         ] = {}
-        self._jobscript_task_actions_arrays: dict[
-            int, dict[tuple[int, int], NDArray]
-        ] = {}
+        self._jobscript_task_actions_arrays: dict[int, dict[tuple[int, int], NDArray]] = (
+            {}
+        )
         self._jobscript_dependencies: dict[
             int,
             dict[
@@ -1904,9 +1904,9 @@ class ZarrPersistentStore(
             arr_idx = 0
             for js_idx_i, js_blk_shapes in enumerate(block_shapes):
                 for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
-                    self._jobscript_run_ID_arrays[sub_idx][
-                        (js_idx_i, blk_idx_j)
-                    ] = arr_dat[arr_idx, : blk_shape_j[0], : blk_shape_j[1]]
+                    self._jobscript_run_ID_arrays[sub_idx][(js_idx_i, blk_idx_j)] = (
+                        arr_dat[arr_idx, : blk_shape_j[0], : blk_shape_j[1]]
+                    )
                     arr_idx += 1
 
         else:
@@ -2044,9 +2044,9 @@ class ZarrPersistentStore(
             # for a given submission, dependencies are stored for all jobscript-blocks in
             # the same array (and chunk), so retrieve all of them and cache:
             arr = self._get_jobscripts_dependencies_arr(sub_idx)
-            self._jobscript_dependencies[
-                sub_idx
-            ] = self._decode_jobscript_block_dependencies(arr)
+            self._jobscript_dependencies[sub_idx] = (
+                self._decode_jobscript_block_dependencies(arr)
+            )
         else:
             self.logger.debug(
                 f"retrieving jobscript-block dependencies for submission {sub_idx} from "

@@ -464,8 +464,7 @@ class ElementActionRun(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> Mapping[str, ParamSource | list[ParamSource]]:
-        ...
+    ) -> Mapping[str, ParamSource | list[ParamSource]]: ...
 
     @overload
     def get_parameter_sources(
@@ -475,8 +474,7 @@ class ElementActionRun(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> Mapping[str, str]:
-        ...
+    ) -> Mapping[str, str]: ...
 
     @TimeIt.decorator
     def get_parameter_sources(
@@ -552,12 +550,12 @@ class ElementActionRun(AppAware):
         )
 
     @overload
-    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_EAR_dependencies(self, as_objects: Literal[True]) -> list[ElementActionRun]:
-        ...
+    def get_EAR_dependencies(
+        self, as_objects: Literal[True]
+    ) -> list[ElementActionRun]: ...
 
     @TimeIt.decorator
     def get_EAR_dependencies(self, as_objects=False) -> list[ElementActionRun] | set[int]:
@@ -592,12 +590,10 @@ class ElementActionRun(AppAware):
         }
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]: ...
 
     def get_dependent_EARs(
         self, as_objects: bool = False
@@ -865,9 +861,9 @@ class ElementActionRun(AppAware):
                 "Cannot get output file parser inputs from this from EAR because the "
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
-        inputs: dict[
-            str, str | list[str] | Mapping[str, Any]
-        ] = {}  # not sure this type is correct
+        inputs: dict[str, str | list[str] | Mapping[str, Any]] = (
+            {}
+        )  # not sure this type is correct
         for inp_typ in self.action.output_file_parsers[0].inputs or []:
             inputs[inp_typ] = self.get(f"inputs.{inp_typ}", raise_on_unset=raise_on_unset)
 
@@ -1130,8 +1126,7 @@ class ElementActionRun(AppAware):
         jobscript: Jobscript,
         environments: EnvironmentsList,
         raise_on_unset: Literal[True],
-    ) -> Path:
-        ...
+    ) -> Path: ...
 
     @overload
     def try_write_commands(
@@ -1139,8 +1134,7 @@ class ElementActionRun(AppAware):
         jobscript: Jobscript,
         environments: EnvironmentsList,
         raise_on_unset: Literal[False] = False,
-    ) -> Path | None:
-        ...
+    ) -> Path | None: ...
 
     def try_write_commands(
         self,
@@ -1395,8 +1389,7 @@ class ElementAction(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> Mapping[str, ParamSource | list[ParamSource]]:
-        ...
+    ) -> Mapping[str, ParamSource | list[ParamSource]]: ...
 
     @overload
     def get_parameter_sources(
@@ -1407,8 +1400,7 @@ class ElementAction(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> Mapping[str, str]:
-        ...
+    ) -> Mapping[str, str]: ...
 
     def get_parameter_sources(
         self,
@@ -2124,9 +2116,9 @@ class Action(JSONLike):
             for ifg in self.input_file_generators
         }
         OFPs = {
-            ofp.output.typ
-            if ofp.output
-            else f"OFP_{idx}": [out_file.label for out_file in ofp.output_files]
+            ofp.output.typ if ofp.output else f"OFP_{idx}": [
+                out_file.label for out_file in ofp.output_files
+            ]
             for idx, ofp in enumerate(self.output_file_parsers)
         }
 
@@ -2341,8 +2333,7 @@ class Action(JSONLike):
         ret_specifiers: Literal[False] = False,
         include_suffix: bool = True,
         specs_suffix_delim: str = ".",
-    ) -> tuple[str, Path]:
-        ...
+    ) -> tuple[str, Path]: ...
 
     @overload
     def get_script_artifact_name(
@@ -2352,8 +2343,7 @@ class Action(JSONLike):
         ret_specifiers: Literal[True],
         include_suffix: bool = True,
         specs_suffix_delim: str = ".",
-    ) -> tuple[str, Path, dict]:
-        ...
+    ) -> tuple[str, Path, dict]: ...
 
     def get_script_artifact_name(
         self,
@@ -2399,8 +2389,7 @@ class Action(JSONLike):
         script: str,
         env_spec: Mapping[str, Any] | None = None,
         ret_specifiers: Literal[False] = False,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     @classmethod
@@ -2410,8 +2399,7 @@ class Action(JSONLike):
         env_spec: Mapping[str, Any] | None = None,
         *,
         ret_specifiers: Literal[True],
-    ) -> tuple[str, dict[str, Any]]:
-        ...
+    ) -> tuple[str, dict[str, Any]]: ...
 
     @overload
     @classmethod
@@ -2421,8 +2409,7 @@ class Action(JSONLike):
         env_spec: Mapping[str, Any] | None = None,
         *,
         ret_specifiers: bool,
-    ) -> str | tuple[str, dict[str, Any]]:
-        ...
+    ) -> str | tuple[str, dict[str, Any]]: ...
 
     @classmethod
     def get_snippet_script_str(
@@ -2474,8 +2461,7 @@ class Action(JSONLike):
         env_spec: Mapping[str, Any] | None = None,
         *,
         ret_specifiers: Literal[True],
-    ) -> tuple[Path, dict[str, Any]] | None:
-        ...
+    ) -> tuple[Path, dict[str, Any]] | None: ...
 
     @classmethod
     @overload
@@ -2485,8 +2471,7 @@ class Action(JSONLike):
         env_spec: Mapping[str, Any] | None = None,
         *,
         ret_specifiers: Literal[False] = False,
-    ) -> Path | None:
-        ...
+    ) -> Path | None: ...
 
     @classmethod
     def get_snippet_script_path(

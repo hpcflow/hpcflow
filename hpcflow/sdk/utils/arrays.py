@@ -7,13 +7,11 @@ if TYPE_CHECKING:
 
 
 @overload
-def get_2D_idx(idx: int, num_cols: int) -> tuple[int, int]:
-    ...
+def get_2D_idx(idx: int, num_cols: int) -> tuple[int, int]: ...
 
 
 @overload
-def get_2D_idx(idx: NDArray, num_cols: int) -> tuple[NDArray, NDArray]:
-    ...
+def get_2D_idx(idx: NDArray, num_cols: int) -> tuple[NDArray, NDArray]: ...
 
 
 def get_2D_idx(idx: int | NDArray, num_cols: int) -> tuple[int | NDArray, int | NDArray]:

@@ -17,11 +17,9 @@ class ValidatedData(Protocol, Generic[T]):
     """
 
     @property
-    def is_valid(self) -> bool:
-        ...
+    def is_valid(self) -> bool: ...
 
-    def get_failures_string(self) -> str:
-        ...
+    def get_failures_string(self) -> str: ...
 
     cast_data: T
 
@@ -32,12 +30,10 @@ class PreparedConditionCallable(Protocol):
     """
 
     @property
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     @property
-    def args(self) -> tuple[str, ...]:
-        ...
+    def args(self) -> tuple[str, ...]: ...
 
 
 class Condition(Protocol):
@@ -46,8 +42,7 @@ class Condition(Protocol):
     """
 
     @property
-    def callable(self) -> PreparedConditionCallable:
-        ...
+    def callable(self) -> PreparedConditionCallable: ...
 
 
 class Rule(Protocol):
@@ -56,12 +51,10 @@ class Rule(Protocol):
     """
 
     @property
-    def condition(self) -> Condition:
-        ...
+    def condition(self) -> Condition: ...
 
     @property
-    def path(self) -> object:
-        ...
+    def path(self) -> object: ...
 
 
 class Schema(Protocol):
@@ -69,18 +62,14 @@ class Schema(Protocol):
     Typed profile of ``valida.Schema``.
     """
 
-    def validate(self, data: T) -> ValidatedData[T]:
-        ...
+    def validate(self, data: T) -> ValidatedData[T]: ...
 
     @property
-    def rules(self) -> Sequence[Rule]:
-        ...
+    def rules(self) -> Sequence[Rule]: ...
 
-    def add_schema(self, schema: Schema, root_path: Any = None) -> None:
-        ...
+    def add_schema(self, schema: Schema, root_path: Any = None) -> None: ...
 
-    def to_tree(self, **kwargs) -> Sequence[Mapping[str, str]]:
-        ...
+    def to_tree(self, **kwargs) -> Sequence[Mapping[str, str]]: ...
 
 
 def get_schema(filename) -> Schema:

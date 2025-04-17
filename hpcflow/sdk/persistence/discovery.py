@@ -1,6 +1,7 @@
 """
 Utilities for discovering what persistence store implementation to use.
 """
+
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from hpcflow.sdk.persistence.json import JSONPersistentStore

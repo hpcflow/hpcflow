@@ -1840,12 +1840,10 @@ class Workflow(AppAware):
         task: int
 
     @overload
-    def get_EARs_from_IDs(self, ids: Iterable[int]) -> list[ElementActionRun]:
-        ...
+    def get_EARs_from_IDs(self, ids: Iterable[int]) -> list[ElementActionRun]: ...
 
     @overload
-    def get_EARs_from_IDs(self, ids: int) -> ElementActionRun:
-        ...
+    def get_EARs_from_IDs(self, ids: int) -> ElementActionRun: ...
 
     @TimeIt.decorator
     def get_EARs_from_IDs(
@@ -2393,12 +2391,12 @@ class Workflow(AppAware):
     @overload
     def get_task_unique_names(
         self, map_to_insert_ID: Literal[False] = False
-    ) -> Sequence[str]:
-        ...
+    ) -> Sequence[str]: ...
 
     @overload
-    def get_task_unique_names(self, map_to_insert_ID: Literal[True]) -> Mapping[str, int]:
-        ...
+    def get_task_unique_names(
+        self, map_to_insert_ID: Literal[True]
+    ) -> Mapping[str, int]: ...
 
     def get_task_unique_names(
         self, map_to_insert_ID: bool = False
@@ -3072,28 +3070,24 @@ class Workflow(AppAware):
         *,
         ret_iter_IDs: Literal[False] = False,
         ret_data_idx: Literal[False] = False,
-    ) -> Sequence[tuple[int, LoopIndex[str, int]]]:
-        ...
+    ) -> Sequence[tuple[int, LoopIndex[str, int]]]: ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[False] = False, ret_data_idx: Literal[True]
-    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[Mapping[str, int], ...]]]:
-        ...
+    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[Mapping[str, int], ...]]]: ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[False] = False
-    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[int, ...]]]:
-        ...
+    ) -> Sequence[tuple[int, LoopIndex[str, int], tuple[int, ...]]]: ...
 
     @overload
     def get_iteration_task_pathway(
         self, *, ret_iter_IDs: Literal[True], ret_data_idx: Literal[True]
     ) -> Sequence[
         tuple[int, LoopIndex[str, int], tuple[int, ...], tuple[Mapping[str, int], ...]]
-    ]:
-        ...
+    ]: ...
 
     @TimeIt.decorator
     def get_iteration_task_pathway(
@@ -3242,8 +3236,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ) -> Mapping[int, Sequence[int]]:
-        ...
+    ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
     def submit(
@@ -3258,8 +3251,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def submit(
         self,
@@ -4339,9 +4331,9 @@ class Workflow(AppAware):
         # a fill value means no sub directory should be created
         T_FILL, E_FILL, I_FILL, A_FILL, R_FILL, _, _ = RUN_DIR_ARR_FILL
 
-        depth_idx_cache: dict[
-            tuple[int, int], NDArray
-        ] = {}  # keys are (max_avail, tot_elems_per_dir_level)
+        depth_idx_cache: dict[tuple[int, int], NDArray] = (
+            {}
+        )  # keys are (max_avail, tot_elems_per_dir_level)
 
         # format run directories:
         dirs = []

@@ -542,11 +542,11 @@ class SchemaInput(SchemaParameter):
                         "value": v["default_value"],
                         "label": k,
                     }
-                json_like["labels"][k][
-                    "default_value"
-                ] = cls._app.InputValue.from_json_like(
-                    json_like=inp_val_kwargs,
-                    shared_data=shared_data,
+                json_like["labels"][k]["default_value"] = (
+                    cls._app.InputValue.from_json_like(
+                        json_like=inp_val_kwargs,
+                        shared_data=shared_data,
+                    )
                 )
 
         return super().from_json_like(json_like, shared_data)
@@ -811,9 +811,9 @@ class ValueSequence(_BaseSequence):
             self._values = None
 
         self._values_group_idx: list[int] | None = None
-        self._values_are_objs: list[
-            bool
-        ] | None = None  # assigned initially on `make_persistent`
+        self._values_are_objs: list[bool] | None = (
+            None  # assigned initially on `make_persistent`
+        )
 
         self._workflow: Workflow | None = None  # assigned in `make_persistent`
         self._element_set: ElementSet | None = None  # assigned by parent `ElementSet`
