@@ -615,28 +615,29 @@ test = ["pytest"]
 
 [[package]]
 name = "commitizen"
-version = "2.42.1"
+version = "4.6.0"
 description = "Python commitizen client tool"
 optional = false
-python-versions = ">=3.6.2,<4.0.0"
+python-versions = "<4.0,>=3.9"
 groups = ["dev"]
 files = [
-    {file = "commitizen-2.42.1-py3-none-any.whl", hash = "sha256:fad7d37cfae361a859b713d4ac591859d5ca03137dd52de4e1bd208f7f45d5dc"},
-    {file = "commitizen-2.42.1.tar.gz", hash = "sha256:eac18c7c65587061aac6829534907aeb208405b8230bfd35ec08503c228a7f17"},
+    {file = "commitizen-4.6.0-py3-none-any.whl", hash = "sha256:d8861707b553c03c8b1993b7abd9e036384fdd1c57f95f6f38d5f215c53041a9"},
+    {file = "commitizen-4.6.0.tar.gz", hash = "sha256:cc1c9f8937e59a7c54321443aa49dd246e07b829e305c7cbff1d7f7e32e449fe"},
 ]
 
 [package.dependencies]
-argcomplete = ">=1.12.1,<2.1"
-charset-normalizer = ">=2.1.0,<3.0.0"
-colorama = ">=0.4.1,<0.5.0"
-decli = ">=0.5.2,<0.6.0"
+argcomplete = ">=1.12.1,<3.6"
+charset-normalizer = ">=2.1.0,<4"
+colorama = ">=0.4.1,<1.0"
+decli = ">=0.6.0,<1.0"
+importlib_metadata = {version = ">=8.0.0,<9", markers = "python_version < \"3.10\""}
 jinja2 = ">=2.10.3"
 packaging = ">=19"
 pyyaml = ">=3.08"
-questionary = ">=1.4.0,<2.0.0"
-termcolor = {version = ">=1.1,<3", markers = "python_version >= \"3.7\""}
+questionary = ">=2.0,<3.0"
+termcolor = ">=1.1,<3"
 tomlkit = ">=0.5.3,<1.0.0"
-typing-extensions = ">=4.0.1,<5.0.0"
+typing-extensions = {version = ">=4.0.1,<5.0.0", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "cryptography"
@@ -726,14 +727,14 @@ files = [
 
 [[package]]
 name = "decli"
-version = "0.5.2"
+version = "0.6.2"
 description = "Minimal, easy-to-use, declarative cli tool"
 optional = false
-python-versions = ">=3.6"
+python-versions = ">=3.7"
 groups = ["dev"]
 files = [
-    {file = "decli-0.5.2-py3-none-any.whl", hash = "sha256:d3207bc02d0169bf6ed74ccca09ce62edca0eb25b0ebf8bf4ae3fb8333e15ca0"},
-    {file = "decli-0.5.2.tar.gz", hash = "sha256:f2cde55034a75c819c630c7655a844c612f2598c42c21299160465df6ad463ad"},
+    {file = "decli-0.6.2-py3-none-any.whl", hash = "sha256:2fc84106ce9a8f523ed501ca543bdb7e416c064917c12a59ebdc7f311a97b7ed"},
+    {file = "decli-0.6.2.tar.gz", hash = "sha256:36f71eb55fd0093895efb4f416ec32b7f6e00147dda448e3365cf73ceab42d6f"},
 ]
 
 [[package]]
@@ -3029,21 +3030,18 @@ cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
 name = "questionary"
-version = "1.10.0"
+version = "2.1.0"
 description = "Python library to build pretty command line user prompts ⭐️"
 optional = false
-python-versions = ">=3.6,<4.0"
+python-versions = ">=3.8"
 groups = ["dev"]
 files = [
-    {file = "questionary-1.10.0-py3-none-any.whl", hash = "sha256:fecfcc8cca110fda9d561cb83f1e97ecbb93c613ff857f655818839dac74ce90"},
-    {file = "questionary-1.10.0.tar.gz", hash = "sha256:600d3aefecce26d48d97eee936fdb66e4bc27f934c3ab6dd1e292c4f43946d90"},
+    {file = "questionary-2.1.0-py3-none-any.whl", hash = "sha256:44174d237b68bc828e4878c763a9ad6790ee61990e0ae72927694ead57bab8ec"},
+    {file = "questionary-2.1.0.tar.gz", hash = "sha256:6302cdd645b19667d8f6e6634774e9538bfcd1aad9be287e743d96cacaf95587"},
 ]
 
 [package.dependencies]
 prompt_toolkit = ">=2.0,<4.0"
-
-[package.extras]
-docs = ["Sphinx (>=3.3,<4.0)", "sphinx-autobuild (>=2020.9.1,<2021.0.0)", "sphinx-autodoc-typehints (>=1.11.1,<2.0.0)", "sphinx-copybutton (>=0.3.1,<0.4.0)", "sphinx-rtd-theme (>=0.5.0,<0.6.0)"]
 
 [[package]]
 name = "referencing"
@@ -4480,4 +4478,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<3.14"
-content-hash = "c9f10868c4bbf52bf03399b4e14c35c919a85260eeefa3128a62180c797ea1ba"
+content-hash = "bd023b6ed4d47a24fcd1974b3594b3e98e316c1d800b8f88d3e7a506f2ec159b"
