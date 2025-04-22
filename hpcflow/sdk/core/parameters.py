@@ -14,7 +14,7 @@ from typing import TypeVar, cast, TYPE_CHECKING
 from typing_extensions import override, TypeIs
 
 import numpy as np
-from scipy.stats.qmc import LatinHypercube
+from scipy.stats.qmc import LatinHypercube, scale
 from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
@@ -1583,13 +1583,14 @@ class MultiPathSequence(_BaseSequence):
         cls,
         paths: Sequence[str],
         num_samples: int,
+        bounds: dict[str,Sequence[float]],
         *,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
         rng=None,
     ) -> NDArray:
-
+        
         num_paths = len(paths)
         kwargs = dict(
             d=num_paths,
@@ -1598,19 +1599,29 @@ class MultiPathSequence(_BaseSequence):
             optimization=optimization,
             rng=rng,
         )
+
+        parameter_ranges = np.array([bounds[path] if path in bounds else [0,1] for path in paths]).T
+
+        lower_bound = parameter_ranges[0]
+        upper_bound = parameter_ranges[1]
+
         try:
             sampler = LatinHypercube(**kwargs)
         except TypeError:
             # `rng` was previously (<1.15.0) `seed`:
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
-        return sampler.random(n=num_samples).T
+
+        samples = scale(sampler.random(n=num_samples),lower_bound,upper_bound).T
+
+        return samples
 
     @classmethod
     def from_latin_hypercube(
         cls,
         paths: Sequence[str],
         num_samples: int,
+        bounds: dict[str,Sequence[float]],
         *,
         scramble: bool = True,
         strength: int = 1,
@@ -1629,6 +1640,7 @@ class MultiPathSequence(_BaseSequence):
             "strength": strength,
             "optimization": optimization,
             "rng": rng,
+            "bounds": bounds,
         }
         values = cls._values_from_latin_hypercube(**kwargs)
         assert values is not None
