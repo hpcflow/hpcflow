@@ -35,14 +35,6 @@ class SlurmPosix(QueuedScheduler):
     """
     A scheduler that uses SLURM.
 
-    Keyword Args
-    ------------
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    shebang_args: str
-        Arguments to set on the shebang line. Pre-quoted.
-    options: dict
-        Options to the jobscript command.
 
     Notes
     -----
@@ -59,10 +51,6 @@ class SlurmPosix(QueuedScheduler):
 
     """
 
-    #: Default shell.
-    DEFAULT_SHELL_EXECUTABLE: ClassVar[str] = "/bin/bash"
-    #: Default args for shebang line.
-    DEFAULT_SHEBANG_ARGS: ClassVar[str] = ""
     #: Default submission command.
     DEFAULT_SUBMIT_CMD: ClassVar[str] = "sbatch"
     #: Default command to show the queue state.
@@ -368,7 +356,7 @@ class SlurmPosix(QueuedScheduler):
             yield f"{self.js_cmd} --error {base}.err"
 
     @override
-    def format_options(
+    def format_directives(
         self,
         resources: ElementResources,
         num_elements: int,
@@ -377,7 +365,7 @@ class SlurmPosix(QueuedScheduler):
         js_idx: int,
     ) -> str:
         """
-        Format the options to the scheduler.
+        Format the directives to the scheduler.
         """
         opts: list[str] = []
         opts.extend(self.__format_core_request_lines(resources))
@@ -391,7 +379,7 @@ class SlurmPosix(QueuedScheduler):
             )
         )
 
-        for opt_k, opt_v in self.options.items():
+        for opt_k, opt_v in self.directives.items():
             if isinstance(opt_v, list):
                 for i in opt_v:
                     opts.append(f"{self.js_cmd} {opt_k} {i}")

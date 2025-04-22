@@ -468,7 +468,11 @@ def test_unique_schedulers_two_direct_and_SLURM(new_null_config, tmp_path) -> No
 
 def test_scheduler_config_defaults(new_null_config, tmp_path) -> None:
     """Check default options defined in the config are merged into jobscript resources."""
-    hf.config.set("schedulers.direct.defaults.options", {"a": "c"})
+
+    # note we use the `shebang_executable` for this test. On Windows, this will not be
+    # included in the jobscript, so it is effectively ignored, but the test is still
+    # valid.
+    hf.config.set("schedulers.direct.defaults.shebang_executable", ["/bin/bash"])
 
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -479,7 +483,10 @@ def test_scheduler_config_defaults(new_null_config, tmp_path) -> None:
         schema=hf.task_schemas.test_t1_ps,
         inputs={"p1": 1},
         resources={
-            "any": {"scheduler": "direct", "scheduler_args": {"options": {"a": "b"}}}
+            "any": {
+                "scheduler": "direct",
+                "scheduler_args": {"shebang_executable": ["bash"]},
+            }
         },
     )
     wkt = hf.WorkflowTemplate(name="temp", tasks=[t1, t2])
@@ -489,5 +496,7 @@ def test_scheduler_config_defaults(new_null_config, tmp_path) -> None:
     )
     sub = wk.add_submission()
     assert sub is not None
-    assert sub.jobscripts[0].resources.scheduler_args == {"options": {"a": "c"}}
-    assert sub.jobscripts[1].resources.scheduler_args == {"options": {"a": "b"}}
+    assert sub.jobscripts[0].resources.scheduler_args == {
+        "shebang_executable": ["/bin/bash"]
+    }
+    assert sub.jobscripts[1].resources.scheduler_args == {"shebang_executable": ["bash"]}

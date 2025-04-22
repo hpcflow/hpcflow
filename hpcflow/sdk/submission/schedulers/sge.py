@@ -37,12 +37,6 @@ class SGEPosix(QueuedScheduler):
     ------------
     cwd_switch: str
         Override of default switch to use to set the current working directory.
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    shebang_args: str
-        Arguments to set on the shebang line. Pre-quoted.
-    options: dict
-        Options to the jobscript command.
 
     Notes
     -----
@@ -55,8 +49,6 @@ class SGEPosix(QueuedScheduler):
 
     """
 
-    #: Default args for shebang line.
-    DEFAULT_SHEBANG_ARGS: ClassVar[str] = ""
     #: Default submission command.
     DEFAULT_SUBMIT_CMD: ClassVar[str] = "qsub"
     #: Default command to show the queue state.
@@ -203,7 +195,7 @@ class SGEPosix(QueuedScheduler):
             yield f"{self.js_cmd} -e {base}"
 
     @override
-    def format_options(
+    def format_directives(
         self,
         resources: ElementResources,
         num_elements: int,
@@ -212,7 +204,7 @@ class SGEPosix(QueuedScheduler):
         js_idx: int,
     ) -> str:
         """
-        Format the options to the jobscript command.
+        Format the directives to the jobscript command.
         """
         opts: list[str] = []
         opts.append(self.format_switch(self.cwd_switch))
@@ -226,7 +218,7 @@ class SGEPosix(QueuedScheduler):
             )
         )
 
-        for opt_k, opt_v in self.options.items():
+        for opt_k, opt_v in self.directives.items():
             if opt_v is None:
                 opts.append(f"{self.js_cmd} {opt_k}")
             elif isinstance(opt_v, list):

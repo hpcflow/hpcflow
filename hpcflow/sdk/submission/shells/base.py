@@ -79,30 +79,39 @@ class Shell(ABC):
     #: Template for the jobscript footer.
     JS_FOOTER: ClassVar[str]
 
-    __slots__ = ("_executable", "os_args")
+    __slots__ = ("_executable", "executable_args", "os_args")
 
     def __init__(
-        self, executable: str | None = None, os_args: dict[str, str] | None = None
+        self,
+        executable: str | None = None,
+        executable_args: list[str] | None = None,
+        os_args: dict[str, str] | None = None,
     ):
         #: Which executable implements the shell.
         self._executable = executable or self.DEFAULT_EXE
+        #: Arguments to provide to the shell executable (e.g. `--login`).
+        self.executable_args = executable_args or []
         #: Arguments to pass to the shell.
         self.os_args = os_args or {}
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        return self._executable == other._executable and self.os_args == other.os_args
+        return (
+            self._executable == other._executable
+            and self.executable_args == other.executable_args
+            and self.os_args == other.os_args
+        )
 
     def __hash__(self):
-        return get_hash((self._executable, self.os_args))
+        return get_hash((self._executable, tuple(self.executable_args), self.os_args))
 
     @property
     def executable(self) -> list[str]:
         """
         The executable to use plus any mandatory arguments.
         """
-        return [self._executable]
+        return [self._executable, *self.executable_args]
 
     @property
     def shebang_executable(self) -> list[str]:
