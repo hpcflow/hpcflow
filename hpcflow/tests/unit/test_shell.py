@@ -118,9 +118,7 @@ def test_executable_args_bash_login(null_config, tmp_path: Path):
     )
     t1 = hf.Task(
         schema=s1,
-        resources={
-            "any": {"shell": "wsl", "shell_args": {"executable_args": ["--login"]}}
-        },
+        resources={"any": {"shell_args": {"executable_args": ["--login"]}}},
     )
     wkt = hf.WorkflowTemplate(name="test_bash_login", tasks=[t1])
     wk = hf.Workflow.from_template(
