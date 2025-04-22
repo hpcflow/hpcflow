@@ -35,6 +35,13 @@ class SlurmPosix(QueuedScheduler):
     """
     A scheduler that uses SLURM.
 
+    Keyword Args
+    ------------
+    directives: dict
+        Scheduler directives. Each item is written verbatim in the jobscript as a
+        scheduler directive, and is not processed in any way. If a value is `None`, the
+        key is considered a flag-like directive. If a value is a list, multiple directives
+        will be printed to the jobscript with the same key, but different values.
 
     Notes
     -----
