@@ -214,7 +214,7 @@ class QueuedScheduler(Scheduler[str]):
                 f"{self.__class__.__name__!r}: Please use `directives` instead of "
                 f"`options`, which will be removed in a future release."
             )
-            self.directives = options
+            directives = options
 
         self.directives = directives or {}
         self.submit_cmd: str = submit_cmd or self.DEFAULT_SUBMIT_CMD
