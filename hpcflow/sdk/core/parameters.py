@@ -1583,14 +1583,14 @@ class MultiPathSequence(_BaseSequence):
         cls,
         paths: Sequence[str],
         num_samples: int,
-        bounds: dict[str,Sequence[float]],
+        bounds: dict[str, Sequence[float]],
         *,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
         rng=None,
     ) -> NDArray:
-        
+
         num_paths = len(paths)
         kwargs = dict(
             d=num_paths,
@@ -1600,7 +1600,9 @@ class MultiPathSequence(_BaseSequence):
             rng=rng,
         )
 
-        parameter_ranges = np.array([bounds[path] if path in bounds else [0,1] for path in paths]).T
+        parameter_ranges = np.array(
+            [bounds[path] if path in bounds else [0, 1] for path in paths]
+        ).T
 
         lower_bound = parameter_ranges[0]
         upper_bound = parameter_ranges[1]
@@ -1612,7 +1614,7 @@ class MultiPathSequence(_BaseSequence):
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
 
-        samples = scale(sampler.random(n=num_samples),lower_bound,upper_bound).T
+        samples = scale(sampler.random(n=num_samples), lower_bound, upper_bound).T
 
         return samples
 
@@ -1621,7 +1623,7 @@ class MultiPathSequence(_BaseSequence):
         cls,
         paths: Sequence[str],
         num_samples: int,
-        bounds: dict[str,Sequence[float]],
+        bounds: dict[str, Sequence[float]],
         *,
         scramble: bool = True,
         strength: int = 1,
