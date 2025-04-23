@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import sys
 import time
 from typing import Generic, TypeVar, TYPE_CHECKING
+import warnings
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
@@ -210,9 +211,11 @@ class QueuedScheduler(Scheduler[str]):
         super().__init__(*args, **kwargs)
 
         if options:
-            DeprecationWarning(
+            warnings.warn(
                 f"{self.__class__.__name__!r}: Please use `directives` instead of "
-                f"`options`, which will be removed in a future release."
+                f"`options`, which will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
             )
             directives = options
 
