@@ -7,9 +7,17 @@ updates:
       interval: weekly
     reviewers:
       - aplowman
+    groups:
+      pip-dependencies:
+        patterns:
+          - "*"
   - directory: /
     package-ecosystem: github-actions
     schedule:
       interval: weekly
     reviewers:
       - aplowman
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
