@@ -874,8 +874,7 @@ class ElementIteration(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> Mapping[str, str]:
-        ...
+    ) -> Mapping[str, str]: ...
 
     @overload
     def get_parameter_sources(
@@ -887,8 +886,7 @@ class ElementIteration(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> Mapping[str, ParamSource | list[ParamSource]]:
-        ...
+    ) -> Mapping[str, ParamSource | list[ParamSource]]: ...
 
     @TimeIt.decorator
     def get_parameter_sources(
@@ -980,15 +978,13 @@ class ElementIteration(AppAware):
     def get_EAR_dependencies(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @overload
     def get_EAR_dependencies(
         self,
         as_objects: Literal[True],
-    ) -> list[ElementActionRun]:
-        ...
+    ) -> list[ElementActionRun]: ...
 
     @TimeIt.decorator
     def get_EAR_dependencies(
@@ -1023,14 +1019,12 @@ class ElementIteration(AppAware):
     @overload
     def get_element_iteration_dependencies(
         self, as_objects: Literal[True]
-    ) -> list[ElementIteration]:
-        ...
+    ) -> list[ElementIteration]: ...
 
     @overload
     def get_element_iteration_dependencies(
         self, as_objects: Literal[False] = False
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @TimeIt.decorator
     def get_element_iteration_dependencies(
@@ -1048,15 +1042,13 @@ class ElementIteration(AppAware):
     def get_element_dependencies(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @overload
     def get_element_dependencies(
         self,
         as_objects: Literal[True],
-    ) -> list[Element]:
-        ...
+    ) -> list[Element]: ...
 
     @TimeIt.decorator
     def get_element_dependencies(
@@ -1085,12 +1077,10 @@ class ElementIteration(AppAware):
         return out
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     def get_task_dependencies(
         self, as_objects: bool = False
@@ -1128,12 +1118,10 @@ class ElementIteration(AppAware):
             yield from elem.iterations
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]: ...
 
     @TimeIt.decorator
     def get_dependent_EARs(
@@ -1157,14 +1145,12 @@ class ElementIteration(AppAware):
     @overload
     def get_dependent_element_iterations(
         self, as_objects: Literal[True]
-    ) -> list[ElementIteration]:
-        ...
+    ) -> list[ElementIteration]: ...
 
     @overload
     def get_dependent_element_iterations(
         self, as_objects: Literal[False] = False
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @TimeIt.decorator
     def get_dependent_element_iterations(
@@ -1187,15 +1173,13 @@ class ElementIteration(AppAware):
     def get_dependent_elements(
         self,
         as_objects: Literal[True],
-    ) -> list[Element]:
-        ...
+    ) -> list[Element]: ...
 
     @overload
     def get_dependent_elements(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @TimeIt.decorator
     def get_dependent_elements(
@@ -1220,15 +1204,13 @@ class ElementIteration(AppAware):
     def get_dependent_tasks(
         self,
         as_objects: Literal[True],
-    ) -> list[WorkflowTask]:
-        ...
+    ) -> list[WorkflowTask]: ...
 
     @overload
     def get_dependent_tasks(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     def get_dependent_tasks(
         self,
@@ -1644,8 +1626,7 @@ class Element(AppAware):
         typ: str | None = None,
         as_strings: Literal[False] = False,
         use_task_index: bool = False,
-    ) -> Mapping[str, ParamSource | list[ParamSource]]:
-        ...
+    ) -> Mapping[str, ParamSource | list[ParamSource]]: ...
 
     @overload
     def get_parameter_sources(
@@ -1657,8 +1638,7 @@ class Element(AppAware):
         typ: str | None = None,
         as_strings: Literal[True],
         use_task_index: bool = False,
-    ) -> Mapping[str, str]:
-        ...
+    ) -> Mapping[str, str]: ...
 
     def get_parameter_sources(
         self,
@@ -1716,12 +1696,12 @@ class Element(AppAware):
         )
 
     @overload
-    def get_EAR_dependencies(self, as_objects: Literal[True]) -> list[ElementActionRun]:
-        ...
+    def get_EAR_dependencies(
+        self, as_objects: Literal[True]
+    ) -> list[ElementActionRun]: ...
 
     @overload
-    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_EAR_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @TimeIt.decorator
     def get_EAR_dependencies(
@@ -1735,14 +1715,12 @@ class Element(AppAware):
     @overload
     def get_element_iteration_dependencies(
         self, as_objects: Literal[True]
-    ) -> list[ElementIteration]:
-        ...
+    ) -> list[ElementIteration]: ...
 
     @overload
     def get_element_iteration_dependencies(
         self, as_objects: Literal[False] = False
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     def get_element_iteration_dependencies(
         self, as_objects: bool = False
@@ -1756,12 +1734,12 @@ class Element(AppAware):
         return self.latest_iteration.get_element_iteration_dependencies()
 
     @overload
-    def get_element_dependencies(self, as_objects: Literal[True]) -> list[Element]:
-        ...
+    def get_element_dependencies(self, as_objects: Literal[True]) -> list[Element]: ...
 
     @overload
-    def get_element_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_element_dependencies(
+        self, as_objects: Literal[False] = False
+    ) -> set[int]: ...
 
     def get_element_dependencies(
         self, as_objects: bool = False
@@ -1777,12 +1755,10 @@ class Element(AppAware):
         return self.latest_iteration.get_input_dependencies()
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     def get_task_dependencies(
         self, as_objects: bool = False
@@ -1797,12 +1773,10 @@ class Element(AppAware):
         return self.latest_iteration.get_task_dependencies()
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[True]) -> list[ElementActionRun]: ...
 
     @overload
-    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_EARs(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     def get_dependent_EARs(
         self, as_objects: bool = False
@@ -1815,14 +1789,12 @@ class Element(AppAware):
     @overload
     def get_dependent_element_iterations(
         self, as_objects: Literal[True]
-    ) -> list[ElementIteration]:
-        ...
+    ) -> list[ElementIteration]: ...
 
     @overload
     def get_dependent_element_iterations(
         self, as_objects: Literal[False] = False
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     def get_dependent_element_iterations(
         self, as_objects: bool = False
@@ -1834,12 +1806,10 @@ class Element(AppAware):
         return self.latest_iteration.get_dependent_element_iterations()
 
     @overload
-    def get_dependent_elements(self, as_objects: Literal[True]) -> list[Element]:
-        ...
+    def get_dependent_elements(self, as_objects: Literal[True]) -> list[Element]: ...
 
     @overload
-    def get_dependent_elements(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_elements(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     def get_dependent_elements(
         self, as_objects: bool = False
@@ -1850,12 +1820,10 @@ class Element(AppAware):
         return self.latest_iteration.get_dependent_elements()
 
     @overload
-    def get_dependent_tasks(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_dependent_tasks(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     @overload
-    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     def get_dependent_tasks(
         self, as_objects: bool = False

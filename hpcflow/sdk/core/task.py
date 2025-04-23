@@ -629,12 +629,10 @@ class ElementSet(JSONLike):
         return [it.id_ for it in self.element_iterations]
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     def get_task_dependencies(
         self, as_objects: bool = False
@@ -2583,8 +2581,7 @@ class WorkflowTask(AppAware):
             | None
         ) = None,
         return_indices: Literal[True],
-    ) -> list[int]:
-        ...
+    ) -> list[int]: ...
 
     @overload
     def add_elements(
@@ -2606,8 +2603,7 @@ class WorkflowTask(AppAware):
             | None
         ) = None,
         return_indices: Literal[False] = False,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def add_elements(
         self,
@@ -2763,15 +2759,13 @@ class WorkflowTask(AppAware):
     def get_element_dependencies(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @overload
     def get_element_dependencies(
         self,
         as_objects: Literal[True],
-    ) -> list[Element]:
-        ...
+    ) -> list[Element]: ...
 
     def get_element_dependencies(
         self,
@@ -2793,12 +2787,10 @@ class WorkflowTask(AppAware):
         return deps
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_task_dependencies(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     def get_task_dependencies(
         self,
@@ -2833,12 +2825,10 @@ class WorkflowTask(AppAware):
     def get_dependent_elements(
         self,
         as_objects: Literal[False] = False,
-    ) -> set[int]:
-        ...
+    ) -> set[int]: ...
 
     @overload
-    def get_dependent_elements(self, as_objects: Literal[True]) -> list[Element]:
-        ...
+    def get_dependent_elements(self, as_objects: Literal[True]) -> list[Element]: ...
 
     def get_dependent_elements(
         self,
@@ -2861,12 +2851,10 @@ class WorkflowTask(AppAware):
         return deps
 
     @overload
-    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> set[int]:
-        ...
+    def get_dependent_tasks(self, as_objects: Literal[False] = False) -> set[int]: ...
 
     @overload
-    def get_dependent_tasks(self, as_objects: Literal[True]) -> list[WorkflowTask]:
-        ...
+    def get_dependent_tasks(self, as_objects: Literal[True]) -> list[WorkflowTask]: ...
 
     @TimeIt.decorator
     def get_dependent_tasks(
@@ -3436,15 +3424,13 @@ class Elements:
     def __getitem__(
         self,
         selection: int,
-    ) -> Element:
-        ...
+    ) -> Element: ...
 
     @overload
     def __getitem__(
         self,
         selection: slice | list[int],
-    ) -> list[Element]:
-        ...
+    ) -> list[Element]: ...
 
     @TimeIt.decorator
     def __getitem__(
@@ -3519,12 +3505,12 @@ class Parameters(AppAware):
         yield from self.__getitem__(slice(None))
 
     @overload
-    def __getitem__(self, selection: int) -> Any | ElementParameter:
-        ...
+    def __getitem__(self, selection: int) -> Any | ElementParameter: ...
 
     @overload
-    def __getitem__(self, selection: slice | list[int]) -> list[Any | ElementParameter]:
-        ...
+    def __getitem__(
+        self, selection: slice | list[int]
+    ) -> list[Any | ElementParameter]: ...
 
     def __getitem__(
         self,

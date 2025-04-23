@@ -33,13 +33,11 @@ def callback_vars(config: Config, value) -> str:
 
 
 @overload
-def callback_file_paths(config: Config, file_path: PathLike) -> PathLike:
-    ...
+def callback_file_paths(config: Config, file_path: PathLike) -> PathLike: ...
 
 
 @overload
-def callback_file_paths(config: Config, file_path: list[PathLike]) -> list[PathLike]:
-    ...
+def callback_file_paths(config: Config, file_path: list[PathLike]) -> list[PathLike]: ...
 
 
 def callback_file_paths(config: Config, file_path: PathLike | list[PathLike]):
@@ -67,18 +65,15 @@ def callback_bool(config: Config, value: str | bool) -> bool:
 
 
 @overload
-def callback_lowercase(config: Config, value: list[str]) -> list[str]:
-    ...
+def callback_lowercase(config: Config, value: list[str]) -> list[str]: ...
 
 
 @overload
-def callback_lowercase(config: Config, value: dict[str, T]) -> dict[str, T]:
-    ...
+def callback_lowercase(config: Config, value: dict[str, T]) -> dict[str, T]: ...
 
 
 @overload
-def callback_lowercase(config: Config, value: str) -> str:
-    ...
+def callback_lowercase(config: Config, value: str) -> str: ...
 
 
 def callback_lowercase(

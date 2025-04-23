@@ -408,7 +408,7 @@ class TaskSchema(JSONLike):
             return type_fmt
 
         def _prepare_script_data_format_table(
-            script_data_grouped: Mapping[str, Mapping[str, Mapping[str, str]]]
+            script_data_grouped: Mapping[str, Mapping[str, Mapping[str, str]]],
         ) -> str:
             out = ""
             rows = ""
