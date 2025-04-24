@@ -1600,8 +1600,7 @@ class MultiPathSequence(_BaseSequence):
             rng=rng,
         )
 
-        if bounds == None:
-            bounds = {}
+        bounds = bounds or {}
 
         parameter_ranges = np.array(
             [bounds.get(path, [0, 1]) for path in paths]
