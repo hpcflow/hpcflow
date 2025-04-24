@@ -1583,8 +1583,8 @@ class MultiPathSequence(_BaseSequence):
         cls,
         paths: Sequence[str],
         num_samples: int,
-        bounds: dict[str, Sequence[float]],
         *,
+        bounds: dict[str, Sequence[float]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1600,8 +1600,11 @@ class MultiPathSequence(_BaseSequence):
             rng=rng,
         )
 
+        if bounds == None:
+            bounds = {}
+
         parameter_ranges = np.array(
-            [bounds[path] if path in bounds else [0, 1] for path in paths]
+            [bounds.get(path, [0, 1]) for path in paths]
         ).T
 
         lower_bound = parameter_ranges[0]
@@ -1623,8 +1626,8 @@ class MultiPathSequence(_BaseSequence):
         cls,
         paths: Sequence[str],
         num_samples: int,
-        bounds: dict[str, Sequence[float]],
         *,
+        bounds: dict[str, Sequence[float]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
