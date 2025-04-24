@@ -1602,9 +1602,7 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        parameter_ranges = np.array(
-            [bounds.get(path, [0, 1]) for path in paths]
-        ).T
+        parameter_ranges = np.array([bounds.get(path, [0, 1]) for path in paths]).T
 
         lower_bound = parameter_ranges[0]
         upper_bound = parameter_ranges[1]
