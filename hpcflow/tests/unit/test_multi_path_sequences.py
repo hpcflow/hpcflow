@@ -169,6 +169,27 @@ def test_MPS_latin_hypercube_sequence_values():
     assert np.array_equal(np.asarray(seq_1.values), mps_values[0])
     assert np.array_equal(np.asarray(seq_2.values), mps_values[1])
 
+def test_MPS_latin_hypercube_sequence_bounds():
+    
+    bounds = {"inputs.a": [16789.2,17812.5]}
+
+    mps = hf.MultiPathSequence.from_latin_hypercube(
+        paths=["inputs.a", "inputs.b"],
+        num_samples=10,
+        bounds=bounds,
+    )
+
+    vals_arr = np.array(mps.values)
+    assert vals_arr.shape == (2, 10)
+
+    vals_0 = vals_arr[0] 
+    bounds_0 = list(bounds.values())[0]
+
+    vals_1 = vals_arr[1] 
+    bounds_1 = [0,1]
+
+    assert np.logical_and(vals_0 > bounds_0[0], vals_0 < bounds_0[1]).all()
+    assert np.logical_and(vals_1 > bounds_1[0], vals_1 < bounds_1[1]).all()
 
 def test_MPS_move_from_sequences_list():
     wft_yaml = dedent(
