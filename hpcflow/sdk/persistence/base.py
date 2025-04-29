@@ -954,28 +954,23 @@ class PersistentStore(
 
     @classmethod
     @abstractmethod
-    def _store_task_cls(cls) -> type[AnySTask]:
-        ...
+    def _store_task_cls(cls) -> type[AnySTask]: ...
 
     @classmethod
     @abstractmethod
-    def _store_elem_cls(cls) -> type[AnySElement]:
-        ...
+    def _store_elem_cls(cls) -> type[AnySElement]: ...
 
     @classmethod
     @abstractmethod
-    def _store_iter_cls(cls) -> type[AnySElementIter]:
-        ...
+    def _store_iter_cls(cls) -> type[AnySElementIter]: ...
 
     @classmethod
     @abstractmethod
-    def _store_EAR_cls(cls) -> type[AnySEAR]:
-        ...
+    def _store_EAR_cls(cls) -> type[AnySEAR]: ...
 
     @classmethod
     @abstractmethod
-    def _store_param_cls(cls) -> type[AnySParameter]:
-        ...
+    def _store_param_cls(cls) -> type[AnySParameter]: ...
 
     _resources: dict[str, StoreResource]
     _features: ClassVar[PersistentStoreFeatures]
@@ -1072,8 +1067,7 @@ class PersistentStore(
         chunk_size: int | None = None,
         backup: bool = True,
         status: bool = True,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     @abstractmethod
     def rechunk_runs(
@@ -1081,8 +1075,7 @@ class PersistentStore(
         chunk_size: int | None = None,
         backup: bool = True,
         status: bool = True,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     @abstractmethod
     def get_dirs_array(self) -> NDArray:
@@ -1361,48 +1354,42 @@ class PersistentStore(
         return _rename_path(str(replaced), str(original))
 
     @abstractmethod
-    def _get_num_persistent_tasks(self) -> int:
-        ...
+    def _get_num_persistent_tasks(self) -> int: ...
 
     def _get_num_total_tasks(self) -> int:
         """Get the total number of persistent and pending tasks."""
         return self._get_num_persistent_tasks() + len(self._pending.add_tasks)
 
     @abstractmethod
-    def _get_num_persistent_loops(self) -> int:
-        ...
+    def _get_num_persistent_loops(self) -> int: ...
 
     def _get_num_total_loops(self) -> int:
         """Get the total number of persistent and pending loops."""
         return self._get_num_persistent_loops() + len(self._pending.add_loops)
 
     @abstractmethod
-    def _get_num_persistent_submissions(self) -> int:
-        ...
+    def _get_num_persistent_submissions(self) -> int: ...
 
     def _get_num_total_submissions(self) -> int:
         """Get the total number of persistent and pending submissions."""
         return self._get_num_persistent_submissions() + len(self._pending.add_submissions)
 
     @abstractmethod
-    def _get_num_persistent_elements(self) -> int:
-        ...
+    def _get_num_persistent_elements(self) -> int: ...
 
     def _get_num_total_elements(self) -> int:
         """Get the total number of persistent and pending elements."""
         return self._get_num_persistent_elements() + len(self._pending.add_elements)
 
     @abstractmethod
-    def _get_num_persistent_elem_iters(self) -> int:
-        ...
+    def _get_num_persistent_elem_iters(self) -> int: ...
 
     def _get_num_total_elem_iters(self) -> int:
         """Get the total number of persistent and pending element iterations."""
         return self._get_num_persistent_elem_iters() + len(self._pending.add_elem_iters)
 
     @abstractmethod
-    def _get_num_persistent_EARs(self) -> int:
-        ...
+    def _get_num_persistent_EARs(self) -> int: ...
 
     @TimeIt.decorator
     def _get_num_total_EARs(self) -> int:
@@ -1414,8 +1401,7 @@ class PersistentStore(
         return len(self.get_task(task_ID).element_IDs)
 
     @abstractmethod
-    def _get_num_persistent_parameters(self) -> int:
-        ...
+    def _get_num_persistent_parameters(self) -> int: ...
 
     def _get_num_total_parameters(self) -> int:
         """Get the total number of persistent and pending parameters."""
@@ -1428,8 +1414,7 @@ class PersistentStore(
         )
 
     @abstractmethod
-    def _get_num_persistent_added_tasks(self) -> int:
-        ...
+    def _get_num_persistent_added_tasks(self) -> int: ...
 
     def _get_num_total_added_tasks(self) -> int:
         """Get the total number of tasks ever added to the workflow."""
@@ -1945,8 +1930,7 @@ class PersistentStore(
         return self._add_parameter(data=None, is_set=False, source=source, save=save)
 
     @abstractmethod
-    def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
-        ...
+    def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]): ...
 
     @writes_parameter_data
     def set_parameter_value(
@@ -2045,8 +2029,7 @@ class PersistentStore(
         return tc
 
     @abstractmethod
-    def _get_persistent_template_components(self) -> dict[str, Any]:
-        ...
+    def _get_persistent_template_components(self) -> dict[str, Any]: ...
 
     def get_template(self) -> dict[str, JSONed]:
         """
@@ -2055,8 +2038,7 @@ class PersistentStore(
         return self._get_persistent_template()
 
     @abstractmethod
-    def _get_persistent_template(self) -> dict[str, JSONed]:
-        ...
+    def _get_persistent_template(self) -> dict[str, JSONed]: ...
 
     def _get_task_id_to_idx_map(self) -> dict[int, int]:
         return {task.id_: task.index for task in self.get_tasks()}
@@ -2107,8 +2089,7 @@ class PersistentStore(
         return id_all, id_pers, id_pend
 
     @abstractmethod
-    def _get_persistent_tasks(self, id_lst: Iterable[int]) -> dict[int, AnySTask]:
-        ...
+    def _get_persistent_tasks(self, id_lst: Iterable[int]) -> dict[int, AnySTask]: ...
 
     def get_tasks_by_IDs(self, ids: Iterable[int]) -> Sequence[AnySTask]:
         """
@@ -2137,8 +2118,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_loops(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, LoopDescriptor]:
-        ...
+    ) -> dict[int, LoopDescriptor]: ...
 
     def get_loops_by_IDs(self, ids: Iterable[int]) -> dict[int, LoopDescriptor]:
         """Retrieve loops by index (ID), including pending."""
@@ -2164,8 +2144,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_submissions(
         self, id_lst: Iterable[int] | None = None
-    ) -> dict[int, Mapping[str, JSONed]]:
-        ...
+    ) -> dict[int, Mapping[str, JSONed]]: ...
 
     @TimeIt.decorator
     def get_submissions(self) -> dict[int, Mapping[str, JSONed]]:
@@ -2297,8 +2276,9 @@ class PersistentStore(
         return dict(sorted(subs.items()))
 
     @abstractmethod
-    def _get_persistent_elements(self, id_lst: Iterable[int]) -> dict[int, AnySElement]:
-        ...
+    def _get_persistent_elements(
+        self, id_lst: Iterable[int]
+    ) -> dict[int, AnySElement]: ...
 
     @TimeIt.decorator
     def get_elements(self, ids: Iterable[int]) -> Sequence[AnySElement]:
@@ -2328,8 +2308,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_element_iters(
         self, id_lst: Iterable[int]
-    ) -> dict[int, AnySElementIter]:
-        ...
+    ) -> dict[int, AnySElementIter]: ...
 
     @TimeIt.decorator
     def get_element_iterations(self, ids: Iterable[int]) -> Sequence[AnySElementIter]:
@@ -2365,8 +2344,7 @@ class PersistentStore(
         return iters_new
 
     @abstractmethod
-    def _get_persistent_EARs(self, id_lst: Iterable[int]) -> dict[int, AnySEAR]:
-        ...
+    def _get_persistent_EARs(self, id_lst: Iterable[int]) -> dict[int, AnySEAR]: ...
 
     @TimeIt.decorator
     def get_EARs(self, ids: Iterable[int]) -> Sequence[AnySEAR]:
@@ -2491,8 +2469,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_parameters(
         self, id_lst: Iterable[int], **kwargs
-    ) -> Mapping[int, AnySParameter]:
-        ...
+    ) -> Mapping[int, AnySParameter]: ...
 
     @TimeIt.decorator
     def get_parameter_set_statuses(self, ids: Iterable[int]) -> list[bool]:
@@ -2512,8 +2489,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_parameter_set_status(
         self, id_lst: Iterable[int]
-    ) -> dict[int, bool]:
-        ...
+    ) -> dict[int, bool]: ...
 
     @TimeIt.decorator
     def get_parameter_sources(self, ids: Iterable[int]) -> list[ParamSource]:
@@ -2545,8 +2521,7 @@ class PersistentStore(
     @abstractmethod
     def _get_persistent_param_sources(
         self, id_lst: Iterable[int]
-    ) -> dict[int, ParamSource]:
-        ...
+    ) -> dict[int, ParamSource]: ...
 
     @TimeIt.decorator
     def get_task_elements(
@@ -2591,8 +2566,7 @@ class PersistentStore(
             yield element.to_dict(iters_rs[idx])
 
     @abstractmethod
-    def _get_persistent_parameter_IDs(self) -> Iterable[int]:
-        ...
+    def _get_persistent_parameter_IDs(self) -> Iterable[int]: ...
 
     def check_parameters_exist(self, ids: Sequence[int]) -> Iterator[bool]:
         """
@@ -2604,133 +2578,110 @@ class PersistentStore(
         return (id_ not in id_miss for id_ in ids)
 
     @abstractmethod
-    def _append_tasks(self, tasks: Iterable[AnySTask]) -> None:
-        ...
+    def _append_tasks(self, tasks: Iterable[AnySTask]) -> None: ...
 
     @abstractmethod
-    def _append_loops(self, loops: dict[int, LoopDescriptor]) -> None:
-        ...
+    def _append_loops(self, loops: dict[int, LoopDescriptor]) -> None: ...
 
     @abstractmethod
-    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]) -> None:
-        ...
+    def _append_submissions(self, subs: dict[int, Mapping[str, JSONed]]) -> None: ...
 
     @abstractmethod
     def _update_at_submit_metadata(
         self, at_submit_metadata: dict[int, dict[str, Any]]
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def _append_elements(self, elems: Sequence[AnySElement]) -> None:
-        ...
+    def _append_elements(self, elems: Sequence[AnySElement]) -> None: ...
 
     @abstractmethod
-    def _append_element_sets(self, task_id: int, es_js: Sequence[Mapping]) -> None:
-        ...
+    def _append_element_sets(self, task_id: int, es_js: Sequence[Mapping]) -> None: ...
 
     @abstractmethod
-    def _append_elem_iter_IDs(self, elem_ID: int, iter_IDs: Iterable[int]) -> None:
-        ...
+    def _append_elem_iter_IDs(self, elem_ID: int, iter_IDs: Iterable[int]) -> None: ...
 
     @abstractmethod
-    def _append_elem_iters(self, iters: Sequence[AnySElementIter]) -> None:
-        ...
+    def _append_elem_iters(self, iters: Sequence[AnySElementIter]) -> None: ...
 
     @abstractmethod
     def _append_elem_iter_EAR_IDs(
         self, iter_ID: int, act_idx: int, EAR_IDs: Sequence[int]
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def _append_EARs(self, EARs: Sequence[AnySEAR]) -> None:
-        ...
+    def _append_EARs(self, EARs: Sequence[AnySEAR]) -> None: ...
 
     @abstractmethod
-    def _update_elem_iter_EARs_initialised(self, iter_ID: int) -> None:
-        ...
+    def _update_elem_iter_EARs_initialised(self, iter_ID: int) -> None: ...
 
     @abstractmethod
-    def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
-        ...
+    def _update_EAR_submission_data(
+        self, sub_data: Mapping[int, tuple[int, int | None]]
+    ): ...
 
     @abstractmethod
     def _update_EAR_start(
         self,
         run_starts: dict[int, tuple[datetime, dict[str, Any] | None, str, int | None]],
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
     def _update_EAR_end(
         self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def _update_EAR_skip(self, skips: dict[int, int]) -> None:
-        ...
+    def _update_EAR_skip(self, skips: dict[int, int]) -> None: ...
 
     @abstractmethod
-    def _update_js_metadata(self, js_meta: dict[int, dict[int, dict[str, Any]]]) -> None:
-        ...
+    def _update_js_metadata(
+        self, js_meta: dict[int, dict[int, dict[str, Any]]]
+    ) -> None: ...
 
     @abstractmethod
-    def _append_parameters(self, params: Sequence[AnySParameter]) -> None:
-        ...
+    def _append_parameters(self, params: Sequence[AnySParameter]) -> None: ...
 
     @abstractmethod
-    def _update_template_components(self, tc: dict[str, Any]) -> None:
-        ...
+    def _update_template_components(self, tc: dict[str, Any]) -> None: ...
 
     @abstractmethod
-    def _update_parameter_sources(self, sources: Mapping[int, ParamSource]) -> None:
-        ...
+    def _update_parameter_sources(self, sources: Mapping[int, ParamSource]) -> None: ...
 
     @abstractmethod
-    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]) -> None:
-        ...
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]) -> None: ...
 
     @abstractmethod
     def _update_loop_num_iters(
         self, index: int, num_iters: list[list[list[int] | int]]
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def _update_loop_parents(self, index: int, parents: list[str]) -> None:
-        ...
+    def _update_loop_parents(self, index: int, parents: list[str]) -> None: ...
 
     @overload
     def using_resource(
         self, res_label: Literal["metadata"], action: str
-    ) -> AbstractContextManager[Metadata]:
-        ...
+    ) -> AbstractContextManager[Metadata]: ...
 
     @overload
     def using_resource(
         self, res_label: Literal["submissions"], action: str
-    ) -> AbstractContextManager[list[dict[str, JSONed]]]:
-        ...
+    ) -> AbstractContextManager[list[dict[str, JSONed]]]: ...
 
     @overload
     def using_resource(
         self, res_label: Literal["parameters"], action: str
-    ) -> AbstractContextManager[dict[str, dict[str, Any]]]:
-        ...
+    ) -> AbstractContextManager[dict[str, dict[str, Any]]]: ...
 
     @overload
     def using_resource(
         self, res_label: Literal["runs"], action: str
-    ) -> AbstractContextManager[dict[str, Any]]:
-        ...
+    ) -> AbstractContextManager[dict[str, Any]]: ...
 
     @overload
     def using_resource(
         self, res_label: Literal["attrs"], action: str
-    ) -> AbstractContextManager[ZarrAttrsDict]:
-        ...
+    ) -> AbstractContextManager[ZarrAttrsDict]: ...
 
     @contextlib.contextmanager
     def using_resource(
@@ -2830,13 +2781,14 @@ class PersistentStore(
         raise NotImplementedError
 
     @abstractmethod
-    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray) -> None:
-        ...
+    def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray) -> None: ...
 
     @abstractmethod
-    def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]) -> None:
-        ...
+    def _update_iter_data_indices(
+        self, iter_data_indices: dict[int, DataIndex]
+    ) -> None: ...
 
     @abstractmethod
-    def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]) -> None:
-        ...
+    def _update_run_data_indices(
+        self, run_data_indices: dict[int, DataIndex]
+    ) -> None: ...

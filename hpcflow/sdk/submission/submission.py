@@ -131,9 +131,9 @@ class Submission(JSONLike):
         self._JS_parallelism = JS_parallelism
         self._environments = environments  # assigned by _set_environments
 
-        self._submission_parts_lst: list[
-            SubmissionPart
-        ] | None = None  # assigned on first access
+        self._submission_parts_lst: list[SubmissionPart] | None = (
+            None  # assigned on first access
+        )
 
         if workflow:
             #: The workflow this is part of.
@@ -171,9 +171,9 @@ class Submission(JSONLike):
         filterable = self._app.ElementResources.get_env_instance_filterable_attributes()
 
         # map required environments and executable labels to job script indices:
-        req_envs: dict[
-            tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]
-        ] = defaultdict(lambda: defaultdict(set))
+        req_envs: dict[tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]] = (
+            defaultdict(lambda: defaultdict(set))
+        )
         with self.workflow.cached_merged_parameters():
             # using the cache (for `run.env_spec_hashable` -> `run.resources`) should
             # significantly speed up this loop, unless a large resources sequence is used:
@@ -635,14 +635,12 @@ class Submission(JSONLike):
     @overload
     def get_active_jobscripts(
         self, as_json: Literal[False] = False
-    ) -> Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]]:
-        ...
+    ) -> Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]]: ...
 
     @overload
     def get_active_jobscripts(
         self, as_json: Literal[True]
-    ) -> Mapping[int, Mapping[int, Mapping[int, str]]]:
-        ...
+    ) -> Mapping[int, Mapping[int, Mapping[int, str]]]: ...
 
     @TimeIt.decorator
     def get_active_jobscripts(
@@ -788,9 +786,9 @@ class Submission(JSONLike):
             status.update("Adding new submission: writing scripts...")
 
         seen: dict[int, Path] = {}
-        combined_script_data: dict[
-            int, dict[int, list[tuple[str, Path, bool]]]
-        ] = defaultdict(lambda: defaultdict(list))
+        combined_script_data: dict[int, dict[int, list[tuple[str, Path, bool]]]] = (
+            defaultdict(lambda: defaultdict(list))
+        )
         for task in self.workflow.tasks:
             for schema in task.template.schemas:
                 if schema.name in actions_by_schema:

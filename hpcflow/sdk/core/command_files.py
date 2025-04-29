@@ -585,12 +585,10 @@ class _FileContentsSpecifier(JSONLike):
         return (self.normalised_path, [data_ref], is_new)
 
     @overload
-    def _get_value(self, value_name: None = None) -> dict[str, Any]:
-        ...
+    def _get_value(self, value_name: None = None) -> dict[str, Any]: ...
 
     @overload
-    def _get_value(self, value_name: str) -> Any:
-        ...
+    def _get_value(self, value_name: str) -> Any: ...
 
     def _get_value(self, value_name: str | None = None) -> Any:
         # TODO: fix

@@ -2,6 +2,7 @@
 Serialization and deserialization mechanism intended to map between a complex
 graph of objects and either JSON or YAML.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -70,8 +71,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[int, _JSONDeserState]:
-    ...
+) -> tuple[int, _JSONDeserState]: ...
 
 
 @overload
@@ -80,8 +80,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[float, _JSONDeserState]:
-    ...
+) -> tuple[float, _JSONDeserState]: ...
 
 
 @overload
@@ -90,8 +89,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[str, _JSONDeserState]:
-    ...
+) -> tuple[str, _JSONDeserState]: ...
 
 
 @overload
@@ -100,8 +98,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[None, _JSONDeserState]:
-    ...
+) -> tuple[None, _JSONDeserState]: ...
 
 
 @overload
@@ -110,8 +107,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[str, _JSONDeserState]:
-    ...
+) -> tuple[str, _JSONDeserState]: ...
 
 
 @overload
@@ -120,8 +116,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[Sequence[JSONed], _JSONDeserState]:
-    ...
+) -> tuple[Sequence[JSONed], _JSONDeserState]: ...
 
 
 @overload
@@ -130,8 +125,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[Sequence[JSONed], _JSONDeserState]:
-    ...
+) -> tuple[Sequence[JSONed], _JSONDeserState]: ...
 
 
 @overload
@@ -140,8 +134,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[Sequence[JSONed], _JSONDeserState]:
-    ...
+) -> tuple[Sequence[JSONed], _JSONDeserState]: ...
 
 
 @overload
@@ -150,8 +143,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
-    ...
+) -> tuple[Mapping[str, JSONed], _JSONDeserState]: ...
 
 
 @overload
@@ -160,8 +152,7 @@ def to_json_like(
     shared_data: _JSONDeserState = None,
     parent_refs: dict | None = None,
     path: list | None = None,
-) -> tuple[Mapping[str, JSONed], _JSONDeserState]:
-    ...
+) -> tuple[Mapping[str, JSONed], _JSONDeserState]: ...
 
 
 def to_json_like(
@@ -350,13 +341,13 @@ class BaseJSONLike:
     @classmethod
     def _set_class_namespace(
         cls, value: SimpleNamespace, is_dict: Literal[False] = False
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     @classmethod
-    def _set_class_namespace(cls, value: dict[str, Any], is_dict: Literal[True]) -> None:
-        ...
+    def _set_class_namespace(
+        cls, value: dict[str, Any], is_dict: Literal[True]
+    ) -> None: ...
 
     @classmethod
     def _set_class_namespace(
@@ -393,8 +384,7 @@ class BaseJSONLike:
         cls,
         json_like: str,
         shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
-    ) -> Self | None:
-        ...
+    ) -> Self | None: ...
 
     @overload
     @classmethod
@@ -402,8 +392,7 @@ class BaseJSONLike:
         cls,
         json_like: Sequence[Mapping[str, JSONed]] | Mapping[str, JSONed],
         shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
-    ) -> Self:
-        ...
+    ) -> Self: ...
 
     @overload
     @classmethod
@@ -411,8 +400,7 @@ class BaseJSONLike:
         cls,
         json_like: None,
         shared_data: Mapping[str, ObjectList[JSONable]] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @classmethod
     def from_json_like(

@@ -1,6 +1,7 @@
 """
 Adapters for various shells.
 """
+
 from __future__ import annotations
 import os
 

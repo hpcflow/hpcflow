@@ -108,8 +108,7 @@ class DirectScheduler(Scheduler[DirectRef]):
     @overload
     @override
     @classmethod
-    def wait_for_jobscripts(cls, js_refs: list[DirectRef]) -> None:
-        ...
+    def wait_for_jobscripts(cls, js_refs: list[DirectRef]) -> None: ...
 
     @overload
     @classmethod
@@ -118,8 +117,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         js_refs: list[DirectRef],
         *,
         callback: Callable[[psutil.Process], None],
-    ) -> list[psutil.Process]:
-        ...
+    ) -> list[psutil.Process]: ...
 
     @classmethod
     def wait_for_jobscripts(
