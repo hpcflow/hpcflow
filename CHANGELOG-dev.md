@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a213"></a>
+## [v0.2.0a213](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a212...v0.2.0a213) - 2025.05.02
+
+### 🐛 Bug Fixes
+
+* bump fsspec to latest
+
+### 👷 Build changes
+
+* update poetry lock
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a212"></a>
 ## [v0.2.0a212](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a211...v0.2.0a212) - 2025.05.02
 
