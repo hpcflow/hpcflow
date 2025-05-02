@@ -832,8 +832,8 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
 
         #: Where to take the snapshot based at.
         self.root_path = root_path
-        self._stat_info: dict[str, os.stat_result] = {}
-        self._inode_to_path: dict[tuple, str] = {}
+        self._stat_info: dict[bytes | str, os.stat_result] = {}
+        self._inode_to_path: dict[tuple[int, int], bytes | str] = {}
 
         if data:
             assert root_path
@@ -862,7 +862,7 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
         # store efficiently:
         inode_invert = {v: k for k, v in self._inode_to_path.items()}
         data: dict[str, list] = {
-            str(PurePath(k).relative_to(root_path)): [
+            str(PurePath(cast("str", k)).relative_to(cast("str", root_path))): [
                 str(i) if use_strings else i for i in [*v, *inode_invert[k]]
             ]
             for k, v in self._stat_info.items()
