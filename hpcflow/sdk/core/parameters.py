@@ -14,7 +14,7 @@ from typing import TypeVar, cast, TYPE_CHECKING
 from typing_extensions import override, TypeIs
 
 import numpy as np
-from scipy.stats.qmc import LatinHypercube
+from scipy.stats.qmc import LatinHypercube, scale
 from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
@@ -542,11 +542,11 @@ class SchemaInput(SchemaParameter):
                         "value": v["default_value"],
                         "label": k,
                     }
-                json_like["labels"][k][
-                    "default_value"
-                ] = cls._app.InputValue.from_json_like(
-                    json_like=inp_val_kwargs,
-                    shared_data=shared_data,
+                json_like["labels"][k]["default_value"] = (
+                    cls._app.InputValue.from_json_like(
+                        json_like=inp_val_kwargs,
+                        shared_data=shared_data,
+                    )
                 )
 
         return super().from_json_like(json_like, shared_data)
@@ -811,9 +811,9 @@ class ValueSequence(_BaseSequence):
             self._values = None
 
         self._values_group_idx: list[int] | None = None
-        self._values_are_objs: list[
-            bool
-        ] | None = None  # assigned initially on `make_persistent`
+        self._values_are_objs: list[bool] | None = (
+            None  # assigned initially on `make_persistent`
+        )
 
         self._workflow: Workflow | None = None  # assigned in `make_persistent`
         self._element_set: ElementSet | None = None  # assigned by parent `ElementSet`
@@ -1584,6 +1584,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
+        bounds: dict[str, Sequence[float]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1598,13 +1599,24 @@ class MultiPathSequence(_BaseSequence):
             optimization=optimization,
             rng=rng,
         )
+
+        bounds = bounds or {}
+
+        parameter_ranges = np.array([bounds.get(path, [0, 1]) for path in paths]).T
+
+        lower_bound = parameter_ranges[0]
+        upper_bound = parameter_ranges[1]
+
         try:
             sampler = LatinHypercube(**kwargs)
         except TypeError:
             # `rng` was previously (<1.15.0) `seed`:
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
-        return sampler.random(n=num_samples).T
+
+        samples = scale(sampler.random(n=num_samples), lower_bound, upper_bound).T
+
+        return samples
 
     @classmethod
     def from_latin_hypercube(
@@ -1612,6 +1624,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
+        bounds: dict[str, Sequence[float]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1629,6 +1642,7 @@ class MultiPathSequence(_BaseSequence):
             "strength": strength,
             "optimization": optimization,
             "rng": rng,
+            "bounds": bounds,
         }
         values = cls._values_from_latin_hypercube(**kwargs)
         assert values is not None

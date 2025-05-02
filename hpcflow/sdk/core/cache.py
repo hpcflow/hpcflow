@@ -115,9 +115,9 @@ class ObjectCache:
         num_runs = workflow.num_EARs
 
         all_store_runs: Sequence[StoreEAR] = workflow._store.get_EARs(range(num_runs))
-        all_store_iters: Sequence[
-            StoreElementIter
-        ] = workflow._store.get_element_iterations(range(num_iters))
+        all_store_iters: Sequence[StoreElementIter] = (
+            workflow._store.get_element_iterations(range(num_iters))
+        )
         all_store_elements: Sequence[StoreElement] = workflow._store.get_elements(
             range(num_elems)
         )

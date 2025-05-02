@@ -20,8 +20,8 @@ repos:
             CHANGELOG-dev.md
           )$
         always_run: false # required to respect exclude
-  - repo: https://github.com/psf/black
-    rev: 22.3.0
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 25.1.0
     hooks:
       - id: black
         args: [--line-length=90]

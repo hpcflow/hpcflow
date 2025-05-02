@@ -132,13 +132,11 @@ def check_valid_py_identifier(name: str) -> str:
 @overload
 def group_by_dict_key_values(  # type: ignore[overload-overlap]
     lst: list[dict[T, T2]], key: T
-) -> list[list[dict[T, T2]]]:
-    ...
+) -> list[list[dict[T, T2]]]: ...
 
 
 @overload
-def group_by_dict_key_values(lst: list[TD], key: str) -> list[list[TD]]:
-    ...
+def group_by_dict_key_values(lst: list[TD], key: str) -> list[list[TD]]: ...
 
 
 def group_by_dict_key_values(lst: list, key):
@@ -763,22 +761,19 @@ def reshape(lst: Sequence[T], lens: Sequence[Sequence[int]]) -> list[TList[T]]:
 @overload
 def remap(
     lst: list[int], mapping_func: Callable[[Sequence[int]], Sequence[T]]
-) -> list[T]:
-    ...
+) -> list[T]: ...
 
 
 @overload
 def remap(
     lst: list[list[int]], mapping_func: Callable[[Sequence[int]], Sequence[T]]
-) -> list[list[T]]:
-    ...
+) -> list[list[T]]: ...
 
 
 @overload
 def remap(
     lst: list[list[list[int]]], mapping_func: Callable[[Sequence[int]], Sequence[T]]
-) -> list[list[list[T]]]:
-    ...
+) -> list[list[list[T]]]: ...
 
 
 def remap(lst, mapping_func):
@@ -890,13 +885,11 @@ def open_file(filename: str | Path):
 
 
 @overload
-def get_enum_by_name_or_val(enum_cls: type[E], key: None) -> None:
-    ...
+def get_enum_by_name_or_val(enum_cls: type[E], key: None) -> None: ...
 
 
 @overload
-def get_enum_by_name_or_val(enum_cls: type[E], key: str | int | float | E) -> E:
-    ...
+def get_enum_by_name_or_val(enum_cls: type[E], key: str | int | float | E) -> E: ...
 
 
 def get_enum_by_name_or_val(
@@ -1028,9 +1021,9 @@ def dict_values_process_flat(
 
     """
     flat: list[T2] = []  # values of `d`, flattened
-    is_multi: list[
-        tuple[bool, int]
-    ] = []  # whether a list, and the number of items to process
+    is_multi: list[tuple[bool, int]] = (
+        []
+    )  # whether a list, and the number of items to process
     for i in d.values():
         if isinstance(i, list):
             flat.extend(cast("list[T2]", i))

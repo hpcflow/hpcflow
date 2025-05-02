@@ -1,4 +1,26 @@
 
+<a name="v0.2.0a212"></a>
+## [v0.2.0a212](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a211...v0.2.0a212) - 2025.05.02
+
+### 🐛 Bug Fixes
+
+* update dependabot to ignore zarr updates
+* remove hard-coded python version in black pre-commit hook
+
+### 👷 Build changes
+
+* merge in develop
+* group dependabot PRs for each package ecosystem
+* update binary download links file [skip ci]
+* **deps:** bump actions/setup-python from 4 to 5
+* **deps:** bump typing-extensions from 4.13.0 to 4.13.2
+* **deps:** bump actions/download-artifact from 3 to 4
+* **deps-dev:** bump commitizen from 2.42.1 to 4.6.0
+* **deps-dev:** bump scipy-stubs from 1.15.2.1 to 1.15.2.2
+* **deps-dev:** bump sphinx-click from 4.4.0 to 6.0.0
+* **deps-dev:** bump pre-commit from 2.21.0 to 4.2.0
+
+
 <a name="v0.2.0a211"></a>
 ## [v0.2.0a211](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a210...v0.2.0a211) - 2025.04.15
 

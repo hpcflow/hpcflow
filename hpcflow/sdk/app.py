@@ -178,8 +178,7 @@ if TYPE_CHECKING:
             variables: dict[str, str] | None = None,
             status: bool = True,
             add_submission: bool = False,
-        ) -> _Workflow | _Submission | None:
-            ...
+        ) -> _Workflow | _Submission | None: ...
 
     class _MakeDemoWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_demo_workflow`"""
@@ -198,8 +197,7 @@ if TYPE_CHECKING:
             variables: dict[str, str] | None = None,
             status: bool = True,
             add_submission: bool = False,
-        ) -> _Workflow | _Submission | None:
-            ...
+        ) -> _Workflow | _Submission | None: ...
 
     class _MakeAndSubmitWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_and_submit_workflow`"""
@@ -225,8 +223,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
-            ...
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_and_submit_demo_workflow`"""
@@ -251,8 +248,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
-            ...
+        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.submit_workflow`"""
@@ -265,8 +261,7 @@ if TYPE_CHECKING:
             wait: bool = False,
             return_idx: bool = False,
             tasks: list[int] | None = None,
-        ) -> Mapping[int, Sequence[int]] | None:
-            ...
+        ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
         """Type of :py:meth:`BaseApp.get_known_submissions`"""
@@ -278,8 +273,7 @@ if TYPE_CHECKING:
             no_update: bool = False,
             as_json: bool = False,
             status: Status | None = None,
-        ) -> Sequence[KnownSubmissionItem]:
-            ...
+        ) -> Sequence[KnownSubmissionItem]: ...
 
     class _Show(Protocol):
         """Type of :py:meth:`BaseApp.show`"""
@@ -289,8 +283,7 @@ if TYPE_CHECKING:
             max_recent: int = 3,
             full: bool = False,
             no_update: bool = False,
-        ) -> None:
-            ...
+        ) -> None: ...
 
     class _Cancel(Protocol):
         """Type of :py:meth:`BaseApp.cancel`"""
@@ -300,14 +293,12 @@ if TYPE_CHECKING:
             workflow_ref: int | str | Path,
             ref_is_path: str | None = None,
             status: bool = False,
-        ) -> None:
-            ...
+        ) -> None: ...
 
     class _RunTests(Protocol):
         """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
 
-        def __call__(self, *args: str) -> int:
-            ...
+        def __call__(self, *args: str) -> int: ...
 
 
 SDK_logger = get_SDK_logger(__name__)
@@ -558,9 +549,9 @@ class BaseApp(metaclass=Singleton):
         self._config: Config | None = (
             None  # assigned on first access to `config` property
         )
-        self._config_files: dict[
-            str, ConfigFile
-        ] = {}  # assigned on config load, keys are string absolute paths
+        self._config_files: dict[str, ConfigFile] = (
+            {}
+        )  # assigned on config load, keys are string absolute paths
 
         # Set by `_load_template_components`:
         self._template_components: TemplateComponents = {}
@@ -2588,9 +2579,9 @@ class BaseApp(metaclass=Singleton):
         # date-times:
         line_date: dict[int, str] = {}
 
-        removed_IDs: list[
-            int
-        ] = []  # which submissions we completely remove from the file
+        removed_IDs: list[int] = (
+            []
+        )  # which submissions we completely remove from the file
 
         new_lines: list[str] = []
         line_IDs: list[int] = []

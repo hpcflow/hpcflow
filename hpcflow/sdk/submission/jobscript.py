@@ -387,12 +387,12 @@ def resolve_jobscript_blocks(
         True if the store supports run parallelism
 
     """
-    js_new: list[
-        list[JobScriptCreationArguments]
-    ] = []  # TODO: not the same type, e.g. dependencies have tuple keys,
-    new_idx: dict[
-        int, tuple[int, int]
-    ] = {}  # track new positions by new jobscript index and block index
+    js_new: list[list[JobScriptCreationArguments]] = (
+        []
+    )  # TODO: not the same type, e.g. dependencies have tuple keys,
+    new_idx: dict[int, tuple[int, int]] = (
+        {}
+    )  # track new positions by new jobscript index and block index
     new_idx_inv: dict[int, list[int]] = defaultdict(list)
     prev_hash = None
     blocks: list[JobScriptCreationArguments] = []
@@ -1846,14 +1846,12 @@ class Jobscript(JSONLike):
     @overload
     def get_active_states(
         self, as_json: Literal[False] = False
-    ) -> Mapping[int, Mapping[int, JobscriptElementState]]:
-        ...
+    ) -> Mapping[int, Mapping[int, JobscriptElementState]]: ...
 
     @overload
     def get_active_states(
         self, as_json: Literal[True]
-    ) -> Mapping[int, Mapping[int, str]]:
-        ...
+    ) -> Mapping[int, Mapping[int, str]]: ...
 
     @TimeIt.decorator
     def get_active_states(
