@@ -51,16 +51,12 @@ jobs:
         id: get_version
         run: |
           HPCFLOW_VERSION=$(poetry add hpcflow-new2@latest --dry-run | head -n 1 | sed -E 's/.*\^([0-9a-z.]+).*/\1/')
-          echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}"
           echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Remove and re-add hpcflow
+      - name: Update hpcflow
         env:
           HPCFLOW_VERSION: ${{ steps.get_version.outputs.HPCFLOW_VERSION }}
-        run: |
-          echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}"
-          poetry remove hpcflow-new2
-          poetry add hpcflow-new2@${HPCFLOW_VERSION}
+        run: poetry add hpcflow-new2@${HPCFLOW_VERSION}
         
 
       - name: Commit changes
