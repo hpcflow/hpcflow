@@ -47,10 +47,17 @@ jobs:
           git switch bump/hpcflow 2>/dev/null || git switch -c bump/hpcflow
           git merge develop
 
+      - name: Get version number
+        id: get_version
+        shell: python
+        run: |
+          eval "hpcflow/_version.py"
+          print(f"VERSION={__version__}")
+
       - name: Remove and re-add hpcflow
         run: |
           poetry remove hpcflow-new2
-          poetry add hpcflow-new2
+          poetry add hpcflow-new2@latest
 
       - name: Commit changes
         run: |
