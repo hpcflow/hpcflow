@@ -1020,3 +1020,9 @@ class MissingElementGroup(ValueError):
             f"Adding elements to task {task_name!r}: "
             f"no element group named {group_name!r} found for input {input_path!r}."
         )
+
+
+class YAMLError(ValueError):
+    """
+    A problem with parsing a YAML file.
+    """

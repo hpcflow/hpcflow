@@ -1,9 +1,14 @@
 from pathlib import Path
+from textwrap import dedent
 import pytest
 import zarr  # type: ignore
 import numpy as np
 from numpy.typing import NDArray
-from hpcflow.sdk.core.errors import InvalidIdentifier, MissingVariableSubstitutionError
+from hpcflow.sdk.core.errors import (
+    InvalidIdentifier,
+    MissingVariableSubstitutionError,
+    YAMLError,
+)
 
 from hpcflow.sdk.core.utils import (
     JSONLikeDirSnapShot,
@@ -16,6 +21,7 @@ from hpcflow.sdk.core.utils import (
     nth_key,
     nth_value,
     process_string_nodes,
+    read_YAML_str,
     replace_items,
     check_valid_py_identifier,
     reshape,
@@ -575,3 +581,36 @@ def test_nth_key_raises():
 
     with pytest.raises(Exception):
         nth_key(dct, -1)
+
+
+def test_read_YAML_str():
+    good_yaml = dedent(
+        """\
+        a: 1
+        b: 2
+        """
+    )
+    assert read_YAML_str(good_yaml) == {"a": 1, "b": 2}
+
+
+def test_read_YAML_str_raise_on_bad_indent():
+    bad_yaml = dedent(
+        """\
+        a: 1
+          b: 2
+        """
+    )
+    with pytest.raises(YAMLError):
+        read_YAML_str(bad_yaml)
+
+
+def test_read_YAML_str_raise_on_mixed_tabs_spaces():
+    bad_yaml = dedent(
+        """\
+        a:
+          a1: 2 # this has a space indent
+        	a2: 3 # this has a tab indent
+        """
+    )
+    with pytest.raises(YAMLError):
+        read_YAML_str(bad_yaml)
