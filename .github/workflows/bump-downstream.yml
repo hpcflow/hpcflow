@@ -49,15 +49,17 @@ jobs:
 
       - name: Get version number
         id: get_version
-        shell: python
         run: |
-          eval "hpcflow/_version.py"
-          print(f"VERSION={__version__}")
+          HPCFLOW_VERSION=$(grep "__version__" hpcflow/_version.py | sed -E 's/.*"([0-9a-zA-Z.]+)"/\1/')
+          echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}"
+          echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}" >> $GITHUB_ENV
 
       - name: Remove and re-add hpcflow
         run: |
           poetry remove hpcflow-new2
-          poetry add hpcflow-new2@latest
+          poetry add hpcflow-new2@${HPCFLOW_VERSION}
+        env:
+          HPCFLOW_VERSION: ${{ steps.get_version.outputs.HPCFLOW_VERSION }}
 
       - name: Commit changes
         run: |
