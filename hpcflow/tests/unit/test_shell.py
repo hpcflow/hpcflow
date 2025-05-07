@@ -1,4 +1,10 @@
 from __future__ import annotations
+from pathlib import Path
+import sys
+
+import pytest
+
+import hpcflow.app as hf
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 
 
@@ -97,3 +103,27 @@ def test_format_array_bash():
 def test_format_array_get_item_bash():
     shell = ALL_SHELLS["bash"]["posix"]()
     assert shell.format_array_get_item("my_arr", 3) == r"${my_arr[3]}"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(condition=sys.platform == "win32", reason="This is a bash-only test.")
+def test_executable_args_bash_login(null_config, tmp_path: Path):
+    """Check if we provide a `--login` argument to the shell `executable_args`, we end up
+    in a login shell on bash."""
+
+    cmd = "shopt -q login_shell && echo 'Login shell' || echo 'Not login shell'"
+    s1 = hf.TaskSchema(
+        objective="t1",
+        actions=[hf.Action(commands=[hf.Command(command=cmd)])],
+    )
+    t1 = hf.Task(
+        schema=s1,
+        resources={"any": {"shell_args": {"executable_args": ["--login"]}}},
+    )
+    wkt = hf.WorkflowTemplate(name="test_bash_login", tasks=[t1])
+    wk = hf.Workflow.from_template(
+        template=wkt,
+        path=tmp_path,
+    )
+    wk.submit(wait=True, status=False, add_to_known=False)
+    assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "Login shell"

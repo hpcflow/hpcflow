@@ -38,7 +38,7 @@ class Bash(Shell):
     #: Indent for environment setup.
     JS_ENV_SETUP_INDENT: ClassVar[str] = 2 * JS_INDENT
     #: Template for the jobscript shebang line.
-    JS_SHEBANG: ClassVar[str] = """#!{shebang_executable} {shebang_args}"""
+    JS_SHEBANG: ClassVar[str] = """#!{shebang}"""
     #: Template for the jobscript functions file.
     JS_FUNCS: ClassVar[str] = dedent(
         """\
@@ -429,6 +429,10 @@ class WSLBash(Bash):
 
     @property
     def shebang_executable(self) -> list[str]:
+        """
+        The executable to use in a shebang line, overridden here to exclude the WSL
+        command.
+        """
         return super().executable
 
     def _get_OS_info_POSIX(self) -> Mapping[str, str]:

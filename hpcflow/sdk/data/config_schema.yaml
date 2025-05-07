@@ -152,8 +152,9 @@ rules:
   - path: [schedulers, { type: map_value }, defaults]
     condition:
       value.allowed_keys: # TODO: split these up based on scheduler type
-        - shebang_args
-        - options
+        - shebang_executable
+        - directives # TODO: only actually allowed in `QueuedScheduler` sub-classes
+        - options # deprecated, replaced by directives
         - submit_cmd
         - show_cmd
         - del_cmd
@@ -211,6 +212,7 @@ rules:
     condition:
       value.allowed_keys:
         - executable
+        - executable_args
         - os_args
         - WSL_executable
         - WSL_distribution

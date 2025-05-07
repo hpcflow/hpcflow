@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import sys
 import time
 from typing import Generic, TypeVar, TYPE_CHECKING
+import warnings
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
@@ -39,12 +40,9 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
 
     Parameters
     ----------
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    shebang_args: str
-        Arguments to set on the shebang line. Pre-quoted.
-    options: dict
-        Options to the scheduler.
+    shebang_executable: list[str]
+        If specified, this will be used in the jobscript's shebang line instead of the
+        shell's `executable` and `executable_args` attributes.
     """
 
     # This would be in the docstring except it renders really wrongly!
@@ -53,20 +51,8 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
     # T
     #     The type of a jobscript reference.
 
-    #: Default value for arguments to the shell.
-    DEFAULT_SHELL_ARGS: ClassVar[str] = ""
-    #: Default value for arguments on the shebang line.
-    DEFAULT_SHEBANG_ARGS: ClassVar[str] = ""
-
-    def __init__(
-        self,
-        shell_args: str | None = None,
-        shebang_args: str | None = None,
-        options: dict | None = None,
-    ):
-        self.shebang_args = shebang_args or self.DEFAULT_SHEBANG_ARGS
-        self.shell_args = shell_args or self.DEFAULT_SHELL_ARGS
-        self.options = options or {}
+    def __init__(self, shebang_executable: list[str] | None = None):
+        self.shebang_executable = shebang_executable
 
     @property
     def unique_properties(self) -> tuple[str, ...]:
@@ -168,6 +154,13 @@ class QueuedScheduler(Scheduler[str]):
 
     Parameters
     ----------
+    directives: dict
+        Scheduler directives. Each item is written verbatim in the jobscript as a
+        scheduler directive, and is not processed in any way. If a value is `None`, the
+        key is considered a flag-like directive. If a value is a list, multiple directives
+        will be printed to the jobscript with the same key, but different values.
+    options: dict
+        Deprecated. Please use `directives` instead.
     submit_cmd: str
         The submission command, if overridden from default.
     show_cmd: str
@@ -203,6 +196,8 @@ class QueuedScheduler(Scheduler[str]):
 
     def __init__(
         self,
+        directives: dict | None = None,
+        options: dict | None = None,
         submit_cmd: str | None = None,
         show_cmd: Sequence[str] | None = None,
         del_cmd: str | None = None,
@@ -215,6 +210,16 @@ class QueuedScheduler(Scheduler[str]):
     ) -> None:
         super().__init__(*args, **kwargs)
 
+        if options:
+            warnings.warn(
+                f"{self.__class__.__name__!r}: Please use `directives` instead of "
+                f"`options`, which will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            directives = options
+
+        self.directives = directives or {}
         self.submit_cmd: str = submit_cmd or self.DEFAULT_SUBMIT_CMD
         self.show_cmd = show_cmd or self.DEFAULT_SHOW_CMD
         self.del_cmd = del_cmd or self.DEFAULT_DEL_CMD
@@ -250,7 +255,7 @@ class QueuedScheduler(Scheduler[str]):
             time.sleep(2)
 
     @abstractmethod
-    def format_options(
+    def format_directives(
         self,
         resources: ElementResources,
         num_elements: int,
@@ -259,7 +264,7 @@ class QueuedScheduler(Scheduler[str]):
         js_idx: int,
     ) -> str:
         """
-        Render options in a way that the scheduler can handle.
+        Render directives in a way that the scheduler can handle.
         """
 
     def get_std_out_err_filename(
