@@ -50,7 +50,7 @@ jobs:
       - name: Get version number
         id: get_version
         run: |
-          HPCFLOW_VERSION=$(poetry add hpcflow-new2@latest --dry-run | sed -E 's/.*\^([0-9a-zA-Z.]+).*/\1/')
+          HPCFLOW_VERSION=$(poetry search hpcflow-new2 | tail -n 1 | sed -E 's/.* ([0-9a-z.]+) .*/\1/')
           echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}"
           echo "HPCFLOW_VERSION=${HPCFLOW_VERSION}" >> "$GITHUB_OUTPUT"
 
