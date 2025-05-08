@@ -1440,7 +1440,7 @@ class Jobscript(JSONLike):
         scheduler_name: str | None = None,
         scheduler_args: dict[str, Any] | None = None,
     ) -> str:
-        """Prepare the jobscript file string."""
+        """Prepare the jobscript file contents as a string."""
         scheduler_name = scheduler_name or self.scheduler_name
         assert scheduler_name
         assert os_name
@@ -1465,15 +1465,14 @@ class Jobscript(JSONLike):
         }
 
         shebang = shell.JS_SHEBANG.format(
-            shebang_executable=" ".join(shell.shebang_executable),
-            shebang_args=scheduler.shebang_args,
+            shebang=" ".join(scheduler.shebang_executable or shell.shebang_executable)
         )
         header = shell.JS_HEADER.format(**header_args)
 
         if isinstance(scheduler, QueuedScheduler):
             header = shell.JS_SCHEDULER_HEADER.format(
                 shebang=shebang,
-                scheduler_options=scheduler.format_options(
+                scheduler_options=scheduler.format_directives(
                     resources=self.resources,
                     num_elements=self.blocks[0].num_elements,  # only used for array jobs
                     is_array=self.is_array,

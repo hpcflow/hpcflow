@@ -44,14 +44,6 @@ class DirectScheduler(Scheduler[DirectRef]):
     The correct subclass (:py:class:`DirectPosix` or :py:class:`DirectWindows`) should
     be used to create actual instances.
 
-    Keyword Args
-    ------------
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    shebang_args: str
-        Arguments to set on the shebang line. Pre-quoted.
-    options: dict
-        Options to the jobscript command.
     """
 
     @classmethod
@@ -219,18 +211,7 @@ class DirectPosix(DirectScheduler):
     """
     A direct scheduler for POSIX systems.
 
-    Keyword Args
-    ------------
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    shebang_args: str
-        Arguments to set on the shebang line. Pre-quoted.
-    options: dict
-        Options to the jobscript command.
     """
-
-    #: Default shell.
-    DEFAULT_SHELL_EXECUTABLE: ClassVar[str] = "/bin/bash"
 
 
 @hydrate
@@ -238,16 +219,7 @@ class DirectWindows(DirectScheduler):
     """
     A direct scheduler for Windows.
 
-    Keyword Args
-    ------------
-    shell_args: str
-        Arguments to pass to the shell. Pre-quoted.
-    options: dict
-        Options to the jobscript command.
     """
-
-    #: Default shell.
-    DEFAULT_SHELL_EXECUTABLE: ClassVar[str] = "powershell.exe"
 
     @override
     def get_submit_command(

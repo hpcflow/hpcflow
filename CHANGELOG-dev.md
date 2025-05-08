@@ -1,4 +1,22 @@
 
+<a name="v0.2.0a214"></a>
+## [v0.2.0a214](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a213...v0.2.0a214) - 2025.05.07
+
+### ♻ Code Refactoring
+
+* refine shell and scheduler arguments
+
+### 🐛 Bug Fixes
+
+* deprecation warning!
+* failing test
+* deprecation logic
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a213"></a>
 ## [v0.2.0a213](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a212...v0.2.0a213) - 2025.05.02
 
