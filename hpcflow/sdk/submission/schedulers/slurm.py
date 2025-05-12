@@ -300,6 +300,11 @@ class SlurmPosix(QueuedScheduler):
         Check whether a partition (part_name, part_info) matches the requested number
         of cores and nodes.
         """
+        if num_cores is None and num_cores_per_node is None and num_nodes is None:
+            # If we have no guidance for what to look for, assume we want just one core.
+            # If more is needed, the user will need to specify, but they'd probably
+            # need to do that anyway; this is a best guess when told nothing!
+            num_cores = 1
         part_num_cores = part_info.get("num_cores", [])
         part_num_cores_per_node = part_info.get("num_cores_per_node", [])
         part_num_nodes = part_info.get("num_nodes", [])
