@@ -4235,8 +4235,7 @@ class Workflow(AppAware):
                     input_source.task_ref = uniq_names_cur[input_source.task_ref]
                 except KeyError:
                     raise InvalidInputSourceTaskReference(
-                        f"Input source {input_source.to_string()!r} refers to a missing "
-                        f"or inaccessible task: {input_source.task_ref!r}."
+                        input_source, task_ref=input_source.task_ref
                     )
 
     @TimeIt.decorator
