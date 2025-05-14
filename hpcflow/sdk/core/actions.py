@@ -913,12 +913,12 @@ class ElementActionRun(AppAware):
         """
         kwargs: dict[str, Any] = {}
         if self.action.is_IFG:
-            ifg = self.action.input_file_generators[0]
-            if (fn_spec := ifg.input_file.name).is_regex:
+            input_file = self.action.input_file_generators[0].input_file
+            if (fn_spec := input_file.name).is_regex:
                 # pass to the IFG the label rather than name (there is no point searching
                 # with the regular expression via `name.value()`; the file(s) won't exist
                 # yet!):
-                path = ifg.input_file.label
+                path = input_file.label
             else:
                 path_ = fn_spec.value()
                 assert isinstance(path_, str)
