@@ -8,6 +8,7 @@ from random import randint
 from typing import TYPE_CHECKING
 import click
 
+from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.core.utils import get_process_stamp
 from hpcflow.sdk.cli_common import (
     format_option,
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Literal
     from ..app import BaseApp
-    from ..core.workflow import Workflow
 
 
 def get_demo_software_CLI(app: BaseApp):
