@@ -962,9 +962,12 @@ class Workflow(AppAware):
                             f"({task.name!r})..."
                         )
                     wk._add_task(task)
-                if status:
-                    status.update(f"Preparing to add {len(template.loops)} loops...")
                 if template.loops:
+                    if status:
+                        status.update(
+                            f"Preparing to add {len(template.loops)} loops; building "
+                            f"cache..."
+                        )
                     # TODO: if loop with non-initialisable actions, will fail
                     cache = LoopCache.build(workflow=wk, loops=template.loops)
                     for idx, loop in enumerate(template.loops):
@@ -979,6 +982,8 @@ class Workflow(AppAware):
                             f"Added {len(template.loops)} loops. "
                             f"Committing to store..."
                         )
+                elif status:
+                    status.update("Committing to store...")
         except (Exception, NotImplementedError):
             if status:
                 status.stop()
