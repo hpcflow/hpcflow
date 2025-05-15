@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
+from typing import cast
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import (
     FileSystemEvent,
@@ -17,7 +18,7 @@ from watchdog.events import (
 
 class _PMEHDelegate(PatternMatchingEventHandler):
     def __init__(self, pattern: str, on_modified: Callable[[FileSystemEvent], None]):
-        super().__init__([pattern])
+        super().__init__(patterns=[pattern])
         self.__on_modified = on_modified
 
     def on_modified(self, event: FileSystemEvent) -> None:
@@ -64,7 +65,7 @@ class MonitorController:
         self.observer = PollingObserver(timeout=self.watch_interval)
         self.observer.schedule(
             self.event_handler,
-            path=self.workflow_dirs_file_path.parent,
+            path=cast("str", self.workflow_dirs_file_path.parent),
             recursive=False,
         )
 
@@ -112,8 +113,10 @@ class MonitorController:
         """
         Callback when files are modified.
         """
-        self.logger.info(f"Watch file modified: {event.src_path}")
-        wks = self.parse_watch_workflows_file(event.src_path, logger=self.logger)
+        self.logger.info(f"Watch file modified: {event.src_path!r}")
+        wks = self.parse_watch_workflows_file(
+            cast("str", event.src_path), logger=self.logger
+        )
         self.workflow_monitor.update_workflow_paths(wks)
 
     def join(self) -> None:
@@ -157,7 +160,9 @@ class WorkflowMonitor:
         observer = PollingObserver(timeout=self.watch_interval)
         self.observer: PollingObserver | None = observer
         for i in self.workflow_paths:
-            observer.schedule(self.event_handler, path=i["path"], recursive=False)
+            observer.schedule(
+                self.event_handler, path=cast("str", i["path"]), recursive=False
+            )
             self.logger.info(f"Watching workflow: {i['path'].name}")
 
         observer.start()
@@ -166,7 +171,7 @@ class WorkflowMonitor:
         """
         Triggered on a workflow being modified.
         """
-        self.logger.info(f"Workflow modified: {event.src_path}")
+        self.logger.info(f"Workflow modified: {event.src_path!r}")
 
     def update_workflow_paths(self, new_paths: list[dict[str, Path]]):
         """
