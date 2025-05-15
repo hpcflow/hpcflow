@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a215"></a>
+## [v0.2.0a215](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a214...v0.2.0a215) - 2025.05.15
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* bump watchdog dependency to latest
+
+
 <a name="v0.2.0a214"></a>
 ## [v0.2.0a214](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a213...v0.2.0a214) - 2025.05.07
 
