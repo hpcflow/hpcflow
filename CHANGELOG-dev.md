@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a216"></a>
+## [v0.2.0a216](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a215...v0.2.0a216) - 2025.05.16
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group across 1 directory with 13 updates
+
+
 <a name="v0.2.0a215"></a>
 ## [v0.2.0a215](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a214...v0.2.0a215) - 2025.05.15
 
