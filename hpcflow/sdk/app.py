@@ -3320,6 +3320,7 @@ class BaseApp(metaclass=Singleton):
                         )
                     with wk_i._store.cache_ctx():
                         sub = wk_i.submissions[file_dat_i["sub_idx"]]
+                        sub.use_EARs_cache = True  # pre-cache EARs of this submission
 
                         all_jobscripts = sub._submission_parts[submit_time_str]
                         out_item["jobscripts"] = all_jobscripts

@@ -900,6 +900,7 @@ class Jobscript(JSONLike):
         )
 
     @property
+    @TimeIt.decorator
     def all_EAR_IDs(self) -> NDArray:
         """Return all run IDs of this jobscripts (across all blocks), removing missing
         run IDs (i.e. -1 values)"""
@@ -911,6 +912,8 @@ class Jobscript(JSONLike):
         """
         Description of EAR information for this jobscript.
         """
+        if self.submission._use_EARs_cache:
+            return [self.submission._EARs_cache[ear_id] for ear_id in self.all_EAR_IDs]
         return self.workflow.get_EARs_from_IDs(self.all_EAR_IDs)
 
     @property
