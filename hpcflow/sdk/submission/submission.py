@@ -231,6 +231,8 @@ class Submission(JSONLike):
         del dct["_workflow"]
         del dct["_index"]
         del dct["_submission_parts_lst"]
+        del dct["_use_EARs_cache"]
+        del dct["_EARs_cache"]
         return {k.lstrip("_"): v for k, v in dct.items()}
 
     @property
