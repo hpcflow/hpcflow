@@ -282,6 +282,8 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def use_EARs_cache(self, value: bool):
         """Toggle the EAR caching facility."""
+        if self._use_EARs_cache == value:
+            return
         self._use_EARs_cache = value
         if value:
             all_EAR_IDs = list(self.all_EAR_IDs)

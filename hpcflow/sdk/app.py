@@ -3314,12 +3314,12 @@ class BaseApp(metaclass=Singleton):
                     out_item["deleted"] = True
 
                 else:
-                    if status:
-                        status.update(
-                            f"Reading workflow {file_dat_i['path']!r} submission info..."
-                        )
                     with wk_i._store.cache_ctx():
                         sub = wk_i.submissions[file_dat_i["sub_idx"]]
+                        if status:
+                            status.update(
+                                f"Loading workflow {file_dat_i['path']!r} run metadata..."
+                            )
                         sub.use_EARs_cache = True  # pre-cache EARs of this submission
 
                         all_jobscripts = sub._submission_parts[submit_time_str]
