@@ -696,14 +696,14 @@ test = ["pytest"]
 
 [[package]]
 name = "commitizen"
-version = "4.7.0"
+version = "4.7.2"
 description = "Python commitizen client tool"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["dev"]
 files = [
-    {file = "commitizen-4.7.0-py3-none-any.whl", hash = "sha256:2d274e013a6e09bc69f97fe64d6a6389926e2a22f5a4a19b16571d5b4c31083c"},
-    {file = "commitizen-4.7.0.tar.gz", hash = "sha256:ef95f2ef354b438dce7c6164e5d47d10cc377df666ee65a116bcfcb146bb0c0a"},
+    {file = "commitizen-4.7.2-py3-none-any.whl", hash = "sha256:eb3cd2da0690c6edbb8c11e586d3f07b09e9795424aa51f5413ed89827927623"},
+    {file = "commitizen-4.7.2.tar.gz", hash = "sha256:e5ca28f909c3b3d28575b294561feeee21e33c864c7362babfe0e7798ae11aae"},
 ]
 
 [package.dependencies]
@@ -860,14 +860,14 @@ files = [
 
 [[package]]
 name = "docutils"
-version = "0.19"
+version = "0.21.2"
 description = "Docutils -- Python Documentation Utilities"
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "docutils-0.19-py3-none-any.whl", hash = "sha256:5e1de4d849fee02c63b040a4a3fd567f4ab104defd8a5511fbbc24a8a017efbc"},
-    {file = "docutils-0.19.tar.gz", hash = "sha256:33995a6753c30b7f577febfc2c50411fec6aac7f7ffeb7c4cfe5991072dcf9e6"},
+    {file = "docutils-0.21.2-py3-none-any.whl", hash = "sha256:dafca5b9e384f0e419294eb4d2ff9fa826435bf15f15b7bd45723e8ad76811b2"},
+    {file = "docutils-0.21.2.tar.gz", hash = "sha256:3a6b18732edf182daa3cd12775bbb338cf5691468f91eeeb109deff6ebfa986f"},
 ]
 
 [[package]]
@@ -3491,7 +3491,7 @@ version = "80.1.0"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.9"
-groups = ["dev", "pyinstaller", "typecheck"]
+groups = ["dev", "pyinstaller"]
 files = [
     {file = "setuptools-80.1.0-py3-none-any.whl", hash = "sha256:ea0e7655c05b74819f82e76e11a85b31779fee7c4969e82f72bab0664e8317e4"},
     {file = "setuptools-80.1.0.tar.gz", hash = "sha256:2e308396e1d83de287ada2c2fd6e64286008fe6aca5008e0b6a8cb0e2c86eedd"},
@@ -3544,39 +3544,40 @@ files = [
 
 [[package]]
 name = "sphinx"
-version = "6.2.1"
+version = "7.4.7"
 description = "Python documentation generator"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "Sphinx-6.2.1.tar.gz", hash = "sha256:6d56a34697bb749ffa0152feafc4b19836c755d90a7c59b72bc7dfd371b9cc6b"},
-    {file = "sphinx-6.2.1-py3-none-any.whl", hash = "sha256:97787ff1fa3256a3eef9eda523a63dbf299f7b47e053cfcf684a1c2a8380c912"},
+    {file = "sphinx-7.4.7-py3-none-any.whl", hash = "sha256:c2419e2135d11f1951cd994d6eb18a1835bd8fdd8429f9ca375dc1f3281bd239"},
+    {file = "sphinx-7.4.7.tar.gz", hash = "sha256:242f92a7ea7e6c5b406fdc2615413890ba9f699114a9c09192d7dfead2ee9cfe"},
 ]
 
 [package.dependencies]
-alabaster = ">=0.7,<0.8"
-babel = ">=2.9"
-colorama = {version = ">=0.4.5", markers = "sys_platform == \"win32\""}
-docutils = ">=0.18.1,<0.20"
+alabaster = ">=0.7.14,<0.8.0"
+babel = ">=2.13"
+colorama = {version = ">=0.4.6", markers = "sys_platform == \"win32\""}
+docutils = ">=0.20,<0.22"
 imagesize = ">=1.3"
-importlib-metadata = {version = ">=4.8", markers = "python_version < \"3.10\""}
-Jinja2 = ">=3.0"
-packaging = ">=21.0"
-Pygments = ">=2.13"
-requests = ">=2.25.0"
-snowballstemmer = ">=2.0"
+importlib-metadata = {version = ">=6.0", markers = "python_version < \"3.10\""}
+Jinja2 = ">=3.1"
+packaging = ">=23.0"
+Pygments = ">=2.17"
+requests = ">=2.30.0"
+snowballstemmer = ">=2.2"
 sphinxcontrib-applehelp = "*"
 sphinxcontrib-devhelp = "*"
 sphinxcontrib-htmlhelp = ">=2.0.0"
 sphinxcontrib-jsmath = "*"
 sphinxcontrib-qthelp = "*"
-sphinxcontrib-serializinghtml = ">=1.1.5"
+sphinxcontrib-serializinghtml = ">=1.1.9"
+tomli = {version = ">=2", markers = "python_version < \"3.11\""}
 
 [package.extras]
 docs = ["sphinxcontrib-websupport"]
-lint = ["docutils-stubs", "flake8 (>=3.5.0)", "flake8-simplify", "isort", "mypy (>=0.990)", "ruff", "sphinx-lint", "types-requests"]
-test = ["cython", "filelock", "html5lib", "pytest (>=4.6)"]
+lint = ["flake8 (>=6.0)", "importlib-metadata (>=6.0)", "mypy (==1.10.1)", "pytest (>=6.0)", "ruff (==0.5.2)", "sphinx-lint (>=0.9)", "tomli (>=2)", "types-docutils (==0.21.0.20240711)", "types-requests (>=2.30.0)"]
+test = ["cython (>=3.0)", "defusedxml (>=0.7.1)", "pytest (>=8.0)", "setuptools (>=70.0)", "typing_extensions (>=4.9)"]
 
 [[package]]
 name = "sphinx-click"
@@ -4092,14 +4093,14 @@ files = [
 
 [[package]]
 name = "types-paramiko"
-version = "3.5.0.20240928"
+version = "3.5.0.20250516"
 description = "Typing stubs for paramiko"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["typecheck"]
 files = [
-    {file = "types-paramiko-3.5.0.20240928.tar.gz", hash = "sha256:79dd9b2ee510b76a3b60d8ac1f3f348c45fcecf01347ca79e14db726bbfc442d"},
-    {file = "types_paramiko-3.5.0.20240928-py3-none-any.whl", hash = "sha256:cda0aff4905fe8efe4b5448331a80e943d42a796bd4beb77a3eed3485bc96a85"},
+    {file = "types_paramiko-3.5.0.20250516-py3-none-any.whl", hash = "sha256:76ac5cbc0c04d36635ac080f301a864f698ef06b64c3a01a33dc657bd413b675"},
+    {file = "types_paramiko-3.5.0.20250516.tar.gz", hash = "sha256:8c2ac59648c16c5469aa0559abdb758a0f67f9f7cf36164b64654f7b6c2ebfb0"},
 ]
 
 [package.dependencies]
@@ -4107,14 +4108,14 @@ cryptography = ">=37.0.0"
 
 [[package]]
 name = "types-psutil"
-version = "7.0.0.20250401"
+version = "7.0.0.20250516"
 description = "Typing stubs for psutil"
 optional = false
 python-versions = ">=3.9"
 groups = ["typecheck"]
 files = [
-    {file = "types_psutil-7.0.0.20250401-py3-none-any.whl", hash = "sha256:ed23f7140368104afe4e05a6085a5fa56fbe8c880a0f4dfe8d63e041106071ed"},
-    {file = "types_psutil-7.0.0.20250401.tar.gz", hash = "sha256:2a7d663c0888a079fc1643ebc109ad12e57a21c9552a9e2035da504191336dbf"},
+    {file = "types_psutil-7.0.0.20250516-py3-none-any.whl", hash = "sha256:6a8a761c5161e4c9762ff4fb160af4491d08b67f3b1aebe85e1f2890e8378f23"},
+    {file = "types_psutil-7.0.0.20250516.tar.gz", hash = "sha256:3d8aa8392ac4d1e5e9237d111cf9e59d8fce8f2bde3115e687623f5e1039a1ab"},
 ]
 
 [[package]]
@@ -4146,18 +4147,15 @@ urllib3 = ">=2"
 
 [[package]]
 name = "types-setuptools"
-version = "80.4.0.20250511"
+version = "80.7.0.20250516"
 description = "Typing stubs for setuptools"
 optional = false
 python-versions = ">=3.9"
 groups = ["typecheck"]
 files = [
-    {file = "types_setuptools-80.4.0.20250511-py3-none-any.whl", hash = "sha256:972d7d947871cf7594263c764a9c2c2f137660c4ac3ad0cec1d4f1254ca8ae6a"},
-    {file = "types_setuptools-80.4.0.20250511.tar.gz", hash = "sha256:faa4159c9384e45b3b04218ca43ee3829efb6acc303e0ee561e47b3404423d32"},
+    {file = "types_setuptools-80.7.0.20250516-py3-none-any.whl", hash = "sha256:c1da6c11698139c8307c6df5987592df940e956912c204e42d844ba821dd2741"},
+    {file = "types_setuptools-80.7.0.20250516.tar.gz", hash = "sha256:57274b58e05434de42088a86074c9e630e5786f759cf9cc1e3015e886297ca21"},
 ]
-
-[package.dependencies]
-setuptools = "*"
 
 [[package]]
 name = "typing-extensions"
@@ -4465,4 +4463,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<3.14"
-content-hash = "5a35639f3be3dacf96e507aab97cae55f55b20f0265ae7ff2826a3aafdeba9a6"
+content-hash = "d96ef42fe348166590ae63bfd65a4f1adf86631a4632b517e460a445b004b82d"
