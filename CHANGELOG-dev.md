@@ -1,4 +1,28 @@
 
+<a name="v0.2.0a220"></a>
+## [v0.2.0a220](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a219...v0.2.0a220) - 2025.05.20
+
+### ⚡ Performance Improvements
+
+* always use single-chunk arrays for numpy parameter data
+
+### ✨ Features
+
+* document the path to the YAML file if a parsing error is raised
+
+### 🐛 Bug Fixes
+
+* misleading status in `Workflow.from_template`
+* correct exception arguments
+* accept unique task name in string format of (task) input sources
+* typo
+* move `from __future__` statements to top of generated combined python script
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a219"></a>
 ## [v0.2.0a219](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a218...v0.2.0a219) - 2025.05.20
 
