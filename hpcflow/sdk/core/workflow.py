@@ -578,7 +578,13 @@ class WorkflowTemplate(JSONLike):
             set to `False`, no substitutions will occur, which may result in an invalid
             workflow template!
         """
-        return cls._from_data(read_YAML_str(string, variables=variables))
+        return cls._from_data(
+            read_YAML_str(
+                string,
+                variables=variables,
+                source="(from the inline workflow template definition)",
+            )
+        )
 
     @classmethod
     def _check_name(cls, data: dict[str, Any], path: PathLike) -> None:

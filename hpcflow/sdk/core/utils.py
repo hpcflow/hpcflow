@@ -30,12 +30,14 @@ import fsspec  # type: ignore
 import numpy as np
 
 from ruamel.yaml import YAML
+from ruamel.yaml.error import MarkedYAMLError
 from watchdog.utils.dirsnapshot import DirectorySnapshot
 
 from hpcflow.sdk.core.errors import (
     ContainerKeyError,
     InvalidIdentifier,
     MissingVariableSubstitutionError,
+    YAMLError,
 )
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
@@ -412,7 +414,10 @@ def substitute_string_vars(string: str, variables: dict[str, str]):
 
 @TimeIt.decorator
 def read_YAML_str(
-    yaml_str: str, typ="safe", variables: dict[str, str] | Literal[False] | None = None
+    yaml_str: str,
+    typ="safe",
+    variables: dict[str, str] | Literal[False] | None = None,
+    source: str | None = None,
 ) -> Any:
     """Load a YAML string. This will produce basic objects.
 
@@ -426,11 +431,21 @@ def read_YAML_str(
         String variables to substitute in `yaml_str`. Substitutions will be attempted if
         the file looks to contain variable references (like "<<var:name>>"). If set to
         `False`, no substitutions will occur.
+    source:
+        Used to document the source of the YAML string if raising a parsing error.
+        Typically, this should be a string that starts with "from ...", e.g.
+        "from the file path '/path/to/bad/file'".
     """
     if variables is not False and "<<var:" in yaml_str:
         yaml_str = substitute_string_vars(yaml_str, variables=variables or {})
     yaml = YAML(typ=typ)
-    return yaml.load(yaml_str)
+    try:
+        return yaml.load(yaml_str)
+    except MarkedYAMLError as err:  # includes `ScannerError` and `ParserError`
+        source_str = f"{source} " if source else ""
+        raise YAMLError(
+            f"The YAML string {source_str}is not formatted correctly."
+        ) from err
 
 
 @TimeIt.decorator
@@ -452,7 +467,7 @@ def read_YAML_file(
     """
     with fsspec.open(path, "rt") as f:
         yaml_str: str = f.read()
-    return read_YAML_str(yaml_str, typ=typ, variables=variables)
+    return read_YAML_str(yaml_str, typ=typ, variables=variables, source=f"from {path!r}")
 
 
 def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
