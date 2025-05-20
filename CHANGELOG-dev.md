@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a221"></a>
+## [v0.2.0a221](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a220...v0.2.0a221) - 2025.05.20
+
+### ♻ Code Refactoring
+
+* another refinement
+* use the walrus operator for conciseness
+
+### 🐛 Bug Fixes
+
+* do not attempt search for regex-defined input files when passing to IFG
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a220"></a>
 ## [v0.2.0a220](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a219...v0.2.0a220) - 2025.05.20
 
