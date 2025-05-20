@@ -6,6 +6,7 @@ import time
 import pytest
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 # note: when testing the frozen app, we might not have MatFlow installed in the built in
@@ -1332,3 +1333,29 @@ def test_combine_scripts_script_data_multiple_input_file_formats(
     assert isinstance(t1_p3, hf.ElementParameter)
     assert t0_p2.value == p1_val + 100
     assert t1_p3.value == p1_val + 100
+
+
+@pytest.mark.integration
+@pytest.mark.skipif("hf.run_time_info.is_frozen")
+def test_combine_scripts_from_future_import(null_config, tmp_path: Path):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        actions=[
+            hf.Action(
+                script="<<script:import_future_script.py>>",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            ),
+        ],
+    )
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_future_import",
+        tasks=[hf.Task(schema=s1)],
+        resources={"any": {"combine_scripts": True}},
+        path=tmp_path,
+    )
+    wk.submit(status=False, add_to_known=False, wait=True)
+
+    run = wk.get_EARs_from_IDs([0])[0]
+    assert run.status is EARStatus.success
