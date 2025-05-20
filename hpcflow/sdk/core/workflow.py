@@ -578,7 +578,13 @@ class WorkflowTemplate(JSONLike):
             set to `False`, no substitutions will occur, which may result in an invalid
             workflow template!
         """
-        return cls._from_data(read_YAML_str(string, variables=variables))
+        return cls._from_data(
+            read_YAML_str(
+                string,
+                variables=variables,
+                source="(from the inline workflow template definition)",
+            )
+        )
 
     @classmethod
     def _check_name(cls, data: dict[str, Any], path: PathLike) -> None:
@@ -962,9 +968,12 @@ class Workflow(AppAware):
                             f"({task.name!r})..."
                         )
                     wk._add_task(task)
-                if status:
-                    status.update(f"Preparing to add {len(template.loops)} loops...")
                 if template.loops:
+                    if status:
+                        status.update(
+                            f"Preparing to add {len(template.loops)} loops; building "
+                            f"cache..."
+                        )
                     # TODO: if loop with non-initialisable actions, will fail
                     cache = LoopCache.build(workflow=wk, loops=template.loops)
                     for idx, loop in enumerate(template.loops):
@@ -979,6 +988,8 @@ class Workflow(AppAware):
                             f"Added {len(template.loops)} loops. "
                             f"Committing to store..."
                         )
+                elif status:
+                    status.update("Committing to store...")
         except (Exception, NotImplementedError):
             if status:
                 status.stop()
@@ -4235,8 +4246,7 @@ class Workflow(AppAware):
                     input_source.task_ref = uniq_names_cur[input_source.task_ref]
                 except KeyError:
                     raise InvalidInputSourceTaskReference(
-                        f"Input source {input_source.to_string()!r} refers to a missing "
-                        f"or inaccessible task: {input_source.task_ref!r}."
+                        input_source, task_ref=input_source.task_ref
                     )
 
     @TimeIt.decorator

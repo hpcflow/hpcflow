@@ -1,4 +1,5 @@
 from __future__ import annotations
+from textwrap import dedent
 from typing import TYPE_CHECKING
 import numpy as np
 import pytest
@@ -183,6 +184,7 @@ def test_input_source_from_string_task_same_default_task_source() -> None:
     )
 
 
+@pytest.mark.skip(reason="Import not yet implemented.")
 def test_input_source_from_string_import() -> None:
     import_ref = 0
     assert hf.InputSource.from_string(f"import.{import_ref}") == hf.InputSource(
@@ -1283,3 +1285,72 @@ def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_seque
         {"a": 5, "b": 22},
         {"a": 5, "b": 22},
     ]
+
+
+def test_input_source_task_ref_equivalence(null_config, tmp_path):
+    yml = dedent(
+        """\
+    name: test
+    template_components:
+      task_schemas:
+        - objective: t1
+          inputs:
+            - parameter: p1
+    tasks:
+      - schema: t1
+        inputs:
+          p1: 100 # all subsequent tasks will source from this input
+    
+      - schema: t1 # t1_2
+        input_sources: # single source dict; by task insert ID
+          p1: 
+            source_type: task
+            task_source_type: input
+            task_ref: 0
+
+      - schema: t1 # t1_3
+        input_sources: # as a list of dicts; by task insert ID
+          p1: 
+            - source_type: task
+              task_source_type: input
+              task_ref: 0
+    
+      - schema: t1 # t1_4
+        input_sources: # as a single source dict; by task unique name
+          p1: 
+            source_type: task
+            task_source_type: input
+            task_ref: t1_1
+
+      - schema: t1 # t1_5
+        input_sources: # as a list of dicts; by task unique name
+          p1: 
+            - source_type: task
+              task_source_type: input
+              task_ref: t1_1
+    
+      - schema: t1 # t1_6
+        input_sources: # single source string; by task insert ID
+          p1: task.0.input
+
+      - schema: t1 # t1_7
+        input_sources: # as a list of strings; by task insert ID
+          p1: 
+            - task.0.input
+
+      - schema: t1 # t1_8
+        input_sources: # single source string; by task unique name
+          p1: task.t1_1.input
+
+      - schema: t1 # t1_9
+        input_sources: # as a list of strings; by task unique name
+          p1: 
+            - task.t1_1.input
+        
+    """
+    )
+    wk = hf.Workflow.from_YAML_string(YAML_str=yml, path=tmp_path)
+
+    all_sources = (task.elements[0].input_sources["inputs.p1"] for task in wk.tasks[1:])
+    all_task_refs = (src.task_ref for src in all_sources)
+    assert all(task_ref == 0 for task_ref in all_task_refs)

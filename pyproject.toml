@@ -1,7 +1,7 @@
 
 [tool.poetry]
 name = "hpcflow-new2"
-version = "0.2.0a216"
+version = "0.2.0a220"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
@@ -54,7 +54,7 @@ black = ">=25.1,<26.0"
 commitizen = ">=2.20.3,<5.0.0"
 pre-commit = ">=2.16,<5.0"
 tuna = "^0.5.11"
-sphinx = ">=4,<7"
+sphinx = ">=4,<8"
 sphinx-click = ">=4.4,<7.0"
 sphinx-jinja = "^2.0.1"
 sphinx-copybutton = "^0.5.0"
@@ -100,7 +100,7 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0a216"
+version = "0.2.0a220"
 tag_format = "v$version"
 version_files = [ 
     "pyproject.toml:version",

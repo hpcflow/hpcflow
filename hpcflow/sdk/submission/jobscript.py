@@ -24,6 +24,7 @@ from hpcflow.sdk.core.errors import (
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
+from hpcflow.sdk.utils.strings import extract_py_from_future_imports
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
@@ -1945,10 +1946,13 @@ class Jobscript(JSONLike):
         tab_indent = "    "
 
         script_funcs_lst: list[str] = []
+        future_imports: set[str] = set()
         for act_name, (_, snip_path) in script_data.items():
             main_func_name = snip_path.stem
             with snip_path.open("rt") as fp:
                 script_str = fp.read()
+            script_str, future_imports_i = extract_py_from_future_imports(script_str)
+            future_imports.update(future_imports_i)
             script_funcs_lst.append(
                 dedent(
                     """\
@@ -2328,13 +2332,22 @@ class Jobscript(JSONLike):
             func_invoc_lines=indent(func_invoc_lines, tab_indent * 4),
         )
 
+        future_imports_str = (
+            f"from __future__ import {', '.join(future_imports)}\n\n"
+            if future_imports
+            else ""
+        )
         script = dedent(
             """\
-            {script_funcs}
+            {future_imports_str}{script_funcs}
             if __name__ == "__main__":
             {main}
         """
-        ).format(script_funcs=script_funcs, main=indent(main, tab_indent))
+        ).format(
+            future_imports_str=future_imports_str,
+            script_funcs=script_funcs,
+            main=indent(main, tab_indent),
+        )
 
         num_elems = [i.num_elements for i in self.blocks]
         num_acts = [len(i) for i in action_scripts]

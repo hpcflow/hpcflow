@@ -1,4 +1,57 @@
 
+<a name="v0.2.0a220"></a>
+## [v0.2.0a220](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a219...v0.2.0a220) - 2025.05.20
+
+### ⚡ Performance Improvements
+
+* always use single-chunk arrays for numpy parameter data
+
+### ✨ Features
+
+* document the path to the YAML file if a parsing error is raised
+
+### 🐛 Bug Fixes
+
+* misleading status in `Workflow.from_template`
+* correct exception arguments
+* accept unique task name in string format of (task) input sources
+* typo
+* move `from __future__` statements to top of generated combined python script
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a219"></a>
+## [v0.2.0a219](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a218...v0.2.0a219) - 2025.05.20
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a218"></a>
+## [v0.2.0a218](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a217...v0.2.0a218) - 2025.05.20
+
+### 🐛 Bug Fixes
+
+* add missing import in demo CLI`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a217"></a>
+## [v0.2.0a217](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a216...v0.2.0a217) - 2025.05.20
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 5 updates
+
+
 <a name="v0.2.0a216"></a>
 ## [v0.2.0a216](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a215...v0.2.0a216) - 2025.05.16
 
