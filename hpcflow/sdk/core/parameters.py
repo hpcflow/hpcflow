@@ -1584,13 +1584,12 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str, Sequence[float]] | None = None,
+        bounds: dict[str,dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
         rng=None,
     ) -> NDArray:
-
         num_paths = len(paths)
         kwargs = dict(
             d=num_paths,
@@ -1602,10 +1601,10 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        parameter_ranges = np.array([bounds.get(path, [0, 1]) for path in paths]).T
-
-        lower_bound = parameter_ranges[0]
-        upper_bound = parameter_ranges[1]
+        extent = np.asarray([bounds.get(path).get('extent', [0, 1]) for path in paths])
+        scaling = np.asarray([bounds.get(path).get('scaling', 'linear') for path in paths])
+        
+        extent = np.array([np.log10(extent[i]) if scaling[i] == 'log' else extent[i] for i in range(len(scaling))]).T
 
         try:
             sampler = LatinHypercube(**kwargs)
@@ -1614,9 +1613,11 @@ class MultiPathSequence(_BaseSequence):
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
 
-        samples = scale(sampler.random(n=num_samples), lower_bound, upper_bound).T
+        samples = scale(sampler.random(n=num_samples), extent[0], extent[1]).T
 
-        return samples
+        scaled_samples = [10**samples[:,i] if scaling[i] == 'log' else samples[:,i] for i in range(len(scaling))]
+
+        return np.asarray(scaled_samples)
 
     @classmethod
     def from_latin_hypercube(
@@ -1624,7 +1625,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str, Sequence[float]] | None = None,
+        bounds: dict[str,dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
