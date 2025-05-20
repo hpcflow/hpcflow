@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a218"></a>
+## [v0.2.0a218](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a217...v0.2.0a218) - 2025.05.20
+
+### 🐛 Bug Fixes
+
+* add missing import in demo CLI`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a217"></a>
 ## [v0.2.0a217](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a216...v0.2.0a217) - 2025.05.20
 
