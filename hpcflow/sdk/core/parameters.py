@@ -1601,8 +1601,8 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        extent = np.asarray([bounds.get(path).get('extent', [0, 1]) for path in paths])
-        scaling = np.asarray([bounds.get(path).get('scaling', 'linear') for path in paths])
+        extent = np.asarray([bounds.get(path, {}).get('extent', [0, 1]) for path in paths])
+        scaling = np.asarray([bounds.get(path, {}).get('scaling', 'linear') for path in paths])
         
         extent = np.array([np.log10(extent[i]) if scaling[i] == 'log' else extent[i] for i in range(len(scaling))]).T
 
