@@ -91,3 +91,25 @@ def test_group_raise_no_elements(null_config, tmp_path: Path):
             path=tmp_path,
             tasks=[t1, t2],
         )
+
+
+def test_group_on_input_only_task(null_config, tmp_path: Path):
+
+    s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1")])
+    s2 = hf.TaskSchema(objective="t2", inputs=[hf.SchemaInput("p1", group="all")])
+
+    t1 = hf.Task(
+        schema=s1,
+        inputs={"p1": 100},
+        repeats=2,
+        groups=[hf.ElementGroup(name="all")],  # define a group on a task with no actions
+    )
+    t2 = hf.Task(schema=s2)
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_input_group",
+        path=tmp_path,
+        tasks=[t1, t2],
+    )
+    assert wk.tasks.t1.num_elements == 2
+    assert wk.tasks.t2.num_elements == 1

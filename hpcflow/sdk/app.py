@@ -1794,7 +1794,8 @@ class BaseApp(metaclass=Singleton):
         for comp_type in TEMPLATE_COMP_TYPES:
             with open_text_resource(package, f"{comp_type}.yaml") as fh:
                 SDK_logger.info(f"Parsing file as YAML: {fh.name!r}")
-                components[comp_type] = read_YAML_str(fh.read())
+                source = f"from {Path(fh.name)!r}"
+                components[comp_type] = read_YAML_str(fh.read(), source=source)
 
         return components
 

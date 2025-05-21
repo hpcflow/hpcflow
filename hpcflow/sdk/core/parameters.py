@@ -2789,31 +2789,31 @@ class InputSource(JSONLike):
 
         Examples
         --------
-            task.[task_ref].input
-            task.[task_ref].output
-            local
-            default
-            import.[import_ref]
+        For a local task input source, use:
+
+        >>> InputSource.from_string("local")
+
+        For a schema input default source, use:
+
+        >>> InputSource.from_string("default")
+
+        For task input sources, specify either the task insert ID (typically this is just
+        the task index within the workflow), or the task's unique name, which is usually
+        just the associated task schema's objective, but if multiple tasks use the same
+        schema, it will be suffixed by an index, starting from one.
+
+        >>> InputSource.from_string("task.0.input")
+        >>> InputSource.from_string("task.my_task.input")
         """
         return cls(**cls._parse_from_string(str_defn))
 
     @staticmethod
     def _parse_from_string(str_defn: str) -> dict[str, Any]:
-        """Parse a dot-delimited string definition of an InputSource.
-
-        Examples
-        --------
-            task.[task_ref].input
-            task.[task_ref].output
-            local
-            default
-            import.[import_ref]
-        """
+        """Parse a dot-delimited string definition of an InputSource."""
         parts = str_defn.split(".")
         source_type = get_enum_by_name_or_val(InputSourceType, parts[0])
-        task_ref: int | None = None
+        task_ref: int | str | None = None
         task_source_type: TaskSourceType | None = None
-        import_ref: int | None = None
         if (
             (
                 source_type in (InputSourceType.LOCAL, InputSourceType.DEFAULT)
@@ -2827,22 +2827,20 @@ class InputSource(JSONLike):
         if source_type is InputSourceType.TASK:
             # TODO: does this include element_iters?
             try:
+                # assume specified by task insert ID
                 task_ref = int(parts[1])
             except ValueError:
-                pass
+                # assume specified by task unique name
+                task_ref = parts[1]
             try:
                 task_source_type = get_enum_by_name_or_val(TaskSourceType, parts[2])
             except IndexError:
                 task_source_type = TaskSourceType.OUTPUT
         elif source_type is InputSourceType.IMPORT:
-            try:
-                import_ref = int(parts[1])
-            except ValueError:
-                pass
+            raise NotImplementedError("Import input sources are not yet supported.")
 
         return {
             "source_type": source_type,
-            "import_ref": import_ref,
             "task_ref": task_ref,
             "task_source_type": task_source_type,
         }

@@ -121,3 +121,28 @@ def test_nesting_order_paths_raise(null_config) -> None:
 
 def test_nesting_order_paths_no_raise(null_config) -> None:
     hf.ElementSet(nesting_order={"inputs.p1": 1, "resources.any": 2, "repeats": 3})
+
+
+def test_input_source_str_dict_list_str_list_dict_equivalence(null_config) -> None:
+    inp_source_dict: dict[str, str | int] = {
+        "source_type": "task",
+        "task_source_type": "output",
+        "task_ref": 0,
+    }
+    inp_source_str = "task.0.output"
+    inp_source_list_dict = [inp_source_dict]
+    inp_source_list_str = [inp_source_str]
+    assert (
+        hf.ElementSet.from_json_like(
+            {"input_sources": {"p1": inp_source_dict}}
+        ).input_sources
+        == hf.ElementSet.from_json_like(
+            {"input_sources": {"p1": inp_source_list_dict}}
+        ).input_sources
+        == hf.ElementSet.from_json_like(
+            {"input_sources": {"p1": inp_source_str}}
+        ).input_sources
+        == hf.ElementSet.from_json_like(
+            {"input_sources": {"p1": inp_source_list_str}}
+        ).input_sources
+    )
