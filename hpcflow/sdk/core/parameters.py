@@ -1601,9 +1601,9 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        extent = np.asarray([bounds.get(path, {}).get('extent', [0, 1]) for path in paths])
         scaling = np.asarray([bounds.get(path, {}).get('scaling', 'linear') for path in paths])
         
+        extent = [bounds.get(path, {}).get('extent', [0, 1]) for path in paths]
         extent = np.array([np.log10(extent[i]) if scaling[i] == 'log' else extent[i] for i in range(len(scaling))]).T
 
         try:
@@ -1613,11 +1613,13 @@ class MultiPathSequence(_BaseSequence):
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
 
-        samples = scale(sampler.random(n=num_samples), extent[0], extent[1]).T
+        samples = scale(sampler.random(n=num_samples), l_bounds=extent[0], u_bounds=extent[1])
 
-        scaled_samples = [10**samples[:,i] if scaling[i] == 'log' else samples[:,i] for i in range(len(scaling))]
+        for i in range(len(scaling)):
+            if scaling[i] == 'log':
+                samples[:,i] = 10**samples[:,i]
 
-        return np.asarray(scaled_samples)
+        return samples.T
 
     @classmethod
     def from_latin_hypercube(
