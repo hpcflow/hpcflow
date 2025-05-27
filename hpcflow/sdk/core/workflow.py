@@ -3728,11 +3728,10 @@ class Workflow(AppAware):
 
         """
         with self._app.config.cached_config():
-            with self.cached_merged_parameters():
-                with self._store.cache_ctx():
-                    js, element_deps = self._resolve_singular_jobscripts(
-                        cache, tasks, force_array
-                    )
+            with self.cached_merged_parameters(), self._store.cache_ctx():
+                js, element_deps = self._resolve_singular_jobscripts(
+                    cache, tasks, force_array
+                )
 
             js_deps = resolve_jobscript_dependencies(js, element_deps)
 
