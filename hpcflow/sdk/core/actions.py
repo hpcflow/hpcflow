@@ -3017,6 +3017,7 @@ class Action(JSONLike):
             if all(rule.test(element_iteration=element_iter) for rule in cmd.rules)
         ]
 
+    @TimeIt.decorator
     def get_required_executables(self) -> Iterator[str]:
         """Return executable labels required by this action."""
         for command in self.commands:

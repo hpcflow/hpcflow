@@ -1787,6 +1787,20 @@ class Workflow(AppAware):
         task: int
 
     @TimeIt.decorator
+    def __get_elements_by_task_idx(
+        self, element_idx_by_task: dict[int, set[int]]
+    ) -> dict[int, dict[int, Element]]:
+        return {
+            task_idx: {
+                idx: element
+                for idx, element in zip(
+                    elem_indices, self.tasks[task_idx].elements[list(elem_indices)]
+                )
+            }
+            for task_idx, elem_indices in element_idx_by_task.items()
+        }
+
+    @TimeIt.decorator
     def get_elements_from_IDs(self, id_lst: Iterable[int]) -> list[Element]:
         """Return element objects from a list of IDs."""
 
@@ -1800,10 +1814,7 @@ class Workflow(AppAware):
             index_paths.append(Workflow._IndexPath1(elem_idx, task.index))
             element_idx_by_task[task.index].add(elem_idx)
 
-        elements_by_task = {
-            task_idx: {idx: self.tasks[task_idx].elements[idx] for idx in elem_idxes}
-            for task_idx, elem_idxes in element_idx_by_task.items()
-        }
+        elements_by_task = self.__get_elements_by_task_idx(element_idx_by_task)
 
         return [elements_by_task[path.task][path.elem] for path in index_paths]
 
@@ -1832,10 +1843,7 @@ class Workflow(AppAware):
             index_paths.append(Workflow._IndexPath2(iter_idx, elem_idx, task.index))
             element_idx_by_task[task.index].add(elem_idx)
 
-        elements_by_task = {
-            task_idx: {idx: self.tasks[task_idx].elements[idx] for idx in elem_idx}
-            for task_idx, elem_idx in element_idx_by_task.items()
-        }
+        elements_by_task = self.__get_elements_by_task_idx(element_idx_by_task)
 
         return [
             elements_by_task[path.task][path.elem].iterations[path.iter]
@@ -3627,7 +3635,8 @@ class Workflow(AppAware):
         if status:
             status.update("Adding new submission: resolving jobscripts...")
 
-        cache = ObjectCache.build(self, elements=True, iterations=True, runs=True)
+        with self._store.cache_ctx():
+            cache = ObjectCache.build(self, elements=True, iterations=True, runs=True)
 
         sub_obj: Submission = self._app.Submission(
             index=new_idx,
@@ -3720,9 +3729,10 @@ class Workflow(AppAware):
         """
         with self._app.config.cached_config():
             with self.cached_merged_parameters():
-                js, element_deps = self._resolve_singular_jobscripts(
-                    cache, tasks, force_array
-                )
+                with self._store.cache_ctx():
+                    js, element_deps = self._resolve_singular_jobscripts(
+                        cache, tasks, force_array
+                    )
 
             js_deps = resolve_jobscript_dependencies(js, element_deps)
 
