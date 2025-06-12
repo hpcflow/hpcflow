@@ -6,81 +6,55 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-
-@dataclass(frozen=True)
-class _JES:
-    """
-    Model of the state of a JobscriptElementState
-    """
-
-    _value: int
-    #: The symbol used to render the state.
-    symbol: str
-    #: The colour used to render the state.
-    colour: str
-    __doc__: str = ""
+from hpcflow.sdk.core.enums import _ReportableStateData, _ReportableStateEnum
 
 
-class JobscriptElementState(_JES, Enum):
+class JobscriptElementState(_ReportableStateEnum):
     """Enumeration to convey a particular jobscript element state as reported by the
     scheduler."""
 
     #: Waiting for resource allocation.
-    pending = (
+    pending = _ReportableStateData(
         0,
         "○",
         "yellow",
         "Waiting for resource allocation.",
     )
     #: Waiting for one or more dependencies to finish.
-    waiting = (
+    waiting = _ReportableStateData(
         1,
         "◊",
         "grey46",
         "Waiting for one or more dependencies to finish.",
     )
     #: Executing now.
-    running = (
+    running = _ReportableStateData(
         2,
         "●",
         "dodger_blue1",
         "Executing now.",
     )
     #: Previously submitted but is no longer active.
-    finished = (
+    finished = _ReportableStateData(
         3,
         "■",
         "grey46",
         "Previously submitted but is no longer active.",
     )
     #: Cancelled by the user.
-    cancelled = (
+    cancelled = _ReportableStateData(
         4,
         "C",
         "red3",
         "Cancelled by the user.",
     )
     #: The scheduler reports an error state.
-    errored = (
+    errored = _ReportableStateData(
         5,
         "E",
         "red3",
         "The scheduler reports an error state.",
     )
-
-    @property
-    def value(self) -> int:
-        """
-        The numerical value of this state.
-        """
-        return self._value
-
-    @property
-    def rich_repr(self) -> str:
-        """
-        Rich representation of this enumeration element.
-        """
-        return f"[{self.colour}]{self.symbol}[/{self.colour}]"
 
 
 class SubmissionStatus(Enum):
