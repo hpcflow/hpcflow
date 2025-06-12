@@ -1584,7 +1584,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str,dict[str, str | Sequence[float]]] | None = None,
+        bounds: dict[str, dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1601,10 +1601,17 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        scaling = np.asarray([bounds.get(path, {}).get('scaling', 'linear') for path in paths])
-        
-        extent = [bounds.get(path, {}).get('extent', [0, 1]) for path in paths]
-        extent = np.array([np.log10(extent[i]) if scaling[i] == 'log' else extent[i] for i in range(len(scaling))]).T
+        scaling = np.asarray(
+            [bounds.get(path, {}).get("scaling", "linear") for path in paths]
+        )
+
+        extent = [bounds.get(path, {}).get("extent", [0, 1]) for path in paths]
+        extent = np.array(
+            [
+                np.log10(extent[i]) if scaling[i] == "log" else extent[i]
+                for i in range(len(scaling))
+            ]
+        ).T
 
         try:
             sampler = LatinHypercube(**kwargs)
@@ -1613,11 +1620,13 @@ class MultiPathSequence(_BaseSequence):
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
 
-        samples = scale(sampler.random(n=num_samples), l_bounds=extent[0], u_bounds=extent[1])
+        samples = scale(
+            sampler.random(n=num_samples), l_bounds=extent[0], u_bounds=extent[1]
+        )
 
         for i in range(len(scaling)):
-            if scaling[i] == 'log':
-                samples[:,i] = 10**samples[:,i]
+            if scaling[i] == "log":
+                samples[:, i] = 10 ** samples[:, i]
 
         return samples.T
 
@@ -1627,7 +1636,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str,dict[str, str | Sequence[float]]] | None = None,
+        bounds: dict[str, dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
