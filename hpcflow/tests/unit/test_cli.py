@@ -146,7 +146,7 @@ def test_cli_click_exit_code_non_zero(tmp_path):
     assert error_file.is_file()
 
 
-def test_cli_make_demo_workflow(tmp_path):
+def test_cli_make_demo_workflow(new_null_config, tmp_path):
     """Check the demo workflow directory is generated."""
     runner = CliRunner()
     result = runner.invoke(
@@ -156,7 +156,7 @@ def test_cli_make_demo_workflow(tmp_path):
     assert Path(result.stdout_bytes.decode().strip()).is_dir()
 
 
-def test_cli_make_demo_workflow_add_sub(tmp_path):
+def test_cli_make_demo_workflow_add_sub(new_null_config, tmp_path):
     """Check the demo workflow directory is generated, and a submission is added."""
     runner = CliRunner()
     result = runner.invoke(
