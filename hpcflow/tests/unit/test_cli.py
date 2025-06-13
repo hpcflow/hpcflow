@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 
 from click.testing import CliRunner
@@ -143,3 +144,27 @@ def test_cli_click_exit_code_non_zero(tmp_path):
     )
     assert result.exit_code == 2
     assert error_file.is_file()
+
+
+def test_cli_make_demo_workflow(tmp_path):
+    """Check the demo workflow directory is generated."""
+    runner = CliRunner()
+    result = runner.invoke(
+        hf.cli, args=f'demo-workflow make workflow_1 --path "{str(tmp_path)}"'
+    )
+    assert result.exit_code == 0
+    assert Path(result.stdout_bytes.decode().strip()).is_dir()
+
+
+def test_cli_make_demo_workflow_add_sub(tmp_path):
+    """Check the demo workflow directory is generated, and a submission is added."""
+    runner = CliRunner()
+    result = runner.invoke(
+        hf.cli,
+        args=f'demo-workflow make workflow_1 --path "{str(tmp_path)}" --add-submission',
+    )
+    assert result.exit_code == 0
+    wk_path = Path(result.stdout_bytes.decode().strip())
+    assert wk_path.is_dir()
+    wk = hf.Workflow(wk_path)
+    assert len(wk.submissions) == 1

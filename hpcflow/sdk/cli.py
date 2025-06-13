@@ -189,7 +189,7 @@ def _make_API_CLI(app: BaseApp):
         format, or a YAML/JSON string.
 
         """
-        wk = app.make_workflow(
+        wk_or_sub = app.make_workflow(
             template_file_or_str=template_file_or_str,
             is_string=string,
             template_format=format,
@@ -203,8 +203,12 @@ def _make_API_CLI(app: BaseApp):
             status=status,
             add_submission=add_submission,
         )
-        assert isinstance(wk, Workflow)
-        click.echo(wk.path)
+        if add_submission:
+            assert isinstance(wk_or_sub, Submission)
+            click.echo(wk_or_sub.workflow.path)
+        else:
+            assert isinstance(wk_or_sub, Workflow)
+            click.echo(wk_or_sub.path)
 
     @click.command(name="go")
     @click.argument("template_file_or_str")
