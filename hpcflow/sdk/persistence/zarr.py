@@ -124,7 +124,9 @@ def _encode_numpy_array(
     new_idx = (
         max((int(i.removeprefix("arr_")) for i in param_arr_group.keys()), default=-1) + 1
     )
-    param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj, chunks=obj.shape)
+    if (chunk_shape := obj.shape)[0] == 0:
+        chunk_shape = tuple([1, *chunk_shape[1:]])
+    param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj, chunks=chunk_shape)
     type_lookup["arrays"].append([path, new_idx])
 
     return len(type_lookup["arrays"]) - 1

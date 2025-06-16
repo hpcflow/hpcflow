@@ -6,7 +6,11 @@ from typing import cast, TYPE_CHECKING
 import numpy as np
 import zarr  # type: ignore
 import pytest
-from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow, make_workflow
+from hpcflow.sdk.core.test_utils import (
+    make_schemas,
+    make_test_data_YAML_workflow,
+    make_workflow,
+)
 from hpcflow.sdk.persistence.json import (
     JSONPersistentStore,
     JsonStoreElement,
@@ -551,3 +555,24 @@ def test_zarr_encode_decode_jobscript_block_dependencies_large_one_to_one():
     arr = ZarrPersistentStore._encode_jobscript_block_dependencies(deps_t)
     deps_rt = ZarrPersistentStore._decode_jobscript_block_dependencies(arr)
     assert deps_rt == deps
+
+
+@pytest.mark.parametrize(
+    "array",
+    (
+        np.array([]),
+        np.empty(0),
+        np.empty((0, 1, 2)),
+        np.array([1, 2, 3]),
+        np.array([[1, 2, 3], [4, 5, 6]]),
+    ),
+)
+def test_zarr_save_persistent_array_shape(null_config, tmp_path, array):
+    s1 = make_schemas(({"p1": None}, ()))
+    t1 = hf.Task(schema=s1, inputs={"p1": array})
+    wk = hf.Workflow.from_template_data(
+        template_name="test_save_empty_array",
+        tasks=[t1],
+        path=tmp_path,
+    )
+    assert array.shape == wk.tasks[0].elements[0].get("inputs.p1")[:].shape
