@@ -18,7 +18,7 @@ from numpy.ma.core import MaskedArray
 import zarr  # type: ignore
 from zarr.errors import BoundsCheckError  # type: ignore
 from zarr.storage import DirectoryStore, FSStore  # type: ignore
-from zarr.util import guess_chunks
+from zarr.util import guess_chunks  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from rich.console import Console
 from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd  # type: ignore
