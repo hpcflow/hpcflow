@@ -18,6 +18,7 @@ from numpy.ma.core import MaskedArray
 import zarr  # type: ignore
 from zarr.errors import BoundsCheckError  # type: ignore
 from zarr.storage import DirectoryStore, FSStore  # type: ignore
+from zarr.util import guess_chunks
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from rich.console import Console
 from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd  # type: ignore
@@ -59,6 +60,7 @@ from hpcflow.sdk.submission.submission import (
     SUBMISSION_SUBMIT_TIME_KEYS,
 )
 from hpcflow.sdk.utils.arrays import get_2D_idx, split_arr
+from hpcflow.sdk.utils.patches import override_module_attrs
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 if TYPE_CHECKING:
@@ -89,6 +91,11 @@ if TYPE_CHECKING:
 ListAny: TypeAlias = "list[Any]"
 #: Zarr attribute mapping context.
 ZarrAttrs: TypeAlias = "dict[str, Any]"
+#: Soft lower limit for the number of bytes in an array chunk
+_ARRAY_CHUNK_MIN: int = 500 * 1024 * 1024  # 500 MiB
+#: Hard upper limit for the number of bytes in an array chunk. Should be lower than the
+#: maximum buffer size of the blosc encoder, if we're using it (2 GiB)
+_ARRAY_CHUNK_MAX: int = 1024 * 1024 * 1024  # 1 GiB
 _JS: TypeAlias = "dict[str, list[dict[str, dict]]]"
 
 
@@ -124,8 +131,12 @@ def _encode_numpy_array(
     new_idx = (
         max((int(i.removeprefix("arr_")) for i in param_arr_group.keys()), default=-1) + 1
     )
-    if (chunk_shape := obj.shape)[0] == 0:
-        chunk_shape = tuple([1, *chunk_shape[1:]])
+    with override_module_attrs(
+        "zarr.util", {"CHUNK_MIN": _ARRAY_CHUNK_MIN, "CHUNK_MAX": _ARRAY_CHUNK_MAX}
+    ):
+        # `guess_chunks` also ensures chunk shape is at least 1 in each dimension:
+        chunk_shape = guess_chunks(obj.shape, obj.dtype.itemsize)
+
     param_arr_group.create_dataset(name=f"arr_{new_idx}", data=obj, chunks=chunk_shape)
     type_lookup["arrays"].append([path, new_idx])
 

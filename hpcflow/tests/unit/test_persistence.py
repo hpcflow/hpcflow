@@ -576,3 +576,17 @@ def test_zarr_save_persistent_array_shape(null_config, tmp_path, array):
         path=tmp_path,
     )
     assert array.shape == wk.tasks[0].elements[0].get("inputs.p1")[:].shape
+
+
+def test_zarr_single_chunk_threshold(null_config, tmp_path):
+    # test very large arrays (> ~1 GB) are saved using multiple chunks
+    array = np.zeros(
+        268_435_456
+    )  # ~ 2.147483647 GB; greater than blosc's max buffer size
+    s1 = make_schemas(({"p1": None}, ()))
+    t1 = hf.Task(schema=s1, inputs={"p1": array})
+    wk = hf.Workflow.from_template_data(
+        template_name="test_large_array",
+        tasks=[t1],
+        path=tmp_path,
+    )
