@@ -1,4 +1,18 @@
 
+<a name="v0.2.0a223"></a>
+## [v0.2.0a223](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a222...v0.2.0a223) - 2025.06.23
+
+### 🐛 Bug Fixes
+
+* typing
+* array chunks too big for blosc encoder
+* corner case of saving an empty numpy array
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a222"></a>
 ## [v0.2.0a222](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a221...v0.2.0a222) - 2025.05.27
 
