@@ -14,7 +14,7 @@ from hpcflow.sdk.typing import hydrate
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable, Mapping, Sequence
     from typing_extensions import TypeAlias, Self
     from h5py import Group as HDF5Group  # type: ignore
     from .actions import Action
@@ -467,8 +467,8 @@ def command_line_test(
     path: Path,
     outputs: Sequence[str] | None = None,
     cmd_stdout: str | None = None,
-    shell_args: tuple[str] | None = None,
-    schema_inputs: Sequence[SchemaInput] | None = None,
+    shell_args: tuple[str, str] | None = None,
+    schema_inputs: list[Parameter | SchemaInput] | None = None,
 ):
     """Utility function for testing `Command.get_command_line` in various scenarios, via
     a single-action, single-command workflow.
@@ -499,38 +499,29 @@ def command_line_test(
 
     """
 
-    cmd_args = {"command": cmd_str}
-    if cmd_stdout:
-        cmd_args["stdout"] = cmd_stdout
+    inputs_ = (
+        [hf.InputValue(inp_name, value=inp_val) for inp_name, inp_val in inputs.items()]
+        if isinstance(inputs, dict)
+        else inputs
+    )
+
+    schema_inputs_ = (
+        schema_inputs
+        if schema_inputs
+        else [hf.SchemaInput(parameter=inp_val.parameter) for inp_val in inputs_]
+    )
 
     s1 = hf.TaskSchema(
         objective="t1",
-        inputs=(
-            [hf.SchemaInput(parameter=hf.Parameter(inp_name)) for inp_name in inputs]
-            if not schema_inputs
-            else schema_inputs
-        ),
+        inputs=schema_inputs_,
         outputs=[
             hf.SchemaOutput(parameter=hf.Parameter(out_name))
             for out_name in outputs or ()
         ],
-        actions=[hf.Action(commands=[hf.Command(**cmd_args)])],
+        actions=[hf.Action(commands=[hf.Command(command=cmd_str, stdout=cmd_stdout)])],
     )
-    tasks = [
-        hf.Task(
-            schema=s1,
-            inputs=(
-                [
-                    hf.InputValue(inp_name, value=inp_val)
-                    for inp_name, inp_val in inputs.items()
-                ]
-                if isinstance(inputs, dict)
-                else inputs
-            ),
-        )
-    ]
     wk = hf.Workflow.from_template_data(
-        tasks=tasks,
+        tasks=[hf.Task(schema=s1, inputs=inputs_)],
         path=path,
         template_name="test_get_command_line",
         overwrite=True,
@@ -539,8 +530,8 @@ def command_line_test(
     assert isinstance(t1, hf.WorkflowTask)
     run = t1.elements[0].iterations[0].action_runs[0]
     command = run.action.commands[0]
-    shell_args = shell_args or ("powershell", "nt")
-    shell = ALL_SHELLS[shell_args[0]][shell_args[1]]()
+    shell_args_ = shell_args or ("powershell", "nt")
+    shell = ALL_SHELLS[shell_args_[0]][shell_args_[1]]()
     cmd_line, _ = command.get_command_line(
         EAR=run, shell=shell, env=run.get_environment()
     )

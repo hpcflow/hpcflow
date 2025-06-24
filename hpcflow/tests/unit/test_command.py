@@ -186,6 +186,7 @@ def test_get_command_line_parameter_value_custom_method_with_two_args(
 
 def test_get_command_line_parameter_value_sub_object(null_config, tmp_path: Path):
     p1_value = P1(a=1, sub_param=P1_sub(e=5))
+    assert p1_value.sub_param
     command_line_test(
         cmd_str=f"Write-Output (<<parameter:p1c.sub_param>> + 100)",
         expected=f"Write-Output ({p1_value.sub_param.e} + 100)",
@@ -196,6 +197,7 @@ def test_get_command_line_parameter_value_sub_object(null_config, tmp_path: Path
 
 def test_get_command_line_parameter_value_sub_object_attr(null_config, tmp_path: Path):
     p1_value = P1(a=1, sub_param=P1_sub(e=5))
+    assert p1_value.sub_param
     command_line_test(
         cmd_str=f"Write-Output (" f"<<parameter:p1c.sub_param.e>> + 100)",
         expected=f"Write-Output ({p1_value.sub_param.e} + 100)",
