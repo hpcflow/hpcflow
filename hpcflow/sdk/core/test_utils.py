@@ -9,7 +9,9 @@ from typing import Any, ClassVar, TYPE_CHECKING
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.utils import get_file_context
+from hpcflow.sdk.submission.shells import ALL_SHELLS
 from hpcflow.sdk.typing import hydrate
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from .actions import Action
     from .element import ElementGroup
     from .loop import Loop
-    from .parameters import InputSource, Parameter
+    from .parameters import InputSource, Parameter, SchemaInput, InputValue
     from .task import Task
     from .task_schema import TaskSchema
     from .types import Resources
@@ -456,3 +458,90 @@ def make_workflow_to_run_command(
         store=store,
     )
     return wk
+
+
+def command_line_test(
+    cmd_str: str,
+    expected: str,
+    inputs: dict[str, Any] | list[InputValue],
+    path: Path,
+    outputs: Sequence[str] | None = None,
+    cmd_stdout: str | None = None,
+    shell_args: tuple[str] | None = None,
+    schema_inputs: Sequence[SchemaInput] | None = None,
+):
+    """Utility function for testing `Command.get_command_line` in various scenarios, via
+    a single-action, single-command workflow.
+
+    The functions asserts that the generated command line based on `cmd_str` is equal to
+    the provided `expected` command line.
+
+    Parameters
+    ----------
+    cmd_str
+        The command string to test.
+    expected
+        The resolved commandline string that should be generated.
+    inputs
+        Either a dictionary mapping string input names to values, or a list of
+        `InputValue` objects.
+    path
+        The path to use to create the workflow during the test.
+    outputs
+        List of string output names.
+    cmd_stdout
+        The `Command` object's stdout attribute.
+    shell_args
+        Tuple of shell name and os name, used to select which `Shell` to instantiate.
+    schema_inputs
+        List of `SchemaInput` objects to use. If not passed, simple schema inputs will be
+        generated.
+
+    """
+
+    cmd_args = {"command": cmd_str}
+    if cmd_stdout:
+        cmd_args["stdout"] = cmd_stdout
+
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=(
+            [hf.SchemaInput(parameter=hf.Parameter(inp_name)) for inp_name in inputs]
+            if not schema_inputs
+            else schema_inputs
+        ),
+        outputs=[
+            hf.SchemaOutput(parameter=hf.Parameter(out_name))
+            for out_name in outputs or ()
+        ],
+        actions=[hf.Action(commands=[hf.Command(**cmd_args)])],
+    )
+    tasks = [
+        hf.Task(
+            schema=s1,
+            inputs=(
+                [
+                    hf.InputValue(inp_name, value=inp_val)
+                    for inp_name, inp_val in inputs.items()
+                ]
+                if isinstance(inputs, dict)
+                else inputs
+            ),
+        )
+    ]
+    wk = hf.Workflow.from_template_data(
+        tasks=tasks,
+        path=path,
+        template_name="test_get_command_line",
+        overwrite=True,
+    )
+    t1 = wk.tasks.t1
+    assert isinstance(t1, hf.WorkflowTask)
+    run = t1.elements[0].iterations[0].action_runs[0]
+    command = run.action.commands[0]
+    shell_args = shell_args or ("powershell", "nt")
+    shell = ALL_SHELLS[shell_args[0]][shell_args[1]]()
+    cmd_line, _ = command.get_command_line(
+        EAR=run, shell=shell, env=run.get_environment()
+    )
+    assert cmd_line == expected
