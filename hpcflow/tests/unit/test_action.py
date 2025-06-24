@@ -975,3 +975,18 @@ def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_confi
         "--inputs-hdf5",
         f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.h5",
     ]
+
+
+def test_from_json_like_envs_as_dict_equivalence(null_config):
+    json_like_1 = {
+        "commands": [{"command": "hello"}],
+        "environments": [
+            {"scope": "processing", "environment": "python_env"},
+            {"scope": "main", "environment": "sim_env"},
+        ],
+    }
+    json_like_2 = {
+        "commands": [{"command": "hello"}],
+        "environments": {"processing": "python_env", "main": "sim_env"},
+    }
+    assert hf.Action.from_json_like(json_like_1) == hf.Action.from_json_like(json_like_2)

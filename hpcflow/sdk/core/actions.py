@@ -1830,6 +1830,8 @@ class Action(JSONLike):
             name="environments",
             class_name="ActionEnvironment",
             is_multiple=True,
+            dict_key_attr="scope",
+            dict_val_attr="environment",
         ),
         ChildObjectSpec(
             name="rules",
