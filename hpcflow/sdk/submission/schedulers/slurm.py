@@ -284,7 +284,8 @@ class SlurmPosix(QueuedScheduler):
         Test if information is present on both sides, and also matches.
         """
         return bool(
-            num_req is None or (part_have and cls.is_num_cores_supported(num_req, part_have))
+            num_req is None
+            or (part_have and cls.is_num_cores_supported(num_req, part_have))
         )
 
     @classmethod
