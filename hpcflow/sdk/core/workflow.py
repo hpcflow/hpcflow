@@ -892,7 +892,7 @@ class Workflow(AppAware):
         if self._store.fs:
             if self._store.fs.protocol == "zip":
                 return self._store.fs.of.path
-            elif self._store.fs.protocol == ("file", "local"):
+            elif self._store.fs.protocol in ("file", "local"):
                 return self.path
         raise NotImplementedError("Only (local) zip and local URLs provided for now.")
 
