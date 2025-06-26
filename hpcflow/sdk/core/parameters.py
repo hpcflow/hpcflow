@@ -1651,14 +1651,14 @@ class MultiPathSequence(_BaseSequence):
         Parameters
         ----------
         paths : Sequence[str]
-            List of dot-delimited paths within the parameter's nested data structure for which 
+            List of dot-delimited paths within the parameter's nested data structure for which
             'value' should be set.
         num_samples : int
             Number of random hypercube samples to take.
         bounds : dict[str, dict[str, str  |  Sequence[float]]] | None, optional
             Bounds dictionary structure which takes a path as a key and returns another dictionary
             which takes scaling and extent as keys. extent defines the width of the parameter
-            space and spacing defines whether to take logarithmically spaced samples, by default 
+            space and spacing defines whether to take logarithmically spaced samples, by default
             None in which cause linear scaling and an extent between 0 and 1 is used.
         scramble : bool, optional
             See `scipy.stats.qmc.LatinHypercube`, by default True
