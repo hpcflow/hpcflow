@@ -1590,6 +1590,7 @@ class MultiPathSequence(_BaseSequence):
         optimization: Literal["random-cd", "lloyd"] | None = None,
         rng=None,
     ) -> NDArray:
+
         num_paths = len(paths)
         kwargs = dict(
             d=num_paths,
@@ -1606,7 +1607,7 @@ class MultiPathSequence(_BaseSequence):
         )
 
         extent = [bounds.get(path, {}).get("extent", [0, 1]) for path in paths]
-        extent = np.array(
+        extent = np.asarray(
             [
                 np.log10(extent[i]) if scaling[i] == "log" else extent[i]
                 for i in range(len(scaling))
@@ -1646,6 +1647,32 @@ class MultiPathSequence(_BaseSequence):
     ) -> Self:
         """
         Generate values from SciPy's latin hypercube sampler: :class:`scipy.stats.qmc.LatinHypercube`.
+
+        Parameters
+        ----------
+        paths : Sequence[str]
+            List of dot-delimited paths within the parameter's nested data structure for which 
+            'value' should be set.
+        num_samples : int
+            Number of random hypercube samples to take.
+        bounds : dict[str, dict[str, str  |  Sequence[float]]] | None, optional
+            Bounds dictionary structure which takes a path as a key and returns another dictionary
+            which takes scaling and extent as keys. extent defines the width of the parameter
+            space and spacing defines whether to take logarithmically spaced samples, by default 
+            None in which cause linear scaling and an extent between 0 and 1 is used.
+        scramble : bool, optional
+            See `scipy.stats.qmc.LatinHypercube`, by default True
+        strength : int, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default 1
+        optimization : Literal[&quot;random, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default None
+        rng : _type_, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default None
+
+        Returns
+        -------
+        NDArray
+            Array of hypercube samples.
         """
         kwargs = {
             "paths": paths,
