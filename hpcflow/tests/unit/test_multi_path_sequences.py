@@ -172,25 +172,32 @@ def test_MPS_latin_hypercube_sequence_values():
 
 def test_MPS_latin_hypercube_sequence_bounds():
 
-    bounds = {"inputs.a": [16789.2, 17812.5]}
+    bounds = {
+        "inputs.a": {"extent": [16789.2, 17812.5], "scaling": "linear"},
+        "inputs.c": {"extent": [1.0e-10, 1.0e-5], "scaling": "log"},
+    }
 
     mps = hf.MultiPathSequence.from_latin_hypercube(
-        paths=["inputs.a", "inputs.b"],
+        paths=["inputs.a", "inputs.b", "inputs.c"],
         num_samples=10,
         bounds=bounds,
     )
 
     vals_arr = np.array(mps.values)
-    assert vals_arr.shape == (2, 10)
 
-    vals_0 = vals_arr[0]
-    bounds_0 = list(bounds.values())[0]
+    assert vals_arr.shape == (3, 10)
 
-    vals_1 = vals_arr[1]
-    bounds_1 = [0, 1]
+    vals_a = vals_arr[0]
+    vals_b = vals_arr[1]
+    vals_c = vals_arr[2]
 
-    assert np.logical_and(vals_0 > bounds_0[0], vals_0 < bounds_0[1]).all()
-    assert np.logical_and(vals_1 > bounds_1[0], vals_1 < bounds_1[1]).all()
+    extent_a = bounds["inputs.a"]["extent"]
+    extent_b = [0.0, 1.0]
+    extent_c = bounds["inputs.c"]["extent"]
+
+    assert np.logical_and(vals_a > extent_a[0], vals_a < extent_a[1]).all()
+    assert np.logical_and(vals_b > extent_b[0], vals_b < extent_b[1]).all()
+    assert np.logical_and(vals_c > extent_c[0], vals_c < extent_c[1]).all()
 
 
 def test_MPS_move_from_sequences_list():

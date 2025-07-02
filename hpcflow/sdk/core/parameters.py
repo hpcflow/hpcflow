@@ -1584,7 +1584,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str, Sequence[float]] | None = None,
+        bounds: dict[str, dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1602,10 +1602,20 @@ class MultiPathSequence(_BaseSequence):
 
         bounds = bounds or {}
 
-        parameter_ranges = np.array([bounds.get(path, [0, 1]) for path in paths]).T
+        scaling = np.asarray(
+            [bounds.get(path, {}).get("scaling", "linear") for path in paths]
+        )
 
-        lower_bound = parameter_ranges[0]
-        upper_bound = parameter_ranges[1]
+        # extents including defaults for unspecified:
+        all_extents = [bounds.get(path, {}).get("extent", [0, 1]) for path in paths]
+
+        # extents accounting for scaling type:
+        extent = np.asarray(
+            [
+                np.log10(all_extents[i]) if scaling[i] == "log" else all_extents[i]
+                for i in range(len(scaling))
+            ]
+        ).T
 
         try:
             sampler = LatinHypercube(**kwargs)
@@ -1614,9 +1624,15 @@ class MultiPathSequence(_BaseSequence):
             kwargs["seed"] = kwargs.pop("rng")
             sampler = LatinHypercube(**kwargs)
 
-        samples = scale(sampler.random(n=num_samples), lower_bound, upper_bound).T
+        samples = scale(
+            sampler.random(n=num_samples), l_bounds=extent[0], u_bounds=extent[1]
+        )
 
-        return samples
+        for i in range(len(scaling)):
+            if scaling[i] == "log":
+                samples[:, i] = 10 ** samples[:, i]
+
+        return samples.T
 
     @classmethod
     def from_latin_hypercube(
@@ -1624,7 +1640,7 @@ class MultiPathSequence(_BaseSequence):
         paths: Sequence[str],
         num_samples: int,
         *,
-        bounds: dict[str, Sequence[float]] | None = None,
+        bounds: dict[str, dict[str, str | Sequence[float]]] | None = None,
         scramble: bool = True,
         strength: int = 1,
         optimization: Literal["random-cd", "lloyd"] | None = None,
@@ -1634,6 +1650,32 @@ class MultiPathSequence(_BaseSequence):
     ) -> Self:
         """
         Generate values from SciPy's latin hypercube sampler: :class:`scipy.stats.qmc.LatinHypercube`.
+
+        Parameters
+        ----------
+        paths : Sequence[str]
+            List of dot-delimited paths within the parameter's nested data structure for which
+            'value' should be set.
+        num_samples : int
+            Number of random hypercube samples to take.
+        bounds : dict[str, dict[str, str  |  Sequence[float]]] | None, optional
+            Bounds dictionary structure which takes a path as a key and returns another dictionary
+            which takes `scaling` and `extent` as keys. `extent` defines the width of the parameter
+            space, and `scaling` defines whether to take logarithmically spaced samples ("log") or not ("linear"). By default,
+            linear scaling and an extent between 0 and 1 is used.
+        scramble : bool, optional
+            See `scipy.stats.qmc.LatinHypercube`, by default True
+        strength : int, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default 1
+        optimization : Literal[&quot;random, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default None
+        rng : _type_, optional
+            See 'scipy.stats.qmc.LatinHypercube', by default None
+
+        Returns
+        -------
+        NDArray
+            Array of hypercube samples.
         """
         kwargs = {
             "paths": paths,
