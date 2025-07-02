@@ -1,4 +1,26 @@
 
+<a name="v0.2.0a224"></a>
+## [v0.2.0a224](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a223...v0.2.0a224) - 2025.07.02
+
+### ✨ Features
+
+* optional logarithmic spacing for latin hypercube sampling
+
+### 🐛 Bug Fixes
+
+* typing
+* corrected unit test for hypercube sampling
+* proper bounds and sample dimensions
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+### 🔄 Updates
+
+* clear doc-string for latin-hypercube
+
+
 <a name="v0.2.0a223"></a>
 ## [v0.2.0a223](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a222...v0.2.0a223) - 2025.06.23
 
