@@ -1606,10 +1606,13 @@ class MultiPathSequence(_BaseSequence):
             [bounds.get(path, {}).get("scaling", "linear") for path in paths]
         )
 
-        extent = [bounds.get(path, {}).get("extent", [0, 1]) for path in paths]
+        # extents including defaults for unspecified:
+        all_extents = [bounds.get(path, {}).get("extent", [0, 1]) for path in paths]
+
+        # extents accounting for scaling type:
         extent = np.asarray(
             [
-                np.log10(extent[i]) if scaling[i] == "log" else extent[i]
+                np.log10(all_extents[i]) if scaling[i] == "log" else all_extents[i]
                 for i in range(len(scaling))
             ]
         ).T
