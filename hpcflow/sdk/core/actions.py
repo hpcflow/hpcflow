@@ -3092,7 +3092,7 @@ class Action(JSONLike):
                     raise_on_unset=False,
                     add_script_files=True,
                     blk_act_key=blk_act_key,
-                )            
+                )
         """
         ).format(app_caps=app_caps)
 
