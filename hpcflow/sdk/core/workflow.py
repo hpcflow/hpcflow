@@ -4028,6 +4028,10 @@ class Workflow(AppAware):
                             exe.stop_zmq_server()
                             raise
 
+                    if run.action.jinja_template:
+                        # TODO: write Jinja templates in shared submissions directory
+                        run.write_jinja_template()
+
         # this subprocess may include commands that redirect to the std_stream file (e.g.
         # calling the app to save a parameter from a shell command output):
         if not run.skip and has_commands:

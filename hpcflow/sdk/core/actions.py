@@ -50,6 +50,13 @@ from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
 
+from jinja2 import (
+    Environment as JinjaEnvironment,
+    FileSystemLoader as JinjaFileSystemLoader,
+    Template as JinjaTemplate,
+    meta as jinja_meta,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Container, Iterable, Iterator, Sequence
     from datetime import datetime
@@ -1236,6 +1243,23 @@ class ElementActionRun(AppAware):
             self.workflow._is_tracking_unset = False
             self.workflow._tracked_unset = None
 
+    def render_jinja_template(self) -> str:
+        """
+        Render the associated Jinja template as a string.
+        """
+        if not self.action.jinja_template:
+            raise ValueError("This action is not associated with a Jinja template.")
+        inputs = self.action.get_jinja_template_inputs()
+        return self.action.render_jinja_template(self.get_input_values(inputs))
+
+    def write_jinja_template(self):
+        """
+        Render the Jinja template and write to disk in the current working directory.
+        """
+        template_str = self.render_jinja_template()
+        with Path(Path(self.action.jinja_template).name).open("wt") as fh:
+            fh.write(template_str)
+
 
 class ElementAction(AppAware):
     """
@@ -1777,6 +1801,8 @@ class Action(JSONLike):
         The executable to use to run the script.
     script_pass_env_spec: bool
         Whether to pass the environment details to the script.
+    jinja_template: str
+        Path to a Jinja template file to generate as part of this action.
     abortable: bool
         Whether this action can be aborted.
     input_file_generators: list[~hpcflow.app.InputFileGenerator]
@@ -1864,6 +1890,7 @@ class Action(JSONLike):
         script_data_files_use_opt: bool = False,
         script_exe: str | None = None,
         script_pass_env_spec: bool = False,
+        jinja_template: str | None = None,
         abortable: bool = False,
         input_file_generators: list[InputFileGenerator] | None = None,
         output_file_parsers: list[OutputFileParser] | None = None,
@@ -1900,6 +1927,8 @@ class Action(JSONLike):
         self.environments = environments or [
             self._app.ActionEnvironment(environment="null_env")
         ]
+        #: The path to a Jinja template to render.
+        self.jinja_template = jinja_template
         #: Whether this action can be aborted.
         self.abortable = abortable
         #: Any applicable input file generators.
@@ -1918,8 +1947,14 @@ class Action(JSONLike):
         self.clean_up = clean_up or []
 
         if requires_dir is None:
+            # TODO: once Jinja templates are written to the shared subs dir, we can omit
+            # from here:
             requires_dir = (
-                True if self.input_file_generators or self.output_file_parsers else False
+                True
+                if self.input_file_generators
+                or self.output_file_parsers
+                or self.jinja_template
+                else False
             )
         self.requires_dir = requires_dir
 
@@ -2134,6 +2169,8 @@ class Action(JSONLike):
             out.append(f"commands={self.commands!r}")
         if self.script:
             out.append(f"script={self.script!r}")
+        if self.jinja_template:
+            out.append(f"jinja_template={self.jinja_template!r}")
         if self.environments:
             out.append(f"environments={self.environments!r}")
         if IFGs:
@@ -2151,6 +2188,7 @@ class Action(JSONLike):
         return (
             self.commands == other.commands
             and self.script == other.script
+            and self.jinja_template == other.jinja_template
             and self.environments == other.environments
             and self.abortable == other.abortable
             and self.input_file_generators == other.input_file_generators
@@ -2288,7 +2326,7 @@ class Action(JSONLike):
 
     def get_environment_spec(self) -> Mapping[str, Any]:
         """
-        Get the specification for the primary envionment, assuming it has been expanded.
+        Get the specification for the primary environment, assuming it has been expanded.
         """
         if not self._from_expand:
             raise RuntimeError(
@@ -2671,6 +2709,7 @@ class Action(JSONLike):
             script_data_out=self.script_data_out,
             script_exe=self.script_exe,
             script_pass_env_spec=self.script_pass_env_spec,
+            jinja_template=self.jinja_template,
             environments=[self.get_commands_action_env()],
             abortable=self.abortable,
             rules=main_rules,
@@ -2781,6 +2820,10 @@ class Action(JSONLike):
                 params.update(inp.typ for inp in ifg.inputs)
             for ofp in self.output_file_parsers:
                 params.update(ofp.inputs or ())
+
+        if self.jinja_template:
+            params.update(self.get_jinja_template_inputs())
+
         return tuple(params)
 
     def get_output_types(self) -> tuple[str, ...]:
@@ -3002,6 +3045,10 @@ class Action(JSONLike):
                 ifg.input_file not in provided_files
             ):
                 return True
+
+        # typ is required if it is in the set of Jinja template undeclared variables
+        if self.jinja_template and typ in self.get_jinja_template_inputs():
+            return True
 
         # typ is required if used in any output file parser
         return any(typ in (ofp.inputs or ()) for ofp in self.output_file_parsers)
@@ -3316,3 +3363,76 @@ class Action(JSONLike):
             args.append(str(path))
 
         return args
+
+    @classmethod
+    def _get_jinja_template_path(cls, path: str) -> Path:
+        """
+        Normalise the provided `path` to an actual file system path.
+
+        `path` is initially assumed to be a relative path within the built-in jinja
+        templates directory. If no file exists at that location, `path` is assumed to be
+        an absolute file path.
+        """
+        if not (real_path := Path(cls._app.jinja_templates.get(path, path))).is_file():
+            raise ValueError(f"Cannot find a Jinja template at path: {path!r}.")
+        return real_path
+
+    @classmethod
+    def _get_jinja_env_obj(cls, path: str) -> JinjaEnvironment:
+        """
+        Retrieve a Jinja Environment object from the specified path.
+
+        `path` is initially assumed to be a relative path within the built-in jinja
+        templates directory. If no file exists at that location, `path` is assumed to be
+        an absolute file path.
+        """
+        real_path = cls._get_jinja_template_path(path)
+        return JinjaEnvironment(loader=JinjaFileSystemLoader(real_path.parent))
+
+    @classmethod
+    def _get_jinja_template_obj(cls, path: str) -> JinjaTemplate:
+        """
+        Retrieve a Jinja Template object from the specified path.
+
+        `path` is initially assumed to be a relative path within the built-in jinja
+        templates directory. If no file exists at that location, `path` is assumed to be
+        an absolute file path.
+        """
+        return cls._get_jinja_env_obj(path).get_template(Path(path).name)
+
+    @classmethod
+    def _get_jinja_template_inputs(cls, path: str) -> set[str]:
+        """
+        Get the set of undeclared inputs in the specified Jinja template path, which can
+        be used for validation of the jinja template with respect to the associated task
+        schema.
+
+        `path` is initially assumed to be a relative path within the built-in jinja
+        templates directory. If no file exists at that location, `path` is assumed to be
+        an absolute file path.
+        """
+
+        template_name = Path(path).name
+        jinja_env = cls._get_jinja_env_obj(path)
+        source = jinja_env.loader.get_source(jinja_env, template_name)[0]
+        parsed = jinja_env.parse(source)
+
+        return jinja_meta.find_undeclared_variables(parsed)
+
+    def get_jinja_template_obj(self) -> JinjaTemplate:
+        """
+        Retrieve the Jinja Template object for this action, if it is associated with
+        one."""
+        if self.jinja_template:
+            return self._get_jinja_template_obj(self.jinja_template)
+
+    def get_jinja_template_inputs(self) -> set[str] | None:
+        """
+        Retrieve the set of undeclared inputs in Jinja template associated with this
+        action, if there is one.
+        """
+        if self.jinja_template:
+            return self._get_jinja_template_inputs(self.jinja_template)
+
+    def render_jinja_template(self, input_vals: Mapping[str, Any]) -> str:
+        return self.get_jinja_template_obj().render(**input_vals)

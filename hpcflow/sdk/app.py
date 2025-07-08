@@ -454,6 +454,8 @@ class BaseApp(metaclass=Singleton):
         Configuration options.
     scripts_dir:
         Directory for scripts.
+    jinja_templates_dir:
+        Directory for Jinja templates.
     workflows_dir:
         Directory for workflows.
     demo_data_dir:
@@ -491,6 +493,7 @@ class BaseApp(metaclass=Singleton):
         gh_repo: str,
         config_options: ConfigOptions,
         scripts_dir: str,
+        jinja_templates_dir: str | None = None,
         workflows_dir: str | None = None,
         demo_data_dir: str | None = None,
         demo_data_manifest_dir: str | None = None,
@@ -522,6 +525,8 @@ class BaseApp(metaclass=Singleton):
         self.pytest_args = pytest_args
         #: Directory for scripts.
         self.scripts_dir = scripts_dir
+        #: Directory for Jinja templates.
+        self.jinja_templates_dir = jinja_templates_dir
         #: Directory for workflows.
         self.workflows_dir = workflows_dir
         #: Directory for demonstration data.
@@ -560,6 +565,7 @@ class BaseApp(metaclass=Singleton):
         self._environments: _EnvironmentsList | None = None
         self._task_schemas: _TaskSchemasList | None = None
         self._scripts: dict[str, Path] | None = None
+        self._jinja_templates: dict[str, Path] | None = None
 
         self.__app_type_cache: dict[str, type] = {}
         self.__app_func_cache: dict[str, Callable[..., Any]] = {}
@@ -1723,6 +1729,7 @@ class BaseApp(metaclass=Singleton):
                 "environments",
                 "task_schemas",
                 "scripts",
+                "jinja_templates",
             )
 
         self.logger.debug(f"Loading template components: {include!r}.")
@@ -1776,6 +1783,11 @@ class BaseApp(metaclass=Singleton):
             scripts = self._load_scripts()
             self._template_components["scripts"] = scripts
             self._scripts = scripts
+
+        if "jinja_templates" in include:
+            jinja_templates = self._load_jinja_templates()
+            self._template_components["jinja_templates"] = jinja_templates
+            self._jinja_templates = jinja_templates
 
         self.logger.info(f"Template components loaded ({include!r}).")
 
@@ -1834,6 +1846,15 @@ class BaseApp(metaclass=Singleton):
         self._ensure_template_component("scripts")
         assert self._scripts is not None
         return self._scripts
+
+    @property
+    def jinja_templates(self) -> dict[str, Path]:
+        """
+        The known Jinja template files.
+        """
+        self._ensure_template_component("jinja_templates")
+        assert self._jinja_templates is not None
+        return self._jinja_templates
 
     @property
     def task_schemas(self) -> _TaskSchemasList:
@@ -2234,16 +2255,20 @@ class BaseApp(metaclass=Singleton):
         self._load_config(config_dir, config_key, **overrides)
 
     @TimeIt.decorator
-    def _load_scripts(self) -> dict[str, Path]:
-        """
-        Discover where the built-in scripts all are.
-        """
+    def __load_builtin_files_from_nested_package(
+        self, directory: str | None
+    ) -> dict[str, Path]:
+        """Discover where the built-in files are (scripts or jinja templates)."""
         # TODO: load custom directories / custom functions (via decorator)
-        scripts_package = f"{self.package_name}.{self.scripts_dir}"
 
-        scripts: dict[str, Path] = {}
+        # must include an `__init__.py` file:
+        package = f"{self.package_name}.{directory}"
+
+        out: dict[str, Path] = {}
+        if not directory:
+            return out
         try:
-            with get_file_context(scripts_package) as path:
+            with get_file_context(package) as path:
                 for dirpath, _, filenames in os.walk(path):
                     dirpath_ = Path(dirpath)
                     if dirpath_.name == "__pycache__":
@@ -2252,11 +2277,25 @@ class BaseApp(metaclass=Singleton):
                         if filename == "__init__.py":
                             continue
                         val = dirpath_.joinpath(filename)
-                        scripts[val.relative_to(path).as_posix()] = Path(val)
+                        out[val.relative_to(path).as_posix()] = Path(val)
         except ModuleNotFoundError:
-            self.logger.exception("failed to find scripts package")
-        SDK_logger.info(f"loaded {len(scripts)} scripts from {scripts_package}")
-        return scripts
+            self.logger.exception(f"failed to find built-in files at {package}.")
+        SDK_logger.info(f"loaded {len(out)} files from {package}.")
+        return out
+
+    @TimeIt.decorator
+    def _load_scripts(self) -> dict[str, Path]:
+        """
+        Discover where the built-in scripts are.
+        """
+        return self.__load_builtin_files_from_nested_package(self.scripts_dir)
+
+    @TimeIt.decorator
+    def _load_jinja_templates(self) -> dict[str, Path]:
+        """
+        Discover where the built-in Jinja templates are.
+        """
+        return self.__load_builtin_files_from_nested_package(self.jinja_templates_dir)
 
     def _get_demo_workflows(self) -> dict[str, Path]:
         """Get all builtin demo workflow template file paths."""
