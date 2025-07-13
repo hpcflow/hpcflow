@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a227"></a>
+## [v0.2.0a227](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a226...v0.2.0a227) - 2025.07.13
+
+### ♻ Code Refactoring
+
+* status
+
+### ⚡ Performance Improvements
+
+* add a `Submission` cache for EARs
+
+### 🐛 Bug Fixes
+
+* tests
+* support nested use of `PersistentStore.cache_ctx`
+
+
 <a name="v0.2.0a226"></a>
 ## [v0.2.0a226](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a225...v0.2.0a226) - 2025.07.13
 
