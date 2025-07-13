@@ -26,45 +26,85 @@ class ActionScopeType(Enum):
 
 
 @dataclass(frozen=True)
-class _EARStatus:
+class _ReportableStateData:
     """
-    Model of the state of an EARStatus.
+    Model of the state of something that is renderable using a symbol and colour.
+
+    Notes
+    -----
+    This class is used as the value in the the enumeration subclasses
+    :py:class:`EARStatus` and :py:class:`JobscriptElementState`.
+
     """
 
-    _value: int
-    #: Symbol to use when rendering a status.
+    #: ID that distinguishes the state.
+    id: int
+    #: Symbol to use when rendering a state.
     symbol: str
-    #: Colour to use when rendering a status.
+    #: Colour to use when rendering a state.
     colour: str
+    #: Documentation of the meaning of the state.
     __doc__: str = ""
 
 
-class EARStatus(_EARStatus, Enum):
+class _ReportableStateEnum(Enum):
+    """Enumeration superclass for reportable state subclasses with some shared methods."""
+
+    @property
+    def id(self) -> int:
+        """
+        The integer ID associated with this state.
+        """
+        return self.value.id
+
+    @property
+    def colour(self) -> str:
+        """
+        The colour associated with this state.
+        """
+        return self.value.colour
+
+    @property
+    def symbol(self) -> str:
+        """
+        The symbol associated with this state.
+        """
+        return self.value.symbol
+
+    @property
+    def rich_repr(self) -> str:
+        """
+        Rich representation of this enumeration element.
+        """
+        return f"[{self.colour}]{self.symbol}[/{self.colour}]"
+
+
+class EARStatus(_ReportableStateEnum):
     """Enumeration of all possible EAR statuses, and their associated status colour."""
 
     #: Not yet associated with a submission.
-    pending = (
+    pending = _ReportableStateData(
         0,
         ".",
         "grey46",
         "Not yet associated with a submission.",
     )
     #: Associated with a prepared submission that is not yet submitted.
-    prepared = (
+    prepared = _ReportableStateData(
         1,
         ".",
         "grey46",
         "Associated with a prepared submission that is not yet submitted.",
     )
     #: Submitted for execution.
-    submitted = (
+    submitted = _ReportableStateData(
         2,
         ".",
         "grey46",
         "Submitted for execution.",
     )
     #: Executing now.
-    running = (
+    running = _ReportableStateData(
         3,
         "●",
         "dodger_blue1",
@@ -72,7 +112,7 @@ class EARStatus(_EARStatus, Enum):
     )
     #: Not attempted due to a failure of an upstream action on which this depends,
     #: or a loop termination condition being satisfied.
-    skipped = (
+    skipped = _ReportableStateData(
         4,
         "s",
         "dark_orange",
@@ -82,31 +122,26 @@ class EARStatus(_EARStatus, Enum):
         ),
     )
     #: Aborted by the user; downstream actions will be attempted.
-    aborted = (
+    aborted = _ReportableStateData(
         5,
         "A",
         "deep_pink4",
         "Aborted by the user; downstream actions will be attempted.",
     )
     #: Probably exited successfully.
-    success = (
+    success = _ReportableStateData(
         6,
         "■",
         "green3",
         "Probably exited successfully.",
     )
     #: Probably failed.
-    error = (
+    error = _ReportableStateData(
         7,
         "E",
         "red3",
         "Probably failed.",
     )
-
-    @property
-    def value(self) -> int:
-        #: The value of the status.
-        return self._value
 
     @classmethod
     def get_non_running_submitted_states(cls) -> frozenset[EARStatus]:
@@ -119,13 +154,6 @@ class EARStatus(_EARStatus, Enum):
                 cls.error,
             }
         )
-
-    @property
-    def rich_repr(self) -> str:
-        """
-        The rich representation of the value.
-        """
-        return f"[{self.colour}]{self.symbol}[/{self.colour}]"
 
 
 class InputSourceType(Enum):
