@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a229"></a>
+## [v0.2.0a229](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a228...v0.2.0a229) - 2025.07.13
+
+### 🐛 Bug Fixes
+
+* try to fix tests
+* make (demo) workflow return `isinstance` assertions
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a228"></a>
 ## [v0.2.0a228](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a227...v0.2.0a228) - 2025.07.13
 
