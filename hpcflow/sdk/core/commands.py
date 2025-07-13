@@ -11,6 +11,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
 
+from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.element import ElementResources
 from hpcflow.sdk.core.errors import NoCLIFormatMethodError
@@ -416,6 +417,7 @@ class Command(JSONLike):
     def _extract_executable_labels(cls, cmd_str: str) -> Sequence[str]:
         return cls.__EXE_RE.findall(cmd_str)
 
+    @TimeIt.decorator
     def get_required_executables(self) -> Sequence[str]:
         """Return executable labels required by this command."""
         # an executable label might appear in the `command` or `executable` attribute:
