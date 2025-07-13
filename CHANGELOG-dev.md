@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a228"></a>
+## [v0.2.0a228](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a227...v0.2.0a228) - 2025.07.13
+
+### ⚡ Performance Improvements
+
+* speed up `Workflow.add_submission` via caching and batched IO
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a227"></a>
 ## [v0.2.0a227](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a226...v0.2.0a227) - 2025.07.13
 
