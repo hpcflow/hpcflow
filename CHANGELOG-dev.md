@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a226"></a>
+## [v0.2.0a226](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a225...v0.2.0a226) - 2025.07.13
+
+### 🐛 Bug Fixes
+
+* refactor some enums to placate mypy 1.16
+
+
 <a name="v0.2.0a225"></a>
 ## [v0.2.0a225](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a224...v0.2.0a225) - 2025.07.09
 
