@@ -3201,7 +3201,7 @@ class Action(JSONLike):
             raise ValueError(f"unexpected prefix: {prefix}")
 
     def get_commands_file_hash(
-        self, data_idx: DataIndex, action_idx: int, env_spec_hashable: tuple
+        self, data_idx: DataIndex, action_idx: int, env_spec_hashable: tuple = ()
     ) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
