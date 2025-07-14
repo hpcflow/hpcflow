@@ -4,6 +4,7 @@ Command line interface implementation.
 
 from __future__ import annotations
 import contextlib
+import datetime
 import json
 import os
 import time
@@ -189,7 +190,7 @@ def _make_API_CLI(app: BaseApp):
         format, or a YAML/JSON string.
 
         """
-        wk = app.make_workflow(
+        wk_or_sub = app.make_workflow(
             template_file_or_str=template_file_or_str,
             is_string=string,
             template_format=format,
@@ -203,8 +204,12 @@ def _make_API_CLI(app: BaseApp):
             status=status,
             add_submission=add_submission,
         )
-        assert isinstance(wk, Workflow)
-        click.echo(wk.path)
+        if add_submission:
+            assert isinstance(wk_or_sub, Submission)
+            click.echo(wk_or_sub.workflow.path)
+        else:
+            assert isinstance(wk_or_sub, Workflow)
+            click.echo(wk_or_sub.path)
 
     @click.command(name="go")
     @click.argument("template_file_or_str")
@@ -772,6 +777,12 @@ def _make_submission_CLI(app: BaseApp):
     def get_login_nodes(scheduler: SGEPosix):
         pprint(scheduler.get_login_nodes())
 
+    class _DateTimeJSONEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, datetime.datetime):
+                return obj.isoformat()
+            return super().default(obj)
+
     @submission.command()
     @click.option(
         "as_json",
@@ -784,7 +795,7 @@ def _make_submission_CLI(app: BaseApp):
         """Print known-submissions information as a formatted Python object."""
         out = app.get_known_submissions(as_json=as_json)
         if as_json:
-            click.echo(json.dumps(out))
+            click.echo(json.dumps(out, cls=_DateTimeJSONEncoder))
         else:
             pprint(out)
 

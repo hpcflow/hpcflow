@@ -29,6 +29,7 @@ from hpcflow.sdk.cli_common import (
     make_status_opt,
     add_sub_opt,
 )
+from hpcflow.sdk.submission.submission import Submission
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -133,7 +134,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         status: bool = True,
         add_submission: bool = False,
     ):
-        wk = app.make_demo_workflow(
+        wk_or_sub = app.make_demo_workflow(
             workflow_name=workflow_name,
             template_format=format,
             path=path,
@@ -146,8 +147,12 @@ def get_demo_workflow_CLI(app: BaseApp):
             status=status,
             add_submission=add_submission,
         )
-        assert isinstance(wk, Workflow)
-        click.echo(wk.path)
+        if add_submission:
+            assert isinstance(wk_or_sub, Submission)
+            click.echo(wk_or_sub.workflow.path)
+        else:
+            assert isinstance(wk_or_sub, Workflow)
+            click.echo(wk_or_sub.path)
 
     @demo_workflow.command("go")
     @click.argument("workflow_name")
