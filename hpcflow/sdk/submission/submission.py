@@ -11,6 +11,7 @@ from textwrap import indent
 from typing import Any, Literal, overload, TYPE_CHECKING
 from typing_extensions import override
 import warnings
+from contextlib import contextmanager
 
 
 from hpcflow.sdk.utils.strings import shorten_list_str
@@ -135,6 +136,10 @@ class Submission(JSONLike):
             None  # assigned on first access
         )
 
+        # updated in _submission_EARs_cache context manager:
+        self._use_EARs_cache = False
+        self._EARs_cache: dict[int, ElementActionRun] = {}
+
         if workflow:
             #: The workflow this is part of.
             self.workflow = workflow
@@ -226,6 +231,8 @@ class Submission(JSONLike):
         del dct["_workflow"]
         del dct["_index"]
         del dct["_submission_parts_lst"]
+        del dct["_use_EARs_cache"]
+        del dct["_EARs_cache"]
         return {k.lstrip("_"): v for k, v in dct.items()}
 
     @property
@@ -265,6 +272,30 @@ class Submission(JSONLike):
             ]
         return self._submission_parts_lst
 
+    @property
+    @TimeIt.decorator
+    def use_EARs_cache(self) -> bool:
+        """Whether to pre-cache all EARs associated with the submission."""
+        return self._use_EARs_cache
+
+    @use_EARs_cache.setter
+    @TimeIt.decorator
+    def use_EARs_cache(self, value: bool):
+        """Toggle the EAR caching facility."""
+        if self._use_EARs_cache == value:
+            return
+        self._use_EARs_cache = value
+        if value:
+            all_EAR_IDs = list(self.all_EAR_IDs)
+            self._EARs_cache = {
+                ear_ID: ear
+                for ear_ID, ear in zip(
+                    all_EAR_IDs, self.workflow.get_EARs_from_IDs(all_EAR_IDs)
+                )
+            }
+        else:
+            self._EARs_cache = {}  # reset the cache
+
     @TimeIt.decorator
     def get_start_time(self, submit_time: str) -> datetime | None:
         """Get the start time of a given submission part."""
@@ -283,17 +314,36 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def start_time(self) -> datetime | None:
         """Get the first non-None start time over all submission parts."""
-        times = (
-            self.get_start_time(submit_time) for submit_time in self._submission_parts
-        )
-        return min((t for t in times if t is not None), default=None)
+        with self.using_EARs_cache():
+            times = (
+                self.get_start_time(submit_time) for submit_time in self._submission_parts
+            )
+            return min((t for t in times if t is not None), default=None)
 
     @property
     @TimeIt.decorator
     def end_time(self) -> datetime | None:
         """Get the final non-None end time over all submission parts."""
-        times = (self.get_end_time(submit_time) for submit_time in self._submission_parts)
-        return max((t for t in times if t is not None), default=None)
+        with self.using_EARs_cache():
+            times = (
+                self.get_end_time(submit_time) for submit_time in self._submission_parts
+            )
+            return max((t for t in times if t is not None), default=None)
+
+    @contextmanager
+    def using_EARs_cache(self):
+        """
+        A context manager to load and cache all EARs associated with this submission (and
+        its jobscripts).
+        """
+        if self.use_EARs_cache:
+            yield
+        else:
+            self.use_EARs_cache = True
+            try:
+                yield
+            finally:
+                self.use_EARs_cache = False
 
     @property
     def jobscripts(self) -> list[Jobscript]:
@@ -592,15 +642,18 @@ class Submission(JSONLike):
         """
         The IDs of all EARs in this submission.
         """
-        return (i for js in self.jobscripts for i in js.all_EAR_IDs)
+        return (int(i) for js in self.jobscripts for i in js.all_EAR_IDs)
 
     @property
     @TimeIt.decorator
-    def all_EARs(self) -> Iterable[ElementActionRun]:
+    def all_EARs(self) -> list[ElementActionRun]:
         """
         All EARs in this submission.
         """
-        return (ear for js in self.jobscripts for ear in js.all_EARs)
+        if self.use_EARs_cache:
+            return list(self._EARs_cache.values())
+        else:
+            return self.workflow.get_EARs_from_IDs(self.all_EAR_IDs)
 
     @property
     @TimeIt.decorator
@@ -610,9 +663,10 @@ class Submission(JSONLike):
     @property
     @TimeIt.decorator
     def all_EARs_by_jobscript(self) -> list[list[ElementActionRun]]:
-        ids = [i.all_EAR_IDs for i in self.jobscripts]
-        all_EARs = {i.id_: i for i in self.workflow.get_EARs_from_IDs(self.all_EAR_IDs)}
-        return [[all_EARs[i] for i in js_ids] for js_ids in ids]
+        all_EARs = {i.id_: i for i in self.all_EARs}
+        return [
+            [all_EARs[i] for i in js_ids] for js_ids in self.all_EARs_IDs_by_jobscript
+        ]
 
     @property
     @TimeIt.decorator
@@ -650,11 +704,12 @@ class Submission(JSONLike):
         """Get jobscripts that are active on this machine, and their active states."""
         # this returns: {JS_IDX: {BLOCK_IDX: {JS_ELEMENT_IDX: STATE}}}
         # TODO: query the scheduler once for all jobscripts?
-        return {
-            js.index: act_states
-            for js in self.jobscripts
-            if (act_states := js.get_active_states(as_json=as_json))
-        }
+        with self.using_EARs_cache():
+            return {
+                js.index: act_states
+                for js in self.jobscripts
+                if (act_states := js.get_active_states(as_json=as_json))
+            }
 
     @TimeIt.decorator
     def _write_scripts(

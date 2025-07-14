@@ -1218,12 +1218,15 @@ class PersistentStore(
     @contextlib.contextmanager
     def cache_ctx(self) -> Iterator[None]:
         """Context manager for using the persistent element/iteration/run cache."""
-        self._use_cache = True
-        try:
+        if self._use_cache:
             yield
-        finally:
-            self._use_cache = False
-            self._reset_cache()
+        else:
+            self._use_cache = True
+            try:
+                yield
+            finally:
+                self._use_cache = False
+                self._reset_cache()
 
     @contextlib.contextmanager
     def parameters_metadata_cache(self):

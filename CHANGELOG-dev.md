@@ -1,4 +1,58 @@
 
+<a name="v0.2.0a229"></a>
+## [v0.2.0a229](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a228...v0.2.0a229) - 2025.07.13
+
+### 🐛 Bug Fixes
+
+* try to fix tests
+* make (demo) workflow return `isinstance` assertions
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a228"></a>
+## [v0.2.0a228](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a227...v0.2.0a228) - 2025.07.13
+
+### ⚡ Performance Improvements
+
+* speed up `Workflow.add_submission` via caching and batched IO
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a227"></a>
+## [v0.2.0a227](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a226...v0.2.0a227) - 2025.07.13
+
+### ♻ Code Refactoring
+
+* status
+
+### ⚡ Performance Improvements
+
+* add a `Submission` cache for EARs
+
+### 🐛 Bug Fixes
+
+* tests
+* support nested use of `PersistentStore.cache_ctx`
+
+
+<a name="v0.2.0a226"></a>
+## [v0.2.0a226](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a225...v0.2.0a226) - 2025.07.13
+
+### 🐛 Bug Fixes
+
+* refactor some enums to placate mypy 1.16
+
+
+<a name="v0.2.0a225"></a>
+## [v0.2.0a225](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a224...v0.2.0a225) - 2025.07.09
+
+
 <a name="v0.2.0a224"></a>
 ## [v0.2.0a224](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a223...v0.2.0a224) - 2025.07.02
 

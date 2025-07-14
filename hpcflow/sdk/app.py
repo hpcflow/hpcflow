@@ -3354,12 +3354,13 @@ class BaseApp(metaclass=Singleton):
                     out_item["deleted"] = True
 
                 else:
-                    if status:
-                        status.update(
-                            f"Reading workflow {file_dat_i['path']!r} submission info..."
-                        )
                     with wk_i._store.cache_ctx():
                         sub = wk_i.submissions[file_dat_i["sub_idx"]]
+                        if status:
+                            status.update(
+                                f"Loading workflow {file_dat_i['path']!r} run metadata..."
+                            )
+                        sub.use_EARs_cache = True  # pre-cache EARs of this submission
 
                         all_jobscripts = sub._submission_parts[submit_time_str]
                         out_item["jobscripts"] = all_jobscripts
@@ -3622,7 +3623,7 @@ class BaseApp(metaclass=Singleton):
                         )
                         all_cells["status"] = "/".join(
                             js_state.rich_repr
-                            for js_state in sorted(act_js_states, key=lambda x: x.value)
+                            for js_state in sorted(act_js_states, key=lambda x: x.id)
                         )
                     else:
                         if deleted:
@@ -3684,7 +3685,7 @@ class BaseApp(metaclass=Singleton):
                         all_cells["actions_compact"] = " | ".join(
                             f"[{k.colour}]{k.symbol}[/{k.colour}]:{v}"  # type: ignore
                             for k, v in dict(
-                                sorted(EAR_stat_count.items(), key=lambda x: x[0].value)
+                                sorted(EAR_stat_count.items(), key=lambda x: x[0].id)
                             ).items()
                         )
                     else:
