@@ -1,0 +1,89 @@
+template_components:
+  task_schemas:
+  - objective: greet
+    inputs:
+    - parameter: name
+      default_value: World
+    - parameter: greeting
+      default_value: Hello
+    actions:
+    - commands:
+      - command: echo "<<parameter:greeting>>, <<parameter:name>>!" > printed_string.txt
+
+  - objective: python_greet
+    inputs:
+    - parameter: name
+      default_value: World
+    - parameter: greeting
+      default_value: Hello
+    outputs:
+    - parameter: string_to_print
+    actions:
+    - script: <<script:/path/to/greet.py>>
+      script_data_in: direct
+      script_data_out: direct
+      script_exe: python_script
+      environments:
+      - scope:
+          type: any
+        environment: python_env
+
+  - objective: print
+    inputs:
+    - parameter: string_to_print
+    actions:
+    - commands:
+      - command: echo "<<parameter:string_to_print>>" > printed_string.txt
+
+  # This schema uses the environment `temp_python_env`
+  # which loads a python venv.
+  # This is shown in `envs.yaml` in this repo.
+  - objective: which_python
+    actions:
+    - commands:
+      - command: which python
+      environments:
+      - scope:
+          type: any
+        environment: temp_python_env
+
+# Workflow
+tasks:
+- schema: greet
+- schema: greet
+  inputs:
+    greeting: What's up
+    name: doc
+- schema: python_greet
+  inputs:
+    greeting: Howdy
+    name: partner
+- schema: print
+- schema: print
+  inputs:
+    string_to_print: another string to print!
+- schema: print
+  # Explicitly reference output parameter from a task
+  input_sources:
+    string_to_print: task.python_greet
+- schema: print
+  input_sources:
+    # Note that local variable will appear first, regardless of its position in the list
+    string_to_print: [task.python_greet, local]
+  inputs:
+    string_to_print: Yet another string to print!
+- schema: which_python
+- schema: greet
+  sequences:
+  - path: inputs.greeting
+    values:
+    - hey
+    - see ya later
+    - in a while
+    nesting_order: 0
+  - path: inputs.name
+    values:
+    - you
+    - alligator
+    - crocodile
+    nesting_order: 1

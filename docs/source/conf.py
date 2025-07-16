@@ -201,8 +201,9 @@ def prepare_task_schema_action_info(app: BaseApp):
     return dict(sorted(out.items()))
 
 
-with open("config.jsonc") as fp:
+with Path("config.jsonc").open("rt") as fp:
     jsonc_str = fp.read()
+    # Strip out comments denoted by // to leave a valid JSON file
     json_str = re.sub(
         r'\/\/(?=([^"]*"[^"]*")*[^"]*$).*', "", jsonc_str, flags=re.MULTILINE
     )
@@ -225,8 +226,14 @@ additional_intersphinx = {
 Path("./reference/_generated").mkdir(exist_ok=True)
 
 # distribution name (i.e. name on PyPI):
-with open("../../pyproject.toml") as fp:
+with Path("../../pyproject.toml").open("rt") as fp:
     dist_name = tomlkit.load(fp)["tool"]["poetry"]["name"]
+    supported_python_versions = tomlkit.load(fp)["tool"]["poetry"]["dependencies"][
+        "python"
+    ]
+    pyproject_config = tomlkit.load(fp)
+    dist_name = pyproject_config["tool"]["poetry"]["name"]
+    supported_python = pyproject_config["tool"]["poetry"]["dependencies"]["python"]
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -274,6 +281,7 @@ jinja_contexts = {
         "download_links_table_html": generate_download_links_table(),
         "github_user": github_user,
         "github_repo": github_repo,
+        "supported_python": supported_python,
     }
 }
 
