@@ -3,8 +3,8 @@ on:
   workflow_dispatch: # manual invocation
 jobs:
   test:
-    uses: hpcflow/github-support/.github/workflows/test-pre-python-impl.yml@main
+    uses: hpcflow/github-support/.github/workflows/test-pre-python-impl.yml@build/update-poetry
     with:
       ref: ${{ github.ref }}
       head-ref: ${{ github.head_ref }}
-      pytest-args: 
+      pytest-args:

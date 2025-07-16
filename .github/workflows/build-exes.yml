@@ -40,7 +40,7 @@ on:
 
 jobs:
   build-exes:
-    uses: hpcflow/github-support/.github/workflows/build-exes-impl.yml@main
+    uses: hpcflow/github-support/.github/workflows/build-exes-impl.yml@build/update-poetry
     with:
       build_linux: ${{ github.event.inputs.build_linux }}
       build_macos: ${{ github.event.inputs.build_macos }}
@@ -51,4 +51,3 @@ jobs:
       unit_test_args: ${{ github.event.inputs.unit_test_args }}
       executable_name: hpcflow
       pyinstaller_dir: pyinstaller
-      python-version: "3.13"
