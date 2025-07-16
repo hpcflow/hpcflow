@@ -229,7 +229,7 @@ Path("./reference/_generated").mkdir(exist_ok=True)
 with Path("../../pyproject.toml").open("rt") as fp:
     pyproj_data = tomlkit.load(fp)
     dist_name = pyproj_data["tool"]["poetry"]["name"]
-    supported_python_versions = pyproj_data["tool"]["poetry"]["dependencies"]["python"]
+    supported_python = pyproj_data["tool"]["poetry"]["dependencies"]["python"]
 
 extensions = [
     "sphinx.ext.autodoc",
