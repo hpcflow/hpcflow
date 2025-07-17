@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Literal
 
 from hpcflow.sdk.utils.strings import capitalise_first_letter
 

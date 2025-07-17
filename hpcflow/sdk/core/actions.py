@@ -432,13 +432,14 @@ class ElementActionRun(AppAware):
         return EARStatus.pending
 
     @property
-    def program_path_actual(self) -> Path:
+    def program_path_actual(self) -> Path | None:
         """Get the path to the associated action program, if the action includes a program
         specification, with variable substitutions applied."""
 
-        # TODO: consider other variable substitution (<<env:SPECIFIER_KEY>>, <<parameter:PARAMETER_NAME>>)
+        # TODO: consider other variable substitution (<<env:SPECIFIER_KEY>>,
+        # <<parameter:PARAMETER_NAME>>)
 
-        if self.action.has_program:
+        if prog_or_path := self.action.program_or_program_path:
             RES_PATTERN = r"\<\<resource:(\w+)\>\>"
 
             def resource_repl(
@@ -447,15 +448,18 @@ class ElementActionRun(AppAware):
                 return getattr(resources, match_obj.groups()[0])
 
             # substitute resources in program path:
-            prog_path = re.sub(
+            prog_path_str = re.sub(
                 pattern=RES_PATTERN,
                 repl=partial(resource_repl, resources=self.resources_with_defaults),
-                string=self.action.program_or_program_path,
+                string=prog_or_path,
             )
-            if self.action.program:
-                # built-in (as opposed to external), need to resolve path:
-                prog_path = self._app.programs[prog_path]
-            return prog_path
+            return (
+                self._app.programs[prog_path_str]
+                if self.action.program
+                else Path(prog_path_str)
+            )
+
+        return None
 
     def get_parameter_names(self, prefix: str) -> Sequence[str]:
         """Get parameter types associated with a given prefix.
@@ -2121,7 +2125,11 @@ class Action(JSONLike):
             # validate format:
             if v["format"] not in self._data_formats[type]:
                 raise UnsupportedActionDataFormat(
-                    type, v, prefix[:-1], k, self._data_formats[type]
+                    type,
+                    v,
+                    cast(Literal["input", "output"], prefix[:-1]),
+                    k,
+                    self._data_formats[type],
                 )
             if any((bad_key := k2) for k2 in v if k2 not in allowed_keys):
                 raise UnknownActionDataKey(type, bad_key, allowed_keys)
