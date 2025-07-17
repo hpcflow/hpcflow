@@ -1,0 +1,89 @@
+import pytest
+
+import hpcflow.app as hf
+
+
+@pytest.mark.integration
+def test_builtin_program_no_args(new_null_config, tmp_path):
+    # run a builtin program
+    env = hf.Environment(
+        name="program_env",
+        executables=[
+            hf.Executable(
+                label="hello_world",
+                instances=[
+                    hf.ExecutableInstance(
+                        command="& <<program_path>> <<args>>",
+                        num_cores=1,
+                        parallel_mode=None,
+                    )
+                ],
+            )
+        ],
+    )
+    hf.envs.add_object(env, skip_duplicates=True)
+
+    act = hf.Action(
+        program="hello_world/<<resource:platform>>/hello_world.exe",
+        program_exe="hello_world",
+        environments=[hf.ActionEnvironment("program_env")],
+    )
+    s1 = hf.TaskSchema(objective="hello", actions=[act])
+    tasks = [hf.Task(s1)]
+    wk = hf.Workflow.from_template_data(
+        template_name="test_program_no_args",
+        tasks=tasks,
+        path=tmp_path,
+    )
+    wk.submit(wait=True, status=False)
+    assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
+
+    hf.reload_template_components()  # remove extra env
+
+
+@pytest.mark.integration
+def test_builtin_program_input_output_JSON(new_null_config, tmp_path):
+    # run a builtin program that expects input and output JSON file paths as a cmdline arguments
+    env = hf.Environment(
+        name="program_env",
+        executables=[
+            hf.Executable(
+                label="hello_world",
+                instances=[
+                    hf.ExecutableInstance(
+                        command="& <<program_path>> <<args>>",
+                        num_cores=1,
+                        parallel_mode=None,
+                    )
+                ],
+            )
+        ],
+    )
+    hf.envs.add_object(env, skip_duplicates=True)
+
+    act = hf.Action(
+        program="hello_world/<<resource:platform>>/hello_world_ins_outs.exe",
+        program_exe="hello_world",
+        program_data_in="json",
+        program_data_out="json",
+        requires_dir=True,
+        environments=[hf.ActionEnvironment("program_env")],
+    )
+    s1 = hf.TaskSchema(
+        objective="hello",
+        inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p2"), hf.SchemaInput("p3")],
+        outputs=[hf.SchemaInput("p4")],
+        actions=[act],
+    )
+    p1, p2, p3 = 1, 2, 3
+    tasks = [hf.Task(s1, inputs={"p1": p1, "p2": p2, "p3": p3})]
+    wk = hf.Workflow.from_template_data(
+        template_name="test_program_input_output_files",
+        tasks=tasks,
+        path=tmp_path,
+    )
+    wk.submit(wait=True, status=False)
+    assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
+    assert wk.tasks[0].elements[0].get("outputs.p4") == p1 + p2 + p3
+
+    hf.reload_template_components()  # remove extra env

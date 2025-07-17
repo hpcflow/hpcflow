@@ -300,6 +300,10 @@ class WindowsPowerShell(Shell):
             f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT",
             f"{app_caps}_RUN_SCRIPT_DIR",
             f"{app_caps}_RUN_SCRIPT_PATH",
+            f"{app_caps}_RUN_PROGRAM_NAME",
+            f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT",
+            f"{app_caps}_RUN_PROGRAM_DIR",
+            f"{app_caps}_RUN_PROGRAM_PATH",
         )
         add = False
         for i in var_strings:

@@ -8,12 +8,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
 from typing import Any, TYPE_CHECKING
 
+from hpcflow.sdk.utils.strings import capitalise_first_letter
+
 if TYPE_CHECKING:
     from logging import Logger
     from .enums import ParallelMode
     from .object_list import WorkflowLoopList
     from .parameters import InputSource, ValueSequence, SchemaInput
-    from .types import ScriptData
+    from .types import ActionData
     from .task import WorkflowTask, Task
 
 
@@ -923,42 +925,55 @@ class MissingEnvironmentError(SubmissionEnvironmentError):
         )
 
 
-class UnsupportedScriptDataFormat(ValueError):
+class UnsupportedActionDataFormat(ValueError):
     """
-    That format of script data is not supported.
+    That format of script or program data is not supported.
     """
 
     def __init__(
-        self, data: ScriptData, kind: str, name: str, formats: tuple[str, ...]
+        self,
+        type: Literal["script", "program"],
+        data: ActionData,
+        kind: Literal["input", "output"],
+        name: str,
+        formats: tuple[str, ...],
     ) -> None:
         super().__init__(
-            f"Script data format {data!r} for {kind} parameter {name!r} is not "
-            f"understood. Available script data formats are: "
+            f"{capitalise_first_letter(type)} data format {data!r} for {kind} parameter "
+            f"{name!r} is not understood. Available {type} data formats are: "
             f"{formats!r}."
         )
 
 
-class UnknownScriptDataParameter(ValueError):
+class UnknownActionDataParameter(ValueError):
     """
-    Unknown parameter in script data.
+    Unknown parameter in script or program data.
     """
 
-    def __init__(self, name: str, kind: str, param_names: Sequence[str]) -> None:
+    def __init__(
+        self,
+        type: Literal["script", "program"],
+        name: str,
+        kind: Literal["inputs", "outputs"],
+        param_names: Sequence[str],
+    ) -> None:
         super().__init__(
-            f"Script data parameter {name!r} is not a known parameter of the "
-            f"action. Parameters ({kind}) are: {param_names!r}."
+            f"{capitalise_first_letter(type)} data parameter {name!r} is not a known "
+            f"parameter of the action. Parameters ({kind}) are: {param_names!r}."
         )
 
 
-class UnknownScriptDataKey(ValueError):
+class UnknownActionDataKey(ValueError):
     """
     Unknown key in script data.
     """
 
-    def __init__(self, key: str, allowed_keys: Sequence[str]) -> None:
+    def __init__(
+        self, type: Literal["script", "program"], key: str, allowed_keys: Sequence[str]
+    ) -> None:
         super().__init__(
-            f"Script data key {key!r} is not understood. Allowed keys are: "
-            f"{allowed_keys!r}."
+            f"{capitalise_first_letter(type)} data key {key!r} is not understood. "
+            f"Allowed keys are: {allowed_keys!r}."
         )
 
 
