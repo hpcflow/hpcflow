@@ -2127,7 +2127,7 @@ class Action(JSONLike):
                 raise UnsupportedActionDataFormat(
                     type,
                     v,
-                    cast(Literal["input", "output"], prefix[:-1]),
+                    cast('Literal["input", "output"]', prefix[:-1]),
                     k,
                     self._data_formats[type],
                 )
