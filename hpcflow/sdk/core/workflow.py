@@ -191,7 +191,7 @@ class WorkflowTemplate(JSONLike):
         dict that maps action scopes to resources (e.g. `{{"any": {{"num_cores": 2}}}}`)
         or a list of `ResourceSpec` objects, or a `ResourceList` object.
     environments:
-        The execution environments to use.
+        Environment specifiers, keyed by environment name.
     env_presets:
         The environment presets to use.
     source_file:
@@ -240,7 +240,7 @@ class WorkflowTemplate(JSONLike):
     #: Template-level resources to apply to all tasks as default values.
     resources: Resources = None
     config: dict = field(default_factory=lambda: {})
-    #: The execution environments to use.
+    #: Environment specifiers, keyed by environment name.
     environments: Mapping[str, Mapping[str, Any]] | None = None
     #: The environment presets to use.
     env_presets: str | list[str] | None = None
@@ -1330,6 +1330,7 @@ class Workflow(AppAware):
         tasks: list[Task] | None = None,
         loops: list[Loop] | None = None,
         resources: Resources = None,
+        environments: Mapping[str, Mapping[str, Any]] | None = None,
         config: dict | None = None,
         path: PathLike | None = None,
         workflow_name: str | None = None,
@@ -1354,6 +1355,8 @@ class Workflow(AppAware):
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
             precedence of those defined here for the whole workflow.
+        environments:
+            Environment specifiers, keyed by environment name.
         config:
             Configuration items that should be set whenever the resulting workflow is
             loaded. This includes config items that apply during workflow execution.
@@ -1384,6 +1387,7 @@ class Workflow(AppAware):
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
+            environments=environments,
             config=config or {},
         )
         return cls.from_template(
