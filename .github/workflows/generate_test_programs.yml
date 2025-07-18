@@ -1,4 +1,7 @@
 name: Generate test programs
+env:
+  PYTHON_VERSION: "3.13"
+  POETRY_VERSION: "1.4"
 on:
   workflow_dispatch:
 
@@ -9,19 +12,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up python ${{ inputs.python-version }}
+      - name: Set up python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ inputs.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: Cache dependencies
         uses: hpcflow/github-support/init-cache@main
         with:
           name: make-test-programs
-          version: ${{ inputs.python-version }}
+          version: ${{ env.PYTHON_VERSION }}
       - name: Set up poetry
         uses: hpcflow/github-support/setup-poetry@main
         with:
-          version: ${{ inputs.poetry-version }}
+          version: ${{ env.POETRY_VERSION }}
       - name: Install dependencies
         run: poetry install --without dev
       - name: Build `hello_world.py` with pyinstaller for Windows
