@@ -431,6 +431,11 @@ class ElementActionRun(AppAware):
 
         return EARStatus.pending
 
+    __RES_RE: ClassVar[Pattern] = re.compile(r"\<\<resource:(\w+)\>\>")
+    __ENV_RE: ClassVar[Pattern] = re.compile(
+        r"\<\<env:(.*?)\>\>"
+    )  # TODO: refactor; also in `Action`
+
     @property
     def program_path_actual(self) -> Path | None:
         """Get the path to the associated action program, if the action includes a program
@@ -440,18 +445,26 @@ class ElementActionRun(AppAware):
         # <<parameter:PARAMETER_NAME>>)
 
         if prog_or_path := self.action.program_or_program_path:
-            RES_PATTERN = r"\<\<resource:(\w+)\>\>"
 
             def resource_repl(
                 match_obj: re.Match[str], resources: ElementResources
             ) -> str:
                 return getattr(resources, match_obj.groups()[0])
 
+            def env_repl(
+                match_obj: re.Match[str],
+                env_spec: Mapping[str, Any],
+            ) -> str:
+                return env_spec[match_obj.groups()[0]]
+
             # substitute resources in program path:
-            prog_path_str = re.sub(
-                pattern=RES_PATTERN,
+            prog_path_str = self.__RES_RE.sub(
                 repl=partial(resource_repl, resources=self.resources_with_defaults),
                 string=prog_or_path,
+            )
+            prog_path_str = self.__ENV_RE.sub(
+                repl=partial(env_repl, env_spec=self.env_spec),
+                string=prog_path_str,
             )
             return (
                 self._app.programs[prog_path_str]

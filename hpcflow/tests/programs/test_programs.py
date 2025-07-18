@@ -4,7 +4,7 @@ import hpcflow.app as hf
 
 
 @pytest.mark.integration
-def test_builtin_program_no_args(new_null_config, tmp_path):
+def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     # run a builtin program
     env = hf.Environment(
         name="program_env",
@@ -42,7 +42,47 @@ def test_builtin_program_no_args(new_null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_builtin_program_input_output_JSON(new_null_config, tmp_path):
+def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
+    # run a builtin program
+    env = hf.Environment(
+        name="program_env",
+        specifiers={"platform": "win"},  # reference this specifier in the program path
+        executables=[
+            hf.Executable(
+                label="hello_world",
+                instances=[
+                    hf.ExecutableInstance(
+                        command="& <<program_path>> <<args>>",
+                        num_cores=1,
+                        parallel_mode=None,
+                    )
+                ],
+            )
+        ],
+    )
+    hf.envs.add_object(env, skip_duplicates=True)
+
+    act = hf.Action(
+        program="hello_world/<<env:platform>>/hello_world.exe",
+        program_exe="hello_world",
+        environments=[hf.ActionEnvironment("program_env")],
+    )
+    s1 = hf.TaskSchema(objective="hello", actions=[act])
+    tasks = [hf.Task(s1)]
+    wk = hf.Workflow.from_template_data(
+        template_name="test_program_no_args",
+        environments={"program_env": {"platform": "win"}},
+        tasks=tasks,
+        path=tmp_path,
+    )
+    wk.submit(wait=True, status=False)
+    assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
+
+    hf.reload_template_components()  # remove extra env
+
+
+@pytest.mark.integration
+def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_path):
     # run a builtin program that expects input and output JSON file paths as a cmdline arguments
     env = hf.Environment(
         name="program_env",
