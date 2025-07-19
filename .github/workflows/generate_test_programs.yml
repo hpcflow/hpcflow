@@ -34,10 +34,10 @@ jobs:
         id: upload-file
         uses: actions/upload-artifact@v4
         with:
-          name: hello_world.exe
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_win.exe
+          name: hello_world_win.exe
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world.exe
   macos:
-    name: Build Windows Executables
+    name: Build MacOS Executables
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -57,12 +57,12 @@ jobs:
           version: ${{ env.POETRY_VERSION }}
       - name: Install dependencies
         run: poetry install --without dev
-      - name: Build `hello_world.py` with pyinstaller for Windows
+      - name: Build `hello_world.py` with pyinstaller for MacOS
         working-directory: hpcflow/data/programs/hello_world
         run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
       - name: Upload executable artifact
         id: upload-file
         uses: actions/upload-artifact@v4
         with:
-          name: hello_world
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_macos.exe
+          name: hello_world_macos
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
