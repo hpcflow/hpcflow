@@ -30,19 +30,12 @@ jobs:
       - name: Build `hello_world.py` with pyinstaller for Windows
         working-directory: hpcflow/data/programs/hello_world
         run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Build `hello_world_ins_outs.py` with pyinstaller for Windows
-        working-directory: hpcflow/data/programs/hello_world
-        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
       - name: Upload hello_world.exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_win.exe
           path: hpcflow/data/programs/hello_world/dist/onefile/hello_world.exe
-      - name: Upload hello_world_ins_outs.exe artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_ins_outs_win.exe
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs.exe
+
   macos:
     name: Build MacOS Executables
     runs-on: macos-latest
@@ -67,19 +60,11 @@ jobs:
       - name: Build `hello_world.py` with pyinstaller for MacOS
         working-directory: hpcflow/data/programs/hello_world
         run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Build `hello_world_ins_outs.py` with pyinstaller for MacOS
-        working-directory: hpcflow/data/programs/hello_world
-        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
       - name: Upload hello_world artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_macos
           path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
-      - name: Upload hello_world_ins_outs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_ins_outs_macos
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs
 
   rockylinux8:
     name: Build Linux (Rocky Linux 8) Executables
@@ -103,14 +88,8 @@ jobs:
             poetry install --without dev
             cd hpcflow/data/programs/hello_world
             poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-            poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
       - name: Upload hello_world artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_linux
           path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
-      - name: Upload hello_world_ins_outs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_ins_outs_linux
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs

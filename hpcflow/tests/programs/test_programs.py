@@ -24,7 +24,7 @@ def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     hf.envs.add_object(env, skip_duplicates=True)
 
     act = hf.Action(
-        program="hello_world/<<resource:platform>>/hello_world.exe",
+        program="hello_world/<<resource:platform>>/hello_world<<resource:executable_extension>>",
         program_exe="hello_world",
         environments=[hf.ActionEnvironment("program_env")],
     )
@@ -63,7 +63,7 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     hf.envs.add_object(env, skip_duplicates=True)
 
     act = hf.Action(
-        program="hello_world/<<env:platform>>/hello_world.exe",
+        program="hello_world/<<env:platform>>/hello_world<<resource:executable_extension>>",
         program_exe="hello_world",
         environments=[hf.ActionEnvironment("program_env")],
     )
@@ -102,7 +102,7 @@ def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_pat
     hf.envs.add_object(env, skip_duplicates=True)
 
     act = hf.Action(
-        program="hello_world/<<resource:platform>>/hello_world_ins_outs.exe",
+        program="hello_world/<<resource:platform>>/hello_world<<resource:executable_extension>>",
         program_exe="hello_world",
         program_data_in="json",
         program_data_out="json",

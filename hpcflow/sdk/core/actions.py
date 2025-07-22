@@ -462,6 +462,7 @@ class ElementActionRun(AppAware):
                 repl=partial(resource_repl, resources=self.resources_with_defaults),
                 string=prog_or_path,
             )
+            # substitute environment specifiers in program path:
             prog_path_str = self.__ENV_RE.sub(
                 repl=partial(env_repl, env_spec=self.env_spec),
                 string=prog_path_str,

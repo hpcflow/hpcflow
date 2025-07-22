@@ -299,6 +299,12 @@ class ElementResources(JSONLike):
         Additional arguments to pass to the shell.
     os_name: str
         Which OS to use.
+    platform: str
+        System platform name, like "win", "linux", or "macos".
+    CPU_arch: str
+        CPU architecture, like "x86_64", "AMD64", or "arm64".
+    executable_extension: str
+        ".exe" on Windows, empty otherwise.
     environments: dict
         Which execution environments to use.
     resources_id: int
@@ -364,6 +370,9 @@ class ElementResources(JSONLike):
     platform: str | None = None
     #: CPU architecture, like "x86_64", "AMD64", or "arm64"
     CPU_arch: str | None = None
+    #: Typical extension used to indicate an executable file; ".exe" on Windows, empty on
+    #: all other platforms.
+    executable_extension: str | None = None
     #: Which execution environments to use.
     environments: dict[str, dict[str, Any]] | None = None
     #: An arbitrary integer that can be used to force multiple jobscripts.
@@ -486,9 +495,17 @@ class ElementResources(JSONLike):
     @TimeIt.decorator
     def get_default_CPU_arch(cls) -> str:
         """
-        Get the default value for the CPU architecture
+        Get the default value for the CPU architecture.
         """
         return platform.machine()
+
+    @classmethod
+    @TimeIt.decorator
+    def get_default_executable_extension(cls) -> str:
+        """
+        Get the default value for the executable extension.
+        """
+        return ".exe" if os.name == "nt" else ""
 
     @classmethod
     @TimeIt.decorator
@@ -516,6 +533,7 @@ class ElementResources(JSONLike):
         # this are not set by the user:
         self.platform = self.get_default_platform()
         self.CPU_arch = self.get_default_CPU_arch()
+        self.executable_extension = self.get_default_executable_extension()
 
         # merge defaults shell args from config:
         self.shell_args = {
@@ -1326,6 +1344,9 @@ class ElementIteration(AppAware):
                 )
             resources.setdefault("platform", ER.get_default_platform())
             resources.setdefault("CPU_arch", ER.get_default_CPU_arch())
+            resources.setdefault(
+                "executable_extension", ER.get_default_executable_extension()
+            )
 
         # unset inapplicable items:
         if "combine_scripts" in resources and not action.script_is_python_snippet:
