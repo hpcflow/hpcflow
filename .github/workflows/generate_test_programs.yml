@@ -49,4 +49,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_${{ runner.os }}${{ runner.os == 'Windows' && '.exe' || '' }}
-          path: hpcflow/data/programs/hello_world/hello_world*
+          path: hpcflow/data/programs/hello_world/hello_world${{ runner.os == 'Windows' && '.exe' || '' }}
