@@ -1,10 +1,14 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import TYPE_CHECKING
 import pytest
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import NullDefault
 from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
+
+if TYPE_CHECKING:
+    from hpcflow.sdk.core.json_like import JSONDocument
 
 
 @pytest.fixture
@@ -35,7 +39,7 @@ def test_none_default_value(null_config) -> None:
 
 
 def test_from_json_like_labels_and_default(null_config) -> None:
-    json_like = {
+    json_like: JSONDocument = {
         "parameter": "p1",
         "labels": {"0": {}},
         "default_value": None,
