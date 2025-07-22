@@ -96,7 +96,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/hpcflow/rockylinux8-python:latest
-          options: -v hpcflow/data/programs/hello_world:/home -w hpcflow/data/programs/hello_world --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          options: -v ${{ github.workspace }}/hpcflow/data/programs/hello_world:/home -w ${{ github.workspace }}/hpcflow/data/programs/hello_world --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           run: |
             poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
             poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
