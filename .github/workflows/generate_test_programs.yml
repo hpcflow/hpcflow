@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - name: Checkout your code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up MSVC (Windows)
@@ -37,7 +37,7 @@ jobs:
           gcc hello_world.c cJSON/cJSON.c -I cJSON -o hello_world
         shell: bash
 
-      - name: Run program (optional)
+      - name: Test run program
         working-directory: hpcflow/data/programs/hello_world
         run: |
           echo '{ "p1": 10, "p2": 20, "p3": 30 }' > input.json
@@ -48,5 +48,5 @@ jobs:
       - name: Upload `hello_world` artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hello_world_${{ matrix.os }}${{ matrix.os == 'Windows' && '.exe' || '' }}
+          name: hello_world_${{ runner.os }}${{ runner.os == 'Windows' && '.exe' || '' }}
           path: hpcflow/data/programs/hello_world/hello_world*
