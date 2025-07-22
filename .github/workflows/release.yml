@@ -8,7 +8,7 @@ on:
 
 jobs:
   release:
-    uses: hpcflow/github-support/.github/workflows/release-impl.yml@build/update-poetry
+    uses: hpcflow/github-support/.github/workflows/release-impl.yml@main
     with:
       gh-run-attempt: ${{ github.run_attempt }}
       pr-merged: ${{ github.event.pull_request.merged }}

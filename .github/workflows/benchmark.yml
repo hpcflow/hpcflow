@@ -8,14 +8,14 @@ on:
         default: '["3.12"]'
       num_elements:
         description: "How many elements to make in the workflow."
-        default: '[1, 10, 100, 1000, 10000]'
+        default: "[1, 10, 100, 1000, 10000]"
       platform:
         description: "Which OS to use."
         default: '["ubuntu-latest", "macos-13", "windows-latest"]'
 
 jobs:
   workflow-benchmark:
-    uses: hpcflow/github-support/.github/workflows/benchmark-impl.yml@build/update-poetry
+    uses: hpcflow/github-support/.github/workflows/benchmark-impl.yml@main
     with:
       executable_name: hpcflow
       benchmark_make_workflow: ./hpcflow/tests/data/benchmark_N_elements.yaml
