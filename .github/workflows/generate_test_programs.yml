@@ -101,7 +101,7 @@ jobs:
             cd /home
             poetry config virtualenvs.in-project true
             poetry install --without dev
-            cd /hpcflow/data/programs/hello_world
+            cd hpcflow/data/programs/hello_world
             poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
             poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
       - name: Upload hello_world artifact
