@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a231"></a>
+## [v0.2.0a231](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a230...v0.2.0a231) - 2025.07.22
+
+### 🐛 Bug Fixes
+
+* typing for mypy 1.17.0
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a230"></a>
 ## [v0.2.0a230](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a229...v0.2.0a230) - 2025.07.22
 
