@@ -1,95 +1,51 @@
-name: Generate test programs
-env:
-  PYTHON_VERSION: "3.13"
-  POETRY_VERSION: "2.1.3"
+name: Build C Program
+
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-  windows:
-    name: Build Windows Executables
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Cache dependencies
-        uses: hpcflow/github-support/init-cache@main
-        with:
-          name: make-test-programs
-          version: ${{ env.PYTHON_VERSION }}
-      - name: Set up poetry
-        uses: hpcflow/github-support/setup-poetry@main
-        with:
-          version: ${{ env.POETRY_VERSION }}
-      - name: Install dependencies
-        run: poetry install --without dev
-      - name: Build `hello_world.py` with pyinstaller for Windows
-        working-directory: hpcflow/data/programs/hello_world
-        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Upload hello_world.exe artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_win.exe
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world.exe
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
-  macos:
-    name: Build MacOS Executables
-    runs-on: macos-latest
     steps:
-      - name: Checkout
+      - name: Checkout your code
         uses: actions/checkout@v4
-      - name: Set up python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Cache dependencies
-        uses: hpcflow/github-support/init-cache@main
-        with:
-          name: make-test-programs
-          version: ${{ env.PYTHON_VERSION }}
-      - name: Set up poetry
-        uses: hpcflow/github-support/setup-poetry@main
-        with:
-          version: ${{ env.POETRY_VERSION }}
-      - name: Install dependencies
-        run: poetry install --without dev
-      - name: Build `hello_world.py` with pyinstaller for MacOS
-        working-directory: hpcflow/data/programs/hello_world
-        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Upload hello_world artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_macos
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
 
-  rockylinux8:
-    name: Build Linux (Rocky Linux 8) Executables
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Cache dependencies
-        uses: hpcflow/github-support/init-cache@main
-        with:
-          name: make-test-programs
-          version: ${{ env.PYTHON_VERSION }}
-      - name: Build `hello_world.py` and `hello_world_ins_outs.py` with Pyinstaller within Docker
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ghcr.io/hpcflow/rockylinux8-python:latest
-          options: -v ${{ github.workspace }}:/home --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          run: |
-            cd /home
-            poetry config virtualenvs.in-project true
-            poetry install --without dev
-            cd hpcflow/data/programs/hello_world
-            poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Upload hello_world artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hello_world_linux
-          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install GCC (Ubuntu/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          sudo apt-get update || true
+          sudo apt-get install -y gcc
+
+      - name: Download cJSON files
+        working-directory: hpcflow/data/programs/hello_world
+        run: |
+          mkdir cJSON
+          curl -sSL https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.c -o cJSON/cJSON.c
+          curl -sSL https://raw.githubusercontent.com/DaveGamble/cJSON/master/cJSON.h -o cJSON/cJSON.h
+        shell: bash
+
+      - name: Build program
+        working-directory: hpcflow/data/programs/hello_world
+        run: |
+          gcc hello_world.c cJSON/cJSON.c -I cJSON -o hello_world
+        shell: bash
+
+      - name: Run program (optional)
+        run: |
+          echo '{ "p1": 10, "p2": 20, "p3": 30 }' > input.json
+          ./hello_world input.json output.json
+          cat output.json
+        shell: bash
