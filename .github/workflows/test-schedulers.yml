@@ -35,10 +35,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: hpcflow/github-support/setup-poetry@0.3
+      - uses: hpcflow/github-support/setup-poetry@main
         with:
           version: ${{ env.POETRY_VERSION }}
-      - uses: hpcflow/github-support/init-cache@0.3
+      - uses: hpcflow/github-support/init-cache@main
         with:
           name: slurm-test
           version: ${{ env.PYTHON_VERSION }}
@@ -67,8 +67,8 @@ jobs:
       - name: Configure poetry
         run: |
           poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
-      - uses: hpcflow/github-support/init-cache@0.3
+
+      - uses: hpcflow/github-support/init-cache@main
         with:
           name: direct-linux-test
           version: ${{ env.PYTHON_VERSION }}

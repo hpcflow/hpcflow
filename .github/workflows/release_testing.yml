@@ -37,11 +37,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: hpcflow/github-support/init-cache@0.3
+      - uses: hpcflow/github-support/init-cache@main
         with:
           name: build
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
-      - uses: hpcflow/github-support/setup-poetry@0.3
+      - uses: hpcflow/github-support/setup-poetry@main
         with:
           version: 1.2.2
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Configure poetry
         run: poetry config virtualenvs.in-project true
-      - uses: hpcflow/github-support/init-cache@0.3
+      - uses: hpcflow/github-support/init-cache@main
         with:
           name: build
           version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
@@ -150,11 +150,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION_RELEASE }}
-      - uses: hpcflow/github-support/init-cache@0.3
+      - uses: hpcflow/github-support/init-cache@main
         with:
           name: release
           version: ${{ env.PYTHON_VERSION_RELEASE }}
-      - uses: hpcflow/github-support/setup-poetry@0.3
+      - uses: hpcflow/github-support/setup-poetry@main
         with:
           version: 1.2.2
 
@@ -175,7 +175,7 @@ jobs:
         id: release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: test-tag 
+          tag_name: test-tag
           files: |
             **/hpcflow-test-release-build-win.exe
             **/hpcflow-test-release-build-macOS
@@ -183,4 +183,4 @@ jobs:
             **/hpcflow-test-release-build-win-dir
             **/hpcflow-test-release-build-macOS-dir
             **/hpcflow-test-release-build-linux-dir
-          prerelease: true 
+          prerelease: true
