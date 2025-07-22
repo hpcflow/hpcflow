@@ -1,7 +1,7 @@
 name: Generate test programs
 env:
   PYTHON_VERSION: "3.13"
-  POETRY_VERSION: "1.4"
+  POETRY_VERSION: "2.1.3"
 on:
   workflow_dispatch:
 
@@ -30,12 +30,19 @@ jobs:
       - name: Build `hello_world.py` with pyinstaller for Windows
         working-directory: hpcflow/data/programs/hello_world
         run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Upload executable artifact
-        id: upload-file
+      - name: Build `hello_world_ins_outs.py` with pyinstaller for Windows
+        working-directory: hpcflow/data/programs/hello_world
+        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
+      - name: Upload hello_world.exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_win.exe
           path: hpcflow/data/programs/hello_world/dist/onefile/hello_world.exe
+      - name: Upload hello_world_ins_outs.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_world_ins_outs_win.exe
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs.exe
   macos:
     name: Build MacOS Executables
     runs-on: macos-latest
@@ -60,9 +67,46 @@ jobs:
       - name: Build `hello_world.py` with pyinstaller for MacOS
         working-directory: hpcflow/data/programs/hello_world
         run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
-      - name: Upload executable artifact
-        id: upload-file
+      - name: Build `hello_world_ins_outs.py` with pyinstaller for MacOS
+        working-directory: hpcflow/data/programs/hello_world
+        run: poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
+      - name: Upload hello_world artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_world_macos
           path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
+      - name: Upload hello_world_ins_outs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_world_ins_outs_macos
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs
+
+  rockylinux8:
+    name: Build Linux (Rocky Linux 8) Executables
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache dependencies
+        uses: hpcflow/github-support/init-cache@main
+        with:
+          name: make-test-programs
+          version: ${{ env.PYTHON_VERSION }}
+      - name: Build `hello_world.py` and `hello_world_ins_outs.py` with Pyinstaller within Docker
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/hpcflow/rockylinux8-python:latest
+          options: -v hpcflow/data/programs/hello_world:/home -w hpcflow/data/programs/hello_world --env GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          run: |
+            poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world.py
+            poetry run pyinstaller --distpath ./dist/onefile --onefile --clean -y hello_world_ins_outs.py
+      - name: Upload hello_world artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_world_linux
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world
+      - name: Upload hello_world_ins_outs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_world_ins_outs_linux
+          path: hpcflow/data/programs/hello_world/dist/onefile/hello_world_ins_outs
