@@ -49,7 +49,9 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
         name="program_env",
-        specifiers={"platform": "win"},  # reference this specifier in the program path
+        specifiers={
+            "platform": hf.ElementResources.get_default_platform()
+        },  # reference this specifier in the program path
         executables=[
             hf.Executable(
                 label="hello_world",
