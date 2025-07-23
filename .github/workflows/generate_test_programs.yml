@@ -34,7 +34,7 @@ jobs:
           gcc hello_world.c cJSON/cJSON.c -I cJSON -o hello_world
         shell: bash
 
-      - name: Build and test program (Rocky Linux 8)
+      - name: Build program (Rocky Linux 8)
         if: runner.os == 'Linux'
         uses: addnab/docker-run-action@v3
         with:
@@ -43,9 +43,6 @@ jobs:
           run: |
             cd /home/hpcflow/data/programs/hello_world
             gcc hello_world.c cJSON/cJSON.c -I cJSON -o hello_world
-            echo '{ "p1": 10, "p2": 20, "p3": 30 }' > input.json
-            ./hello_world input.json output.json
-            cat output.json
 
       - name: Take ownership of generated executable (linux - Rocky Linux 8)
         working-directory: hpcflow/data/programs/hello_world
@@ -54,7 +51,7 @@ jobs:
           sudo chown $USER:$USER hello_world
           chmod +r hello_world
 
-      - name: Test run program
+      - name: Test program
         working-directory: hpcflow/data/programs/hello_world
         run: |
           echo '{ "p1": 10, "p2": 20, "p3": 30 }' > input.json
