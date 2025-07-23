@@ -7,7 +7,7 @@ import hpcflow.app as hf
 @pytest.mark.integration
 def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     # run a builtin program
-    env_cmd = f"{'& ' if os.name == "nt" else ''}<<program_path>> <<args>>"
+    env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
         name="program_env",
         executables=[
@@ -46,7 +46,7 @@ def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
 @pytest.mark.integration
 def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     # run a builtin program
-    env_cmd = f"{'& ' if os.name == "nt" else ''}<<program_path>> <<args>>"
+    env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
         name="program_env",
         specifiers={"platform": "win"},  # reference this specifier in the program path
@@ -87,7 +87,7 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
 @pytest.mark.integration
 def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_path):
     # run a builtin program that expects input and output JSON file paths as a cmdline arguments
-    env_cmd = f"{'& ' if os.name == "nt" else ''}<<program_path>> <<args>>"
+    env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
         name="program_env",
         executables=[
