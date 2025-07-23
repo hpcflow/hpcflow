@@ -47,10 +47,11 @@ def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
 def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     # run a builtin program
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
+    default_platform = hf.ElementResources.get_default_platform()
     env = hf.Environment(
         name="program_env",
         specifiers={
-            "platform": hf.ElementResources.get_default_platform()
+            "platform": default_platform
         },  # reference this specifier in the program path
         executables=[
             hf.Executable(
@@ -76,7 +77,7 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     tasks = [hf.Task(s1)]
     wk = hf.Workflow.from_template_data(
         template_name="test_program_no_args",
-        environments={"program_env": {"platform": "win"}},
+        environments={"program_env": {"platform": default_platform}},
         tasks=tasks,
         path=tmp_path,
     )
