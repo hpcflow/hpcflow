@@ -4055,8 +4055,7 @@ class Workflow(AppAware):
                                     ),
                                 }
                             )
-                        if prog_path := run.program_path_actual:
-                            program_path = Path(prog_path)
+                        if program_path := run.program_path_actual:
                             program_dir = program_path.parent
                             program_name = program_path.name
                             program_name_no_ext = program_path.stem

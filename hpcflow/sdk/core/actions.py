@@ -441,8 +441,7 @@ class ElementActionRun(AppAware):
         """Get the path to the associated action program, if the action includes a program
         specification, with variable substitutions applied."""
 
-        # TODO: consider other variable substitution (<<env:SPECIFIER_KEY>>,
-        # <<parameter:PARAMETER_NAME>>)
+        # TODO: consider parameter substitution: <<parameter:PARAMETER_NAME>>
 
         if prog_or_path := self.action.program_or_program_path:
 
