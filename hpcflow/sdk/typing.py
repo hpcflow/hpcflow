@@ -129,6 +129,8 @@ class TemplateComponents(TypedDict):
     task_schemas: NotRequired[TaskSchemasList]
     #: Scripts discovered by templates.
     scripts: NotRequired[dict[str, Path]]
+    #: Programs discovered by templates.
+    programs: NotRequired[dict[str, Path]]
 
 
 class MakeWorkflowCommonArgs(TypedDict):

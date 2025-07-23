@@ -456,6 +456,8 @@ class BaseApp(metaclass=Singleton):
         Directory for scripts.
     jinja_templates_dir:
         Directory for Jinja templates.
+    programs_dir
+        Directory for programs.
     workflows_dir:
         Directory for workflows.
     demo_data_dir:
@@ -494,6 +496,7 @@ class BaseApp(metaclass=Singleton):
         config_options: ConfigOptions,
         scripts_dir: str,
         jinja_templates_dir: str | None = None,
+        programs_dir: str | None = None,
         workflows_dir: str | None = None,
         demo_data_dir: str | None = None,
         demo_data_manifest_dir: str | None = None,
@@ -527,6 +530,8 @@ class BaseApp(metaclass=Singleton):
         self.scripts_dir = scripts_dir
         #: Directory for Jinja templates.
         self.jinja_templates_dir = jinja_templates_dir
+        #: Directory for programs.
+        self.programs_dir = programs_dir
         #: Directory for workflows.
         self.workflows_dir = workflows_dir
         #: Directory for demonstration data.
@@ -566,6 +571,7 @@ class BaseApp(metaclass=Singleton):
         self._task_schemas: _TaskSchemasList | None = None
         self._scripts: dict[str, Path] | None = None
         self._jinja_templates: dict[str, Path] | None = None
+        self._programs: dict[str, Path] | None = None
 
         self.__app_type_cache: dict[str, type] = {}
         self.__app_func_cache: dict[str, Callable[..., Any]] = {}
@@ -1730,6 +1736,7 @@ class BaseApp(metaclass=Singleton):
                 "task_schemas",
                 "scripts",
                 "jinja_templates",
+                "programs",
             )
 
         self.logger.debug(f"Loading template components: {include!r}.")
@@ -1788,6 +1795,11 @@ class BaseApp(metaclass=Singleton):
             jinja_templates = self._load_jinja_templates()
             self._template_components["jinja_templates"] = jinja_templates
             self._jinja_templates = jinja_templates
+
+        if "programs" in include:
+            programs = self._load_programs()
+            self._template_components["programs"] = programs
+            self._programs = programs
 
         self.logger.info(f"Template components loaded ({include!r}).")
 
@@ -1855,6 +1867,15 @@ class BaseApp(metaclass=Singleton):
         self._ensure_template_component("jinja_templates")
         assert self._jinja_templates is not None
         return self._jinja_templates
+
+    @property
+    def programs(self) -> dict[str, Path]:
+        """
+        The known programs.
+        """
+        self._ensure_template_component("programs")
+        assert self._programs is not None
+        return self._programs
 
     @property
     def task_schemas(self) -> _TaskSchemasList:
@@ -2296,6 +2317,13 @@ class BaseApp(metaclass=Singleton):
         Discover where the built-in Jinja templates are.
         """
         return self.__load_builtin_files_from_nested_package(self.jinja_templates_dir)
+
+    @TimeIt.decorator
+    def _load_programs(self) -> dict[str, Path]:
+        """
+        Discover where the built-in programs are.
+        """
+        return self.__load_builtin_files_from_nested_package(self.programs_dir)
 
     def _get_demo_workflows(self) -> dict[str, Path]:
         """Get all builtin demo workflow template file paths."""

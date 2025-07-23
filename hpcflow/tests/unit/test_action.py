@@ -7,9 +7,9 @@ from typing import Any
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import (
     ActionEnvironmentMissingNameError,
-    UnknownScriptDataKey,
-    UnknownScriptDataParameter,
-    UnsupportedScriptDataFormat,
+    UnknownActionDataKey,
+    UnknownActionDataParameter,
+    UnsupportedActionDataFormat,
 )
 
 
@@ -532,7 +532,7 @@ def test_process_script_data_in_str_raise_invalid_format(null_config) -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in="some_weird_format"
     )
-    with pytest.raises(UnsupportedScriptDataFormat):
+    with pytest.raises(UnsupportedActionDataFormat):
         hf.TaskSchema(
             objective="ts1",
             inputs=[hf.SchemaInput("p1")],
@@ -545,7 +545,7 @@ def test_process_script_data_in_dict_raise_invalid_parameter(null_config) -> Non
         script="<<script:path/to/some/script>>",
         script_data_in={"p2": "json"},
     )
-    with pytest.raises(UnknownScriptDataParameter):
+    with pytest.raises(UnknownActionDataParameter):
         hf.TaskSchema(
             objective="ts1",
             inputs=[hf.SchemaInput("p1")],
@@ -560,7 +560,7 @@ def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[two]": "json"},
     )
-    with pytest.raises(UnknownScriptDataParameter):
+    with pytest.raises(UnknownActionDataParameter):
         hf.TaskSchema(
             objective="ts1",
             inputs=[hf.SchemaInput("p1", labels={"one": {}}, multiple=True)],
@@ -574,7 +574,7 @@ def test_process_script_data_in_dict_raise_invalid_script_key(null_config) -> No
         script="<<script:path/to/some/script>>",
         script_data_in=bad_script_data,
     )
-    with pytest.raises(UnknownScriptDataKey):
+    with pytest.raises(UnknownActionDataKey):
         hf.TaskSchema(
             objective="ts1",
             inputs=[hf.SchemaInput("p1")],
@@ -904,7 +904,7 @@ def test_get_script_input_output_file_paths_json_in_json_out(null_config):
         outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
         actions=[act],
     )
-    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
+    assert s1.actions[0].get_input_output_file_paths("script", (0, 1, 2)) == {
         "inputs": {"json": Path("js_0_block_1_act_2_inputs.json")},
         "outputs": {"json": Path("js_0_block_1_act_2_outputs.json")},
     }
@@ -925,7 +925,7 @@ def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
         outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
         actions=[act],
     )
-    assert s1.actions[0].get_script_input_output_file_paths((0, 1, 2)) == {
+    assert s1.actions[0].get_input_output_file_paths("script", (0, 1, 2)) == {
         "inputs": {"hdf5": Path("js_0_block_1_act_2_inputs.h5")},
         "outputs": {},
     }
@@ -947,7 +947,7 @@ def test_get_script_input_output_file_command_args_json_in_json_out(null_config)
         actions=[act],
     )
     js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
-    assert s1.actions[0].get_script_input_output_file_command_args() == [
+    assert s1.actions[0].get_input_output_file_command_args("script") == [
         "--inputs-json",
         f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.json",
         "--outputs-json",
@@ -971,7 +971,7 @@ def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_confi
         actions=[act],
     )
     js_idx, blk_idx, blk_act_idx = s1.actions[0].get_block_act_idx_shell_vars()
-    assert s1.actions[0].get_script_input_output_file_command_args() == [
+    assert s1.actions[0].get_input_output_file_command_args("script") == [
         "--inputs-hdf5",
         f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.h5",
     ]

@@ -13,6 +13,8 @@ import contextlib
 from collections import defaultdict
 from pathlib import Path
 import re
+import warnings
+from functools import partial
 from textwrap import indent, dedent
 from typing import cast, final, overload, TYPE_CHECKING
 from typing_extensions import override
@@ -28,9 +30,9 @@ from hpcflow.sdk.core.errors import (
     ActionEnvironmentMissingNameError,
     MissingCompatibleActionEnvironment,
     OutputFileParserNoOutputError,
-    UnknownScriptDataKey,
-    UnknownScriptDataParameter,
-    UnsupportedScriptDataFormat,
+    UnknownActionDataKey,
+    UnknownActionDataParameter,
+    UnsupportedActionDataFormat,
     UnsetParameterDataError,
     UnsetParameterFractionLimitExceededError,
     UnsetParameterNumberLimitExceededError,
@@ -84,7 +86,7 @@ if TYPE_CHECKING:
     from .rule import Rule
     from .task import WorkflowTask
     from .task_schema import TaskSchema
-    from .types import ParameterDependence, ScriptData, BlockActionKey
+    from .types import ParameterDependence, ActionData, BlockActionKey
     from .workflow import Workflow
     from .object_list import EnvironmentsList
 
@@ -213,6 +215,7 @@ class ElementActionRun(AppAware):
         self._inputs: ElementInputs | None = None
         self._outputs: ElementOutputs | None = None
         self._resources: ElementResources | None = None
+        self._resources_with_defaults: ElementResources | None = None
         self._input_files: ElementInputFiles | None = None
         self._output_files: ElementOutputFiles | None = None
         self._ss_start_obj: JSONLikeDirSnapShot | None = None
@@ -435,6 +438,49 @@ class ElementActionRun(AppAware):
 
         return EARStatus.pending
 
+    __RES_RE: ClassVar[Pattern] = re.compile(r"\<\<resource:(\w+)\>\>")
+    __ENV_RE: ClassVar[Pattern] = re.compile(
+        r"\<\<env:(.*?)\>\>"
+    )  # TODO: refactor; also in `Action`
+
+    @property
+    def program_path_actual(self) -> Path | None:
+        """Get the path to the associated action program, if the action includes a program
+        specification, with variable substitutions applied."""
+
+        # TODO: consider parameter substitution: <<parameter:PARAMETER_NAME>>
+
+        if prog_or_path := self.action.program_or_program_path:
+
+            def resource_repl(
+                match_obj: re.Match[str], resources: ElementResources
+            ) -> str:
+                return getattr(resources, match_obj.groups()[0])
+
+            def env_repl(
+                match_obj: re.Match[str],
+                env_spec: Mapping[str, Any],
+            ) -> str:
+                return env_spec[match_obj.groups()[0]]
+
+            # substitute resources in program path:
+            prog_path_str = self.__RES_RE.sub(
+                repl=partial(resource_repl, resources=self.resources_with_defaults),
+                string=prog_or_path,
+            )
+            # substitute environment specifiers in program path:
+            prog_path_str = self.__ENV_RE.sub(
+                repl=partial(env_repl, env_spec=self.env_spec),
+                string=prog_path_str,
+            )
+            return (
+                self._app.programs[prog_path_str]
+                if self.action.program
+                else Path(prog_path_str)
+            )
+
+        return None
+
     def get_parameter_names(self, prefix: str) -> Sequence[str]:
         """Get parameter types associated with a given prefix.
 
@@ -648,6 +694,16 @@ class ElementActionRun(AppAware):
         return self._resources
 
     @property
+    @TimeIt.decorator
+    def resources_with_defaults(self) -> ElementResources:
+        """
+        The resources to use with (or used by) this EAR, with defaults applied.
+        """
+        if not self._resources_with_defaults:
+            self._resources_with_defaults = self.__get_resources_obj(set_defaults=True)
+        return self._resources_with_defaults
+
+    @property
     def input_files(self) -> ElementInputFiles:
         """
         The input files to the controlled program.
@@ -709,10 +765,12 @@ class ElementActionRun(AppAware):
         return self.element_iteration.get_resources(self.action)
 
     @TimeIt.decorator
-    def __get_resources_obj(self) -> ElementResources:
+    def __get_resources_obj(self, set_defaults: bool = False) -> ElementResources:
         """Resolve specific resources for this EAR, considering all applicable scopes and
         template-level resources."""
-        return self.element_iteration.get_resources_obj(self.action)
+        return self.element_iteration.get_resources_obj(
+            self.action, set_defaults=set_defaults
+        )
 
     def get_environment_spec(self) -> Mapping[str, Any]:
         """
@@ -946,7 +1004,7 @@ class ElementActionRun(AppAware):
 
         if add_script_files:
             assert blk_act_key
-            in_out_names = self.action.get_script_input_output_file_paths(blk_act_key)
+            in_out_names = self.action.get_input_output_file_paths("script", blk_act_key)
             in_names, out_names = in_out_names["inputs"], in_out_names["outputs"]
             if in_names:
                 kwargs["_input_files"] = in_names
@@ -960,6 +1018,17 @@ class ElementActionRun(AppAware):
         Write values to files in standard formats.
         """
         for fmt, ins in self.action.script_data_in_grouped.items():
+            in_vals = self.get_input_values(
+                inputs=ins, label_dict=False, raise_on_unset=False
+            )
+            if writer := self.__source_writer_map.get(fmt):
+                writer(self, in_vals, block_act_key)
+
+    def write_program_input_files(self, block_act_key: BlockActionKey) -> None:
+        """
+        Write values to files in standard formats.
+        """
+        for fmt, ins in self.action.program_data_in_grouped.items():
             in_vals = self.get_input_values(
                 inputs=ins, label_dict=False, raise_on_unset=False
             )
@@ -1012,11 +1081,16 @@ class ElementActionRun(AppAware):
     def __output_index(self, param_name: str) -> int:
         return cast("int", self.data_idx[f"outputs.{param_name}"])
 
-    def _param_save(self, block_act_key: BlockActionKey, run_dir: Path | None = None):
-        """Save script-generated parameters that are stored within the supported script
-        data output formats (HDF5, JSON, etc)."""
-        in_out_names = self.action.get_script_input_output_file_paths(
-            block_act_key, directory=run_dir
+    def _param_save(
+        self,
+        type: Literal["script", "program"],
+        block_act_key: BlockActionKey,
+        run_dir: Path | None = None,
+    ):
+        """Save script- or program-generated parameters that are stored within the
+        supported data output formats (HDF5, JSON, etc)."""
+        in_out_names = self.action.get_input_output_file_paths(
+            type, block_act_key, directory=run_dir
         )
 
         import h5py  # type: ignore
@@ -1791,18 +1865,30 @@ class Action(JSONLike):
         Information about data input to the script.
     script_data_out: str
         Information about data output from the script.
-    script_data_files_use_opt: bool
-        If True, script data input and output file paths will be passed to the script
+    data_files_use_opt: bool
+        If True, data input and output file paths will be passed to the script or program
         execution command line with an option like ``--input-json`` or ``--output-hdf5``
         etc. If False, the file paths will be passed on their own. For Python scripts,
         options are always passed, and this parameter is overwritten to be True,
         regardless of its initial value.
+    script_data_files_use_opt: bool
+        Deprecated; please use `data_files_use_opt` instead, which has the same meaning.
     script_exe: str
         The executable to use to run the script.
     script_pass_env_spec: bool
         Whether to pass the environment details to the script.
     jinja_template: str
         Path to a Jinja template file to generate as part of this action.
+    program: str
+        Path to a built-in program to run.
+    program_path: str
+        Path to an external program to run.
+    program_exe: str
+        Executable instance label associated with the program to run
+    program_data_in: str
+        Information about data input to the program.
+    program_data_out: str
+        Information about data output from the program.
     abortable: bool
         Whether this action can be aborted.
     input_file_generators: list[~hpcflow.app.InputFileGenerator]
@@ -1878,19 +1964,28 @@ class Action(JSONLike):
             shared_data_name="command_files",
         ),
     )
-    _script_data_formats: ClassVar[tuple[str, ...]] = ("direct", "json", "hdf5")
+    _data_formats: ClassVar[Mapping[str, tuple[str, ...]]] = {
+        "script": ("direct", "json", "hdf5"),
+        "program": ("json", "hdf5"),
+    }
 
     def __init__(
         self,
         environments: list[ActionEnvironment] | None = None,
         commands: list[Command] | None = None,
         script: str | None = None,
-        script_data_in: str | Mapping[str, str | ScriptData] | None = None,
-        script_data_out: str | Mapping[str, str | ScriptData] | None = None,
+        script_data_in: str | Mapping[str, str | ActionData] | None = None,
+        script_data_out: str | Mapping[str, str | ActionData] | None = None,
         script_data_files_use_opt: bool = False,
+        data_files_use_opt: bool = False,
         script_exe: str | None = None,
         script_pass_env_spec: bool = False,
         jinja_template: str | None = None,
+        program: str | None = None,
+        program_path: str | None = None,
+        program_exe: str | None = None,
+        program_data_in: str | Mapping[str, str | ActionData] | None = None,
+        program_data_out: str | Mapping[str, str | ActionData] | None = None,
         abortable: bool = False,
         input_file_generators: list[InputFileGenerator] | None = None,
         output_file_parsers: list[OutputFileParser] | None = None,
@@ -1901,28 +1996,51 @@ class Action(JSONLike):
         clean_up: list[str] | None = None,
         requires_dir: bool | None = None,
     ):
+
+        if script_data_files_use_opt:
+            warnings.warn(
+                f"{self.__class__.__name__!r}: Please use `data_files_use_opt` instead "
+                f"of `script_data_files_use_opt`, which will be removed in a future "
+                f"release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data_files_use_opt = script_data_files_use_opt
+
         #: The commands to be run by this action.
         self.commands = commands or []
         #: The name of the Python script to run.
         self.script = script
         #: Information about data input to the script.
-        self.script_data_in: dict[str, ScriptData] | None = None
+        self.script_data_in: dict[str, ActionData] | None = None
         self._script_data_in = script_data_in
         #: Information about data output from the script.
-        self.script_data_out: dict[str, ScriptData] | None = None
+        self.script_data_out: dict[str, ActionData] | None = None
         self._script_data_out = script_data_out
-        #: If True, script data input and output file paths will be passed to the script
-        #: execution command line with an option like `--input-json` or `--output-hdf5`
-        #: etc. If False, the file paths will be passed on their own. For Python scripts,
-        #: options are always passed, and this parameter is overwritten to be True,
-        #: regardless of its initial value.
-        self.script_data_files_use_opt = (
-            script_data_files_use_opt if not self.script_is_python_snippet else True
+        #: If True, data input and output file paths will be passed to the script or
+        #: program execution command line with an option like `--input-json` or
+        #: `--output-hdf5` etc. If False, the file paths will be passed on their own. For
+        #: Python scripts, options are always passed, and this parameter is overwritten
+        #: to be True, regardless of its initial value.
+        self.data_files_use_opt = (
+            data_files_use_opt if not self.script_is_python_snippet else True
         )
         #: The executable to use to run the script.
         self.script_exe = script_exe.lower() if script_exe else None
         #: Whether to pass the environment details to the script.
         self.script_pass_env_spec = script_pass_env_spec
+        #: Path to a built-in program to run.
+        self.program = program
+        #: Path to an external program to run
+        self.program_path = program_path
+        #: Executable instance label associated with the program to run
+        self.program_exe = program_exe
+        #: Information about data input to the program.
+        self.program_data_in: dict[str, ActionData] | None = None
+        self._program_data_in = program_data_in
+        #: Information about data output from the program
+        self.program_data_out: dict[str, ActionData] | None = None
+        self._program_data_out = program_data_out
         #: The environments in which this action can run.
         self.environments = environments or [
             self._app.ActionEnvironment(environment="null_env")
@@ -1963,35 +2081,43 @@ class Action(JSONLike):
 
         self._set_parent_refs()
 
-    def process_script_data_formats(self) -> None:
+    def process_action_data_formats(self) -> None:
         """
-        Convert script data information into standard form.
+        Convert script/program data information into standard form.
         """
-        self.script_data_in = self.__process_script_data(self._script_data_in, "inputs")
-        self.script_data_out = self.__process_script_data(
-            self._script_data_out, "outputs"
+        self.script_data_in = self.__process_action_data(
+            "script", self._script_data_in, "inputs"
+        )
+        self.script_data_out = self.__process_action_data(
+            "script", self._script_data_out, "outputs"
+        )
+        self.program_data_in = self.__process_action_data(
+            "program", self._program_data_in, "inputs"
+        )
+        self.program_data_out = self.__process_action_data(
+            "program", self._program_data_out, "outputs"
         )
 
-    def __process_script_data_str(
+    def __process_action_data_str(
         self, data_fmt: str, param_names: Iterable[str]
-    ) -> dict[str, ScriptData]:
+    ) -> dict[str, ActionData]:
         # include all input parameters, using specified data format
         data_fmt = data_fmt.lower()
         return {k: {"format": data_fmt} for k in param_names}
 
-    def __process_script_data_dict(
+    def __process_action_data_dict(
         self,
-        data_fmt: Mapping[str, str | ScriptData],
+        data_fmt: Mapping[str, str | ActionData],
         prefix: str,
         param_names: Iterable[str],
-    ) -> dict[str, ScriptData]:
-        all_params: dict[str, ScriptData] = {}
+    ) -> dict[str, ActionData]:
+        all_params: dict[str, ActionData] = {}
         for nm, v in data_fmt.items():
             # values might be strings, or dicts with "format" and potentially other
             # kwargs:
             if isinstance(v, dict):
                 # Make sure format is first key
-                v2: ScriptData = {
+                v2: ActionData = {
                     "format": v["format"],
                 }
                 all_params[nm] = v2
@@ -2002,7 +2128,7 @@ class Action(JSONLike):
         if prefix == "inputs":
             # expand unlabelled-multiple inputs to multiple labelled inputs:
             multi_types = set(self.task_schema.multi_input_types)
-            multis: dict[str, ScriptData] = {}
+            multis: dict[str, ActionData] = {}
             for nm in tuple(all_params):
                 if nm in multi_types:
                     k_fmt = all_params.pop(nm)
@@ -2023,39 +2149,54 @@ class Action(JSONLike):
                 all_params[name] = copy.deepcopy(other_fmt)
         return all_params
 
-    def __process_script_data(
-        self, data_fmt: str | Mapping[str, str | ScriptData] | None, prefix: str
-    ) -> dict[str, ScriptData]:
+    def __process_action_data(
+        self,
+        type: Literal["script", "program"],
+        data_fmt: str | Mapping[str, str | ActionData] | None,
+        prefix: Literal["inputs", "outputs"],
+    ) -> dict[str, ActionData]:
+
         if not data_fmt:
             return {}
 
         param_names = self.get_parameter_names(prefix)
         if isinstance(data_fmt, str):
-            all_params = self.__process_script_data_str(data_fmt, param_names)
+            all_params = self.__process_action_data_str(data_fmt, param_names)
         else:
-            all_params = self.__process_script_data_dict(data_fmt, prefix, param_names)
-
+            all_params = self.__process_action_data_dict(data_fmt, prefix, param_names)
         # validation:
         allowed_keys = ("format", "all_iterations")
         for k, v in all_params.items():
             # validate parameter name (sub-parameters are allowed):
             if k.split(".")[0] not in param_names:
-                raise UnknownScriptDataParameter(k, prefix, param_names)
+                raise UnknownActionDataParameter(type, k, prefix, param_names)
             # validate format:
-            if v["format"] not in self._script_data_formats:
-                raise UnsupportedScriptDataFormat(
-                    v, prefix[:-1], k, self._script_data_formats
+            if v["format"] not in self._data_formats[type]:
+                raise UnsupportedActionDataFormat(
+                    type,
+                    v,
+                    cast('Literal["input", "output"]', prefix[:-1]),
+                    k,
+                    self._data_formats[type],
                 )
             if any((bad_key := k2) for k2 in v if k2 not in allowed_keys):
-                raise UnknownScriptDataKey(bad_key, allowed_keys)
+                raise UnknownActionDataKey(type, bad_key, allowed_keys)
 
         return all_params
+
+    @property
+    def has_program(self) -> bool:
+        return bool(self.program_or_program_path)
+
+    @property
+    def program_or_program_path(self) -> str | None:
+        return self.program or self.program_path
 
     @property
     def script_data_in_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
         """Get input parameter types by script data-in format."""
         if self.script_data_in is None:
-            self.process_script_data_formats()
+            self.process_action_data_formats()
             assert self.script_data_in is not None
         return swap_nested_dict_keys(
             dct=cast("dict", self.script_data_in), inner_key="format"
@@ -2065,17 +2206,38 @@ class Action(JSONLike):
     def script_data_out_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
         """Get output parameter types by script data-out format."""
         if self.script_data_out is None:
-            self.process_script_data_formats()
+            self.process_action_data_formats()
             assert self.script_data_out is not None
         return swap_nested_dict_keys(
             dct=cast("dict", self.script_data_out), inner_key="format"
         )
 
     @property
+    def program_data_in_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
+        """Get input parameter types by program data-in format."""
+        if self.program_data_in is None:
+            self.process_action_data_formats()
+            assert self.program_data_in is not None
+        return swap_nested_dict_keys(
+            dct=cast("dict", self.program_data_in), inner_key="format"
+        )
+
+    @property
+    def program_data_out_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
+        """Get output parameter types by program data-out format."""
+        if self.program_data_out is None:
+            self.process_action_data_formats()
+            assert self.program_data_out is not None
+        return swap_nested_dict_keys(
+            dct=cast("dict", self.program_data_out), inner_key="format"
+        )
+
+    @property
     def script_data_in_has_files(self) -> bool:
         """Return True if the script requires some inputs to be passed via an
         intermediate file format."""
-        # TODO: should set `requires_dir` to True if this is True?
+        # TODO: should set `requires_dir` to True if this is True? although in future we
+        # may write input data files in a directory that is shared by multiple runs.
         return bool(set(self.script_data_in_grouped) - {"direct"})  # TODO: test
 
     @property
@@ -2105,11 +2267,28 @@ class Action(JSONLike):
             return snip_path.suffix == ".py"
         return False
 
+    @property
+    def program_data_in_has_files(self) -> bool:
+        """Return True if the program requires some inputs to be passed via an
+        intermediate file format."""
+        # TODO: should set `requires_dir` to True if this is True? although in future we
+        # may write input data files in a directory that is shared by multiple runs.
+        return bool(self.program_data_in_grouped)  # TODO: test
+
+    @property
+    def program_data_out_has_files(self) -> bool:
+        """Return True if the program produces some outputs via an intermediate file
+        format."""
+        # TODO: should set `requires_dir` to True if this is True?
+        return bool(self.program_data_out_grouped)  # TODO: test
+
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
         d = super()._postprocess_to_dict(d)
         d["script_data_in"] = d.pop("_script_data_in")
         d["script_data_out"] = d.pop("_script_data_out")
+        d["program_data_in"] = d.pop("_program_data_in")
+        d["program_data_out"] = d.pop("_program_data_out")
         return d
 
     @property
@@ -2153,6 +2332,7 @@ class Action(JSONLike):
         return out_files
 
     def __repr__(self) -> str:
+        # TODO: include program and other script attributes etc
         IFGs = {
             ifg.input_file.label: [inp.typ for inp in ifg.inputs]
             for ifg in self.input_file_generators
@@ -2183,6 +2363,7 @@ class Action(JSONLike):
         return f"{self.__class__.__name__}({', '.join(out)})"
 
     def __eq__(self, other: Any) -> bool:
+        # TODO: include program and other script attributes etc
         if not isinstance(other, self.__class__):
             return False
         return (
@@ -2215,7 +2396,7 @@ class Action(JSONLike):
             self.script,
             self.script_data_in,
             self.script_data_out,
-            self.script_data_files_use_opt,
+            self.data_files_use_opt,
             self.script_exe,
         )
 
@@ -2661,7 +2842,7 @@ class Action(JSONLike):
             act_i._task_schema = self.task_schema
             if ifg.input_file not in inp_files:
                 inp_files.append(ifg.input_file)
-            act_i.process_script_data_formats()
+            act_i.process_action_data_formats()
             act_i._from_expand = True
             inp_acts.append(act_i)
 
@@ -2688,17 +2869,33 @@ class Action(JSONLike):
             for j in ofp.output_files:
                 if j not in out_files:
                     out_files.append(j)
-            act_i.process_script_data_formats()
+            act_i.process_action_data_formats()
             act_i._from_expand = True
             out_acts.append(act_i)
 
         commands = self.commands
         if self.script:
-            exe = f"<<executable:{self.script_exe}>>"
-            variables = script_cmd_vars if self.script else {}
-            args = self.get_script_input_output_file_command_args()
             commands += [
-                self._app.Command(executable=exe, arguments=args, variables=variables)
+                self._app.Command(
+                    executable=f"<<executable:{self.script_exe}>>",
+                    arguments=self.get_input_output_file_command_args("script"),
+                    variables=script_cmd_vars,
+                )
+            ]
+
+        if self.has_program:
+            variables = {
+                "program_name": f"${app_caps}_RUN_PROGRAM_NAME",
+                "program_name_no_ext": f"${app_caps}_RUN_PROGRAM_NAME_NO_EXT",
+                "program_dir": f"${app_caps}_RUN_PROGRAM_DIR",
+                "program_path": f"${app_caps}_RUN_PROGRAM_PATH",
+            }
+            commands += [
+                self._app.Command(
+                    executable=f"<<executable:{self.program_exe}>>",
+                    arguments=self.get_input_output_file_command_args("program"),
+                    variables=variables,
+                )
             ]
 
         # TODO: store script_args? and build command with executable syntax?
@@ -2710,6 +2907,11 @@ class Action(JSONLike):
             script_exe=self.script_exe,
             script_pass_env_spec=self.script_pass_env_spec,
             jinja_template=self.jinja_template,
+            program=self.program,
+            program_path=self.program_path,
+            program_exe=self.program_exe,
+            program_data_in=self.program_data_in,
+            program_data_out=self.program_data_out,
             environments=[self.get_commands_action_env()],
             abortable=self.abortable,
             rules=main_rules,
@@ -2721,7 +2923,7 @@ class Action(JSONLike):
         )
         main_act._task_schema = self.task_schema
         main_act._from_expand = True
-        main_act.process_script_data_formats()
+        main_act.process_action_data_formats()
 
         return [*inp_acts, main_act, *out_acts]
 
@@ -2795,6 +2997,14 @@ class Action(JSONLike):
             f"inputs.{i}" for i in self.get_command_input_types(sub_parameters)
         ) + tuple(f"input_files.{i}" for i in self.get_command_file_labels())
 
+    @property
+    def has_main_script_or_program(self) -> bool:
+        return (
+            self.script
+            and not self.input_file_generators
+            and not self.output_file_parsers
+        ) or self.has_program
+
     def get_input_types(self, sub_parameters: bool = False) -> tuple[str, ...]:
         """Get the input types that are consumed by commands and input file generators of
         this action.
@@ -2806,13 +3016,9 @@ class Action(JSONLike):
             inputs will be returned untouched. If False (default), only return the root
             parameter type and disregard the sub-parameter part.
         """
-        if (
-            self.script
-            and not self.input_file_generators
-            and not self.output_file_parsers
-        ):
-            # TODO: refine this according to `script_data_in`, since this can be used
-            # to control the inputs/outputs of a script.
+        if self.has_main_script_or_program:
+            # TODO: refine this according to `script_data_in/program_data_in`, since this
+            # can be used to control the inputs/outputs of a script/program.
             params = set(self.task_schema.input_types)
         else:
             params = set(self.get_command_input_types(sub_parameters))
@@ -2829,11 +3035,7 @@ class Action(JSONLike):
     def get_output_types(self) -> tuple[str, ...]:
         """Get the output types that are produced by command standard outputs and errors,
         and by output file parsers of this action."""
-        if (
-            self.script
-            and not self.input_file_generators
-            and not self.output_file_parsers
-        ):
+        if self.has_main_script_or_program:
             params = set(self.task_schema.output_types)
             # TODO: refine this according to `script_data_out`, since this can be used
             # to control the inputs/outputs of a script.
@@ -3027,11 +3229,7 @@ class Action(JSONLike):
         Determine if the given input type is required by this action.
         """
         # TODO: for now assume a script takes all inputs
-        if (
-            self.script
-            and not self.input_file_generators
-            and not self.output_file_parsers
-        ):
+        if self.has_main_script_or_program:
             return True
 
         # typ is required if is appears in any command:
@@ -3310,17 +3508,28 @@ class Action(JSONLike):
             f"${{{app_caps}_BLOCK_ACT_IDX}}",
         )
 
-    def get_script_input_output_file_paths(
+    def get_input_output_file_paths(
         self,
+        type: Literal["script", "program"],
         block_act_key: BlockActionKey,
         directory: Path | None = None,
     ) -> dict[str, dict[str, Path]]:
-        """Get the names (as `Path`s) of script input and output files for this action."""
+        """Get the names (as `Path`s) of script or program input and output files for this
+        action."""
         in_out_paths: dict[str, dict[str, Path]] = {
             "inputs": {},
             "outputs": {},
         }
-        for fmt in self.script_data_in_grouped:
+        dat_in_grp = {
+            "script": self.script_data_in_grouped,
+            "program": self.program_data_in_grouped,
+        }
+        dat_out_grp = {
+            "script": self.script_data_out_grouped,
+            "program": self.program_data_out_grouped,
+        }
+
+        for fmt in dat_in_grp[type]:
             if fmt == "json":
                 path = self.get_param_dump_file_path_JSON(
                     block_act_key, directory=directory
@@ -3333,7 +3542,7 @@ class Action(JSONLike):
                 continue
             in_out_paths["inputs"][fmt] = path
 
-        for fmt in self.script_data_out_grouped:
+        for fmt in dat_out_grp[type]:
             if fmt == "json":
                 path = self.get_param_load_file_path_JSON(
                     block_act_key, directory=directory
@@ -3348,18 +3557,21 @@ class Action(JSONLike):
 
         return in_out_paths
 
-    def get_script_input_output_file_command_args(self) -> list[str]:
-        """Get the script input and output file names as command line arguments."""
-        in_out_names = self.get_script_input_output_file_paths(
-            self.get_block_act_idx_shell_vars()
+    def get_input_output_file_command_args(
+        self, type: Literal["script", "program"]
+    ) -> list[str]:
+        """Get the script or program input and output file names as command line
+        arguments."""
+        in_out_names = self.get_input_output_file_paths(
+            type, self.get_block_act_idx_shell_vars()
         )
         args: list[str] = []
         for fmt, path in in_out_names["inputs"].items():
-            if self.script_data_files_use_opt:
+            if self.data_files_use_opt:
                 args.append(f"--inputs-{fmt}")
             args.append(str(path))
         for fmt, path in in_out_names["outputs"].items():
-            if self.script_data_files_use_opt:
+            if self.data_files_use_opt:
                 args.append(f"--outputs-{fmt}")
             args.append(str(path))
 

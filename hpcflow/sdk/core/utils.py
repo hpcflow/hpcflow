@@ -359,14 +359,6 @@ class PrettyPrinter:
         return "\n    ".join(lines)
 
 
-def capitalise_first_letter(chars: str) -> str:
-    """
-    Convert the first character of a string to upper case (if that makes sense).
-    The rest of the string is unchanged.
-    """
-    return chars[0].upper() + chars[1:]
-
-
 _STRING_VARS_RE = re.compile(r"\<\<var:(.*?)(?:\[(.*)\])?\>\>")
 
 

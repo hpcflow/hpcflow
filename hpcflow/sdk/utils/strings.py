@@ -59,3 +59,11 @@ def extract_py_from_future_imports(py_str: str) -> tuple[str, set[str]]:
         py_str = re.sub(pattern, "", py_str, flags=re.MULTILINE)
 
     return (py_str, future_imports)
+
+
+def capitalise_first_letter(chars: str) -> str:
+    """
+    Convert the first character of a string to upper case (if that makes sense).
+    The rest of the string is unchanged.
+    """
+    return chars[0].upper() + chars[1:]
