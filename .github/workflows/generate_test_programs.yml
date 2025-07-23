@@ -1,18 +1,11 @@
 name: Generate test programs
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     name: Build on ${{ matrix.os }}
-    permissions:
-      # No write permission
-      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -53,6 +46,13 @@ jobs:
             echo '{ "p1": 10, "p2": 20, "p3": 30 }' > input.json
             ./hello_world input.json output.json
             cat output.json
+
+      - name: Take ownership of generated executable (linux - Rocky Linux 8)
+        working-directory: hpcflow/data/programs/hello_world
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown $USER:$USER hello_world
+          chmod +r hello_world
 
       - name: Test run program
         working-directory: hpcflow/data/programs/hello_world
