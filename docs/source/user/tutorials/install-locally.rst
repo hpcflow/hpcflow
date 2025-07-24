@@ -65,7 +65,7 @@
   Step 4: Define workflow
   ========================
 
-  Now that you have installed {{ app_name }} and set up the configuration file, you can start defining :ref:`workflows def_workflow>`.
+  Now that you have installed {{ app_name }} and set up the configuration file, you can start defining :ref:`workflows<def_workflow>`.
   {{ app_name }} uses a YAML file to define the workflow, which is a text file that describes the steps in the workflow and the parameters for each step.
   The workflow file is stored in the directory where you want to run the workflow.
 
