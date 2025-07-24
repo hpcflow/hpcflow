@@ -12,7 +12,7 @@
 
   .. code-block:: console
 
-      {{ app_module }} demo-workflow --list
+      {{ app_package_name }} demo-workflow --list
 
 
   We can run the following command to copy the in-built workflow file to the current directory
@@ -20,13 +20,13 @@
 
   .. code-block:: console
 
-      {{ app_module }} demo-workflow copy <workflow_name.yaml> .
+      {{ app_package_name }} demo-workflow copy <workflow_name.yaml> .
 
   which we can then use to submit the workflow.
 
   .. code-block:: console
 
-      {{ app_module }} go <workflow_name.yaml>
+      {{ app_package_name }} go <workflow_name.yaml>
 
   This small workflow should complete in less than 30s.
   Note that there is also a convenience shortcut for the demo workflows which combines
@@ -34,10 +34,10 @@
 
   .. code-block:: console
 
-      {{ app_module }} demo-workflow go <workflow_name.yaml>
+      {{ app_package_name }} demo-workflow go <workflow_name.yaml>
 
   However, in general workflows would first be created in a yaml file which is then submitted using
-  ``{{ app_module }} go WORKFLOW_FILE``.
+  ``{{ app_package_name }} go WORKFLOW_FILE``.
 
   Check the status of a workflow
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -46,13 +46,13 @@
 
   .. code-block:: console
 
-      {{ app_module }} show -f
+      {{ app_package_name }} show -f
 
   For clarification of the output, a legend can be shown using
 
   .. code-block:: console
 
-      {{ app_module }} show --legend
+      {{ app_package_name }} show --legend
 
 
   Cancel a workflow
@@ -62,10 +62,10 @@
 
   .. code-block:: console
 
-      {{ app_module }} cancel WORKFLOW_REF
+      {{ app_package_name }} cancel WORKFLOW_REF
 
   where ``WORKFLOW_REF`` is either the path to the workflow directory,
-  or the ID of the workflow displayed by ``{{ app_module }} show``.
+  or the ID of the workflow displayed by ``{{ app_package_name }} show``.
 
   Workflow output
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

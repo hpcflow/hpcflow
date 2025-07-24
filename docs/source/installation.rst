@@ -59,8 +59,8 @@
     `Some examples <https://github.com/hpcflow/matflow-configs>`_ are given
     for the University of Manchester's CSF.
 
-    The path to your config file can be found using ``{{ app_module }} manage get-config-path``,
-    or to open the config file directly, use ``{{ app_module }} open config``.
+    The path to your config file can be found using ``{{ app_package_name }} manage get-config-path``,
+    or to open the config file directly, use ``{{ app_package_name }} open config``.
 
     #############
     Environments
@@ -71,7 +71,7 @@
     Your {{ app_name }} environments must be defined in your environments (YAML) file before {{ app_name }}
     can run workflows, and this environment file must be pointed to in the config file
     via the ``environment_sources`` key.
-    Once this has been done, your environment file can be be opened using ``{{ app_module }} open env-source``.
+    Once this has been done, your environment file can be be opened using ``{{ app_package_name }} open env-source``.
 
     Below is an example environments file that defines an environment for running Python scripts.
     Domain-specific tools can be added to the environments file as required, each with their own 
