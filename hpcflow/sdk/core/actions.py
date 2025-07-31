@@ -834,19 +834,22 @@ class ElementActionRun(AppAware):
 
         return inputs
 
-    def get_OFP_output_files(self) -> Mapping[str, Path]:
+    def get_OFP_output_files(self) -> Mapping[str, Path | list[Path]]:
         """
         Get a dict of output files that are going to be parsed to generate one or more
         outputs.
         """
-        # TODO: can this return multiple files for a given FileSpec?
         if not self.action._from_expand:
             raise RuntimeError(
                 "Cannot get output file parser files from this from EAR because the "
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
         return {
-            file_spec.label: Path(cast("str", file_spec.name.value()))
+            file_spec.label: (
+                [Path(val_i) for val_i in fs_val]
+                if isinstance((fs_val := file_spec.name.value()), list)
+                else Path(fs_val)
+            )
             for file_spec in self.action.output_file_parsers[0].output_files
         }
 
