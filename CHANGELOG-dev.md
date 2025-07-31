@@ -1,4 +1,29 @@
 
+<a name="v0.2.0a234"></a>
+## [v0.2.0a234](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a233...v0.2.0a234) - 2025.07.31
+
+### ♻ Code Refactoring
+
+* update builtin task schema action environments to more compact format
+* tests of `Command.get_command_line` to use a utility func
+
+### ✨ Features
+
+* more compact action-environment spec
+
+### 🐛 Bug Fixes
+
+* tests
+* commands file hash now includes environment specification
+* when an OFP uses multiple files matching a regex pattern
+* typing
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* merge branch 'develop' into fix/commands-file-hash
+
+
 <a name="v0.2.0a233"></a>
 ## [v0.2.0a233](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a232...v0.2.0a233) - 2025.07.31
 
