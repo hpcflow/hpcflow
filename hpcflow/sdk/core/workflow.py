@@ -191,7 +191,7 @@ class WorkflowTemplate(JSONLike):
         dict that maps action scopes to resources (e.g. `{{"any": {{"num_cores": 2}}}}`)
         or a list of `ResourceSpec` objects, or a `ResourceList` object.
     environments:
-        The execution environments to use.
+        Environment specifiers, keyed by environment name.
     env_presets:
         The environment presets to use.
     source_file:
@@ -240,7 +240,7 @@ class WorkflowTemplate(JSONLike):
     #: Template-level resources to apply to all tasks as default values.
     resources: Resources = None
     config: dict = field(default_factory=lambda: {})
-    #: The execution environments to use.
+    #: Environment specifiers, keyed by environment name.
     environments: Mapping[str, Mapping[str, Any]] | None = None
     #: The environment presets to use.
     env_presets: str | list[str] | None = None
@@ -1330,6 +1330,7 @@ class Workflow(AppAware):
         tasks: list[Task] | None = None,
         loops: list[Loop] | None = None,
         resources: Resources = None,
+        environments: Mapping[str, Mapping[str, Any]] | None = None,
         config: dict | None = None,
         path: PathLike | None = None,
         workflow_name: str | None = None,
@@ -1354,6 +1355,8 @@ class Workflow(AppAware):
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
             precedence of those defined here for the whole workflow.
+        environments:
+            Environment specifiers, keyed by environment name.
         config:
             Configuration items that should be set whenever the resulting workflow is
             loaded. This includes config items that apply during workflow execution.
@@ -1384,6 +1387,7 @@ class Workflow(AppAware):
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
+            environments=environments,
             config=config or {},
         )
         return cls.from_template(
@@ -2668,10 +2672,23 @@ class Workflow(AppAware):
 
                     if run.action.script_data_out_has_files:
                         try:
-                            run._param_save(block_act_key, run_dir)
+                            run._param_save("script", block_act_key, run_dir)
                         except FileNotFoundError:
                             self._app.logger.debug(
                                 f"script did not generate an expected output parameter "
+                                f"file (block_act_key={block_act_key!r}), so setting run "
+                                f"to an error state (if not aborted)."
+                            )
+                            if not is_aborted and success is True:
+                                success = False
+                                exit_code = 1  # TODO more custom exit codes?
+
+                    if run.action.program_data_out_has_files:
+                        try:
+                            run._param_save("program", block_act_key, run_dir)
+                        except FileNotFoundError:
+                            self._app.logger.debug(
+                                f"program did not generate an expected output parameter "
                                 f"file (block_act_key={block_act_key!r}), so setting run "
                                 f"to an error state (if not aborted)."
                             )
@@ -2875,12 +2892,33 @@ class Workflow(AppAware):
                                     f"saving script-generated parameters."
                                 )
                                 try:
-                                    run._param_save(block_act_key, run_dir)
+                                    run._param_save("script", block_act_key, run_dir)
                                 except FileNotFoundError:
-                                    # script did not generate the output parameter file, so
-                                    # set a failed exit code (if we did not abort the run):
+                                    # script did not generate the output parameter file,
+                                    # so set a failed exit code (if we did not abort the
+                                    # run):
                                     self._app.logger.debug(
                                         f"script did not generate an expected output "
+                                        f"parameter file (block_act_key="
+                                        f"{block_act_key!r}), so setting run to an error "
+                                        f"state (if not aborted)."
+                                    )
+                                    if not is_aborted and success is True:
+                                        success = False
+                                        exit_code = 1  # TODO more custom exit codes?
+
+                            if run.action.program_data_out_has_files:
+                                self._app.logger.info(
+                                    f"saving program-generated parameters."
+                                )
+                                try:
+                                    run._param_save("program", block_act_key, run_dir)
+                                except FileNotFoundError:
+                                    # program did not generate the output parameter file,
+                                    # so set a failed exit code (if we did not abort the
+                                    # run):
+                                    self._app.logger.debug(
+                                        f"program did not generate an expected output "
                                         f"parameter file (block_act_key="
                                         f"{block_act_key!r}), so setting run to an error "
                                         f"state (if not aborted)."
@@ -3927,6 +3965,8 @@ class Workflow(AppAware):
                         with run.raise_on_failure_threshold() as unset_params:
                             if run.action.script:
                                 run.write_script_input_files(block_act_key)
+                            if run.action.has_program:
+                                run.write_program_input_files(block_act_key)
 
                             # write the command file that will be executed:
                             cmd_file_path = self.ensure_commands_file(
@@ -4013,6 +4053,18 @@ class Workflow(AppAware):
                                     f"{app_caps}_RUN_SCRIPT_PATH": str(
                                         script_dir / script_name
                                     ),
+                                }
+                            )
+                        if program_path := run.program_path_actual:
+                            program_dir = program_path.parent
+                            program_name = program_path.name
+                            program_name_no_ext = program_path.stem
+                            add_env.update(
+                                {
+                                    f"{app_caps}_RUN_PROGRAM_NAME": program_name,
+                                    f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
+                                    f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
+                                    f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
                                 }
                             )
 

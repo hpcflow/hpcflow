@@ -744,8 +744,8 @@ class ZarrPersistentStore(
 
         combined_run_IDs = np.full(
             (len(arrs), max_acts, max_elems),
-            dtype=np.uint32,
-            fill_value=np.iinfo(np.uint32).max,
+            dtype=np.int32,
+            fill_value=-1,
         )
         for arr_idx, arr in enumerate(arrs):
             combined_run_IDs[arr_idx][: arr.shape[0], : arr.shape[1]] = arr

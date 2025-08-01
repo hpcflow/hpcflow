@@ -36,9 +36,9 @@ class ParameterDependence(TypedDict):
     commands: list[int]
 
 
-class ScriptData(TypedDict, total=False):
+class ActionData(TypedDict, total=False):
     """
-    Descriptor for data relating to a script.
+    Descriptor for data relating to a script or program.
     """
 
     #: The format of the data.

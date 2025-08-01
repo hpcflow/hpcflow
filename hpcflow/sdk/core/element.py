@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, fields
 from operator import attrgetter
 from itertools import chain
 import os
+import sys
+import platform
 from typing import (
     Any,
     Callable,
@@ -301,6 +303,12 @@ class ElementResources(JSONLike):
         Additional arguments to pass to the shell.
     os_name: str
         Which OS to use.
+    platform: str
+        System platform name, like "win", "linux", or "macos".
+    CPU_arch: str
+        CPU architecture, like "x86_64", "AMD64", or "arm64".
+    executable_extension: str
+        ".exe" on Windows, empty otherwise.
     environments: dict
         Environment specifiers keyed by names.
     resources_id: int
@@ -362,6 +370,13 @@ class ElementResources(JSONLike):
     shell_args: dict[str, Any] = field(default_factory=dict)
     #: Which OS to use.
     os_name: str | None = None
+    #: System platform name, like "win", "linux", or "macos"
+    platform: str | None = None
+    #: CPU architecture, like "x86_64", "AMD64", or "arm64"
+    CPU_arch: str | None = None
+    #: Typical extension used to indicate an executable file; ".exe" on Windows, empty on
+    #: all other platforms.
+    executable_extension: str | None = None
     #: Environment specifiers keyed by names.
     environments: dict[str, dict[str, Any]] | None = None
     #: An arbitrary integer that can be used to force multiple jobscripts.
@@ -473,6 +488,31 @@ class ElementResources(JSONLike):
 
     @classmethod
     @TimeIt.decorator
+    def get_default_platform(cls) -> str:
+        """
+        Get the default value for platform.
+        """
+        PLAT_LOOKUP = {"win32": "win", "darwin": "macos"}
+        return PLAT_LOOKUP.get(sys.platform, sys.platform)
+
+    @classmethod
+    @TimeIt.decorator
+    def get_default_CPU_arch(cls) -> str:
+        """
+        Get the default value for the CPU architecture.
+        """
+        return platform.machine()
+
+    @classmethod
+    @TimeIt.decorator
+    def get_default_executable_extension(cls) -> str:
+        """
+        Get the default value for the executable extension.
+        """
+        return ".exe" if os.name == "nt" else ""
+
+    @classmethod
+    @TimeIt.decorator
     def get_default_scheduler(cls, os_name: str, shell_name: str) -> str:
         """
         Get the default value for scheduler.
@@ -493,6 +533,11 @@ class ElementResources(JSONLike):
             self.shell = self.get_default_shell()
         if self.scheduler is None:
             self.scheduler = self.get_default_scheduler(self.os_name, self.shell)
+
+        # this are not set by the user:
+        self.platform = self.get_default_platform()
+        self.CPU_arch = self.get_default_CPU_arch()
+        self.executable_extension = self.get_default_executable_extension()
 
         # merge defaults shell args from config:
         self.shell_args = {
@@ -1292,7 +1337,8 @@ class ElementIteration(AppAware):
                 resources.update((k, v) for k, v in scope_res.items() if v is not None)
 
         if set_defaults:
-            # used in e.g. `Rule.test` if testing resource rules on element iterations:
+            # used in e.g. `Rule.test` if testing resource rules on element iterations,
+            # also might have resource keys in script, program paths:
             ER = self._app.ElementResources
             resources.setdefault("os_name", ER.get_default_os_name())
             resources.setdefault("shell", ER.get_default_shell())
@@ -1300,6 +1346,11 @@ class ElementIteration(AppAware):
                 resources["scheduler"] = ER.get_default_scheduler(
                     resources["os_name"], resources["shell"]
                 )
+            resources.setdefault("platform", ER.get_default_platform())
+            resources.setdefault("CPU_arch", ER.get_default_CPU_arch())
+            resources.setdefault(
+                "executable_extension", ER.get_default_executable_extension()
+            )
 
         # unset inapplicable items:
         if "combine_scripts" in resources and not action.script_is_python_snippet:
