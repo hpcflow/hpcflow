@@ -260,8 +260,12 @@ class ElementResources(JSONLike):
 
     Note
     ----
-    It is common to leave most of these unspecified.
-    Many of them have complex interactions with each other.
+    This class is not typically instantiated by the user. It is instantiated when the
+    `ElementActionRun.resources` and `Jobscript.resources` attributes are accessed, and
+    when the `ElementIteration.get_resources_obj` method is called. It is common for most
+    of these attributes to be unspecified. Many of them have complex interactions with
+    each other.
+
 
     Parameters
     ----------
@@ -306,7 +310,7 @@ class ElementResources(JSONLike):
     executable_extension: str
         ".exe" on Windows, empty otherwise.
     environments: dict
-        Which execution environments to use.
+        Environment specifiers keyed by names.
     resources_id: int
         An arbitrary integer that can be used to force multiple jobscripts.
     skip_downstream_on_failure: bool
@@ -373,7 +377,7 @@ class ElementResources(JSONLike):
     #: Typical extension used to indicate an executable file; ".exe" on Windows, empty on
     #: all other platforms.
     executable_extension: str | None = None
-    #: Which execution environments to use.
+    #: Environment specifiers keyed by names.
     environments: dict[str, dict[str, Any]] | None = None
     #: An arbitrary integer that can be used to force multiple jobscripts.
     resources_id: int | None = None
@@ -1289,7 +1293,7 @@ class ElementIteration(AppAware):
         Parameters
         ----------
         set_defaults
-            If `True`, include machine-defaults for `os_name`, `shell` and `scheduler`.
+            If `True`, include machine defaults for `os_name`, `shell` and `scheduler`.
 
         """
 
