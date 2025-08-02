@@ -2189,7 +2189,7 @@ class Jobscript(JSONLike):
                             try:
                                 with run.raise_on_failure_threshold() as unset_params:
                                     app.logger.info(f"run_ID: {{run_ID}}; writing script input files.")
-                                    run.write_script_input_files(block_act_key)
+                                    run.write_script_data_in_files(block_act_key)
 
                                     app.logger.info(f"run_ID: {{run_ID}}; retrieving funcion kwargs.")
                                     func_kwargs = run.get_py_script_func_kwargs(

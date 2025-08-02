@@ -10,6 +10,7 @@ from textwrap import dedent
 from typing import Protocol, cast, overload, TYPE_CHECKING
 from typing_extensions import Final, override
 
+from hpcflow.sdk.core.types import ActionData
 from hpcflow.sdk.typing import PathLike, hydrate, ParamSource
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
@@ -293,10 +294,18 @@ class InputFileGenerator(JSONLike):
     inputs: list[Parameter]
     #: The script that generates the inputs.
     script: str | None = None
+    #: Information about data input to the script.
+    script_data_in: str | Mapping[str, str | ActionData] | None = None
+    #: Information about data output from the script.
+    script_data_out: str | Mapping[str, str | ActionData] | None = None
     #: The environment in which to run the generator.
     environment: Environment | None = None
     #: Whether to pass in the environment.
     script_pass_env_spec: bool = False
+    #: The builtin path to a template that generates the input file.
+    jinja_template: str | None = None
+    #: The external path to a template that generates the input file.
+    jinja_template_path: str | None = None
     #: Whether the generator can be stopped early.
     #: Quick-running scripts tend to not need this.
     abortable: bool = False

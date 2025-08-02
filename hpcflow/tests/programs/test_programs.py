@@ -88,6 +88,50 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
 
 
 @pytest.mark.integration
+def test_builtin_program_no_args_param_var(new_null_config, tmp_path):
+    # run a builtin program
+    env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
+    default_platform = hf.ElementResources.get_default_platform()
+    env = hf.Environment(
+        name="program_env",
+        executables=[
+            hf.Executable(
+                label="hello_world",
+                instances=[
+                    hf.ExecutableInstance(
+                        command=env_cmd,
+                        num_cores=1,
+                        parallel_mode=None,
+                    )
+                ],
+            )
+        ],
+    )
+    hf.envs.add_object(env, skip_duplicates=True)
+
+    act = hf.Action(
+        program="hello_world/<<parameter:platform>>/hello_world<<resource:executable_extension>>",
+        program_exe="hello_world",
+        environments=[hf.ActionEnvironment("program_env")],
+    )
+    s1 = hf.TaskSchema(
+        objective="hello",
+        actions=[act],
+        inputs=[hf.SchemaInput("platform")],
+    )
+    tasks = [hf.Task(s1, inputs={"platform": default_platform})]
+    wk = hf.Workflow.from_template_data(
+        template_name="test_program_no_args",
+        tasks=tasks,
+        path=tmp_path,
+    )
+    wk.submit(wait=True, status=False)
+    assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
+
+    hf.reload_template_components()  # remove extra env
+
+
+@pytest.mark.integration
 def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_path):
     # run a builtin program that expects input and output JSON file paths as a cmdline arguments
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"

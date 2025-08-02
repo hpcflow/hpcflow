@@ -5,7 +5,6 @@ import pytest
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_basic_jinja_template(null_config, tmp_path):
     jinja_template_name = "test_template.txt"
     s1 = hf.TaskSchema(

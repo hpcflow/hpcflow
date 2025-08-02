@@ -266,13 +266,13 @@ def test_get_snippet_script_path_False(null_config) -> None:
 def test_process_script_data_in_str(null_config) -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(objective="ts1", inputs=[hf.SchemaInput("p1")], actions=[act])
-    assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
+    assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
 def test_process_script_data_in_str_dict_equivalence(null_config) -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
-        script="<<script:path/to/some/script>>", script_data_in={"p1": "json"}
+        script="<<script:path/to/some/script>>", script_data_in={"inputs.p1": "json"}
     )
 
     ts_1 = hf.TaskSchema(objective="ts1", inputs=[hf.SchemaInput("p1")], actions=[act_1])
@@ -289,8 +289,8 @@ def test_process_script_data_in_str_multi(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1": {"format": "json"},
-        "p2": {"format": "json"},
+        "inputs.p1": {"format": "json"},
+        "inputs.p2": {"format": "json"},
     }
 
 
@@ -301,7 +301,7 @@ def test_process_script_data_in_str_labelled_single(null_config) -> None:
         inputs=[hf.SchemaInput("p1", labels={"one": {}})],
         actions=[act],
     )
-    assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
+    assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
 def test_process_script_data_in_str_labelled_multiple(null_config) -> None:
@@ -311,7 +311,7 @@ def test_process_script_data_in_str_labelled_multiple(null_config) -> None:
         inputs=[hf.SchemaInput("p1", labels={"one": {}}, multiple=True)],
         actions=[act],
     )
-    assert ts.actions[0].script_data_in == {"p1[one]": {"format": "json"}}
+    assert ts.actions[0].script_data_in == {"inputs.p1[one]": {"format": "json"}}
 
 
 def test_process_script_data_in_dict_all_str_equivalence(null_config) -> None:
@@ -357,8 +357,8 @@ def test_process_script_data_in_dict_mixed(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1": {"format": "json"},
-        "p2": {"format": "hdf5"},
+        "inputs.p1": {"format": "json"},
+        "inputs.p2": {"format": "hdf5"},
     }
 
 
@@ -377,9 +377,9 @@ def test_process_script_data_in_dict_mixed_all(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1": {"format": "json"},
-        "p2": {"format": "hdf5"},
-        "p3": {"format": "hdf5"},
+        "inputs.p1": {"format": "json"},
+        "inputs.p2": {"format": "hdf5"},
+        "inputs.p3": {"format": "hdf5"},
     }
 
 
@@ -395,7 +395,7 @@ def test_process_script_data_in_dict_labels_multiple(null_config) -> None:
         ],
         actions=[act],
     )
-    assert ts.actions[0].script_data_in == {"p1[one]": {"format": "json"}}
+    assert ts.actions[0].script_data_in == {"inputs.p1[one]": {"format": "json"}}
 
 
 def test_process_script_data_in_dict_labels_multiple_two(null_config) -> None:
@@ -411,8 +411,8 @@ def test_process_script_data_in_dict_labels_multiple_two(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "hdf5"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "hdf5"},
     }
 
 
@@ -429,8 +429,8 @@ def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config) 
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "hdf5"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "hdf5"},
     }
 
 
@@ -447,7 +447,7 @@ def test_process_script_data_in_dict_excluded(null_config) -> None:
         ],
         actions=[act],
     )
-    assert ts.actions[0].script_data_in == {"p1": {"format": "json"}}
+    assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
 def test_process_script_data_in_dict_unlabelled_to_labelled(null_config) -> None:
@@ -463,8 +463,8 @@ def test_process_script_data_in_dict_unlabelled_to_labelled(null_config) -> None
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "json"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "json"},
     }
 
 
@@ -483,8 +483,8 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "hdf5"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "hdf5"},
     }
 
 
@@ -501,8 +501,8 @@ def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config) -> No
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "hdf5"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "hdf5"},
     }
 
 
@@ -522,9 +522,9 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1[one]": {"format": "json"},
-        "p1[two]": {"format": "json"},
-        "p2": {"format": "hdf5"},
+        "inputs.p1[one]": {"format": "json"},
+        "inputs.p1[two]": {"format": "json"},
+        "inputs.p2": {"format": "hdf5"},
     }
 
 
@@ -595,8 +595,8 @@ def test_process_script_data_out_mixed(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_out == {
-        "p2": {"format": "json"},
-        "p3": {"format": "direct"},
+        "outputs.p2": {"format": "json"},
+        "outputs.p3": {"format": "direct"},
     }
 
 
@@ -611,9 +611,28 @@ def test_process_script_data_in_fmt_dict_mixed(null_config) -> None:
         actions=[act],
     )
     assert ts.actions[0].script_data_in == {
-        "p1": {"format": "json"},
-        "p2": {"format": "hdf5"},
+        "inputs.p1": {"format": "json"},
+        "inputs.p2": {"format": "hdf5"},
     }
+
+
+def test_process_script_data_in_input_files(null_config) -> None:
+    act = hf.Action(
+        input_file_generators=[
+            hf.InputFileGenerator(
+                input_file=hf.FileSpec("my_file", "my_file.txt"),
+                inputs=[hf.SchemaInput("p1")],
+            )
+        ],
+        script_data_in={"input_files.my_file": "direct"},
+    )
+    ts = hf.TaskSchema(
+        objective="ts1",
+        inputs=[hf.SchemaInput("p1")],
+        actions=[act],
+    )
+    assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "direct"}}
+    assert ts.actions[1].script_data_in == {"input_files.my_file": {"format": "direct"}}
 
 
 def test_ActionEnvironment_env_str(null_config) -> None:
