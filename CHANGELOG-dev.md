@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a237"></a>
+## [v0.2.0a237](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a236...v0.2.0a237) - 2025.08.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump Vampire/setup-wsl
+
+
 <a name="v0.2.0a236"></a>
 ## [v0.2.0a236](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a235...v0.2.0a236) - 2025.08.01
 
