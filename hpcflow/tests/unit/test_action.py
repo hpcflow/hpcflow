@@ -1042,3 +1042,15 @@ def test_from_json_like_envs_as_dict_equivalence(null_config):
         "environments": {"processing": "python_env", "main": "sim_env"},
     }
     assert hf.Action.from_json_like(json_like_1) == hf.Action.from_json_like(json_like_2)
+
+
+def test_get_input_types_jinja_template(null_config):
+    act = hf.Action(jinja_template="test/test_template.txt")
+    assert act.get_input_types() == ("fruits", "name")
+
+
+def test_is_input_type_required_jinja_template(null_config):
+    act = hf.Action(jinja_template="test/test_template.txt")
+    assert act.is_input_type_required("name", [])
+    assert act.is_input_type_required("fruits", [])
+    assert not act.is_input_type_required("vegetables", [])
