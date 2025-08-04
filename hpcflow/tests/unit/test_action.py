@@ -908,6 +908,39 @@ def test_get_commands_file_hash_distinct_cmd_rule_resources_path(null_config):
     assert h1 != h2
 
 
+def test_get_commands_file_hash_distinct_env_spec(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    data_idx = {"inputs.p1": 0}
+    h1 = act.get_commands_file_hash(
+        data_idx=data_idx,
+        action_idx=0,
+        env_spec_hashable=(("version", "name"), ("3.12", "python_env")),
+    )
+    h2 = act.get_commands_file_hash(
+        data_idx=data_idx,
+        action_idx=0,
+        env_spec_hashable=(("version", "name"), ("3.13", "python_env")),
+    )
+    assert h1 != h2
+
+
+def test_get_commands_file_hash_equivalent_env_spec(null_config):
+    act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
+    data_idx = {"inputs.p1": 0}
+    env_spec_hashable = (("version", "name"), ("3.12", "python_env"))
+    h1 = act.get_commands_file_hash(
+        data_idx=data_idx,
+        action_idx=0,
+        env_spec_hashable=env_spec_hashable,
+    )
+    h2 = act.get_commands_file_hash(
+        data_idx=data_idx,
+        action_idx=0,
+        env_spec_hashable=env_spec_hashable,
+    )
+    assert h1 == h2
+
+
 def test_get_script_input_output_file_paths_json_in_json_out(null_config):
     act = hf.Action(
         script="<<script:main_script_test_json_in_json_out.py>>",
@@ -994,3 +1027,18 @@ def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_confi
         "--inputs-hdf5",
         f"js_{js_idx}_block_{blk_idx}_act_{blk_act_idx}_inputs.h5",
     ]
+
+
+def test_from_json_like_envs_as_dict_equivalence(null_config):
+    json_like_1 = {
+        "commands": [{"command": "hello"}],
+        "environments": [
+            {"scope": "processing", "environment": "python_env"},
+            {"scope": "main", "environment": "sim_env"},
+        ],
+    }
+    json_like_2 = {
+        "commands": [{"command": "hello"}],
+        "environments": {"processing": "python_env", "main": "sim_env"},
+    }
+    assert hf.Action.from_json_like(json_like_1) == hf.Action.from_json_like(json_like_2)

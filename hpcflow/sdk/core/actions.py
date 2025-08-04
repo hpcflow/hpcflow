@@ -752,7 +752,8 @@ class ElementActionRun(AppAware):
     @TimeIt.decorator
     def env_spec(self) -> Mapping[str, Any]:
         """
-        Environment details.
+        Get the specification that defines the environment in which this run will execute.
+        This will include at least a `name` key.
         """
         if (envs := self.resources.environments) is None:
             return {}
@@ -801,15 +802,21 @@ class ElementActionRun(AppAware):
 
     def get_environment_spec(self) -> Mapping[str, Any]:
         """
-        What environment to run in?
+        Get the specification that defines the environment in which this run will execute.
+        This will include at least a `name` key.
+
+        Notes
+        -----
+        This is an alias for the `env_spec` property.
+
         """
-        return self.action.get_environment_spec()
+        return self.env_spec
 
     def get_environment(self) -> Environment:
         """
-        What environment to run in?
+        Get the environment in which this run will execute.
         """
-        return self.action.get_environment()
+        return self._app.envs.get(**self.get_environment_spec())
 
     def get_all_previous_iteration_runs(
         self, include_self: bool = True
@@ -952,19 +959,22 @@ class ElementActionRun(AppAware):
 
         return inputs
 
-    def get_OFP_output_files(self) -> Mapping[str, Path]:
+    def get_OFP_output_files(self) -> Mapping[str, Path | list[Path]]:
         """
         Get a dict of output files that are going to be parsed to generate one or more
         outputs.
         """
-        # TODO: can this return multiple files for a given FileSpec?
         if not self.action._from_expand:
             raise RuntimeError(
                 "Cannot get output file parser files from this from EAR because the "
                 "associated action is not expanded, meaning multiple OFPs might exist."
             )
         return {
-            file_spec.label: Path(cast("str", file_spec.name.value()))
+            file_spec.label: (
+                [Path(val_i) for val_i in fs_val]
+                if isinstance((fs_val := file_spec.name.value()), list)
+                else Path(fs_val)
+            )
             for file_spec in self.action.output_file_parsers[0].output_files
         }
 
@@ -1249,6 +1259,7 @@ class ElementActionRun(AppAware):
 
         return ("\n".join(command_lns) + "\n"), shell_vars
 
+    @TimeIt.decorator
     def get_commands_file_hash(self) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
@@ -1259,6 +1270,7 @@ class ElementActionRun(AppAware):
         return self.action.get_commands_file_hash(
             data_idx=self.get_data_idx(),
             action_idx=self.element_action.action_idx,
+            env_spec_hashable=self.env_spec_hashable,
         )
 
     @overload
@@ -2010,6 +2022,8 @@ class Action(JSONLike):
             name="environments",
             class_name="ActionEnvironment",
             is_multiple=True,
+            dict_key_attr="scope",
+            dict_val_attr="environment",
         ),
         ChildObjectSpec(
             name="rules",
@@ -2609,25 +2623,31 @@ class Action(JSONLike):
 
     def get_environment_name(self) -> str:
         """
-        Get the name of the primary environment.
+        Get the name of the environment associated with this action.
         """
         return self.get_environment_spec()["name"]
 
     def get_environment_spec(self) -> Mapping[str, Any]:
         """
-        Get the specification for the primary environment, assuming it has been expanded.
+        Get the specification for the environment of this action, assuming it has been
+        expanded.
         """
         if not self._from_expand:
             raise RuntimeError(
                 "Cannot choose a single environment from this action because it is not "
                 "expanded, meaning multiple action environments might exist."
             )
+        assert len(self.environments) == 1  # expanded action should have only one
         return self.environments[0].environment
 
     def get_environment(self) -> Environment:
         """
-        Get the primary environment.
+        Get the environment in which this action will run (assuming only one environment
+        of the specified name exists).
         """
+        # note: this will raise if there are multiple environments defined with the
+        # required name. In a workflow, the user is expected to provide specifier
+        # key-values to filter the available environments down to one.
         return self._app.envs.get(**self.get_environment_spec())
 
     @staticmethod
@@ -3469,7 +3489,7 @@ class Action(JSONLike):
                     raise_on_unset=False,
                     add_script_files=True,
                     blk_act_key=blk_act_key,
-                )            
+                )
         """
         ).format(app_caps=app_caps)
 
@@ -3578,13 +3598,18 @@ class Action(JSONLike):
     def get_prefixed_data_names_flat(self) -> list[str]:
         return list(chain.from_iterable(self.get_prefixed_data_names().values()))
 
-    def get_commands_file_hash(self, data_idx: DataIndex, action_idx: int) -> int:
+    def get_commands_file_hash(
+        self, data_idx: DataIndex, action_idx: int, env_spec_hashable: tuple = ()
+    ) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
 
         This hash is not stable across sessions or machines.
 
         """
+        # TODO: support <<resource:RESOURCE_NAME>> in commands, and reflect that here
+        # TODO: support <<parameter:PARAMETER_NAME>> and <<resource:RESOURCE_NAME>> in
+        # environment setup and executable commands, and reflect that here
 
         # filter data index by input parameters that appear in the commands, or are used in
         # rules in conditional commands:
@@ -3638,6 +3663,7 @@ class Action(JSONLike):
                 schema_name,
                 action_idx,
                 relevant_data_idx,
+                env_spec_hashable,
             )
         )
 

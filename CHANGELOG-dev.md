@@ -1,4 +1,97 @@
 
+<a name="v0.2.0a236"></a>
+## [v0.2.0a236](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a235...v0.2.0a236) - 2025.08.01
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a235"></a>
+## [v0.2.0a235](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a234...v0.2.0a235) - 2025.08.01
+
+### ♻ Code Refactoring
+
+* small updates
+
+### ✨ Features
+
+* lets try a C program instead
+* support env specifiers in program paths
+* support `Action.program(_path)` attribute for running a built-in or external executable
+
+### 🐛 Bug Fixes
+
+* use same step to test for all
+* try to fix permission error
+* permissions?
+* use intel macos runner for now, and run linux build on RockyLinux image
+* a program test for real
+* a program test
+* update executable bit for macos/linux test programs
+* cannot use nested f-strings yet
+* program test for linux/macos
+* add compiled hello world test programs
+* only upload executables
+* Windows upload
+* Windows upload
+* remove gcc install, might already be there
+* upload artifacts
+* variables
+* add missing `environments` arg to `Workflow.from_template_data`
+* typing
+* inconsistency in run IDs array datatype that led to show failure
+* typing
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* merge branch 'develop' into feat/programs
+* update test programs
+* use same test program for two tests
+* fix dir generate_test_programs again
+* fix dir generate_test_programs
+* fix working dir in generate_test_programs
+* update generate_test_programs
+* merge in develop
+* fixes to `generate_test_programs`
+* add macos to `generate_test_programs`
+
+
+<a name="v0.2.0a234"></a>
+## [v0.2.0a234](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a233...v0.2.0a234) - 2025.07.31
+
+### ♻ Code Refactoring
+
+* update builtin task schema action environments to more compact format
+* tests of `Command.get_command_line` to use a utility func
+
+### ✨ Features
+
+* more compact action-environment spec
+
+### 🐛 Bug Fixes
+
+* tests
+* commands file hash now includes environment specification
+* when an OFP uses multiple files matching a regex pattern
+* typing
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* merge branch 'develop' into fix/commands-file-hash
+
+
+<a name="v0.2.0a233"></a>
+## [v0.2.0a233](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a232...v0.2.0a233) - 2025.07.31
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump rich in the pip-dependencies group
+
+
 <a name="v0.2.0a232"></a>
 ## [v0.2.0a232](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a231...v0.2.0a232) - 2025.07.22
 
