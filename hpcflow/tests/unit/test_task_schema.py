@@ -156,3 +156,27 @@ def test_env_preset_raise_bad_env_no_actions() -> None:
             "t1",
             environment_presets={"my_preset": {"env1": {"version": 1}}},
         )
+
+
+def test_validate_schema_input_not_in_jinja_template() -> None:
+    # raise on input not in template
+    with pytest.raises(ValueError):
+        hf.TaskSchema(
+            objective="t1",
+            inputs=[
+                hf.SchemaInput(parameter=hf.Parameter("name")),
+                hf.SchemaInput(parameter=hf.Parameter("fruits")),
+                hf.SchemaInput(parameter=hf.Parameter("vegetables")),  # not in template
+            ],
+            actions=[hf.Action(jinja_template="test/test_template.txt")],
+        )
+
+
+def test_validate_jinja_template_input_not_in_schema() -> None:
+    # raise on inputs from template not in schema
+    with pytest.raises(ValueError):
+        hf.TaskSchema(
+            objective="t1",
+            inputs=[hf.SchemaInput(parameter=hf.Parameter("name"))],  # missing fruits
+            actions=[hf.Action(jinja_template="test/test_template.txt")],
+        )
