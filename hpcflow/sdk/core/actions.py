@@ -3797,7 +3797,9 @@ class Action(JSONLike):
             The actual path to the Jinja template file.
         """
         jinja_env = cls._get_jinja_env_obj(path)
-        source = jinja_env.loader.get_source(jinja_env, path.name)[0]
+        loader = jinja_env.loader
+        assert loader
+        source = loader.get_source(jinja_env, path.name)[0]
         parsed = jinja_env.parse(source)
         return jinja_meta.find_undeclared_variables(parsed)
 
@@ -3819,9 +3821,7 @@ class Action(JSONLike):
             for inp in self._get_jinja_template_inputs(path)
         )
 
-    def render_jinja_template(
-        self, input_vals: Mapping[str, Any], path: Path | None = None
-    ) -> str:
+    def render_jinja_template(self, input_vals: Mapping[str, Any], path: Path) -> str:
         """
         Render the Jinja template associated with this action, if there is one.
 

@@ -131,6 +131,8 @@ class TemplateComponents(TypedDict):
     scripts: NotRequired[dict[str, Path]]
     #: Programs discovered by templates.
     programs: NotRequired[dict[str, Path]]
+    #: Jinja templates discovered by templates.
+    jinja_templates: NotRequired[dict[str, Path]]
 
 
 class MakeWorkflowCommonArgs(TypedDict):
