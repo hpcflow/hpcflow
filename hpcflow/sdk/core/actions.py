@@ -505,11 +505,7 @@ class ElementActionRun(AppAware):
         """
         if template_or_path := self.action.jinja_template_or_template_path:
             template_path_str = self.__substitute_vars_in_paths(template_or_path)
-            return (
-                self._app.jinja_templates[template_path_str]
-                if self.action.jinja_template
-                else Path(template_path_str)
-            )
+            return self.action.get_jinja_template_resolved_path(template_path_str)
         return None
 
     def get_parameter_names(self, prefix: str) -> Sequence[str]:
@@ -1381,10 +1377,12 @@ class ElementActionRun(AppAware):
         if not self.action.has_jinja_template:
             raise ValueError("This action is not associated with a Jinja template.")
         inputs = self.action.get_jinja_template_inputs(
-            include_prefix=True, path=self.jinja_template_path_actual
+            path=self.jinja_template_path_actual,
+            include_prefix=True,
         )
+        assert inputs
         return self.action.render_jinja_template(
-            self.get_data_in_values(inputs, include_prefix=False),
+            self.get_data_in_values(tuple(inputs), include_prefix=False),
             path=self.jinja_template_path_actual,
         )
 
@@ -3122,6 +3120,23 @@ class Action(JSONLike):
             and not self.output_file_parsers
         ) or self.has_program
 
+    def _get_jinja_template_input_types(self) -> set[str]:
+        try:
+            path = self.get_jinja_template_resolved_path()
+        except ValueError:
+            # TODO: also include here any inputs that appear as variable substitutions
+            # in the path?
+            # path might have as yet unsubstituted variables:
+            if ifgs := self.input_file_generators:
+                # can use inputs of IFP:
+                return set(inp.typ for inp in ifgs[0].inputs)
+            else:
+                # TODO: could use script_data_in, but should be template->data in:
+                # for now assume all schema input types
+                return set(self.task_schema.input_types)
+        else:
+            return self.get_jinja_template_inputs(path, include_prefix=False)
+
     def get_input_types(self, sub_parameters: bool = False) -> tuple[str, ...]:
         """Get the input types that are consumed by commands and input file generators of
         this action.
@@ -3145,18 +3160,7 @@ class Action(JSONLike):
                 params.update(ofp.inputs or ())
 
         if self.jinja_template:
-            try:
-                params.update(self.get_jinja_template_inputs(include_prefix=False))
-            except ValueError:
-                # TODO: also include here any inputs that appear as variable substitutions
-                # in the path?
-                # path might have as yet unsubstituted variables:
-                if ifgs := self.input_file_generators:
-                    # can use inputs of IFP:
-                    params.update(inp.typ for inp in ifgs[0].inputs)
-                else:
-                    # TODO: could use script_data_in, but should be template->data in:
-                    raise NotImplementedError()
+            params.update(self._get_jinja_template_input_types())
 
         return tuple(params)
 
@@ -3373,10 +3377,9 @@ class Action(JSONLike):
                 return True
 
         # typ is required if it is in the set of Jinja template undeclared variables
-        if self.jinja_template and typ in self.get_jinja_template_inputs(
-            include_prefix=False
-        ):
-            return True
+        if self.jinja_template:
+            if typ in self._get_jinja_template_input_types():
+                return True
 
         # typ is required if used in any output file parser
         return any(typ in (ofp.inputs or ()) for ofp in self.output_file_parsers)
@@ -3724,79 +3727,83 @@ class Action(JSONLike):
 
         return args
 
-    @classmethod
-    def _get_jinja_template_path(cls, path: str) -> Path:
+    def get_jinja_template_resolved_path(self, path: str | None = None) -> Path:
         """
-        Normalise the provided `path` to an actual file system path.
-
-        `path` is initially assumed to be a relative path within the built-in jinja
-        templates directory. If no file exists at that location, `path` is assumed to be
-        an absolute file path.
-        """
-        if not (real_path := Path(cls._app.jinja_templates.get(path, path))).is_file():
-            raise ValueError(f"Cannot find a Jinja template at path: {path!r}.")
-        return real_path
-
-    @classmethod
-    def _get_jinja_env_obj(cls, path: str) -> JinjaEnvironment:
-        """
-        Retrieve a Jinja Environment object from the specified path.
-
-        `path` is initially assumed to be a relative path within the built-in jinja
-        templates directory. If no file exists at that location, `path` is assumed to be
-        an absolute file path.
-        """
-        real_path = cls._get_jinja_template_path(path)
-        return JinjaEnvironment(loader=JinjaFileSystemLoader(real_path.parent))
-
-    @classmethod
-    def _get_jinja_template_obj(cls, path: str) -> JinjaTemplate:
-        """
-        Retrieve a Jinja Template object from the specified path.
-
-        `path` is initially assumed to be a relative path within the built-in jinja
-        templates directory. If no file exists at that location, `path` is assumed to be
-        an absolute file path.
-        """
-        return cls._get_jinja_env_obj(path).get_template(Path(path).name)
-
-    @classmethod
-    def _get_jinja_template_inputs(cls, path: str) -> set[str]:
-        """
-        Get the set of undeclared inputs in the specified Jinja template path, which can
-        be used for validation of the jinja template with respect to the associated task
-        schema.
-
-        `path` is initially assumed to be a relative path within the built-in jinja
-        templates directory. If no file exists at that location, `path` is assumed to be
-        an absolute file path.
-        """
-
-        template_name = Path(path).name
-        jinja_env = cls._get_jinja_env_obj(path)
-        source = jinja_env.loader.get_source(jinja_env, template_name)[0]
-        parsed = jinja_env.parse(source)
-
-        return jinja_meta.find_undeclared_variables(parsed)
-
-    def get_jinja_template_obj(self, path: Path | None = None) -> JinjaTemplate | None:
-        """
-        Retrieve the Jinja Template object for this action, if it is associated with
-        one.
+        Return the file system path to the associated Jinja template if there is one.
 
         Parameters
         ----------
         path
-            The path might include variable substitutions, in which case the actual path
-            with all substitutions can be provided by this argument.
+            The path might include variable substitutions, in which case the builtin or
+            external path with all substitutions can be provided by this argument.
+
+        Notes
+        -----
+        In the case where there are no variable substitutions in the (builtin key or
+        external) path to the Jinja template file, this method will resolve the real file
+        system path correctly without needing the `path` argument. However, if there are
+        variable substitutions, then the substituted version of the (builtin key or
+        external) path must be provided via the `path` argument.
+
         """
-        path = path or self.jinja_template_or_template_path
-        if self.jinja_template:
-            return self._get_jinja_template_obj(path)
+        if path := path or self.jinja_template_or_template_path:
+            try:
+                resolved = (
+                    self._app.jinja_templates[path] if self.jinja_template else Path(path)
+                )
+                assert resolved.is_file()
+                return resolved
+            except (KeyError, AssertionError):
+                via_msg = "a builtin path" if self.jinja_template else "an external path"
+                raise ValueError(
+                    f"Jinja template specified at via {via_msg} ({path!r}) is not a file."
+                )
+        else:
+            raise ValueError("No associated Jinja template.")
+
+    @staticmethod
+    def _get_jinja_env_obj(path: Path) -> JinjaEnvironment:
+        """
+        Load the Jinja environment object using a file system loader for the parent
+        directory of the specified path.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        return JinjaEnvironment(loader=JinjaFileSystemLoader(path.parent))
+
+    @classmethod
+    def _get_jinja_template_obj(cls, path: Path) -> JinjaTemplate:
+        """
+        Load the Jinja template object for the specified Jinja template.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        return cls._get_jinja_env_obj(path).get_template(path.name)
+
+    @classmethod
+    def _get_jinja_template_inputs(cls, path: Path) -> set[str]:
+        """
+        Retrieve the set of undeclared inputs in the specified Jinja template.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        jinja_env = cls._get_jinja_env_obj(path)
+        source = jinja_env.loader.get_source(jinja_env, path.name)[0]
+        parsed = jinja_env.parse(source)
+        return jinja_meta.find_undeclared_variables(parsed)
 
     def get_jinja_template_inputs(
-        self, include_prefix: bool = False, path: Path | None = None
-    ) -> set[str] | None:
+        self, path: Path, include_prefix: bool = False
+    ) -> set[str]:
         """
         Retrieve the set of undeclared inputs in Jinja template associated with this
         action, if there is one.
@@ -3804,15 +3811,13 @@ class Action(JSONLike):
         Parameters
         ----------
         path
-            The path might include variable substitutions, in which case the actual path
-            with all substitutions can be provided by this argument.
-
+            The actual path to the Jinja template file.
         """
-        if path := path or self.jinja_template_or_template_path:
-            return set(
-                f"inputs.{inp}" if include_prefix else inp
-                for inp in self._get_jinja_template_inputs(path)
-            )
+
+        return set(
+            f"inputs.{inp}" if include_prefix else inp
+            for inp in self._get_jinja_template_inputs(path)
+        )
 
     def render_jinja_template(
         self, input_vals: Mapping[str, Any], path: Path | None = None
@@ -3823,8 +3828,6 @@ class Action(JSONLike):
         Parameters
         ----------
         path
-            The path might include variable substitutions, in which case the actual path
-            with all substitutions can be provided by this argument.
-
+            The actual path to the Jinja template file.
         """
-        return self.get_jinja_template_obj(path).render(**input_vals)
+        return self._get_jinja_template_obj(path).render(**input_vals)

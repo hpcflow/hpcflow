@@ -621,7 +621,7 @@ def test_process_script_data_in_input_files(null_config) -> None:
         input_file_generators=[
             hf.InputFileGenerator(
                 input_file=hf.FileSpec("my_file", "my_file.txt"),
-                inputs=[hf.SchemaInput("p1")],
+                inputs=[hf.Parameter("p1")],
             )
         ],
         script_data_in={"input_files.my_file": "direct"},
