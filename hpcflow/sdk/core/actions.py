@@ -3134,11 +3134,15 @@ class Action(JSONLike):
 
     @property
     def has_main_script_or_program(self) -> bool:
-        return (
+        return self.has_program or (
             self.script
-            and not self.input_file_generators
-            and not self.output_file_parsers
-        ) or self.has_program
+            if not self._from_expand
+            else (
+                self.script
+                and not self.input_file_generators
+                and not self.output_file_parsers
+            )
+        )
 
     def _get_jinja_template_input_types(self) -> set[str]:
         try:
