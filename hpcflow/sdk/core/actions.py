@@ -3135,7 +3135,7 @@ class Action(JSONLike):
     @property
     def has_main_script_or_program(self) -> bool:
         return self.has_program or (
-            self.script
+            bool(self.script)
             if not self._from_expand
             else (
                 self.script
