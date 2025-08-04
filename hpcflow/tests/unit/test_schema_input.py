@@ -363,7 +363,7 @@ def test_get_input_values_all_iterations(null_config, tmp_path: Path):
     )
     wk.submit(wait=True, add_to_known=False)
     run = wk.tasks[0].elements[0].iterations[-1].actions[0].runs[-1]
-    assert run.get_data_in_values({"p1": {"all_iterations": True}}) == {
+    assert run.get_data_in_values({"inputs.p1": {"all_iterations": True}}) == {
         "p1": {
             "iteration_0": {"loop_idx": {"loop_0": 0}, "value": 101},
             "iteration_1": {"loop_idx": {"loop_0": 1}, "value": 102},
