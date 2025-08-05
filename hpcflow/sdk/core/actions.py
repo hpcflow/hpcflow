@@ -3134,11 +3134,12 @@ class Action(JSONLike):
 
     @property
     def has_main_script_or_program(self) -> bool:
-        return self.has_program or (
-            bool(self.script)
-            if not self._from_expand
-            else (
+        return bool(
+            self.has_program
+            or (
                 self.script
+                if not self._from_expand
+                else self.script
                 and not self.input_file_generators
                 and not self.output_file_parsers
             )
