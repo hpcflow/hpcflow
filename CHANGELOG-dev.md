@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a240"></a>
+## [v0.2.0a240](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a239...v0.2.0a240) - 2025.08.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the github-actions-dependencies group with 2 updates
+
+
 <a name="v0.2.0a239"></a>
 ## [v0.2.0a239](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a238...v0.2.0a239) - 2025.08.12
 
