@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: Vampire/setup-wsl@v6 # install a WSL distribution
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref }}
       - uses: actions/setup-python@v5
