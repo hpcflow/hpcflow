@@ -29,7 +29,7 @@ jobs:
         uses: hpcflow/github-support/configure-git@main
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION_MAKE_PRs }}
 
