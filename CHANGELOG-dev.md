@@ -1,4 +1,41 @@
 
+<a name="v0.2.0a245"></a>
+## [v0.2.0a245](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a244...v0.2.0a245) - 2025.09.21
+
+### ♻ Code Refactoring
+
+* some jinja stuff
+
+### ✨ Features
+
+* support external jinja templates
+* initial support for Jinja templates
+
+### 🐛 Bug Fixes
+
+* typing for real
+* typing
+* has_main_script_or_program for non-expanded
+* test
+* test
+* typing
+* jinja template rendering, exit codes
+* another Click fix
+* get-invoc-cmd due to Click change in 8.2.0
+* add jinja dep
+
+### 👷 Build changes
+
+* lock
+* merge in develop
+* add some more time-its
+* update binary download links file [skip ci]
+* merge branch 'feat/templates' of https://github.com/hpcflow/hpcflow-new into feat/templates
+* merge in feat/programs, which is ready for review in [#857](https://github.com/hpcflow/hpcflow-new/issues/857)
+* merge branch 'develop' into feat/templates
+* merge branch 'develop' into feat/templates
+
+
 <a name="v0.2.0a244"></a>
 ## [v0.2.0a244](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a243...v0.2.0a244) - 2025.09.21
 
