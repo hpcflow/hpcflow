@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a244"></a>
+## [v0.2.0a244](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a243...v0.2.0a244) - 2025.09.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump actions/setup-python
+
+
 <a name="v0.2.0a243"></a>
 ## [v0.2.0a243](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a242...v0.2.0a243) - 2025.09.21
 
