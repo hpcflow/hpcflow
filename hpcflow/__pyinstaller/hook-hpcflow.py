@@ -9,6 +9,7 @@ hiddenimports = [
     "hpcflow.sdk.data",
     "hpcflow.data.demo_data_manifest",
     "hpcflow.data.scripts",
+    "hpcflow.data.jinja_templates",
     "hpcflow.data.template_components",
     "hpcflow.data.workflows",
     "hpcflow.tests.data",
@@ -24,6 +25,11 @@ datas = (
     + collect_data_files("hpcflow.data.demo_data_manifest")
     + collect_data_files(
         "hpcflow.data.scripts", include_py_files=True, excludes=("**/__pycache__",)
+    )
+    + collect_data_files(
+        "hpcflow.data.jinja_templates",
+        include_py_files=True,
+        excludes=("**/__pycache__",),
     )
     + collect_data_files("hpcflow.data.template_components")
     + collect_data_files("hpcflow.data.workflows")
