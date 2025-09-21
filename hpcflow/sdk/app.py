@@ -454,6 +454,8 @@ class BaseApp(metaclass=Singleton):
         Configuration options.
     scripts_dir:
         Directory for scripts.
+    jinja_templates_dir:
+        Directory for Jinja templates.
     programs_dir
         Directory for programs.
     workflows_dir:
@@ -493,6 +495,7 @@ class BaseApp(metaclass=Singleton):
         gh_repo: str,
         config_options: ConfigOptions,
         scripts_dir: str,
+        jinja_templates_dir: str | None = None,
         programs_dir: str | None = None,
         workflows_dir: str | None = None,
         demo_data_dir: str | None = None,
@@ -525,6 +528,8 @@ class BaseApp(metaclass=Singleton):
         self.pytest_args = pytest_args
         #: Directory for scripts.
         self.scripts_dir = scripts_dir
+        #: Directory for Jinja templates.
+        self.jinja_templates_dir = jinja_templates_dir
         #: Directory for programs.
         self.programs_dir = programs_dir
         #: Directory for workflows.
@@ -565,6 +570,7 @@ class BaseApp(metaclass=Singleton):
         self._environments: _EnvironmentsList | None = None
         self._task_schemas: _TaskSchemasList | None = None
         self._scripts: dict[str, Path] | None = None
+        self._jinja_templates: dict[str, Path] | None = None
         self._programs: dict[str, Path] | None = None
 
         self.__app_type_cache: dict[str, type] = {}
@@ -1729,6 +1735,7 @@ class BaseApp(metaclass=Singleton):
                 "environments",
                 "task_schemas",
                 "scripts",
+                "jinja_templates",
                 "programs",
             )
 
@@ -1783,6 +1790,11 @@ class BaseApp(metaclass=Singleton):
             scripts = self._load_scripts()
             self._template_components["scripts"] = scripts
             self._scripts = scripts
+
+        if "jinja_templates" in include:
+            jinja_templates = self._load_jinja_templates()
+            self._template_components["jinja_templates"] = jinja_templates
+            self._jinja_templates = jinja_templates
 
         if "programs" in include:
             programs = self._load_programs()
@@ -1846,6 +1858,15 @@ class BaseApp(metaclass=Singleton):
         self._ensure_template_component("scripts")
         assert self._scripts is not None
         return self._scripts
+
+    @property
+    def jinja_templates(self) -> dict[str, Path]:
+        """
+        The known Jinja template files.
+        """
+        self._ensure_template_component("jinja_templates")
+        assert self._jinja_templates is not None
+        return self._jinja_templates
 
     @property
     def programs(self) -> dict[str, Path]:
@@ -2289,6 +2310,13 @@ class BaseApp(metaclass=Singleton):
         Discover where the built-in scripts are.
         """
         return self.__load_builtin_files_from_nested_package(self.scripts_dir)
+
+    @TimeIt.decorator
+    def _load_jinja_templates(self) -> dict[str, Path]:
+        """
+        Discover where the built-in Jinja templates are.
+        """
+        return self.__load_builtin_files_from_nested_package(self.jinja_templates_dir)
 
     @TimeIt.decorator
     def _load_programs(self) -> dict[str, Path]:

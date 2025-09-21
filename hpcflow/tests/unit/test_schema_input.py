@@ -177,7 +177,7 @@ def test_get_input_values_for_multiple_schema_input_single_label(
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values() == {"p2": 201, "p1": 101}
+    assert run.get_data_in_values() == {"p2": 201, "p1": 101}
 
 
 def test_get_input_values_subset(null_config, tmp_path: Path):
@@ -202,7 +202,7 @@ def test_get_input_values_subset(null_config, tmp_path: Path):
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values(inputs=("p1",)) == {"p1": 101}
+    assert run.get_data_in_values(data_in_keys=("inputs.p1",)) == {"p1": 101}
 
 
 def test_get_input_values_subset_labelled_label_dict_False(null_config, tmp_path: Path):
@@ -236,7 +236,9 @@ def test_get_input_values_subset_labelled_label_dict_False(null_config, tmp_path
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values(inputs=("p1[one]",), label_dict=False) == {"p1[one]": 101}
+    assert run.get_data_in_values(data_in_keys=("inputs.p1[one]",), label_dict=False) == {
+        "p1[one]": 101
+    }
 
 
 def test_get_input_values_subset_labelled_label_dict_True(null_config, tmp_path: Path):
@@ -270,7 +272,7 @@ def test_get_input_values_subset_labelled_label_dict_True(null_config, tmp_path:
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values(inputs=("p1[one]",), label_dict=True) == {
+    assert run.get_data_in_values(data_in_keys=("inputs.p1[one]",), label_dict=True) == {
         "p1": {"one": 101}
     }
 
@@ -300,7 +302,7 @@ def test_get_input_values_for_multiple_schema_input(null_config, tmp_path: Path)
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values() == {"p2": 201, "p1": {label: 101}}
+    assert run.get_data_in_values() == {"p2": 201, "p1": {label: 101}}
 
 
 def test_get_input_values_for_multiple_schema_input_with_object(
@@ -332,7 +334,7 @@ def test_get_input_values_for_multiple_schema_input_with_object(
         template_name="temp",
     )
     run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
-    assert run.get_input_values() == {"p2": 201, "p1c": {label: p1_val}}
+    assert run.get_data_in_values() == {"p2": 201, "p1c": {label: p1_val}}
 
 
 @pytest.mark.integration
@@ -361,7 +363,7 @@ def test_get_input_values_all_iterations(null_config, tmp_path: Path):
     )
     wk.submit(wait=True, add_to_known=False)
     run = wk.tasks[0].elements[0].iterations[-1].actions[0].runs[-1]
-    assert run.get_input_values({"p1": {"all_iterations": True}}) == {
+    assert run.get_data_in_values({"inputs.p1": {"all_iterations": True}}) == {
         "p1": {
             "iteration_0": {"loop_idx": {"loop_0": 0}, "value": 101},
             "iteration_1": {"loop_idx": {"loop_0": 1}, "value": 102},

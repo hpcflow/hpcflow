@@ -2365,6 +2365,7 @@ class Workflow(AppAware):
             return next(iter(self._store.check_parameters_exist((id_lst,))))
         return all(self._store.check_parameters_exist(id_lst))
 
+    @TimeIt.decorator
     def _add_unset_parameter_data(self, source: ParamSource) -> int:
         # TODO: use this for unset files as well
         return self._store.add_unset_parameter(source)
@@ -3964,9 +3965,9 @@ class Workflow(AppAware):
                     try:
                         with run.raise_on_failure_threshold() as unset_params:
                             if run.action.script:
-                                run.write_script_input_files(block_act_key)
+                                run.write_script_data_in_files(block_act_key)
                             if run.action.has_program:
-                                run.write_program_input_files(block_act_key)
+                                run.write_program_data_in_files(block_act_key)
 
                             # write the command file that will be executed:
                             cmd_file_path = self.ensure_commands_file(
@@ -4000,6 +4001,10 @@ class Workflow(AppAware):
                         )
 
                     # TODO: pass on unset_params to script as environment variable
+
+                    if run.action.jinja_template_or_template_path:
+                        # TODO: write Jinja templates in shared submissions directory
+                        run.write_jinja_template()
 
                     if has_commands := bool(cmd_file_path):
 
@@ -4098,8 +4103,10 @@ class Workflow(AppAware):
         with redirect_std_to_file(run_std_path):
             if run.skip:
                 ret_code = SKIPPED_EXIT_CODE
-            elif not has_commands:
+            elif not (has_commands or run.action.jinja_template):
                 ret_code = NO_COMMANDS_EXIT_CODE
+            elif run.action.jinja_template:
+                ret_code = 0
             else:
                 self._check_loop_termination(run)
 

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import warnings
 from functools import partial
+from itertools import chain
 from textwrap import indent, dedent
 from typing import cast, final, overload, TYPE_CHECKING
 from typing_extensions import override
@@ -51,6 +52,13 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
+
+from jinja2 import (
+    Environment as JinjaEnvironment,
+    FileSystemLoader as JinjaFileSystemLoader,
+    Template as JinjaTemplate,
+    meta as jinja_meta,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Container, Iterable, Iterator, Sequence
@@ -435,43 +443,69 @@ class ElementActionRun(AppAware):
     __ENV_RE: ClassVar[Pattern] = re.compile(
         r"\<\<env:(.*?)\>\>"
     )  # TODO: refactor; also in `Action`
+    __PARAM_RE: ClassVar[Pattern] = re.compile(r"\<\<parameter:(\w+)\>\>")
+
+    def __substitute_vars_in_paths(self, path: str) -> str:
+        """Substitute resources, environment specifiers, and parameter values in string
+        paths."""
+
+        def resource_repl(match_obj: re.Match[str], resources: ElementResources) -> str:
+            return getattr(resources, match_obj.groups()[0])
+
+        def env_repl(
+            match_obj: re.Match[str],
+            env_spec: Mapping[str, Any],
+        ) -> str:
+            return env_spec[match_obj.groups()[0]]
+
+        def param_repl(
+            match_obj: re.Match[str],
+            run: ElementActionRun,
+        ) -> str:
+            param = match_obj.groups()[0]
+            key = f"outputs.{param}"
+            key = key if key in run.get_data_idx() else f"inputs.{param}"
+            return str(run.get(key))
+
+        # substitute resources in the path:
+        path = self.__RES_RE.sub(
+            repl=partial(resource_repl, resources=self.resources_with_defaults),
+            string=path,
+        )
+        # substitute environment specifiers in the path:
+        path = self.__ENV_RE.sub(
+            repl=partial(env_repl, env_spec=self.env_spec),
+            string=path,
+        )
+        # substitute parameter values in the path:
+        return self.__PARAM_RE.sub(
+            repl=partial(param_repl, run=self),
+            string=path,
+        )
 
     @property
     def program_path_actual(self) -> Path | None:
         """Get the path to the associated action program, if the action includes a program
         specification, with variable substitutions applied."""
 
-        # TODO: consider parameter substitution: <<parameter:PARAMETER_NAME>>
-
         if prog_or_path := self.action.program_or_program_path:
-
-            def resource_repl(
-                match_obj: re.Match[str], resources: ElementResources
-            ) -> str:
-                return getattr(resources, match_obj.groups()[0])
-
-            def env_repl(
-                match_obj: re.Match[str],
-                env_spec: Mapping[str, Any],
-            ) -> str:
-                return env_spec[match_obj.groups()[0]]
-
-            # substitute resources in program path:
-            prog_path_str = self.__RES_RE.sub(
-                repl=partial(resource_repl, resources=self.resources_with_defaults),
-                string=prog_or_path,
-            )
-            # substitute environment specifiers in program path:
-            prog_path_str = self.__ENV_RE.sub(
-                repl=partial(env_repl, env_spec=self.env_spec),
-                string=prog_path_str,
-            )
+            prog_path_str = self.__substitute_vars_in_paths(prog_or_path)
             return (
                 self._app.programs[prog_path_str]
                 if self.action.program
                 else Path(prog_path_str)
             )
+        return None
 
+    @property
+    def jinja_template_path_actual(self):
+        """
+        Get the path to the associated jinja template, if the action includes a template
+        specification, with variable substitutions applied.
+        """
+        if template_or_path := self.action.jinja_template_or_template_path:
+            template_path_str = self.__substitute_vars_in_paths(template_or_path)
+            return self.action.get_jinja_template_resolved_path(template_path_str)
         return None
 
     def get_parameter_names(self, prefix: str) -> Sequence[str]:
@@ -798,51 +832,72 @@ class ElementActionRun(AppAware):
             for iter_i in self_elem.iterations[:max_idx]
         ]
 
-    def get_input_values(
+    def get_data_in_values(
         self,
-        inputs: Sequence[str] | Mapping[str, Mapping[str, Any]] | None = None,
+        data_in_keys: Sequence[str] | Mapping[str, Mapping[str, Any]] | None = None,
         label_dict: bool = True,
         raise_on_unset: bool = False,
+        include_prefix: bool = False,
     ) -> Mapping[str, Mapping[str, Any]]:
-        """Get a dict of (optionally a subset of) inputs values for this run.
+        """Get a dict of (optionally a subset of) parameter values and input/output file
+        paths ("data-in" that is passed to a script or program, for example) for this run.
 
         Parameters
         ----------
-        inputs:
-            If specified, a list of input parameter types to include, or a dict whose keys
-            are input parameter types to include. For schema inputs that have
-            `multiple=True`, the input type should be labelled. If a dict is passed, and
-            the key "all_iterations` is present and `True`, the return for that input
-            will be structured to include values for all previous iterations.
+        data_in_keys:
+            If specified, a list of parameter types and files to include, or a dict whose
+            keys are parameter types and files to include. Prefixes should be included,
+            which should be, for each key, one of "inputs.", "outputs.", "input_files.",
+            or "output_files."  For schema inputs that have `multiple=True`, the input
+            type should be labelled. If a dict is passed, and the key "all_iterations` is
+            present and `True`, the return for that input will be structured to include
+            values for all previous iterations.
         label_dict:
             If True, arrange the values of schema inputs with multiple=True as a dict
             whose keys are the labels. If False, labels will be included in the top level
             keys.
-
+        include_prefix:
+            If False, strip the prefix ("inputs.", "outputs.", "input_files.", or
+            "output_files.") from the keys of in the returned mapping.
         """
-        if not inputs:
-            inputs = self.get_parameter_names("inputs")
+
+        dat_names = self.action.get_prefixed_data_names()
+        _PREFIXES = ("inputs.", "outputs.", "input_files.", "output_files.")
+
+        if data_in_keys is None:
+            # by default just include input parameters
+            data_in_keys = dat_names["inputs"]
+        else:
+            for key in data_in_keys:
+                if not any(key.startswith(prefix_i) for prefix_i in _PREFIXES):
+                    raise ValueError(
+                        f"Data-in keys must start with an allowed prefix: {_PREFIXES}, "
+                        f"but received {key!r}."
+                    )
 
         out: dict[str, dict[str, Any]] = {}
-        for inp_name in inputs:
-            if self.__all_iters(inputs, inp_name):
+        for dat_key in data_in_keys:
+            if self.__all_iters(data_in_keys, dat_key):
                 val_i = {
                     f"iteration_{run_i.element_iteration.index}": {
                         "loop_idx": run_i.element_iteration.loop_idx,
-                        "value": run_i.get(
-                            f"inputs.{inp_name}", raise_on_unset=raise_on_unset
-                        ),
+                        "value": run_i.get(dat_key, raise_on_unset=raise_on_unset),
                     }
                     for run_i in self.get_all_previous_iteration_runs(include_self=True)
                 }
             else:
-                val_i = self.get(f"inputs.{inp_name}", raise_on_unset=raise_on_unset)
+                val_i = self.get(dat_key, raise_on_unset=raise_on_unset)
 
-            key, label_i = self.__split_input_name(inp_name, label_dict)
-            if label_i:
-                out.setdefault(key, {})[label_i] = val_i
+            if dat_key.startswith("inputs."):
+                key, label_i = self.__split_input_name(dat_key, label_dict)
+                key = key if include_prefix else ".".join(key.split(".")[1:])
+                if label_i:
+                    out.setdefault(key, {})[label_i] = val_i
+                else:
+                    out[key] = val_i
             else:
-                out[key] = val_i
+                dat_key = dat_key if include_prefix else ".".join(dat_key.split(".")[1:])
+                out[dat_key] = val_i
 
         if self.action.script_pass_env_spec:
             out["env_spec"] = cast("Any", self.env_spec)
@@ -867,16 +922,21 @@ class ElementActionRun(AppAware):
         if label_dict and path:
             key = path  # exclude label from key
         # for sub-parameters, take only the final part as the dict key:
-        return key.split(".")[-1], (label if label_dict else None)
+        return "inputs." + key.split(".")[-1], (label if label_dict else None)
 
-    def get_input_values_direct(
-        self, label_dict: bool = True, raise_on_unset: bool = False
+    def get_data_in_values_direct(
+        self,
+        label_dict: bool = True,
+        raise_on_unset: bool = False,
+        include_prefix: bool = False,
     ) -> Mapping[str, Mapping[str, Any]]:
         """Get a dict of input values that are to be passed directly to a Python script
         function."""
-        inputs = self.action.script_data_in_grouped.get("direct", {})
-        return self.get_input_values(
-            inputs=inputs, label_dict=label_dict, raise_on_unset=raise_on_unset
+        return self.get_data_in_values(
+            data_in_keys=self.action.script_data_in_grouped.get("direct", {}),
+            label_dict=label_dict,
+            raise_on_unset=raise_on_unset,
+            include_prefix=include_prefix,
         )
 
     def get_IFG_input_values(self, raise_on_unset: bool = False) -> Mapping[str, Any]:
@@ -1003,7 +1063,7 @@ class ElementActionRun(AppAware):
             not any((self.action.is_IFG, self.action.is_OFP))
             and self.action.script_data_in_has_direct
         ):
-            kwargs.update(self.get_input_values_direct(raise_on_unset=raise_on_unset))
+            kwargs.update(self.get_data_in_values_direct(raise_on_unset=raise_on_unset))
 
         if add_script_files:
             assert blk_act_key
@@ -1016,29 +1076,29 @@ class ElementActionRun(AppAware):
 
         return kwargs
 
-    def write_script_input_files(self, block_act_key: BlockActionKey) -> None:
+    def write_script_data_in_files(self, block_act_key: BlockActionKey) -> None:
         """
         Write values to files in standard formats.
         """
         for fmt, ins in self.action.script_data_in_grouped.items():
-            in_vals = self.get_input_values(
-                inputs=ins, label_dict=False, raise_on_unset=False
+            in_vals = self.get_data_in_values(
+                data_in_keys=ins, label_dict=False, raise_on_unset=False
             )
-            if writer := self.__source_writer_map.get(fmt):
+            if writer := self.__data_in_writer_map.get(fmt):
                 writer(self, in_vals, block_act_key)
 
-    def write_program_input_files(self, block_act_key: BlockActionKey) -> None:
+    def write_program_data_in_files(self, block_act_key: BlockActionKey) -> None:
         """
         Write values to files in standard formats.
         """
         for fmt, ins in self.action.program_data_in_grouped.items():
-            in_vals = self.get_input_values(
-                inputs=ins, label_dict=False, raise_on_unset=False
+            in_vals = self.get_data_in_values(
+                data_in_keys=ins, label_dict=False, raise_on_unset=False
             )
-            if writer := self.__source_writer_map.get(fmt):
+            if writer := self.__data_in_writer_map.get(fmt):
                 writer(self, in_vals, block_act_key)
 
-    def __write_json_inputs(
+    def __write_json_data_in(
         self,
         in_vals: Mapping[str, ParameterValue | list[ParameterValue]],
         block_act_key: BlockActionKey,
@@ -1055,7 +1115,7 @@ class ElementActionRun(AppAware):
         with self.action.get_param_dump_file_path_JSON(block_act_key).open("wt") as fp:
             json.dump(in_vals_processed, fp)
 
-    def __write_hdf5_inputs(
+    def __write_hdf5_data_in(
         self,
         in_vals: Mapping[str, ParameterValue | list[ParameterValue]],
         block_act_key: BlockActionKey,
@@ -1076,9 +1136,9 @@ class ElementActionRun(AppAware):
                     assert isinstance(v, list)
                     v[0].dump_element_group_to_HDF5_group(v, grp_k)
 
-    __source_writer_map: ClassVar[dict[str, Callable[..., None]]] = {
-        "json": __write_json_inputs,
-        "hdf5": __write_hdf5_inputs,
+    __data_in_writer_map: ClassVar[dict[str, Callable[..., None]]] = {
+        "json": __write_json_data_in,
+        "hdf5": __write_hdf5_data_in,
     }
 
     def __output_index(self, param_name: str) -> int:
@@ -1321,6 +1381,36 @@ class ElementActionRun(AppAware):
         finally:
             self.workflow._is_tracking_unset = False
             self.workflow._tracked_unset = None
+
+    def render_jinja_template(self) -> str:
+        """
+        Render the associated Jinja template as a string.
+        """
+        if not self.action.has_jinja_template:
+            raise ValueError("This action is not associated with a Jinja template.")
+        inputs = self.action.get_jinja_template_inputs(
+            path=self.jinja_template_path_actual,
+            include_prefix=True,
+        )
+        assert inputs
+        return self.action.render_jinja_template(
+            self.get_data_in_values(tuple(inputs), include_prefix=False),
+            path=self.jinja_template_path_actual,
+        )
+
+    def write_jinja_template(self):
+        """
+        Render the Jinja template and write to disk in the current working directory.
+        """
+        template_str = self.render_jinja_template()
+        if self.action.input_file_generators:
+            # use the name of the input file:
+            name = self.action.input_file_generators[0].input_file.name.name
+        else:
+            # use the existing template name
+            name = Path(self.action.jinja_template).name
+        with Path(name).open("wt") as fh:
+            fh.write(template_str)
 
 
 class ElementAction(AppAware):
@@ -1865,6 +1955,10 @@ class Action(JSONLike):
         The executable to use to run the script.
     script_pass_env_spec: bool
         Whether to pass the environment details to the script.
+    jinja_template: str
+        Path to a built-in Jinja template file to generate as part of this action.
+    jinja_template_path: str
+        Path to an external Jinja template file to generate as part of this action.
     program: str
         Path to a built-in program to run.
     program_path: str
@@ -1968,6 +2062,8 @@ class Action(JSONLike):
         data_files_use_opt: bool = False,
         script_exe: str | None = None,
         script_pass_env_spec: bool = False,
+        jinja_template: str | None = None,
+        jinja_template_path: str | None = None,
         program: str | None = None,
         program_path: str | None = None,
         program_exe: str | None = None,
@@ -2032,6 +2128,10 @@ class Action(JSONLike):
         self.environments = environments or [
             self._app.ActionEnvironment(environment="null_env")
         ]
+        #: The path to a builtin Jinja template to render.
+        self.jinja_template = jinja_template
+        #: The path to an external Jinja template to render.
+        self.jinja_template_path = jinja_template_path
         #: Whether this action can be aborted.
         self.abortable = abortable
         #: Any applicable input file generators.
@@ -2050,8 +2150,14 @@ class Action(JSONLike):
         self.clean_up = clean_up or []
 
         if requires_dir is None:
+            # TODO: once Jinja templates are written to the shared subs dir, we can omit
+            # from here:
             requires_dir = (
-                True if self.input_file_generators or self.output_file_parsers else False
+                True
+                if self.input_file_generators
+                or self.output_file_parsers
+                or self.jinja_template
+                else False
             )
         self.requires_dir = requires_dir
 
@@ -2062,99 +2168,128 @@ class Action(JSONLike):
 
     def process_action_data_formats(self) -> None:
         """
-        Convert script/program data information into standard form.
+        Convert all script/program data in/out information into standard form.
         """
         self.script_data_in = self.__process_action_data(
-            "script", self._script_data_in, "inputs"
+            "script", self._script_data_in, "in"
         )
         self.script_data_out = self.__process_action_data(
-            "script", self._script_data_out, "outputs"
+            "script", self._script_data_out, "out"
         )
         self.program_data_in = self.__process_action_data(
-            "program", self._program_data_in, "inputs"
+            "program", self._program_data_in, "in"
         )
         self.program_data_out = self.__process_action_data(
-            "program", self._program_data_out, "outputs"
+            "program", self._program_data_out, "out"
         )
 
     def __process_action_data_str(
-        self, data_fmt: str, param_names: Iterable[str]
+        self, data_fmt: str, direction: Literal["in", "out"], param_names: Iterable[str]
     ) -> dict[str, ActionData]:
-        # include all input parameters, using specified data format
+        """Process script/program data in/out, when the user specified a single format for
+        all data-in/out keys; we assume only input parameters are to be included."""
         data_fmt = data_fmt.lower()
-        return {k: {"format": data_fmt} for k in param_names}
+        return {f"{direction}puts.{k}": {"format": data_fmt} for k in param_names}
 
     def __process_action_data_dict(
         self,
         data_fmt: Mapping[str, str | ActionData],
-        prefix: str,
+        direction: Literal["in", "out"],
         param_names: Iterable[str],
     ) -> dict[str, ActionData]:
         all_params: dict[str, ActionData] = {}
+        _PREFIXES = ("inputs.", "outputs.", "input_files.", "output_files.")
         for nm, v in data_fmt.items():
+            # by default, assume keys are in/output parameters, unless explicitly prefixed:
+            if not any(nm.startswith(prefix) for prefix in _PREFIXES):
+                nm = f"{direction}puts.{nm}"
+
             # values might be strings, or dicts with "format" and potentially other
             # kwargs:
             if isinstance(v, dict):
                 # Make sure format is first key
-                v2: ActionData = {
-                    "format": v["format"],
-                }
+                v2: ActionData = {"format": v["format"]}
                 all_params[nm] = v2
                 v2.update(v)
             else:
                 all_params[nm] = {"format": v.lower()}
 
-        if prefix == "inputs":
+        if direction == "in":
             # expand unlabelled-multiple inputs to multiple labelled inputs:
             multi_types = set(self.task_schema.multi_input_types)
             multis: dict[str, ActionData] = {}
             for nm in tuple(all_params):
-                if nm in multi_types:
+                if not nm.startswith("inputs."):
+                    continue
+                if nm[len("inputs.") :] in multi_types:
                     k_fmt = all_params.pop(nm)
                     for name in param_names:
-                        if name.startswith(nm):
-                            multis[name] = copy.deepcopy(k_fmt)
+                        if f"inputs.{name}".startswith(nm):
+                            multis[f"inputs.{name}"] = copy.deepcopy(k_fmt)
+
             if multis:
                 all_params = {
                     **multis,
                     **all_params,
                 }
 
-        if _ALL_OTHER_SYM in all_params:
+        all_param_inp_keys = [
+            key[len("inputs.") :] for key in all_params if key.startswith("inputs.")
+        ]
+
+        if (all_other_inputs := f"inputs.{_ALL_OTHER_SYM}") in all_params:
             # replace catch-all with all other input/output names:
-            other_fmt = all_params[_ALL_OTHER_SYM]
-            all_params = {k: v for k, v in all_params.items() if k != _ALL_OTHER_SYM}
-            for name in set(param_names).difference(all_params):
-                all_params[name] = copy.deepcopy(other_fmt)
+            other_fmt = all_params[all_other_inputs]
+            all_params = {k: v for k, v in all_params.items() if k != all_other_inputs}
+            for name in set(param_names).difference(all_param_inp_keys):
+                all_params[f"inputs.{name}"] = copy.deepcopy(other_fmt)
         return all_params
 
     def __process_action_data(
         self,
         type: Literal["script", "program"],
         data_fmt: str | Mapping[str, str | ActionData] | None,
-        prefix: Literal["inputs", "outputs"],
+        direction: Literal["in", "out"],
     ) -> dict[str, ActionData]:
+        """Process specific action script/program data_in/out into a standard form.
+
+        Parameters
+        ----------
+        data_fmt:
+            The format as specified in the action for how to pass data to and from the
+            script/program. This will be normalised into a standard form.
+        direction:
+            This refers to whether the data is being passed into the script/program
+            (`in`), or being retrieved from the script/program (`out`). Note that the data
+            that is passed into the script/program may include more than just task schema
+            inputs, but could also include input file paths (those generated by input file
+            generators or passed by the user in the workflow template).
+
+        """
 
         if not data_fmt:
             return {}
 
-        param_names = self.get_parameter_names(prefix)
+        param_names = self.get_parameter_names(f"{direction}puts")
         if isinstance(data_fmt, str):
-            all_params = self.__process_action_data_str(data_fmt, param_names)
+            all_params = self.__process_action_data_str(data_fmt, direction, param_names)
         else:
-            all_params = self.__process_action_data_dict(data_fmt, prefix, param_names)
+            all_params = self.__process_action_data_dict(data_fmt, direction, param_names)
+
+        all_dat_names = self.get_prefixed_data_names_flat()
+
         # validation:
         allowed_keys = ("format", "all_iterations")
         for k, v in all_params.items():
             # validate parameter name (sub-parameters are allowed):
-            if k.split(".")[0] not in param_names:
-                raise UnknownActionDataParameter(type, k, prefix, param_names)
+            if ".".join(k.split(".")[:2]) not in all_dat_names:
+                raise UnknownActionDataParameter(type, k, direction, all_dat_names)
             # validate format:
             if v["format"] not in self._data_formats[type]:
                 raise UnsupportedActionDataFormat(
                     type,
                     v,
-                    cast('Literal["input", "output"]', prefix[:-1]),
+                    cast('Literal["input", "output"]', f"{direction}put"),
                     k,
                     self._data_formats[type],
                 )
@@ -2170,6 +2305,14 @@ class Action(JSONLike):
     @property
     def program_or_program_path(self) -> str | None:
         return self.program or self.program_path
+
+    @property
+    def has_jinja_template(self) -> bool:
+        return bool(self.jinja_template_or_template_path)
+
+    @property
+    def jinja_template_or_template_path(self) -> str | None:
+        return self.jinja_template or self.jinja_template_path
 
     @property
     def script_data_in_grouped(self) -> Mapping[str, Mapping[str, Mapping[str, str]]]:
@@ -2328,6 +2471,8 @@ class Action(JSONLike):
             out.append(f"commands={self.commands!r}")
         if self.script:
             out.append(f"script={self.script!r}")
+        if self.jinja_template:
+            out.append(f"jinja_template={self.jinja_template!r}")
         if self.environments:
             out.append(f"environments={self.environments!r}")
         if IFGs:
@@ -2346,6 +2491,7 @@ class Action(JSONLike):
         return (
             self.commands == other.commands
             and self.script == other.script
+            and self.jinja_template == other.jinja_template
             and self.environments == other.environments
             and self.abortable == other.abortable
             and self.input_file_generators == other.input_file_generators
@@ -2809,15 +2955,21 @@ class Action(JSONLike):
             exe = f"<<executable:{script_exe}>>"
             variables = script_cmd_vars if ifg.script else {}
             act_i = self._app.Action(
-                commands=[self._app.Command(executable=exe, variables=variables)],
+                commands=(
+                    [self._app.Command(executable=exe, variables=variables)]
+                    if ifg.script
+                    else None
+                ),
                 input_file_generators=[ifg],
                 environments=[self.get_input_file_generator_action_env(ifg)],
                 rules=main_rules + ifg.get_action_rules(),
                 script=ifg.script,
-                script_data_in="direct",
-                script_data_out="direct",
+                script_data_in=ifg.script_data_in or "direct",
+                script_data_out=ifg.script_data_out or "direct",
                 script_exe=script_exe,
                 script_pass_env_spec=ifg.script_pass_env_spec,
+                jinja_template=ifg.jinja_template,
+                jinja_template_path=ifg.jinja_template_path,
                 abortable=ifg.abortable,
                 requires_dir=ifg.requires_dir,
             )
@@ -2888,6 +3040,8 @@ class Action(JSONLike):
             script_data_out=self.script_data_out,
             script_exe=self.script_exe,
             script_pass_env_spec=self.script_pass_env_spec,
+            jinja_template=self.jinja_template,
+            jinja_template_path=self.jinja_template_path,
             program=self.program,
             program_path=self.program_path,
             program_exe=self.program_exe,
@@ -2980,11 +3134,33 @@ class Action(JSONLike):
 
     @property
     def has_main_script_or_program(self) -> bool:
-        return (
-            self.script
-            and not self.input_file_generators
-            and not self.output_file_parsers
-        ) or self.has_program
+        return bool(
+            self.has_program
+            or (
+                self.script
+                if not self._from_expand
+                else self.script
+                and not self.input_file_generators
+                and not self.output_file_parsers
+            )
+        )
+
+    def _get_jinja_template_input_types(self) -> set[str]:
+        try:
+            path = self.get_jinja_template_resolved_path()
+        except ValueError:
+            # TODO: also include here any inputs that appear as variable substitutions
+            # in the path?
+            # path might have as yet unsubstituted variables:
+            if ifgs := self.input_file_generators:
+                # can use inputs of IFP:
+                return set(inp.typ for inp in ifgs[0].inputs)
+            else:
+                # TODO: could use script_data_in, but should be template->data in:
+                # for now assume all schema input types
+                return set(self.task_schema.input_types)
+        else:
+            return self.get_jinja_template_inputs(path, include_prefix=False)
 
     def get_input_types(self, sub_parameters: bool = False) -> tuple[str, ...]:
         """Get the input types that are consumed by commands and input file generators of
@@ -3007,6 +3183,10 @@ class Action(JSONLike):
                 params.update(inp.typ for inp in ifg.inputs)
             for ofp in self.output_file_parsers:
                 params.update(ofp.inputs or ())
+
+        if self.jinja_template:
+            params.update(self._get_jinja_template_input_types())
+
         return tuple(params)
 
     def get_output_types(self) -> tuple[str, ...]:
@@ -3221,6 +3401,11 @@ class Action(JSONLike):
             ):
                 return True
 
+        # typ is required if it is in the set of Jinja template undeclared variables
+        if self.jinja_template:
+            if typ in self._get_jinja_template_input_types():
+                return True
+
         # typ is required if used in any output file parser
         return any(typ in (ofp.inputs or ()) for ofp in self.output_file_parsers)
 
@@ -3401,6 +3586,23 @@ class Action(JSONLike):
         else:
             raise ValueError(f"unexpected prefix: {prefix}")
 
+    def get_prefixed_data_names(self) -> Mapping[str, list[str]]:
+        return {
+            "inputs": [f"inputs.{inp}" for inp in self.get_parameter_names("inputs")],
+            "outputs": [f"outputs.{out}" for out in self.get_parameter_names("outputs")],
+            "input_files": [
+                f"input_files.{in_file}"
+                for in_file in self.get_parameter_names("input_files")
+            ],
+            "output_files": [
+                f"output_files.{out_file}"
+                for out_file in self.get_parameter_names("output_files")
+            ],
+        }
+
+    def get_prefixed_data_names_flat(self) -> list[str]:
+        return list(chain.from_iterable(self.get_prefixed_data_names().values()))
+
     def get_commands_file_hash(
         self, data_idx: DataIndex, action_idx: int, env_spec_hashable: tuple = ()
     ) -> int:
@@ -3555,3 +3757,108 @@ class Action(JSONLike):
             args.append(str(path))
 
         return args
+
+    def get_jinja_template_resolved_path(self, path: str | None = None) -> Path:
+        """
+        Return the file system path to the associated Jinja template if there is one.
+
+        Parameters
+        ----------
+        path
+            The path might include variable substitutions, in which case the builtin or
+            external path with all substitutions can be provided by this argument.
+
+        Notes
+        -----
+        In the case where there are no variable substitutions in the (builtin key or
+        external) path to the Jinja template file, this method will resolve the real file
+        system path correctly without needing the `path` argument. However, if there are
+        variable substitutions, then the substituted version of the (builtin key or
+        external) path must be provided via the `path` argument.
+
+        """
+        if path := path or self.jinja_template_or_template_path:
+            try:
+                resolved = (
+                    self._app.jinja_templates[path] if self.jinja_template else Path(path)
+                )
+                assert resolved.is_file()
+                return resolved
+            except (KeyError, AssertionError):
+                via_msg = "a builtin path" if self.jinja_template else "an external path"
+                raise ValueError(
+                    f"Jinja template specified at via {via_msg} ({path!r}) is not a file."
+                )
+        else:
+            raise ValueError("No associated Jinja template.")
+
+    @staticmethod
+    def _get_jinja_env_obj(path: Path) -> JinjaEnvironment:
+        """
+        Load the Jinja environment object using a file system loader for the parent
+        directory of the specified path.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        return JinjaEnvironment(loader=JinjaFileSystemLoader(path.parent))
+
+    @classmethod
+    def _get_jinja_template_obj(cls, path: Path) -> JinjaTemplate:
+        """
+        Load the Jinja template object for the specified Jinja template.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        return cls._get_jinja_env_obj(path).get_template(path.name)
+
+    @classmethod
+    def _get_jinja_template_inputs(cls, path: Path) -> set[str]:
+        """
+        Retrieve the set of undeclared inputs in the specified Jinja template.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        jinja_env = cls._get_jinja_env_obj(path)
+        loader = jinja_env.loader
+        assert loader
+        source = loader.get_source(jinja_env, path.name)[0]
+        parsed = jinja_env.parse(source)
+        return jinja_meta.find_undeclared_variables(parsed)
+
+    def get_jinja_template_inputs(
+        self, path: Path, include_prefix: bool = False
+    ) -> set[str]:
+        """
+        Retrieve the set of undeclared inputs in Jinja template associated with this
+        action, if there is one.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+
+        return set(
+            f"inputs.{inp}" if include_prefix else inp
+            for inp in self._get_jinja_template_inputs(path)
+        )
+
+    def render_jinja_template(self, input_vals: Mapping[str, Any], path: Path) -> str:
+        """
+        Render the Jinja template associated with this action, if there is one.
+
+        Parameters
+        ----------
+        path
+            The actual path to the Jinja template file.
+        """
+        return self._get_jinja_template_obj(path).render(**input_vals)

@@ -954,12 +954,12 @@ class UnknownActionDataParameter(ValueError):
         self,
         type: Literal["script", "program"],
         name: str,
-        kind: Literal["inputs", "outputs"],
+        direction: Literal["in", "out"],
         param_names: Sequence[str],
     ) -> None:
         super().__init__(
-            f"{capitalise_first_letter(type)} data parameter {name!r} is not a known "
-            f"parameter of the action. Parameters ({kind}) are: {param_names!r}."
+            f"{capitalise_first_letter(type)} data {direction} parameter {name!r} is not "
+            f"a known parameter of the action. Parameters are: {param_names!r}."
         )
 
 

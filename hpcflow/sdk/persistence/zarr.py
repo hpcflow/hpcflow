@@ -179,7 +179,9 @@ def _encode_masked_array(
     arr_path: list[int],
 ):
     data_idx = _encode_numpy_array(obj.data, type_lookup, path, root_group, arr_path)
-    mask_idx = _encode_numpy_array(obj.mask, type_lookup, path, root_group, arr_path)
+    mask_idx = _encode_numpy_array(
+        cast("NDArray", obj.mask), type_lookup, path, root_group, arr_path
+    )
     type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
 
 

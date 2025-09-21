@@ -52,7 +52,9 @@ def test_error_propagated_with_custom_context_class():
 
     cli.context_class = ErrorPropagatingClickContext  # use custom click Context
 
-    @cli.command()
+    @cli.command(
+        name="my-command"
+    )  # explicit, because Click 8.2.0+ removes suffixes like "command" for some reason
     def my_command():
         raise MyException()
 

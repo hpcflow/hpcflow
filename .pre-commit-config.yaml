@@ -7,7 +7,8 @@ repos:
           (?x)^(
             CHANGELOG.tpl.md|
             CHANGELOG.md|
-            CHANGELOG-dev.md
+            CHANGELOG-dev.md|
+            hpcflow/data/jinja_templates/.*
           )$
       - id: check-yaml
       - id: mixed-line-ending

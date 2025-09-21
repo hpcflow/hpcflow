@@ -34,6 +34,7 @@ app: sdk_app.BaseApp = sdk_app.BaseApp(
     config_options=config_options,
     template_components=template_components,
     scripts_dir="data.scripts",  # relative to root package
+    jinja_templates_dir="data.jinja_templates",  # relative to root package
     programs_dir="data.programs",  # relative to root package
     workflows_dir="data.workflows",  # relative to root package
     demo_data_dir="hpcflow.data.demo_data",

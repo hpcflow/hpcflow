@@ -184,3 +184,103 @@ def test_run_skip_reason_loop_termination(null_config, tmp_path):
     assert runs[0].skip_reason is SkipReason.NOT_SKIPPED
     assert runs[1].skip_reason is SkipReason.NOT_SKIPPED
     assert runs[2].skip_reason is SkipReason.LOOP_TERMINATION
+
+
+def test_get_data_in_values_input_files(null_config, tmp_path: Path):
+    with (file_name := Path("my_file.txt")).open("wt") as fh:
+        fh.write("hello!\n")
+    file_spec = hf.FileSpec("my_file", str(file_name))
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[
+            hf.SchemaInput(parameter="p1"),
+        ],
+        actions=[
+            hf.Action(
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=file_spec,
+                        inputs=[hf.Parameter("p1")],
+                    )
+                ],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=[s1], input_files=[hf.InputFile(file_spec, path="my_file.txt")])
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        path=tmp_path,
+        template_name="test_get_data_in_values_input_files",
+    )
+    run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
+    assert run.get_data_in_values(("input_files.my_file",)) == {
+        "my_file": wk.input_files_path.joinpath("0/my_file.txt").as_posix()
+    }
+
+
+def test_get_data_in_values_user_provided_input_file(null_config, tmp_path: Path):
+
+    # pass an input file so the IFG doesn't need to run
+    with (file_name := Path("my_file.txt")).open("wt") as fh:
+        fh.write("hello!\n")
+
+    file_spec = hf.FileSpec("my_file", str(file_name))
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[
+            hf.SchemaInput(parameter="p1"),
+        ],
+        actions=[
+            hf.Action(
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=file_spec,
+                        inputs=[hf.Parameter("p1")],
+                    )
+                ],
+            )
+        ],
+    )
+    t1 = hf.Task(schema=[s1], input_files=[hf.InputFile(file_spec, path="my_file.txt")])
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        path=tmp_path,
+        template_name="test_get_data_in_values_input_files",
+    )
+    run = wk.tasks[0].elements[0].iterations[0].action_runs[0]
+    assert run.get_data_in_values(("input_files.my_file",)) == {
+        "my_file": wk.input_files_path.joinpath("0/my_file.txt").as_posix()
+    }
+
+
+def test_get_data_in_values_input_file_to_script(null_config, tmp_path: Path):
+    # pass an input file so the IFG doesn't need to run
+    with (file_name := Path("my_file.txt")).open("wt") as fh:
+        fh.write("hello!\n")
+
+    file_spec = hf.FileSpec("my_file", str(file_name))
+    act = hf.Action(
+        input_file_generators=[
+            hf.InputFileGenerator(
+                input_file=file_spec,
+                inputs=[hf.Parameter("p1")],
+            )
+        ],
+        script_data_in={"input_files.my_file": "direct"},
+    )
+    s1 = hf.TaskSchema(
+        objective="ts1",
+        inputs=[hf.SchemaInput("p1")],
+        actions=[act],
+    )
+    t1 = hf.Task(schema=[s1], input_files=[hf.InputFile(file_spec, path="my_file.txt")])
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        path=tmp_path,
+        template_name="test_get_data_in_values_input_files",
+    )
+    act_runs = wk.tasks[0].elements[0].iterations[0].action_runs
+    assert len(act_runs) == 1
+    assert act_runs[0].get_data_in_values(("input_files.my_file",)) == {
+        "my_file": wk.input_files_path.joinpath("0/my_file.txt").as_posix()
+    }
