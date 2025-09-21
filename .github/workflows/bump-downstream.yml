@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout MatFlow develop branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: hpcflow/matflow-new
           fetch-depth: 0 # get all history and tags
@@ -29,7 +29,7 @@ jobs:
         uses: hpcflow/github-support/configure-git@main
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION_MAKE_PRs }}
 

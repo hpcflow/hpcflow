@@ -1,4 +1,76 @@
 
+<a name="v0.2.0a244"></a>
+## [v0.2.0a244](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a243...v0.2.0a244) - 2025.09.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump actions/setup-python
+
+
+<a name="v0.2.0a243"></a>
+## [v0.2.0a243](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a242...v0.2.0a243) - 2025.09.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 4 updates
+
+
+<a name="v0.2.0a242"></a>
+## [v0.2.0a242](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a241...v0.2.0a242) - 2025.08.26
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 7 updates
+
+
+<a name="v0.2.0a241"></a>
+## [v0.2.0a241](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a240...v0.2.0a241) - 2025.08.23
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump requests in the pip-dependencies group
+
+
+<a name="v0.2.0a240"></a>
+## [v0.2.0a240](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a239...v0.2.0a240) - 2025.08.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the github-actions-dependencies group with 2 updates
+
+
+<a name="v0.2.0a239"></a>
+## [v0.2.0a239](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a238...v0.2.0a239) - 2025.08.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 6 updates
+
+
+<a name="v0.2.0a238"></a>
+## [v0.2.0a238](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a237...v0.2.0a238) - 2025.08.05
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 10 updates
+
+
+<a name="v0.2.0a237"></a>
+## [v0.2.0a237](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a236...v0.2.0a237) - 2025.08.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump Vampire/setup-wsl
+
+
 <a name="v0.2.0a236"></a>
 ## [v0.2.0a236](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a235...v0.2.0a236) - 2025.08.01
 

@@ -31,10 +31,10 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # get all history and tags
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION_BUILD_EXES }}
       - uses: hpcflow/github-support/init-cache@main
@@ -89,7 +89,7 @@ jobs:
     container:
       image: aplowman/centos7-poetry
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -133,21 +133,21 @@ jobs:
     needs: [build-executables, build-executables-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.ref }} # otherwise we get the ref when the workflow started (missing above commit)
 
       - run: mkdir release-artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         id: download_executables_I
         with:
           name: hpcflow-release-test-build-macOS-dir.zip
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         id: download_executables_II
         with:
           name: hpcflow-release-test-build-win-dir.zip
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION_RELEASE }}
       - uses: hpcflow/github-support/init-cache@main
@@ -163,7 +163,7 @@ jobs:
 
       - run: mkdir release-artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         id: download_executables
         with:
           path: release-artifacts

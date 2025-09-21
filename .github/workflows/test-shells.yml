@@ -14,11 +14,11 @@ jobs:
   test-wsl:
     runs-on: windows-latest
     steps:
-      - uses: Vampire/setup-wsl@v5 # install a WSL distribution
-      - uses: actions/checkout@v4
+      - uses: Vampire/setup-wsl@v6 # install a WSL distribution
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: hpcflow/github-support/setup-poetry@main
