@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a246"></a>
+## [v0.2.0a246](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a245...v0.2.0a246) - 2025.09.21
+
+### 🐛 Bug Fixes
+
+* missing jinja templates from built exes
+
+
 <a name="v0.2.0a245"></a>
 ## [v0.2.0a245](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a244...v0.2.0a245) - 2025.09.21
 
