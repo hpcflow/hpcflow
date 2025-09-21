@@ -2365,6 +2365,7 @@ class Workflow(AppAware):
             return next(iter(self._store.check_parameters_exist((id_lst,))))
         return all(self._store.check_parameters_exist(id_lst))
 
+    @TimeIt.decorator
     def _add_unset_parameter_data(self, source: ParamSource) -> int:
         # TODO: use this for unset files as well
         return self._store.add_unset_parameter(source)

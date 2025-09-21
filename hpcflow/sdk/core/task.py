@@ -1221,6 +1221,7 @@ class Task(JSONLike):
 
         return src_elem_iters
 
+    @TimeIt.decorator
     def get_available_task_input_sources(
         self,
         element_set: ElementSet,
@@ -1789,6 +1790,7 @@ class WorkflowTask(AppAware):
         return {itr.id_: itr for elem in self.elements for itr in elem.iterations}
 
     @staticmethod
+    @TimeIt.decorator
     def __get_src_elem_iters(
         src_task: WorkflowTask, inp_src: InputSource
     ) -> tuple[Iterable[ElementIteration], list[int]]:
@@ -1801,6 +1803,7 @@ class WorkflowTask(AppAware):
             return src_iters_list, set_indices
         return src_iters.values(), []
 
+    @TimeIt.decorator
     def __get_task_group_index(
         self,
         labelled_path_i: str,
@@ -1870,6 +1873,7 @@ class WorkflowTask(AppAware):
 
         return [cast("int", group_dat_idx)]  # TODO: generalise to multiple groups
 
+    @TimeIt.decorator
     def __make_new_elements_persistent(
         self,
         element_set: ElementSet,
@@ -2002,6 +2006,7 @@ class WorkflowTask(AppAware):
 
         return (input_data_idx, sequence_idx, source_idx)
 
+    @TimeIt.decorator
     def ensure_input_sources(
         self, element_set: ElementSet
     ) -> Mapping[str, Sequence[int]]:
@@ -2218,6 +2223,7 @@ class WorkflowTask(AppAware):
             raise MissingInputs(self.template, missing)
         return padded_elem_iters
 
+    @TimeIt.decorator
     def __enforce_some_sanity(
         self, sources_by_task: dict[int, dict[str, InputSource]], element_set: ElementSet
     ) -> None:
@@ -2261,6 +2267,7 @@ class WorkflowTask(AppAware):
             for inp_type in sources:
                 element_set.input_sources[inp_type][0].element_iters = int_task_i_lst
 
+    @TimeIt.decorator
     def generate_new_elements(
         self,
         input_data_indices: Mapping[str, Sequence[int | list[int]]],
@@ -2319,6 +2326,7 @@ class WorkflowTask(AppAware):
             yield tasks[idx]
 
     @staticmethod
+    @TimeIt.decorator
     def resolve_element_data_indices(
         multiplicities: list[MultiplicityDescriptor],
     ) -> Sequence[Mapping[str, int]]:
@@ -2390,6 +2398,7 @@ class WorkflowTask(AppAware):
 
         return element_dat_idx
 
+    @TimeIt.decorator
     @TimeIt.decorator
     def initialise_EARs(self, iter_IDs: list[int] | None = None) -> Sequence[int]:
         """Try to initialise any uninitialised EARs of this task."""
