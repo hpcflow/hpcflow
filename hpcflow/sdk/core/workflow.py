@@ -924,8 +924,9 @@ class Workflow(AppAware):
         template:
             The WorkflowTemplate object to make persistent.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1017,8 +1018,9 @@ class Workflow(AppAware):
         YAML_path:
             The path to a workflow template in the YAML file format.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1079,8 +1081,9 @@ class Workflow(AppAware):
         YAML_str:
             The YAML string containing a workflow template parametrisation.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1142,8 +1145,9 @@ class Workflow(AppAware):
         JSON_path:
             The path to a workflow template in the JSON file format.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1205,8 +1209,9 @@ class Workflow(AppAware):
         JSON_str:
             The JSON string containing a workflow template parametrisation.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1274,8 +1279,9 @@ class Workflow(AppAware):
             If specified, one of "json" or "yaml". This forces parsing from a particular
             format regardless of the file extension.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified the `WorkflowTemplate` name will be used,
@@ -1361,8 +1367,9 @@ class Workflow(AppAware):
             Configuration items that should be set whenever the resulting workflow is
             loaded. This includes config items that apply during workflow execution.
         path:
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         workflow_name:
             The name of the workflow. If specified, the workflow directory will be `path`
             joined with `name`. If not specified `template_name` will be used, in
@@ -2099,8 +2106,9 @@ class Workflow(AppAware):
         template
             The workflow description to instantiate.
         path
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         """
 
         # store all times in UTC, since NumPy doesn't support time zone info:
@@ -2112,10 +2120,11 @@ class Workflow(AppAware):
 
         name = name or f"{template.name}_{ts.strftime(ts_name_fmt)}"
 
-        fs_path = f"{path or '.'}/{name}"
+        chosen_path = path or cls._app.config.default_workflow_path or "."
+        fs_path = f"{chosen_path}/{name}"
         fs_kwargs = fs_kwargs or {}
-        fs, path, pw = resolve_fsspec(path or "", **fs_kwargs)
-        wk_path = f"{path}/{name}"
+        fs, path, pw = resolve_fsspec(chosen_path, **fs_kwargs)
+        wk_path = f"{chosen_path}/{name}"
 
         replaced_wk = None
         if fs.exists(wk_path):

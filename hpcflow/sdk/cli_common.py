@@ -70,7 +70,11 @@ format_option = click.option(
 path_option = click.option(
     "--path",
     type=click.Path(exists=True),
-    help="The directory path into which the new workflow will be generated.",
+    help=(
+        "The directory in which the workflow will be generated. If not specified, the "
+        "config item `default_workflow_path` will be used; if that is not set, the "
+        "current directory is used."
+    ),
 )
 #: Standard option
 name_option = click.option(
