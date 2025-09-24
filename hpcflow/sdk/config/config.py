@@ -101,6 +101,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "default_shell": _DEFAULT_SHELL,
         "schedulers": {"direct": {"defaults": {}}},
         "shells": {_DEFAULT_SHELL: {"defaults": {}}},
+        "user_affiliations": [],
     },
 }
 
@@ -208,13 +209,13 @@ class Config:
     Attributes
     ----------
     user_name: str
-        User to submit as.
+        The full name of the user to attribute newly created workflows to.
         Mapped to a field in the configuration file.
     user_orcid: str
         User's ORCID.
         Mapped to a field in the configuration file.
-    user_affiliation: str
-        User's institutional affiliation.
+    user_affiliations: list[str]
+        User's institutional affiliations.
         Mapped to a field in the configuration file.
     linux_release_file: str
         Where to get the description of the Linux release version data.

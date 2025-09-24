@@ -5,7 +5,7 @@ rules:
         - machine
         - user_name
         - user_orcid
-        - user_affiliation
+        - user_affiliations
         - linux_release_file
         - log_file_path
         - log_file_level
@@ -67,9 +67,13 @@ rules:
     condition:
       value.type.equal_to: str
 
-  - path: [user_affiliation]
+  - path: [user_affiliations]
     condition:
-      value.type.equal_to: str
+      value.type.equal_to: list
+
+  - path: [user_affiliations, { type: list_value }]
+    condition:
+      value.is_instance: [str]
 
   - path: [linux_release_file]
     condition:
