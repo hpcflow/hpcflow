@@ -86,6 +86,24 @@ name_option = click.option(
     ),
 )
 #: Standard option
+name_timestamp_option = click.option(
+    "--name-timestamp/--name-no-timestamp",
+    is_flag=True,
+    default=True,
+    help="If True, suffix the workflow name with a date-timestamp.",
+)
+#: Standard option
+name_dir_option = click.option(
+    "--name-dir/--name-no-dir",
+    is_flag=True,
+    default=False,
+    help=(
+        "If True, and `--name-timestamp` is also True, the workflow directory name "
+        "will be just the date-timestamp, and will be contained within a parent "
+        "directory corresponding to the workflow name."
+    ),
+)
+#: Standard option
 overwrite_option = click.option(
     "--overwrite",
     is_flag=True,

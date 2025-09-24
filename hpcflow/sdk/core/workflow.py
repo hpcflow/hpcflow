@@ -910,6 +910,8 @@ class Workflow(AppAware):
         template: WorkflowTemplate,
         path: PathLike = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -927,10 +929,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -953,6 +961,8 @@ class Workflow(AppAware):
                 template=template,
                 path=path,
                 name=name,
+                name_add_timestamp=name_add_timestamp,
+                name_use_dir=name_use_dir,
                 overwrite=overwrite,
                 store=store,
                 ts_fmt=ts_fmt,
@@ -1004,6 +1014,8 @@ class Workflow(AppAware):
         YAML_path: PathLike,
         path: PathLike = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1021,10 +1033,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1053,6 +1071,8 @@ class Workflow(AppAware):
             template,
             path,
             name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -1066,6 +1086,8 @@ class Workflow(AppAware):
         YAML_str: str,
         path: PathLike = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1084,10 +1106,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1116,6 +1144,8 @@ class Workflow(AppAware):
             template,
             path,
             name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -1130,6 +1160,8 @@ class Workflow(AppAware):
         JSON_path: PathLike,
         path: PathLike = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1148,10 +1180,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1180,6 +1218,8 @@ class Workflow(AppAware):
             template,
             path,
             name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -1194,6 +1234,8 @@ class Workflow(AppAware):
         JSON_str: str,
         path: PathLike = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1212,10 +1254,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1244,6 +1292,8 @@ class Workflow(AppAware):
             template,
             path,
             name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -1260,6 +1310,8 @@ class Workflow(AppAware):
         template_format: Literal["json", "yaml"] | None = None,
         path: str | None = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1282,10 +1334,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1320,6 +1378,8 @@ class Workflow(AppAware):
             template,
             path,
             name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -1340,6 +1400,8 @@ class Workflow(AppAware):
         config: dict | None = None,
         path: PathLike | None = None,
         workflow_name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1350,9 +1412,9 @@ class Workflow(AppAware):
 
         Parameters
         ----------
-        template_name:
-            Name of the new workflow template, from which the new workflow will be
-            generated.
+        template_name
+            The name to use for the new workflow template, from which the new workflow
+            will be generated.
         tasks:
             List of Task objects to add to the new workflow.
         loops:
@@ -1370,10 +1432,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
-        workflow_name:
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified `template_name` will be used, in
-            combination with a date-timestamp.
+        workflow_name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the workflow name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1401,6 +1469,8 @@ class Workflow(AppAware):
             template,
             path,
             workflow_name,
+            name_add_timestamp,
+            name_use_dir,
             overwrite,
             store,
             ts_fmt,
@@ -2093,6 +2163,8 @@ class Workflow(AppAware):
         *,
         path: PathLike | None = None,
         name: str | None = None,
+        name_add_timestamp: bool = True,
+        name_use_dir: bool = False,
         overwrite: bool | None = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -2109,6 +2181,16 @@ class Workflow(AppAware):
             The directory in which the workflow will be generated. If not specified, the
             config item `default_workflow_path` will be used; if that is not set, the
             current directory is used.
+        name
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp
+            If True, suffix the name with a date-timestamp.
+        name_use_dir
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         """
 
         # store all times in UTC, since NumPy doesn't support time zone info:
@@ -2118,13 +2200,22 @@ class Workflow(AppAware):
         ts_name_fmt = ts_name_fmt or cls._default_ts_name_fmt
         ts_fmt = ts_fmt or cls._default_ts_fmt
 
-        name = name or f"{template.name}_{ts.strftime(ts_name_fmt)}"
+        parent_dir = Path(path or cls._app.config.default_workflow_path or ".")
 
-        chosen_path = path or cls._app.config.default_workflow_path or "."
-        fs_path = f"{chosen_path}/{name}"
+        wk_name = name or template.name
+        wk_dir_name = wk_name
+        if name_add_timestamp:
+            timestamp = ts.strftime(ts_name_fmt)
+            if name_use_dir:
+                wk_dir_name = timestamp
+                parent_dir = parent_dir.joinpath(wk_name)
+            else:
+                wk_dir_name += f"_{timestamp}"
+            wk_name += f"_{timestamp}"
+
         fs_kwargs = fs_kwargs or {}
-        fs, path, pw = resolve_fsspec(chosen_path, **fs_kwargs)
-        wk_path = f"{chosen_path}/{name}"
+        fs, _, pw = resolve_fsspec(parent_dir, **fs_kwargs)
+        wk_path = str(parent_dir.joinpath(wk_dir_name))
 
         replaced_wk = None
         if fs.exists(wk_path):
@@ -2185,7 +2276,7 @@ class Workflow(AppAware):
             template_components_js=template_sh or {},
             wk_path=wk_path,
             fs=fs,
-            name=name,
+            name=wk_name,
             replaced_wk=replaced_wk,
             creation_info={
                 "app_info": cls._app.get_info(),
@@ -2201,7 +2292,7 @@ class Workflow(AppAware):
         )
 
         fs_kwargs = {"password": pw, **fs_kwargs}
-        wk = cls(fs_path, store_fmt=store, fs_kwargs=fs_kwargs)
+        wk = cls(wk_path, store_fmt=store, fs_kwargs=fs_kwargs)
 
         # actually make template inputs/resources persistent, now the workflow exists:
         grabber.write_persistence_data_to_workflow(wk)
