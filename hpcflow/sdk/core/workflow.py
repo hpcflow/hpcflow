@@ -1563,11 +1563,8 @@ class Workflow(AppAware):
         """
         if not self._creation_info:
             info = self._store.get_creation_info()
-            self._creation_info = {
-                "app_info": info["app_info"],
-                "create_time": parse_timestamp(info["create_time"], self.ts_fmt),
-                "id": info["id"],
-            }
+            info["create_time"] = parse_timestamp(info["create_time"], self.ts_fmt)
+            self._creation_info = info
         return self._creation_info
 
     @property
@@ -2179,6 +2176,9 @@ class Workflow(AppAware):
                 "app_info": cls._app.get_info(),
                 "create_time": ts_utc.strftime(ts_fmt),
                 "id": str(uuid4()),
+                "user_name": cls._app.config.user_name,
+                "user_orcid": cls._app.config.user_orcid,
+                "user_affiliations": cls._app.config.user_affiliations,
             },
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
