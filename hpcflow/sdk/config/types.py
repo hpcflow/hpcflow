@@ -95,6 +95,8 @@ class ConfigDescriptor(TypedDict):
     schedulers: NotRequired[dict[str, SchedulerConfigDescriptor]]
     #: Supported shells.
     shells: NotRequired[dict[str, ShellConfigDescriptor]]
+    #: User affiliations
+    user_affiliations: NotRequired[list[str]]
 
 
 class InvocationDescriptor(TypedDict):

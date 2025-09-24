@@ -327,6 +327,12 @@ class CreationInfo(TypedDict):
     create_time: datetime
     #: Unique identifier for the workflow.
     id: str
+    #: User's name.
+    user_name: str
+    #: User's ORCID.
+    user_orcid: str
+    #: User's affiliations.
+    user_affiliations: list[str]
 
 
 class WorkflowTemplateTaskData(TypedDict):

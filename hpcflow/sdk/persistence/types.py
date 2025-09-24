@@ -92,6 +92,12 @@ class StoreCreationInfo(TypedDict):
     create_time: str
     #: The unique identifier for for the store/workflow.
     id: str
+    #: User's name.
+    user_name: str
+    #: User's ORCID.
+    user_orcid: str
+    #: User's affiliations.
+    user_affiliations: list[str]
 
 
 class ElemMeta(TypedDict):
