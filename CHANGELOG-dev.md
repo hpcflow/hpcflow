@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a247"></a>
+## [v0.2.0a247](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a246...v0.2.0a247) - 2025.09.24
+
+### 🐛 Bug Fixes
+
+* typing
+* add user name, ORCID, affiliations to creation info from config
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a246"></a>
 ## [v0.2.0a246](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a245...v0.2.0a246) - 2025.09.21
 
