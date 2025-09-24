@@ -88,6 +88,7 @@ name_option = click.option(
 #: Standard option
 name_timestamp_option = click.option(
     "--name-timestamp/--name-no-timestamp",
+    "name_add_timestamp",
     is_flag=True,
     default=True,
     help="If True, suffix the workflow name with a date-timestamp.",
@@ -95,6 +96,7 @@ name_timestamp_option = click.option(
 #: Standard option
 name_dir_option = click.option(
     "--name-dir/--name-no-dir",
+    "name_use_dir",
     is_flag=True,
     default=False,
     help=(
