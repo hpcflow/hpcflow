@@ -1265,12 +1265,19 @@ class BaseApp(metaclass=Singleton):
             If specified, one of "json" or "yaml". This forces parsing from a particular
             format.
         path: str | Path
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name: str
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the workflow template name will be used,
-            in combination with a date-timestamp.
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp: bool
+            If True, suffix the name with a date-timestamp.
+        name_use_dir: bool
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite: bool
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1314,12 +1321,19 @@ class BaseApp(metaclass=Singleton):
             If specified, one of "json" or "yaml". This forces parsing from a particular
             format.
         path: str | Path
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name: str
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the workflow template name will be used,
-            in combination with a date-timestamp.
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp: bool
+            If True, suffix the name with a date-timestamp.
+        name_use_dir: bool
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite: bool
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1367,12 +1381,19 @@ class BaseApp(metaclass=Singleton):
             If specified, one of "json" or "yaml". This forces parsing from a particular
             format.
         path: str | Path
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name: str
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp: bool
+            If True, suffix the name with a date-timestamp.
+        name_use_dir: bool
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite: bool
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1433,12 +1454,19 @@ class BaseApp(metaclass=Singleton):
             If specified, one of "json" or "yaml". This forces parsing from a particular
             format.
         path: str | Path
-            The directory in which the workflow will be generated. The current directory
-            if not specified.
+            The directory in which the workflow will be generated. If not specified, the
+            config item `default_workflow_path` will be used; if that is not set, the
+            current directory is used.
         name: str
-            The name of the workflow. If specified, the workflow directory will be `path`
-            joined with `name`. If not specified the `WorkflowTemplate` name will be used,
-            in combination with a date-timestamp.
+            The name to use for the workflow. If not provided, the name will be set to
+            that of the template (optionally suffixed by a date-timestamp if
+            `name_add_timestamp` is True).
+        name_add_timestamp: bool
+            If True, suffix the name with a date-timestamp.
+        name_use_dir: bool
+            If True, and `name_add_timestamp` is also True, the workflow directory name
+            will be just the date-timestamp, and will be contained within a parent
+            directory corresponding to the workflow name.
         overwrite: bool
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
