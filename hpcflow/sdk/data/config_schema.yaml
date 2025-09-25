@@ -20,6 +20,7 @@ rules:
         - shells
         - demo_data_dir
         - demo_data_manifest_file
+        - default_workflow_path
   - path: []
     condition:
       value.required_keys:
@@ -236,5 +237,10 @@ rules:
       file names. Each value should be an empty map/dict or a map like: `{"in_zip": "text_file.zip"}`,
       where `text_file.zip` is the name of a zip archive that contains the example data
       file. This can be a local path or an fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [default_workflow_path]
+    doc: Default directory path in which new workflows will be generated.
     condition:
       value.is_instance: [str, path]

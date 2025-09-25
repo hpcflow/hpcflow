@@ -70,7 +70,11 @@ format_option = click.option(
 path_option = click.option(
     "--path",
     type=click.Path(exists=True),
-    help="The directory path into which the new workflow will be generated.",
+    help=(
+        "The directory in which the workflow will be generated. If not specified, the "
+        "config item `default_workflow_path` will be used; if that is not set, the "
+        "current directory is used."
+    ),
 )
 #: Standard option
 name_option = click.option(
@@ -79,6 +83,26 @@ name_option = click.option(
         "The name of the workflow. If specified, the workflow directory will be "
         "`path` joined with `name`. If not specified the workflow template name "
         "will be used, in combination with a date-timestamp."
+    ),
+)
+#: Standard option
+name_timestamp_option = click.option(
+    "--name-timestamp/--name-no-timestamp",
+    "name_add_timestamp",
+    is_flag=True,
+    default=True,
+    help="If True, suffix the workflow name with a date-timestamp.",
+)
+#: Standard option
+name_dir_option = click.option(
+    "--name-dir/--name-no-dir",
+    "name_use_dir",
+    is_flag=True,
+    default=False,
+    help=(
+        "If True, and `--name-timestamp` is also True, the workflow directory name "
+        "will be just the date-timestamp, and will be contained within a parent "
+        "directory corresponding to the workflow name."
     ),
 )
 #: Standard option

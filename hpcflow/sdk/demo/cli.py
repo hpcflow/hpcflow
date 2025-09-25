@@ -14,6 +14,8 @@ from hpcflow.sdk.cli_common import (
     format_option,
     path_option,
     name_option,
+    name_timestamp_option,
+    name_dir_option,
     overwrite_option,
     store_option,
     ts_fmt_option,
@@ -114,6 +116,8 @@ def get_demo_workflow_CLI(app: BaseApp):
     @format_option
     @path_option
     @name_option
+    @name_timestamp_option
+    @name_dir_option
     @overwrite_option
     @store_option
     @ts_fmt_option
@@ -126,6 +130,8 @@ def get_demo_workflow_CLI(app: BaseApp):
         format: Literal["json", "yaml"] | None,
         path: Path | None,
         name: str | None,
+        name_add_timestamp: bool,
+        name_use_dir: bool,
         overwrite: bool,
         store: str,
         ts_fmt: str | None = None,
@@ -139,6 +145,8 @@ def get_demo_workflow_CLI(app: BaseApp):
             template_format=format,
             path=path,
             name=name,
+            name_add_timestamp=name_add_timestamp,
+            name_use_dir=name_use_dir,
             overwrite=overwrite,
             store=store,
             ts_fmt=ts_fmt,
@@ -159,6 +167,8 @@ def get_demo_workflow_CLI(app: BaseApp):
     @format_option
     @path_option
     @name_option
+    @name_timestamp_option
+    @name_dir_option
     @overwrite_option
     @store_option
     @ts_fmt_option
@@ -176,6 +186,8 @@ def get_demo_workflow_CLI(app: BaseApp):
         format: Literal["json", "yaml"] | None,
         path: Path | None,
         name: str | None,
+        name_add_timestamp: bool,
+        name_use_dir: bool,
         overwrite: bool,
         store: str,
         ts_fmt: str | None = None,
@@ -194,6 +206,8 @@ def get_demo_workflow_CLI(app: BaseApp):
             template_format=format,
             path=path,
             name=name,
+            name_add_timestamp=name_add_timestamp,
+            name_use_dir=name_use_dir,
             overwrite=overwrite,
             store=store,
             ts_fmt=ts_fmt,

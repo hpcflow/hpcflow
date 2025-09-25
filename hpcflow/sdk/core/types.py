@@ -328,11 +328,11 @@ class CreationInfo(TypedDict):
     #: Unique identifier for the workflow.
     id: str
     #: User's name.
-    user_name: str
+    user_name: str | None  # TODO: None for backwards compat
     #: User's ORCID.
-    user_orcid: str
+    user_orcid: str | None  # TODO: None for backwards compat
     #: User's affiliations.
-    user_affiliations: list[str]
+    user_affiliations: list[str] | None  # TODO: None for backwards compat
 
 
 class WorkflowTemplateTaskData(TypedDict):
