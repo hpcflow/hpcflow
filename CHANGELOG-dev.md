@@ -1,4 +1,24 @@
 
+<a name="v0.2.0a249"></a>
+## [v0.2.0a249](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a248...v0.2.0a249) - 2025.09.25
+
+### ✨ Features
+
+* add option for workflow path to include nested dir for name
+* add config item for default workflow path
+
+### 🐛 Bug Fixes
+
+* typing
+* backwards compat missing from PR [#874](https://github.com/hpcflow/hpcflow-new/issues/874)
+* CLI
+* typing
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a248"></a>
 ## [v0.2.0a248](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a247...v0.2.0a248) - 2025.09.24
 
