@@ -90,19 +90,24 @@ name_timestamp_option = click.option(
     "--name-timestamp/--name-no-timestamp",
     "name_add_timestamp",
     is_flag=True,
-    default=True,
-    help="If True, suffix the workflow name with a date-timestamp.",
+    default=None,
+    help=(
+        "If True, suffix the workflow name with a date-timestamp. A default value can be "
+        " set with the config item `workflow_name_add_timestamp`; otherwise set to "
+        "`True`."
+    ),
 )
 #: Standard option
 name_dir_option = click.option(
     "--name-dir/--name-no-dir",
     "name_use_dir",
     is_flag=True,
-    default=False,
+    default=None,
     help=(
         "If True, and `--name-timestamp` is also True, the workflow directory name "
         "will be just the date-timestamp, and will be contained within a parent "
-        "directory corresponding to the workflow name."
+        "directory corresponding to the workflow name. A default value can be set with "
+        "the config item `workflow_name_use_dir`; otherwise set to `False`."
     ),
 )
 #: Standard option

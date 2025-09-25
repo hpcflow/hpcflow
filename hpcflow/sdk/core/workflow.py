@@ -910,8 +910,8 @@ class Workflow(AppAware):
         template: WorkflowTemplate,
         path: PathLike = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -934,11 +934,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp. A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with config the item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1014,8 +1016,8 @@ class Workflow(AppAware):
         YAML_path: PathLike,
         path: PathLike = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1038,11 +1040,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp. A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1086,8 +1090,8 @@ class Workflow(AppAware):
         YAML_str: str,
         path: PathLike = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1111,11 +1115,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp.  A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1160,8 +1166,8 @@ class Workflow(AppAware):
         JSON_path: PathLike,
         path: PathLike = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1185,11 +1191,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp.  A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1234,8 +1242,8 @@ class Workflow(AppAware):
         JSON_str: str,
         path: PathLike = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1259,11 +1267,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp. A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1310,8 +1320,8 @@ class Workflow(AppAware):
         template_format: Literal["json", "yaml"] | None = None,
         path: str | None = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1339,11 +1349,13 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp. A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -1400,8 +1412,8 @@ class Workflow(AppAware):
         config: dict | None = None,
         path: PathLike | None = None,
         workflow_name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -1437,11 +1449,14 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the workflow name with a date-timestamp.
+            If True, suffix the workflow name with a date-timestamp. A default value can
+            be set with the config item `workflow_name_add_timestamp`; otherwise set to
+            `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         overwrite:
             If True and the workflow directory (`path` + `name`) already exists, the
             existing directory will be overwritten.
@@ -2165,8 +2180,8 @@ class Workflow(AppAware):
         *,
         path: PathLike | None = None,
         name: str | None = None,
-        name_add_timestamp: bool = True,
-        name_use_dir: bool = False,
+        name_add_timestamp: bool | None = None,
+        name_use_dir: bool | None = None,
         overwrite: bool | None = False,
         store: str = DEFAULT_STORE_FORMAT,
         ts_fmt: str | None = None,
@@ -2188,12 +2203,28 @@ class Workflow(AppAware):
             that of the template (optionally suffixed by a date-timestamp if
             `name_add_timestamp` is True).
         name_add_timestamp
-            If True, suffix the name with a date-timestamp.
+            If True, suffix the name with a date-timestamp. A default value can be set
+            with the config item `workflow_name_add_timestamp`; otherwise set to `True`.
         name_use_dir
             If True, and `name_add_timestamp` is also True, the workflow directory name
             will be just the date-timestamp, and will be contained within a parent
-            directory corresponding to the workflow name.
+            directory corresponding to the workflow name. A default value can be set
+            with the config item `workflow_name_use_dir`; otherwise set to `False`.
         """
+
+        if name_use_dir is None:
+            # use value from the config if available
+            if (cfg_use_dir := cls._app.config.workflow_name_use_dir) is not None:
+                name_use_dir = cfg_use_dir
+            else:
+                name_use_dir = False
+
+        if name_add_timestamp is None:
+            # use value from the config if available
+            if (cfg_add_ts := cls._app.config.workflow_name_add_timestamp) is not None:
+                name_add_timestamp = cfg_add_ts
+            else:
+                name_add_timestamp = True
 
         # store all times in UTC, since NumPy doesn't support time zone info:
         ts_utc = current_timestamp()
