@@ -21,6 +21,8 @@ rules:
         - demo_data_dir
         - demo_data_manifest_file
         - default_workflow_path
+        - workflow_name_use_dir
+        - workflow_name_add_timestamp
   - path: []
     condition:
       value.required_keys:
@@ -244,3 +246,15 @@ rules:
     doc: Default directory path in which new workflows will be generated.
     condition:
       value.is_instance: [str, path]
+
+  - path: [workflow_name_add_timestamp]
+    doc: By default, whether to suffix the workflow name with a date-timestamp.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [workflow_name_add_timestamp]
+    doc: >
+      By default, whether to use a directory named according to the workflow name, and 
+      a separate child directory named according to the date-timestamp if present.
+    condition:
+      value.is_instance: [bool]

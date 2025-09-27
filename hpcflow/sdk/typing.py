@@ -142,8 +142,8 @@ class MakeWorkflowCommonArgs(TypedDict):
 
     path: str | None
     name: str | None
-    name_add_timestamp: bool
-    name_use_dir: bool
+    name_add_timestamp: bool | None
+    name_use_dir: bool | None
     overwrite: bool
     store: str
     ts_fmt: str | None
