@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a250"></a>
+## [v0.2.0a250](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a249...v0.2.0a250) - 2025.09.27
+
+### ✨ Features
+
+* add default config items for workflow `name_add_timestamp` and `name_use_dir`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a249"></a>
 ## [v0.2.0a249](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a248...v0.2.0a249) - 2025.09.25
 
