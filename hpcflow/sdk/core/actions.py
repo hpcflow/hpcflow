@@ -3178,11 +3178,16 @@ class Action(JSONLike):
             # can be used to control the inputs/outputs of a script/program.
             params = set(self.task_schema.input_types)
         else:
+            in_lab_map = self.task_schema.input_type_labels_map
             params = set(self.get_command_input_types(sub_parameters))
             for ifg in self.input_file_generators:
-                params.update(inp.typ for inp in ifg.inputs)
+                params.update(
+                    lab_j for inp in ifg.inputs for lab_j in in_lab_map[inp.typ]
+                )
             for ofp in self.output_file_parsers:
-                params.update(ofp.inputs or ())
+                params.update(
+                    lab_j for inp in (ofp.inputs or ()) for lab_j in in_lab_map[inp.typ]
+                )
 
         if self.jinja_template:
             params.update(self._get_jinja_template_input_types())
