@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a252"></a>
+## [v0.2.0a252](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a251...v0.2.0a252) - 2025.10.27
+
+### 🐛 Bug Fixes
+
+* typing
+* waiting on WSL jobscripts
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a251"></a>
 ## [v0.2.0a251](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a250...v0.2.0a251) - 2025.10.07
 
