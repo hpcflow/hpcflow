@@ -5,6 +5,7 @@ Shell models based on the GNU Bourne-Again Shell.
 from __future__ import annotations
 from pathlib import Path
 import subprocess
+import shutil
 from textwrap import dedent, indent
 from typing import TYPE_CHECKING
 from typing_extensions import override
@@ -335,7 +336,7 @@ class WSLBash(Bash):
     """
 
     #: Default name of the WSL interface executable.
-    DEFAULT_WSL_EXE: ClassVar[str] = "wsl"
+    DEFAULT_WSL_EXE: ClassVar[str] = "wsl.exe"
 
     #: Template for the jobscript functions file.
     JS_FUNCS: ClassVar[str] = dedent(
@@ -400,8 +401,14 @@ class WSLBash(Bash):
         *args,
         **kwargs,
     ):
+
+        # `Start-Process` (see `Jobscript._launch_direct_js_win`) seems to resolve the
+        # executable, which means the process's `cmdline` might look different to what we
+        # record; so let's resolve the WSL executable ourselves:
+        resolved_exec = shutil.which(WSL_executable or self.DEFAULT_WSL_EXE)
+        assert resolved_exec
         #: The WSL executable wrapper.
-        self.WSL_executable = WSL_executable or self.DEFAULT_WSL_EXE
+        self.WSL_executable = resolved_exec
         #: The WSL distribution to use, if any.
         self.WSL_distribution = WSL_distribution
         #: The WSL user to use, if any.
