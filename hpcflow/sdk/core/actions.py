@@ -3186,12 +3186,13 @@ class Action(JSONLike):
                 )
             for ofp in self.output_file_parsers:
                 params.update(
-                    lab_j for inp in (ofp.inputs or ()) for lab_j in in_lab_map[inp.typ]
+                    lab_j
+                    for inp_typ in (ofp.inputs or ())
+                    for lab_j in in_lab_map[inp_typ]
                 )
 
         if self.jinja_template:
             params.update(self._get_jinja_template_input_types())
-
         return tuple(params)
 
     def get_output_types(self) -> tuple[str, ...]:
