@@ -839,6 +839,13 @@ class TaskSchema(JSONLike):
         return [typ for inp in self.inputs for typ in inp.all_labelled_types]
 
     @property
+    def input_type_labels_map(self) -> dict[str, tuple[str, ...]]:
+        """
+        A map between input types and their associated labelled types.
+        """
+        return {inp.typ: tuple(inp.all_labelled_types) for inp in self.inputs}
+
+    @property
     def output_types(self) -> list[str]:
         """
         The output types from the schema.

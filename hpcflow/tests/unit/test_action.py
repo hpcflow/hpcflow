@@ -1046,6 +1046,11 @@ def test_from_json_like_envs_as_dict_equivalence(null_config):
 
 def test_get_input_types_jinja_template(null_config):
     act = hf.Action(jinja_template="test/test_template.txt")
+    hf.TaskSchema(
+        objective="obj",
+        inputs=[hf.SchemaInput("fruits"), hf.SchemaInput("name")],
+        actions=[act],
+    )  # the action must be bound to a task schema for `get_input_types` to work
     assert sorted(act.get_input_types()) == sorted(("fruits", "name"))
 
 
