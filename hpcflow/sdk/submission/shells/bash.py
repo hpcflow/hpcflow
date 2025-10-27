@@ -405,8 +405,10 @@ class WSLBash(Bash):
         # `Start-Process` (see `Jobscript._launch_direct_js_win`) seems to resolve the
         # executable, which means the process's `cmdline` might look different to what we
         # record; so let's resolve the WSL executable ourselves:
+        resolved_exec = shutil.which(WSL_executable or self.DEFAULT_WSL_EXE)
+        assert resolved_exec
         #: The WSL executable wrapper.
-        self.WSL_executable = shutil.which(WSL_executable or self.DEFAULT_WSL_EXE)
+        self.WSL_executable = resolved_exec
         #: The WSL distribution to use, if any.
         self.WSL_distribution = WSL_distribution
         #: The WSL user to use, if any.
