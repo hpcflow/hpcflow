@@ -1056,6 +1056,11 @@ def test_get_input_types_jinja_template(null_config):
 
 def test_is_input_type_required_jinja_template(null_config):
     act = hf.Action(jinja_template="test/test_template.txt")
+    hf.TaskSchema(
+        objective="obj",
+        inputs=[hf.SchemaInput("fruits"), hf.SchemaInput("name")],
+        actions=[act],
+    )  # the action must be bound to a task schema for `is_input_type_required` to work
     assert act.is_input_type_required("name", [])
     assert act.is_input_type_required("fruits", [])
     assert not act.is_input_type_required("vegetables", [])
