@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a254"></a>
+## [v0.2.0a254](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a253...v0.2.0a254) - 2025.10.29
+
+### 🐛 Bug Fixes
+
+* more multi-label fixes
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a253"></a>
 ## [v0.2.0a253](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a252...v0.2.0a253) - 2025.10.27
 
