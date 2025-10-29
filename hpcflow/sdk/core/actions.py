@@ -978,28 +978,6 @@ class ElementActionRun(AppAware):
             for file_spec in self.action.output_file_parsers[0].output_files
         }
 
-    def get_OFP_inputs(
-        self, raise_on_unset: bool = False
-    ) -> Mapping[str, str | list[str] | Mapping[str, Any]]:
-        """
-        Get a dict of input values that are to be passed to output file parsers.
-        """
-        if not self.action._from_expand:
-            raise RuntimeError(
-                "Cannot get output file parser inputs from this from EAR because the "
-                "associated action is not expanded, meaning multiple OFPs might exist."
-            )
-        inputs: dict[str, str | list[str] | Mapping[str, Any]] = (
-            {}
-        )  # not sure this type is correct
-        for inp_typ in self.action.output_file_parsers[0].inputs or []:
-            inputs[inp_typ] = self.get(f"inputs.{inp_typ}", raise_on_unset=raise_on_unset)
-
-        if self.action.script_pass_env_spec:
-            inputs["env_spec"] = self.env_spec
-
-        return inputs
-
     def get_OFP_outputs(
         self, raise_on_unset: bool = False
     ) -> Mapping[str, str | list[str]]:
@@ -1056,7 +1034,7 @@ class ElementActionRun(AppAware):
 
         elif self.action.is_OFP:
             kwargs.update(self.get_OFP_output_files())
-            kwargs.update(self.get_OFP_inputs(raise_on_unset=raise_on_unset))
+            kwargs.update(self.get_data_in_values_direct(raise_on_unset=raise_on_unset))
             kwargs.update(self.get_OFP_outputs(raise_on_unset=raise_on_unset))
 
         if (
@@ -3401,10 +3379,11 @@ class Action(JSONLike):
 
         # typ is required if used in any input file generators and input file is not
         # provided:
+        in_lab_map = self.task_schema.input_type_labels_map
         for ifg in self.input_file_generators:
-            if typ in (inp.typ for inp in ifg.inputs) and (
-                ifg.input_file not in provided_files
-            ):
+            if typ in (
+                lab_typ for inp in ifg.inputs for lab_typ in in_lab_map[inp.typ]
+            ) and (ifg.input_file not in provided_files):
                 return True
 
         # typ is required if it is in the set of Jinja template undeclared variables
@@ -3413,7 +3392,11 @@ class Action(JSONLike):
                 return True
 
         # typ is required if used in any output file parser
-        return any(typ in (ofp.inputs or ()) for ofp in self.output_file_parsers)
+        return any(
+            typ in in_lab_map[inp_typ]
+            for ofp in self.output_file_parsers
+            for inp_typ in (ofp.inputs or ())
+        )
 
     @TimeIt.decorator
     def test_rules(self, element_iter: ElementIteration) -> tuple[bool, list[int]]:
