@@ -79,7 +79,7 @@ jobs:
         run: ./compress.sh hpcflow-release-test-build-${{ matrix.executable_os }}-dir onedir
 
       - name: Upload compressed artifact (folder)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hpcflow-release-test-build-${{ matrix.executable_os }}-dir.zip
           path: pyinstaller/dist/onedir/hpcflow-release-test-build-${{ matrix.executable_os }}-dir.zip
@@ -118,13 +118,13 @@ jobs:
         run: ./make.sh hpcflow-release-test-build-linux-dir INFO onedir
 
       - name: Upload executable artifact (file)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hpcflow-release-test-build-linux
           path: pyinstaller/dist/onefile/hpcflow-release-test-build-linux
 
       - name: Upload executable artifact (folder)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hpcflow-release-test-build-linux-dir
           path: pyinstaller/dist/onedir/hpcflow-release-test-build-linux-dir
@@ -139,11 +139,11 @@ jobs:
 
       - run: mkdir release-artifacts
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         id: download_executables_I
         with:
           name: hpcflow-release-test-build-macOS-dir.zip
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         id: download_executables_II
         with:
           name: hpcflow-release-test-build-win-dir.zip
@@ -163,7 +163,7 @@ jobs:
 
       - run: mkdir release-artifacts
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         id: download_executables
         with:
           path: release-artifacts
