@@ -1226,7 +1226,7 @@ class Task(JSONLike):
         param_typ: str,
         existing_sources: list[InputSource],
         source_tasks: Sequence[WorkflowTask] = (),
-    ):
+    ) -> int:
         """Decide where to place a new task-output input source in the list of available
         sources.
 
@@ -1270,6 +1270,7 @@ class Task(JSONLike):
                 return num_existing - rev_idx
 
             elif ex_src.task_source_type == TaskSourceType.INPUT:
+                assert ex_src.task_ref is not None
                 has_local = self._app.InputSource.local() in [
                     src
                     for es in src_tasks[ex_src.task_ref].template.element_sets
