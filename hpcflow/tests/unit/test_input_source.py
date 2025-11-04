@@ -1354,3 +1354,126 @@ def test_input_source_task_ref_equivalence(null_config, tmp_path):
     all_sources = (task.elements[0].input_sources["inputs.p1"] for task in wk.tasks[1:])
     all_task_refs = (src.task_ref for src in all_sources)
     assert all(task_ref == 0 for task_ref in all_task_refs)
+
+
+def test_inp_src_task_output_precedence(null_config, tmp_path):
+    # test a task output source takes precedence over a task input source, even if the
+    # task input source is from a closer task.
+
+    s1, s2 = make_schemas(
+        ({"p0": None}, ("p1",), "t1"),
+        ({"p1": None, "p2": None}, ("p3",), "t2"),
+    )
+    s3 = hf.TaskSchema(
+        "t3",
+        inputs=[hf.SchemaInput("p1"), hf.SchemaInput("p3", group="my_group")],
+        outputs=[hf.SchemaOutput("p4")],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        "echo $(( <<sum(parameter:p3)>> + <<parameter:p1>> ))",
+                        stdout="<<parameter:p4>>",
+                    )
+                ]
+            ),
+        ],
+    )
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_inp_src",
+        tasks=[
+            hf.Task(s1, inputs={"p0": 1}),
+            hf.Task(
+                s2,
+                sequences=[hf.ValueSequence("inputs.p2", [0, 1, 2])],
+                groups=[hf.ElementGroup(name="my_group")],
+            ),
+            hf.Task(s3),
+        ],
+        path=tmp_path,
+    )
+
+    task = wk.tasks.t3
+    task_template = task.template
+    inp_sources = task_template.get_available_task_input_sources(
+        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+    )
+    assert inp_sources["p1"] == [
+        hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0]),
+        hf.InputSource.task(
+            task_ref=1, task_source_type="input", element_iters=[1, 2, 3]
+        ),
+    ]
+    # p1 source from t1 output should take precedence, rather than t2 input (t2 input has
+    # multiple elements, so interferes with grouping on the other parameter, p3)
+
+
+def test_task_type_sources_output_input_swapped_on_local_inputs_defined(
+    null_config, tmp_path
+):
+
+    s1, s2, s3 = make_schemas(
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p3",), "t2"),
+        ({"p2": None}, ("p4",), "t3"),
+    )
+
+    # t2's input sources for p2 do not include any local sources, so the task-output source
+    # from t1 should be preferred.
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_inp_src",
+        tasks=[
+            hf.Task(s1, inputs={"p1": 100}),
+            hf.Task(s2),
+            hf.Task(s3),
+        ],
+        path=tmp_path,
+    )
+
+    task = wk.tasks.t3
+    task_template = task.template
+    inp_sources = task_template.get_available_task_input_sources(
+        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+    )
+    assert inp_sources["p2"] == [
+        hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0]),
+        hf.InputSource.task(task_ref=1, task_source_type="input", element_iters=[1]),
+        hf.InputSource.default(),
+    ]
+
+
+def test_task_type_sources_output_input_not_swapped_on_no_local_inputs_defined(
+    null_config, tmp_path
+):
+    s1, s2, s3 = make_schemas(
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2": None}, ("p3",), "t2"),
+        ({"p2": None}, ("p4",), "t3"),
+    )
+
+    # now include a local source in t2, which should switch p2's input source precedence in t3
+    # such that the task-input source from t2 is preferred over the task-output source from
+    # t1
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_inp_src",
+        tasks=[
+            hf.Task(s1, inputs={"p1": 100}),
+            hf.Task(s2, inputs={"p2": 200}),
+            hf.Task(s3),
+        ],
+        path=tmp_path,
+    )
+
+    task = wk.tasks.t3
+    task_template = task.template
+    inp_sources = task_template.get_available_task_input_sources(
+        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+    )
+    assert inp_sources["p2"] == [
+        hf.InputSource.task(task_ref=1, task_source_type="input", element_iters=[1]),
+        hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0]),
+        hf.InputSource.default(),
+    ]
