@@ -1,4 +1,20 @@
 
+<a name="v0.2.0a255"></a>
+## [v0.2.0a255](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a254...v0.2.0a255) - 2025.11.04
+
+### ✨ Features
+
+* change inp source default behaviour so outputs of further-away tasks take precedence over input of closer tasks if the input sources do not point to any local values
+
+### 🐛 Bug Fixes
+
+* typing
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a254"></a>
 ## [v0.2.0a254](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a253...v0.2.0a254) - 2025.10.29
 
