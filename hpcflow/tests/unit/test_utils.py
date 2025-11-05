@@ -357,7 +357,7 @@ def test_split_param_label(null_config):
     assert split_param_label("p1") == ("p1", None)
     assert split_param_label("p1[one]") == ("p1", "one")
     assert split_param_label("p1.sub.data") == ("p1.sub.data", None)
-    assert split_param_label("p1.sub.data[one]") == ("p1.sub.data", "one")
+    assert split_param_label("p1[one].sub.data") == ("p1.sub.data", "one")
 
 
 def test_process_string_nodes(null_config):

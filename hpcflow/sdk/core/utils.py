@@ -915,15 +915,20 @@ def get_enum_by_name_or_val(
     raise ValueError(f"Unknown enum key or value {key!r} for class {enum_cls!r}")
 
 
-_PARAM_SPLIT_RE = re.compile(r"((?:\w|\.)+)(?:\[(\w+)\])?")
+_PARAM_SPLIT_RE = re.compile(r"^((?:\w+\.)*)(\w+)(?:\[(\w+)\])?((?:\.\w+)*)$")
 
 
-def split_param_label(param_path: str) -> tuple[str, str] | tuple[None, None]:
+def split_param_label(
+    param_path: str,
+) -> tuple[str, str] | tuple[str, None] | tuple[None, None]:
     """Split a parameter path into the path and the label, if present."""
-    if match := _PARAM_SPLIT_RE.match(param_path):
-        return match[1], match[2]
-    else:
-        return None, None
+    m = _PARAM_SPLIT_RE.match(param_path)
+    if not m:
+        return (None, None)
+
+    clean_path = m.group(1) + m.group(2) + m.group(4)
+    bracket_value = m.group(3)
+    return (clean_path, bracket_value)
 
 
 def process_string_nodes(data: T, str_processor: Callable[[str], str]) -> T:
