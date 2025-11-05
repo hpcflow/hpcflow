@@ -1,10 +1,12 @@
 import sys
+from textwrap import dedent
 import numpy as np
 from pathlib import Path
 import pytest
 import requests
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.utils import read_YAML_str
 from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 
@@ -460,3 +462,88 @@ def test_from_rectangle_coord_none(null_config):
 def test_environments_sequence_to_resources(null_config):
     seq = hf.ValueSequence(path="environments.my_env.version", values=[1, 2])
     assert seq.path == "resources.any.environments.my_env.version"
+
+
+def test_from_yaml_and_json_like_various(null_config):
+    seed = 13123
+    es_1 = dedent(
+        """\
+    sequences:
+      - path: inputs.p1c::from_data
+        nesting_order: 1
+        values: [100, 200]
+    """
+    )
+    es_2 = dedent(
+        f"""\
+    sequences:
+      - path: inputs.p1
+        nesting_order: 1
+        values::from_normal:
+          loc: 1.4
+          scale: 0.1
+          shape: 2
+          seed: {seed}
+    """
+    )
+
+    es_3 = dedent(
+        f"""\
+    sequences:
+      - path: inputs.p1c::from_data
+        nesting_order: 1
+        values::from_normal:
+          loc: 1.4
+          scale: 0.1
+          shape: 2
+          seed: {seed}
+    """
+    )
+
+    es_JSONs = [read_YAML_str(es_i) for es_i in (es_1, es_2, es_3)]
+    es = [hf.ElementSet.from_json_like(es_json_i) for es_json_i in es_JSONs]
+    seqs = [es_i.sequences[0] for es_i in es]
+
+    assert (
+        seqs[0]
+        == hf.ValueSequence.from_json_like(
+            {
+                "path": "inputs.p1c::from_data",
+                "values": [100, 200],
+                "nesting_order": 1,
+            }
+        )
+        == hf.ValueSequence(
+            "inputs.p1c",
+            values=[100, 200],
+            nesting_order=1,
+            value_class_method="from_data",
+        )
+    )
+
+    norm_args = {"loc": 1.4, "scale": 0.1, "shape": 2, "seed": seed}
+    assert (
+        seqs[1]
+        == hf.ValueSequence.from_json_like(
+            {
+                "path": "inputs.p1",
+                "values::from_normal": norm_args,
+                "nesting_order": 1,
+            }
+        )
+        == hf.ValueSequence.from_normal("inputs.p1", nesting_order=1, **norm_args)
+    )
+
+    assert (
+        seqs[2]
+        == hf.ValueSequence.from_json_like(
+            {
+                "path": "inputs.p1c::from_data",
+                "values::from_normal": norm_args,
+                "nesting_order": 1,
+            }
+        )
+        == hf.ValueSequence.from_normal(
+            "inputs.p1c", nesting_order=1, **norm_args, value_class_method="from_data"
+        )
+    )

@@ -146,3 +146,13 @@ def test_input_source_str_dict_list_str_list_dict_equivalence(null_config) -> No
             {"input_sources": {"p1": inp_source_list_str}}
         ).input_sources
     )
+
+
+def test_element_set_input_dict_equivalence(null_config):
+    assert hf.ElementSet(
+        inputs=[hf.InputValue("p1", label="A", value=1)]
+    ) == hf.ElementSet(inputs={"p1[A]": 1})
+
+    assert hf.ElementSet(
+        inputs=[hf.InputValue("p1", label="A", path="b", value=1)]
+    ) == hf.ElementSet(inputs={"p1[A].b": 1})

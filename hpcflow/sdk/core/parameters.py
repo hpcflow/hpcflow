@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 from typing import TypeVar, cast, TYPE_CHECKING
 from typing_extensions import override, TypeIs
+import warnings
 
 import numpy as np
 from scipy.stats.qmc import LatinHypercube, scale
@@ -33,11 +34,11 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import (
     check_valid_py_identifier,
     get_enum_by_name_or_val,
-    linspace_rect,
     process_string_nodes,
     split_param_label,
     timedelta_format,
 )
+from hpcflow.sdk.core.values import ValuesMixin
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -746,28 +747,16 @@ class _BaseSequence(JSONLike):
         if "::" in val_key:
             # class method (e.g. `from_range`, `from_file` etc):
             _, method = val_key.split("::")
-            _values_method_args = json_like.pop(val_key)
-
-            if "paths" in json_like:  # note: plural
-                # only applicable to `MultiPathSequence`, where it is useful to know
-                # how many paths we are generating sequences for:
-                _values_method_args["paths"] = json_like["paths"]
-
-            _values_method = f"_values_{method}"
-            _values_method_args = _process_demo_data_strings(
-                cls._app, _values_method_args
-            )
-            json_like["values"] = getattr(cls, _values_method)(**_values_method_args)
-
-        obj = super().from_json_like(json_like, shared_data)
-        if "::" in val_key:
-            obj._values_method = method
-            obj._values_method_args = _values_method_args
+            json_like.update(json_like.pop(val_key))
+            json_like = _process_demo_data_strings(cls._app, json_like)
+            obj = getattr(cls, method)(**json_like)
+        else:
+            obj = super().from_json_like(json_like, shared_data)
 
         return obj
 
 
-class ValueSequence(_BaseSequence):
+class ValueSequence(_BaseSequence, ValuesMixin):
     """
     A sequence of values.
 
@@ -823,8 +812,11 @@ class ValueSequence(_BaseSequence):
 
         self._path_split: list[str] | None = None  # assigned by property `path_split`
 
+        #: Which class method of this class was used to instantiate this instance, if any:
         self._values_method: str | None = None
-        self._values_method_args: dict | None = None
+        #: Keyword-arguments that were passed to the factory class method of this class
+        #: to instantiate this instance, if such a method was used:
+        self._values_method_args: dict[str, Any] | None = None
 
     def __repr__(self):
         label_str = ""
@@ -1143,60 +1135,31 @@ class ValueSequence(_BaseSequence):
             return self._values
 
     @classmethod
-    def _values_from_linear_space(
-        cls, start: float, stop: float, num: int, **kwargs
-    ) -> list[float]:
-        return np.linspace(start, stop, num=num, **kwargs).tolist()
-
-    @classmethod
-    def _values_from_geometric_space(
-        cls, start: float, stop: float, num: int, **kwargs
-    ) -> list[float]:
-        return np.geomspace(start, stop, num=num, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
-
-    @classmethod
-    def _values_from_log_space(
-        cls, start: float, stop: float, num: int, base: float = 10.0, **kwargs
-    ) -> list[float]:
-        return np.logspace(start, stop, num=num, base=base, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
-
-    @classmethod
-    def _values_from_range(
-        cls, start: int | float, stop: int | float, step: int | float, **kwargs
-    ) -> list[float]:
-        return np.arange(start, stop, step, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
-
-    @classmethod
-    def _values_from_file(cls, file_path: str | Path) -> list[str]:
-        with Path(file_path).open("rt") as fh:
-            return [line.strip() for line in fh.readlines()]
-
-    @classmethod
-    def _values_from_rectangle(
+    def _process_mixin_args(
         cls,
-        start: Sequence[float],
-        stop: Sequence[float],
-        num: Sequence[int],
-        coord: int | tuple[int, int] | None = None,
-        include: Sequence[str] | None = None,
-        **kwargs,
-    ) -> list[float]:
-        vals = linspace_rect(start=start, stop=stop, num=num, include=include, **kwargs)
-        if coord is not None:
-            return vals[coord].tolist()
-        else:
-            return (vals.T).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+        values: list[Any],
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float | None = None,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+    ):
+        """Process arguments as generated by the mixin class for instantiation of this
+        specific class."""
+        return {
+            "values": values,
+            "path": path,
+            "nesting_order": nesting_order,
+            "label": label,
+            "value_class_method": value_class_method,
+        }
 
-    @classmethod
-    def _values_from_random_uniform(
-        cls,
-        num: int,
-        low: float = 0.0,
-        high: float = 1.0,
-        seed: int | list[int] | None = None,
-    ) -> list[float]:
-        rng = np.random.default_rng(seed)
-        return rng.uniform(low=low, high=high, size=num).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+    def _remember_values_method_args(
+        self, name: str | None, args: dict[str, Any]
+    ) -> Self:
+        # note: plural value here
+        self._values_method, self._values_method_args = name, args
+        return self
 
     @classmethod
     def from_linear_space(
@@ -1205,20 +1168,24 @@ class ValueSequence(_BaseSequence):
         start: float,
         stop: float,
         num: int,
-        nesting_order: float = 0,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from a NumPy linear space.
         """
-        # TODO: save persistently as an array?
-        args = {"start": start, "stop": stop, "num": num, **kwargs}
-        values = cls._values_from_linear_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_linear_space"
-        obj._values_method_args = args
-        return obj
+        return super()._from_linear_space(
+            path=path,
+            start=start,
+            stop=stop,
+            num=num,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
 
     @classmethod
     def from_geometric_space(
@@ -1227,20 +1194,26 @@ class ValueSequence(_BaseSequence):
         start: float,
         stop: float,
         num: int,
-        nesting_order: float = 0,
         endpoint=True,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from a NumPy geometric space.
         """
-        args = {"start": start, "stop": stop, "num": num, "endpoint": endpoint, **kwargs}
-        values = cls._values_from_geometric_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_geometric_space"
-        obj._values_method_args = args
-        return obj
+        return super()._from_geometric_space(
+            path=path,
+            start=start,
+            stop=stop,
+            num=num,
+            endpoint=endpoint,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
 
     @classmethod
     def from_log_space(
@@ -1249,28 +1222,28 @@ class ValueSequence(_BaseSequence):
         start: float,
         stop: float,
         num: int,
-        nesting_order: float = 0,
         base=10.0,
         endpoint=True,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
-        Build a sequence from a NumPy logarithmic space.
+        Build a sequence from a NumPy geometric space.
         """
-        args = {
-            "start": start,
-            "stop": stop,
-            "num": num,
-            "endpoint": endpoint,
-            "base": base,
+        return super()._from_log_space(
+            path=path,
+            start=start,
+            stop=stop,
+            num=num,
+            base=base,
+            endpoint=endpoint,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
             **kwargs,
-        }
-        values = cls._values_from_log_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_log_space"
-        obj._values_method_args = args
-        return obj
+        )
 
     @classmethod
     def from_range(
@@ -1278,61 +1251,47 @@ class ValueSequence(_BaseSequence):
         path: str,
         start: float,
         stop: float,
-        nesting_order: float = 0,
         step: int | float = 1,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
-        Build a sequence from a range.
+        Build a sequence from a NumPy range.
         """
-        # TODO: save persistently as an array?
-        args = {"start": start, "stop": stop, "step": step, **kwargs}
-        if isinstance(step, int):
-            values = cls._values_from_range(**args)
-        else:
-            # Use linspace for non-integer step, as recommended by Numpy:
-            values = cls._values_from_linear_space(
-                start=start,
-                stop=stop,
-                num=int((stop - start) / step),
-                endpoint=False,
-                **kwargs,
-            )
-        obj = cls(
-            values=values,
+        return super()._from_range(
             path=path,
-            nesting_order=nesting_order,
+            start=start,
+            stop=stop,
+            step=step,
             label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
         )
-        obj._values_method = "from_range"
-        obj._values_method_args = args
-        return obj
 
     @classmethod
     def from_file(
         cls,
         path: str,
         file_path: str | Path,
-        nesting_order: float = 0,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
-        Build a sequence from a simple file.
+        Build a sequence from data within a simple file.
         """
-        args = {"file_path": file_path, **kwargs}
-        values = cls._values_from_file(**args)
-        obj = cls(
-            values=values,
+        return super()._from_file(
             path=path,
-            nesting_order=nesting_order,
+            file_path=file_path,
             label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
         )
-
-        obj._values_method = "from_file"
-        obj._values_method_args = args
-        return obj
 
     @classmethod
     def from_rectangle(
@@ -1343,12 +1302,13 @@ class ValueSequence(_BaseSequence):
         num: Sequence[int],
         coord: int | None = None,
         include: list[str] | None = None,
-        nesting_order: float = 0,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
-        Build a sequence to cover a rectangle.
+        Build a sequence from coordinates that cover the perimeter of a rectangle.
 
         Parameters
         ----------
@@ -1359,41 +1319,136 @@ class ValueSequence(_BaseSequence):
             If specified, include only the specified edges. Choose from "top", "right",
             "bottom", "left".
         """
-        args = {
-            "start": start,
-            "stop": stop,
-            "num": num,
-            "coord": coord,
-            "include": include,
+        return super()._from_rectangle(
+            path=path,
+            start=start,
+            stop=stop,
+            num=num,
+            coord=coord,
+            include=include,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
             **kwargs,
-        }
-        values = cls._values_from_rectangle(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_rectangle"
-        obj._values_method_args = args
-        return obj
+        )
 
     @classmethod
     def from_random_uniform(
         cls,
-        path,
+        path: str,
         num: int,
         low: float = 0.0,
         high: float = 1.0,
         seed: int | list[int] | None = None,
-        nesting_order: float = 0,
         label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from a uniform random number generator.
         """
-        args = {"low": low, "high": high, "num": num, "seed": seed, **kwargs}
-        values = cls._values_from_random_uniform(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_random_uniform"
-        obj._values_method_args = args
-        return obj
+        warnings.warn(
+            f"{cls.__name__!r}: Please use `from_uniform` instead of "
+            f"`from_random_uniform`, which will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return cls.from_uniform(
+            path=path,
+            shape=num,
+            low=low,
+            high=high,
+            seed=seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_uniform(
+        cls,
+        path: str,
+        shape: int | Sequence[int],
+        low: float = 0.0,
+        high: float = 1.0,
+        seed: int | list[int] | None = None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from a uniform random number generator.
+        """
+        return super()._from_uniform(
+            path=path,
+            low=low,
+            high=high,
+            shape=shape,
+            seed=seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_normal(
+        cls,
+        path: str,
+        shape: int | Sequence[int],
+        loc: float = 0.0,
+        scale: float = 1.0,
+        seed: int | list[int] | None = None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from a normal (Gaussian) random number generator.
+        """
+        return super()._from_normal(
+            path=path,
+            loc=loc,
+            scale=scale,
+            shape=shape,
+            seed=seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_log_normal(
+        cls,
+        path: str,
+        shape: int | Sequence[int],
+        mean: float = 0.0,
+        sigma: float = 1.0,
+        seed: int | list[int] | None = None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from a log-normal random number generator.
+        """
+        return super()._from_log_normal(
+            path=path,
+            mean=mean,
+            sigma=sigma,
+            shape=shape,
+            seed=seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
 
 
 class MultiPathSequence(_BaseSequence):
@@ -1819,7 +1874,7 @@ class ValuePerturbation(AbstractInputValue):
 
 
 @hydrate
-class InputValue(AbstractInputValue):
+class InputValue(AbstractInputValue, ValuesMixin):
     """
     An input value to a task.
 
@@ -1882,6 +1937,12 @@ class InputValue(AbstractInputValue):
         self.value_class_method = value_class_method
         self._value = _process_demo_data_strings(self._app, value)
 
+        #: Which class method of this class was used to instantiate this instance, if any:
+        self._value_method: str | None = None
+        #: Keyword-arguments that were passed to the factory class method of this class
+        #: to instantiate this instance, if such a method was used:
+        self._value_method_args: dict[str, Any] | None = None
+
         # record if a ParameterValue sub-class is passed for value, which allows us
         # to re-init the object on `.value`:
         self._value_is_obj = isinstance(value, ParameterValue)
@@ -1915,10 +1976,15 @@ class InputValue(AbstractInputValue):
         kwargs.pop("_schema_input", None)
         _value_group_idx = kwargs.pop("_value_group_idx")
         _value_is_obj = kwargs.pop("_value_is_obj")
+        _value_method = kwargs.pop("_value_method", None)
+        _value_method_args = kwargs.pop("_value_method_args", None)
+
         obj = self.__class__(**copy.deepcopy(kwargs, memo), _check_obj=False)
         obj._value = _value
         obj._value_group_idx = _value_group_idx
         obj._value_is_obj = _value_is_obj
+        obj._value_method = _value_method
+        obj._value_method_args = _value_method_args
         obj._element_set = self._element_set
         obj._schema_input = self._schema_input
         return obj
@@ -1960,13 +2026,17 @@ class InputValue(AbstractInputValue):
         """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
 
         _value_group_idx = json_like.pop("_value_group_idx", None)
-        _value_is_obj = json_like.pop("_value_is_obj", None)
+        _value_is_obj = json_like.pop("_value_is_obj", False)
+        _value_method = json_like.pop("_value_method", None)
+        _value_method_args = json_like.pop("_value_method_args", None)
         if "_value" in json_like:
             json_like["value"] = json_like.pop("_value")
 
         obj = cls(**json_like, _check_obj=False)
         obj._value_group_idx = _value_group_idx
         obj._value_is_obj = _value_is_obj
+        obj._value_method = _value_method
+        obj._value_method_args = _value_method_args
         obj._check_dict_value_if_object()
         return obj
 
@@ -2002,25 +2072,38 @@ class InputValue(AbstractInputValue):
 
     @classmethod
     def from_json_like(cls, json_like, shared_data=None):
-        if "[" in json_like["parameter"]:
+
+        param = json_like["parameter"]
+        cls_method = None
+        if "::" in json_like["parameter"]:
+            param, cls_method = json_like["parameter"].split("::")
+
+        if "[" in param:
             # extract out the parameter label:
-            param, label = split_param_label(json_like["parameter"])
-            json_like["parameter"] = param
+            param, label = split_param_label(param)
             json_like["label"] = label
 
-        if "::" in json_like["parameter"]:
-            # double-colon syntax indicates a `ParameterValue`-subclass class method
-            # of the specified name should be used to construct the values:
-            param, cls_method = json_like["parameter"].split("::")
-            json_like["parameter"] = param
-            json_like["value_class_method"] = cls_method
+        if "." in param:
+            param_split = param.split(".")
+            param = param_split[0]
+            json_like["path"] = ".".join(param_split[1:])
 
-        if "path" not in json_like:
-            # in the case this value corresponds to some sub-part of the parameter's
-            # nested data structure:
-            param, *path = json_like["parameter"].split(".")
-            json_like["parameter"] = param
-            json_like["path"] = ".".join(path)
+        json_like["parameter"] = param
+
+        if cls_method:
+            # double-colon syntax indicates either a `ParameterValue`-subclass class
+            # method, or an InputValue class method should be used to construct the values
+
+            # first check for a parameter value class:
+            param_obj = cls._app.Parameter(param)
+            param_obj._set_value_class()
+            if val_cls := param_obj._value_class:
+                if hasattr(val_cls, cls_method):
+                    json_like["value_class_method"] = cls_method
+
+            elif hasattr(cls, cls_method):
+                json_like.update(json_like.pop("value"))
+                return getattr(cls, cls_method)(**json_like)
 
         return super().from_json_like(json_like, shared_data)
 
@@ -2040,6 +2123,302 @@ class InputValue(AbstractInputValue):
             return val
         else:
             return self._value
+
+    @classmethod
+    def _process_mixin_args(
+        cls,
+        values: list[Any],
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float | None = None,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+    ):
+        """Process arguments as generated by the mixin class for instantiation of this
+        specific class."""
+        return {
+            "value": values,
+            "parameter": parameter,
+            "path": path,
+            "label": label,
+        }
+
+    def _remember_values_method_args(
+        self, name: str | None, args: dict[str, Any]
+    ) -> Self:
+        # note: singular value here
+        self._value_method, self._value_method_args = name, args
+        return self
+
+    @classmethod
+    def from_linear_space(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        start: float,
+        stop: float,
+        num: int,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a NumPy linear space.
+        """
+        return super()._from_linear_space(
+            parameter=parameter,
+            start=start,
+            stop=stop,
+            num=num,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_geometric_space(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        start: float,
+        stop: float,
+        num: int,
+        endpoint=True,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a NumPy geometric space.
+        """
+        return super()._from_geometric_space(
+            parameter=parameter,
+            start=start,
+            stop=stop,
+            num=num,
+            endpoint=endpoint,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_log_space(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        start: float,
+        stop: float,
+        num: int,
+        base=10.0,
+        endpoint=True,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a NumPy geometric space.
+        """
+        return super()._from_log_space(
+            parameter=parameter,
+            start=start,
+            stop=stop,
+            num=num,
+            base=base,
+            endpoint=endpoint,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_range(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        start: float,
+        stop: float,
+        step: int | float = 1,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a NumPy range.
+        """
+        return super()._from_range(
+            parameter=parameter,
+            start=start,
+            stop=stop,
+            step=step,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_file(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        file_path: str | Path,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a NumPy range.
+        """
+        return super()._from_file(
+            parameter=parameter,
+            file_path=file_path,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_rectangle(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        start: Sequence[float],
+        stop: Sequence[float],
+        num: Sequence[int],
+        coord: int | None = None,
+        include: list[str] | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a sequence of coordinates to cover the perimeter of a
+        rectangle.
+
+        Parameters
+        ----------
+        coord:
+            Which coordinate to use. Either 0, 1, or `None`, meaning each value will be
+            both coordinates.
+        include
+            If specified, include only the specified edges. Choose from "top", "right",
+            "bottom", "left".
+        """
+        return super()._from_rectangle(
+            parameter=parameter,
+            start=start,
+            stop=stop,
+            num=num,
+            coord=coord,
+            include=include,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_random_uniform(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        num: int,
+        low: float = 0.0,
+        high: float = 1.0,
+        seed: int | list[int] | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a uniform random number generator.
+        """
+        warnings.warn(
+            f"{cls.__name__!r}: Please use `from_uniform` instead of "
+            f"`from_random_uniform`, which will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return cls.from_uniform(
+            parameter=parameter,
+            shape=num,
+            low=low,
+            high=high,
+            seed=seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_uniform(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        low: float = 0.0,
+        high: float = 1.0,
+        shape: int | Sequence[int] | None = None,
+        seed: int | list[int] | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a uniform random number generator.
+        """
+        return super()._from_uniform(
+            parameter=parameter,
+            low=low,
+            high=high,
+            shape=shape,
+            seed=seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_normal(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        loc: float = 0.0,
+        scale: float = 1.0,
+        shape: int | Sequence[int] | None = None,
+        seed: int | list[int] | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a normal (Gaussian) random number generator.
+        """
+        return super()._from_normal(
+            parameter=parameter,
+            loc=loc,
+            scale=scale,
+            shape=shape,
+            seed=seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_log_normal(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        mean: float = 0.0,
+        sigma: float = 1.0,
+        shape: int | Sequence[int] | None = None,
+        seed: int | list[int] | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from a log-normal random number generator.
+        """
+        return super()._from_log_normal(
+            parameter=parameter,
+            mean=mean,
+            sigma=sigma,
+            shape=shape,
+            seed=seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
 
 
 class ResourceSpec(JSONLike):
