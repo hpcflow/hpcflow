@@ -150,6 +150,8 @@ class Loop(JSONLike):
         else:
             tt_iID = None
 
+        task_refs = None
+        term_task_ref = None
         if "task_refs" in json_like:
             task_refs = json_like.pop("task_refs")
         if "termination_task_ref" in json_like:
@@ -158,7 +160,7 @@ class Loop(JSONLike):
         obj = cls(tasks=insert_IDs, termination_task=tt_iID, **json_like)
         if task_refs:
             obj._task_refs = task_refs
-        if term_task_ref:
+        if term_task_ref is not None:
             obj._termination_task_ref = term_task_ref
 
         return obj

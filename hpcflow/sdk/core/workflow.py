@@ -987,6 +987,9 @@ class Workflow(AppAware):
                             f"Preparing to add {len(template.loops)} loops; building "
                             f"cache..."
                         )
+
+                    for loop in template.loops:
+                        loop._validate_against_workflow(wk)
                     # TODO: if loop with non-initialisable actions, will fail
                     cache = LoopCache.build(workflow=wk, loops=template.loops)
                     for idx, loop in enumerate(template.loops):
