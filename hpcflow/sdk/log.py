@@ -202,12 +202,26 @@ class AppLog:
         self._app = app
         #: The base logger for the application.
         self.logger = logging.getLogger(app.package_name)
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.WARNING)
         #: The handler for directing logging messages to the console.
         self.console_handler = self.__add_console_logger(
             level=log_console_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
         )
         self.file_handler: logging.FileHandler | None = None
+
+    def _ensure_logger_level(self):
+        """Ensure the logger's level is set to a level that triggers the handlers.
+
+        Notes
+        -----
+        Previously, we fixed the logger to DEBUG, but we found other Python packages
+        could then trigger debug logs in hpcflow even though the handlers were set to e.g.
+        ERROR.
+
+        """
+        min_level = min((handler.level for handler in self.logger.handlers), default=0)
+        if self.logger.level != min_level:
+            self.logger.setLevel(min_level)
 
     def __add_console_logger(self, level: str, fmt: str | None = None) -> logging.Handler:
         fmt = fmt or "%(levelname)s %(name)s: %(message)s"
@@ -215,6 +229,7 @@ class AppLog:
         handler.setFormatter(logging.Formatter(fmt))
         handler.setLevel(level)
         self.logger.addHandler(handler)
+        self._ensure_logger_level()
         return handler
 
     def update_console_level(self, new_level: str | None = None) -> None:
@@ -223,11 +238,13 @@ class AppLog:
         """
         new_level = new_level or AppLog.DEFAULT_LOG_CONSOLE_LEVEL
         self.console_handler.setLevel(new_level.upper())
+        self._ensure_logger_level()
 
     def update_file_level(self, new_level: str | None = None) -> None:
         if self.file_handler:
             new_level = new_level or AppLog.DEFAULT_LOG_FILE_LEVEL
             self.file_handler.setLevel(new_level.upper())
+            self._ensure_logger_level()
 
     def add_file_logger(
         self,
@@ -253,6 +270,7 @@ class AppLog:
         handler.setLevel(level.upper())
         self.logger.addHandler(handler)
         self.file_handler = handler
+        self._ensure_logger_level()
 
     def remove_file_handler(self) -> None:
         """Remove the file handler."""
@@ -262,3 +280,4 @@ class AppLog:
             )
             self.logger.removeHandler(self.file_handler)
             self.file_handler = None
+            self._ensure_logger_level()

@@ -134,7 +134,7 @@ def get_SDK_logger(name: str | None = None) -> logging.Logger:
 def _init_logger() -> None:
     level = os.environ.get("HPCFLOW_SDK_CONSOLE_LOG_LEVEL", "ERROR")
     SDK_logger = get_SDK_logger()
-    SDK_logger.setLevel("DEBUG")
+    SDK_logger.setLevel(level)
 
     sh = logging.StreamHandler()
     sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
