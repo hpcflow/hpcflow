@@ -81,9 +81,9 @@ def test_resources_spec_get_param_path_scope_with_no_kwargs(null_config) -> None
 
 
 def test_input_value_from_json_like_class_method_attribute_is_set(null_config) -> None:
-    parameter_typ = "p1"
+    parameter_typ = "p1c"
     cls_method = "from_data"
-    json_like = {"parameter": f"{parameter_typ}::{cls_method}", "value": 101}
+    json_like = {"parameter": f"{parameter_typ}::{cls_method}", "value": {"a": 101}}
     inp_val = hf.InputValue.from_json_like(json_like, shared_data=hf.template_components)
     assert inp_val.parameter.typ == parameter_typ
     assert inp_val.value_class_method == cls_method
