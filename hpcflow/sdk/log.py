@@ -252,6 +252,7 @@ class AppLog:
         level: str | None = None,
         fmt: str | None = None,
         max_bytes: int | None = None,
+        backup_count: int = 4,
     ) -> None:
         """
         Add a log file.
@@ -259,13 +260,17 @@ class AppLog:
         path = Path(path)
         fmt = fmt or "%(asctime)s %(levelname)s %(name)s: %(message)s"
         level = level or AppLog.DEFAULT_LOG_FILE_LEVEL
-        max_bytes = max_bytes or int(10e6)
+        max_bytes = max_bytes or int(50e6)
 
         if not path.parent.is_dir():
             self.logger.info(f"Generating log file parent directory: {path.parent!r}")
             path.parent.mkdir(exist_ok=True, parents=True)
 
-        handler = logging.handlers.RotatingFileHandler(filename=path, maxBytes=max_bytes)
+        handler = logging.handlers.RotatingFileHandler(
+            filename=path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+        )
         handler.setFormatter(logging.Formatter(fmt))
         handler.setLevel(level.upper())
         self.logger.addHandler(handler)
