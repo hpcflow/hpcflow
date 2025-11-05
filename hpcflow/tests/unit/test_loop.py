@@ -23,6 +23,29 @@ def test_loop_tasks_obj_insert_ID_equivalence(tmp_path: Path, store: str):
     assert lp_0.task_insert_IDs == lp_1.task_insert_IDs
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_loop_tasks_names(tmp_path: Path, store: str):
+    wk_1 = make_workflow(
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
+        local_inputs={0: ("p1",)},
+        path=tmp_path,
+        store=store,
+    )
+    lp_0 = hf.Loop(tasks=["t1"], num_iterations=2)
+    wk_1.add_loop(lp_0)
+
+    assert wk_1.loops[0].template.task_insert_IDs == (0,)
+    assert wk_1.loops[0].template.task_refs == ("t1",)
+    assert wk_1.loops[0].template.termination_task_insert_ID == 0
+    assert wk_1.loops[0].template.termination_task_ref == "t1"
+
+    wk_1 = wk_1.reload()
+    assert wk_1.loops[0].template.task_insert_IDs == (0,)
+    assert wk_1.loops[0].template.task_refs == ("t1",)
+    assert wk_1.loops[0].template.termination_task_insert_ID == 0
+    assert wk_1.loops[0].template.termination_task_ref == "t1"
+
+
 def test_raise_on_add_loop_same_name(tmp_path: Path):
     wk = make_workflow(
         schemas_spec=[({"p1": None}, ("p1",), "t1"), ({"p2": None}, ("p2",), "t2")],

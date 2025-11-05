@@ -1630,6 +1630,7 @@ class Workflow(AppAware):
     def _add_loop(
         self, loop: Loop, cache: LoopCache | None = None, status: Status | None = None
     ) -> None:
+        loop._validate_against_workflow(self)
         cache_ = cache or LoopCache.build(workflow=self, loops=[loop])
         new_wk_loop = self._add_empty_loop(loop, cache_)
         if loop.num_iterations is not None:
