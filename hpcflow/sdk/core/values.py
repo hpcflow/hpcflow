@@ -122,6 +122,7 @@ class ValuesMixin(ABC):
         path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -135,6 +136,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_linear_space", args)
@@ -150,6 +152,7 @@ class ValuesMixin(ABC):
         nesting_order: float = 0,
         endpoint=True,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -163,6 +166,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_geometric_space", args)
@@ -179,6 +183,7 @@ class ValuesMixin(ABC):
         base=10.0,
         endpoint=True,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -199,6 +204,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_log_space", args)
@@ -213,6 +219,7 @@ class ValuesMixin(ABC):
         nesting_order: float = 0,
         step: int | float = 1,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -238,6 +245,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_range", args)
@@ -250,6 +258,7 @@ class ValuesMixin(ABC):
         path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -263,6 +272,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_file", args)
@@ -279,6 +289,7 @@ class ValuesMixin(ABC):
         include: list[str] | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -308,6 +319,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_rectangle", args)
@@ -323,6 +335,7 @@ class ValuesMixin(ABC):
         path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -342,6 +355,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_uniform", args)
@@ -357,6 +371,7 @@ class ValuesMixin(ABC):
         path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -376,6 +391,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_normal", args)
@@ -391,6 +407,7 @@ class ValuesMixin(ABC):
         path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
+        value_class_method: str | None = None,
         **kwargs,
     ) -> T:
         """
@@ -410,6 +427,7 @@ class ValuesMixin(ABC):
                 path=path,
                 nesting_order=nesting_order,
                 label=label,
+                value_class_method=value_class_method,
             )
         )
         return obj._remember_values_method_args("from_log_normal", args)

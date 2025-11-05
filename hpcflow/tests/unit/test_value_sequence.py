@@ -460,3 +460,30 @@ def test_from_rectangle_coord_none(null_config):
 def test_environments_sequence_to_resources(null_config):
     seq = hf.ValueSequence(path="environments.my_env.version", values=[1, 2])
     assert seq.path == "resources.any.environments.my_env.version"
+
+
+def test_from_json_like_various(null_config):
+    assert hf.ValueSequence.from_json_like(
+        {
+            "path": "inputs.p1::from_data",
+            "values": [100, 200],
+        }
+    ) == hf.ValueSequence("inputs.p1", values=[100, 200], value_class_method="from_data")
+
+    norm_args = {"loc": 1.4, "scale": 0.1, "shape": 1, "seed": 13123}
+    assert hf.ValueSequence.from_json_like(
+        {
+            "path": "inputs.p1",
+            "values::from_normal": norm_args,
+        }
+    ) == hf.ValueSequence.from_normal("inputs.p1", **norm_args)
+
+    norm_args = {"loc": 1.4, "scale": 0.1, "shape": 1, "seed": 13123}
+    assert hf.ValueSequence.from_json_like(
+        {
+            "path": "inputs.p1c::from_data",
+            "values::from_normal": norm_args,
+        }
+    ) == hf.ValueSequence.from_normal(
+        "inputs.p1c", **norm_args, value_class_method="from_data"
+    )
