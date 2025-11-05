@@ -1,4 +1,27 @@
 
+<a name="v0.2.0a256"></a>
+## [v0.2.0a256](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a255...v0.2.0a256) - 2025.11.05
+
+### ♻ Code Refactoring
+
+* sorting out `ValuesMixin` class
+* move ValueSequence class methods to a separate module
+
+### ✨ Features
+
+* support combining ValueSequence class methods with ParameterValue class methods
+
+### 🐛 Bug Fixes
+
+* types
+* include sub-param when there is a label in `split_param_label`
+* accept input value paths in `ElementSet.__decode_inputs`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a255"></a>
 ## [v0.2.0a255](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a254...v0.2.0a255) - 2025.11.04
 
