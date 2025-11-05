@@ -1,12 +1,14 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING
 import pytest
 import requests
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
+from hpcflow.sdk.core.utils import read_YAML_str
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.parameters import Parameter
@@ -177,90 +179,220 @@ def test_demo_data_value(null_config) -> None:
     )
 
 
-def test_input_value_from_json_like_various(null_config):
+def test_input_value_from_yaml_and_json_like_various(null_config):
 
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1", "value": 1},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(hf.Parameter("p1"), value=1)
+    seed = 9871389
+    es_all = [
+        dedent(
+            """\
+    inputs:
+      p1: 1
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1[A]: 1
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1.b: 20
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1[A].b: 1
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1c::from_data:
+        b: 1
+        c: 2
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1c[A]::from_data:
+        b: 1
+        c: 2
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1::from_normal:
+        loc: 1.4
+        scale: 0.1
+        seed: {seed}
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1[A]::from_normal:
+        loc: 1.4
+        scale: 0.1
+        seed: {seed}
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1.b::from_normal:
+        loc: 1.4
+        scale: 0.1
+        seed: {seed}
+    """
+        ),
+        dedent(
+            f"""\
+    inputs:
+      p1[A].b::from_normal:
+        loc: 1.4
+        scale: 0.1
+        seed: {seed}
+    """
+        ),
+    ]
 
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1[A]", "value": 1},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(hf.Parameter("p1"), label="A", value=1)
+    es_JSONs = [read_YAML_str(es_i) for es_i in es_all]
+    es = [
+        hf.ElementSet.from_json_like(
+            es_json_i,
+            shared_data=hf.template_components,
+        )
+        for es_json_i in es_JSONs
+    ]
+    inps = [es_i.inputs[0] for es_i in es]
 
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1.b", "value": 1},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(hf.Parameter("p1"), path="b", value=1)
-
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1[A].b", "value": 1},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(hf.Parameter("p1"), label="A", path="b", value=1)
-
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1c::from_data", "value": {"b": 1, "c": 2}},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(
-        hf.Parameter("p1c"), value={"b": 1, "c": 2}, value_class_method="from_data"
+    assert (
+        inps[0]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1", "value": 1},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(hf.Parameter("p1"), value=1)
     )
 
-    assert hf.InputValue.from_json_like(
-        {"parameter": "p1c[A]::from_data", "value": {"b": 1, "c": 2}},
-        shared_data=hf.template_components,
-    ) == hf.InputValue(
-        hf.Parameter("p1c"),
-        label="A",
-        value={"b": 1, "c": 2},
-        value_class_method="from_data",
+    assert (
+        inps[1]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1[A]", "value": 1},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(hf.Parameter("p1"), label="A", value=1)
     )
 
-    kwargs = {"loc": 2.0, "scale": 0.1, "seed": 1234}
-    assert hf.InputValue.from_json_like(
-        {
-            "parameter": "p1::from_normal",
-            "value": kwargs,
-        },
-        shared_data=hf.template_components,
-    ) == hf.InputValue.from_normal(
-        hf.Parameter("p1"),
-        **kwargs,
+    assert (
+        inps[2]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1.b", "value": 20},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(hf.Parameter("p1"), path="b", value=20)
     )
 
-    assert hf.InputValue.from_json_like(
-        {
-            "parameter": "p1[A]::from_normal",
-            "value": kwargs,
-        },
-        shared_data=hf.template_components,
-    ) == hf.InputValue.from_normal(
-        hf.Parameter("p1"),
-        label="A",
-        **kwargs,
+    assert (
+        inps[3]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1[A].b", "value": 1},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(hf.Parameter("p1"), label="A", path="b", value=1)
     )
 
-    assert hf.InputValue.from_json_like(
-        {
-            "parameter": "p1.b::from_normal",
-            "value": kwargs,
-        },
-        shared_data=hf.template_components,
-    ) == hf.InputValue.from_normal(
-        hf.Parameter("p1"),
-        path="b",
-        **kwargs,
+    assert (
+        inps[4]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1c::from_data", "value": {"b": 1, "c": 2}},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(
+            hf.Parameter("p1c"), value={"b": 1, "c": 2}, value_class_method="from_data"
+        )
     )
 
-    assert hf.InputValue.from_json_like(
-        {
-            "parameter": "p1[A].b::from_normal",
-            "value": kwargs,
-        },
-        shared_data=hf.template_components,
-    ) == hf.InputValue.from_normal(
-        hf.Parameter("p1"),
-        label="A",
-        path="b",
-        **kwargs,
+    assert (
+        inps[5]
+        == hf.InputValue.from_json_like(
+            {"parameter": "p1c[A]::from_data", "value": {"b": 1, "c": 2}},
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue(
+            hf.Parameter("p1c"),
+            label="A",
+            value={"b": 1, "c": 2},
+            value_class_method="from_data",
+        )
+    )
+
+    kwargs = {"loc": 1.4, "scale": 0.1, "seed": seed}
+    assert (
+        inps[6]
+        == hf.InputValue.from_json_like(
+            {
+                "parameter": "p1::from_normal",
+                "value": kwargs,
+            },
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue.from_normal(
+            hf.Parameter("p1"),
+            **kwargs,
+        )
+    )
+
+    assert (
+        inps[7]
+        == hf.InputValue.from_json_like(
+            {
+                "parameter": "p1[A]::from_normal",
+                "value": kwargs,
+            },
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue.from_normal(
+            hf.Parameter("p1"),
+            label="A",
+            **kwargs,
+        )
+    )
+
+    assert (
+        inps[8]
+        == hf.InputValue.from_json_like(
+            {
+                "parameter": "p1.b::from_normal",
+                "value": kwargs,
+            },
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue.from_normal(
+            hf.Parameter("p1"),
+            path="b",
+            **kwargs,
+        )
+    )
+
+    assert (
+        inps[9]
+        == hf.InputValue.from_json_like(
+            {
+                "parameter": "p1[A].b::from_normal",
+                "value": kwargs,
+            },
+            shared_data=hf.template_components,
+        )
+        == hf.InputValue.from_normal(
+            hf.Parameter("p1"),
+            label="A",
+            path="b",
+            **kwargs,
+        )
     )
