@@ -372,8 +372,13 @@ class ElementSet(JSONLike):
             _inputs: list[InputValue] = []
             for k, v in inputs.items():
                 param, label = split_param_label(k)
+                path = None
+                if "." in param:
+                    param, path = param.split(".")
                 assert param is not None
-                _inputs.append(cls._app.InputValue(parameter=param, label=label, value=v))
+                _inputs.append(
+                    cls._app.InputValue(parameter=param, label=label, path=path, value=v)
+                )
             return _inputs
         else:
             return inputs
