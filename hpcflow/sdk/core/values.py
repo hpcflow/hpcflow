@@ -6,7 +6,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar, TypeVar, Type, TYPE_CHECKING, overload, Protocol, Any
+from typing import TypeVar, Type, TYPE_CHECKING, overload, Protocol, Any, cast
 from typing_extensions import Self
 import numpy as np
 
@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="ValuesMixin")
 
 
-def _get_seed(seed: int | None) -> int:
+def _get_seed(seed: int | list[int] | None) -> int | list[int]:
     """For methods that use a random seed, if the seed is not set, set it randomly so it
     can be recorded within the method args for reproducibility."""
-    return int(np.random.SeedSequence().entropy) if seed is None else seed
+    return int(cast("int", np.random.SeedSequence().entropy)) if seed is None else seed
 
 
 class ValuesMixin(ABC):

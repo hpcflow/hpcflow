@@ -812,8 +812,11 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         self._path_split: list[str] | None = None  # assigned by property `path_split`
 
+        #: Which class method of this class was used to instantiate this instance, if any:
         self._values_method: str | None = None
-        self._values_method_args: dict | None = None
+        #: Keyword-arguments that were passed to the factory class method of this class
+        #: to instantiate this instance, if such a method was used:
+        self._values_method_args: dict[str, Any] | None = None
 
     def __repr__(self):
         label_str = ""
@@ -1887,10 +1890,10 @@ class InputValue(AbstractInputValue, ValuesMixin):
         self._value = _process_demo_data_strings(self._app, value)
 
         #: Which class method of this class was used to instantiate this instance, if any:
-        self._value_method = None
+        self._value_method: str | None = None
         #: Keyword-arguments that were passed to the factory class method of this class
         #: to instantiate this instance, if such a method was used:
-        self._value_method_args = None
+        self._value_method_args: dict[str, Any] | None = None
 
         # record if a ParameterValue sub-class is passed for value, which allows us
         # to re-init the object on `.value`:
@@ -2274,7 +2277,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         Generate a value from a uniform random number generator.
         """
         warnings.warn(
-            f"{self.__class__.__name__!r}: Please use `from_uniform` instead of "
+            f"{cls.__class__.__name__!r}: Please use `from_uniform` instead of "
             f"`from_random_uniform`, which will be removed in a future release.",
             DeprecationWarning,
             stacklevel=2,
