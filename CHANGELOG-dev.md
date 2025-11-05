@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a257"></a>
+## [v0.2.0a257](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a256...v0.2.0a257) - 2025.11.05
+
+### 🐛 Bug Fixes
+
+* rotating log file, needs a `backupCount`!
+* set SDK logger default to ERROR; set app logger to min level of its handlers
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a256"></a>
 ## [v0.2.0a256](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a255...v0.2.0a256) - 2025.11.05
 
