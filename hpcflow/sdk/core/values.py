@@ -3,21 +3,40 @@ class methods."""
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import ClassVar, TypeVar, Type, TYPE_CHECKING, overload, Protocol, Any
+from typing_extensions import Self
 import numpy as np
 
 from hpcflow.sdk.core.utils import linspace_rect
 
+
 if TYPE_CHECKING:
-    from typing_extensions import Self
+    from hpcflow.sdk.core.parameters import SchemaInput, Parameter
+
+T = TypeVar("T", bound="ValuesMixin")
 
 
-class ValuesMixin:
+def _get_seed(seed: int | None) -> int:
+    """For methods that use a random seed, if the seed is not set, set it randomly so it
+    can be recorded within the method args for reproducibility."""
+    return int(np.random.SeedSequence().entropy) if seed is None else seed
+
+
+class ValuesMixin(ABC):
+
+    @classmethod
+    @abstractmethod
+    def _process_mixin_args(cls, *args: Any, **kwargs: Any) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def _remember_values_method_args(self, name: str, args: dict[str, Any]) -> Self: ...
+
     @classmethod
     def _values_from_linear_space(
-        cls, start: float, stop: float, num: int, **kwargs
+        cls: Type[T], start: float, stop: float, num: int, **kwargs
     ) -> list[float]:
         return np.linspace(start, stop, num=num, **kwargs).tolist()
 
@@ -61,73 +80,107 @@ class ValuesMixin:
             return (vals.T).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
-    def _values_from_random_uniform(
+    def _values_from_numpy_distribution(
         cls,
-        num: int,
-        low: float = 0.0,
-        high: float = 1.0,
-        seed: int | list[int] | None = None,
-    ) -> list[float]:
+        method_name: str,
+        shape: int | Sequence[int] | None,
+        seed: int | list[int],
+        **kwargs,
+    ) -> list[float] | float:
+        kwargs["size"] = shape
         rng = np.random.default_rng(seed)
-        return rng.uniform(low=low, high=high, size=num).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+        method = getattr(rng, method_name)
+        out = method(**kwargs)
+        if shape is None:
+            return out
+        else:
+            return out.tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+
+    @overload
+    @classmethod
+    def _values_from_uniform(
+        cls, shape: int | Sequence[int], **kwargs
+    ) -> list[float]: ...
+
+    @overload
+    @classmethod
+    def _values_from_uniform(cls, shape: None, **kwargs) -> float: ...
 
     @classmethod
-    def from_linear_space(
-        cls,
-        path: str,
+    def _values_from_uniform(
+        cls, shape: int | Sequence[int] | None, **kwargs
+    ) -> float | list[float]:
+        return cls._values_from_numpy_distribution("uniform", **kwargs)
+
+    @classmethod
+    def _from_linear_space(
+        cls: Type[T],
         start: float,
         stop: float,
         num: int,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a NumPy linear space.
         """
-        # TODO: save persistently as an array?
         args = {"start": start, "stop": stop, "num": num, **kwargs}
-        values = cls._values_from_linear_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_linear_space"
-        obj._values_method_args = args
-        return obj
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_linear_space(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_linear_space", args)
 
     @classmethod
-    def from_geometric_space(
-        cls,
-        path: str,
+    def _from_geometric_space(
+        cls: Type[T],
         start: float,
         stop: float,
         num: int,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         endpoint=True,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a NumPy geometric space.
         """
         args = {"start": start, "stop": stop, "num": num, "endpoint": endpoint, **kwargs}
-        values = cls._values_from_geometric_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_geometric_space"
-        obj._values_method_args = args
-        return obj
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_geometric_space(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_geometric_space", args)
 
     @classmethod
-    def from_log_space(
-        cls,
-        path: str,
+    def _from_log_space(
+        cls: Type[T],
         start: float,
         stop: float,
         num: int,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         base=10.0,
         endpoint=True,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a NumPy logarithmic space.
         """
@@ -139,27 +192,32 @@ class ValuesMixin:
             "base": base,
             **kwargs,
         }
-        values = cls._values_from_log_space(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_log_space"
-        obj._values_method_args = args
-        return obj
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_log_space(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_log_space", args)
 
     @classmethod
-    def from_range(
-        cls,
-        path: str,
+    def _from_range(
+        cls: Type[T],
         start: float,
         stop: float,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         step: int | float = 1,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a range.
         """
-        # TODO: save persistently as an array?
         args = {"start": start, "stop": stop, "step": step, **kwargs}
         if isinstance(step, int):
             values = cls._values_from_range(**args)
@@ -172,56 +230,59 @@ class ValuesMixin:
                 endpoint=False,
                 **kwargs,
             )
+
         obj = cls(
-            values=values,
-            path=path,
-            nesting_order=nesting_order,
-            label=label,
+            **cls._process_mixin_args(
+                values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
         )
-        obj._values_method = "from_range"
-        obj._values_method_args = args
-        return obj
+        return obj._remember_values_method_args("from_range", args)
 
     @classmethod
-    def from_file(
-        cls,
-        path: str,
+    def _from_file(
+        cls: Type[T],
         file_path: str | Path,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a simple file.
         """
         args = {"file_path": file_path, **kwargs}
-        values = cls._values_from_file(**args)
         obj = cls(
-            values=values,
-            path=path,
-            nesting_order=nesting_order,
-            label=label,
+            **cls._process_mixin_args(
+                cls._values_from_file(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
         )
-
-        obj._values_method = "from_file"
-        obj._values_method_args = args
-        return obj
+        return obj._remember_values_method_args("from_file", args)
 
     @classmethod
-    def from_rectangle(
-        cls,
-        path: str,
+    def _from_rectangle(
+        cls: Type[T],
         start: Sequence[float],
         stop: Sequence[float],
         num: Sequence[int],
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         coord: int | None = None,
         include: list[str] | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
-        Build a sequence to cover a rectangle.
+        Build a sequence from coordinates to cover the perimeter of a rectangle.
 
         Parameters
         ----------
@@ -240,30 +301,115 @@ class ValuesMixin:
             "include": include,
             **kwargs,
         }
-        values = cls._values_from_rectangle(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_rectangle"
-        obj._values_method_args = args
-        return obj
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_rectangle(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_rectangle", args)
 
     @classmethod
-    def from_random_uniform(
-        cls,
-        path,
-        num: int,
+    def _from_uniform(
+        cls: Type[T],
+        shape: int | Sequence[int] | None,
         low: float = 0.0,
         high: float = 1.0,
         seed: int | list[int] | None = None,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
         nesting_order: float = 0,
         label: str | int | None = None,
         **kwargs,
-    ) -> Self:
+    ) -> T:
         """
         Build a sequence from a uniform random number generator.
         """
-        args = {"low": low, "high": high, "num": num, "seed": seed, **kwargs}
-        values = cls._values_from_random_uniform(**args)
-        obj = cls(values=values, path=path, nesting_order=nesting_order, label=label)
-        obj._values_method = "from_random_uniform"
-        obj._values_method_args = args
-        return obj
+        args = {
+            "low": low,
+            "high": high,
+            "shape": shape,
+            "seed": _get_seed(seed),
+            **kwargs,
+        }
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_numpy_distribution("uniform", **args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_uniform", args)
+
+    @classmethod
+    def _from_normal(
+        cls: Type[T],
+        shape: int | Sequence[int] | None,
+        loc: float = 0.0,
+        scale: float = 1.0,
+        seed: int | list[int] | None = None,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from a uniform random number generator.
+        """
+        args = {
+            "loc": loc,
+            "scale": scale,
+            "shape": shape,
+            "seed": _get_seed(seed),
+            **kwargs,
+        }
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_numpy_distribution("normal", **args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_normal", args)
+
+    @classmethod
+    def _from_log_normal(
+        cls: Type[T],
+        shape: int | Sequence[int] | None,
+        mean: float = 0.0,
+        sigma: float = 1.0,
+        seed: int | list[int] | None = None,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from a log-normal random number generator.
+        """
+        args = {
+            "mean": mean,
+            "sigma": sigma,
+            "shape": shape,
+            "seed": _get_seed(seed),
+            **kwargs,
+        }
+        obj = cls(
+            **cls._process_mixin_args(
+                cls._values_from_numpy_distribution("lognormal", **args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+            )
+        )
+        return obj._remember_values_method_args("from_log_normal", args)
