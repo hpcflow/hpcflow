@@ -987,6 +987,9 @@ class Workflow(AppAware):
                             f"Preparing to add {len(template.loops)} loops; building "
                             f"cache..."
                         )
+
+                    for loop in template.loops:
+                        loop._validate_against_workflow(wk)
                     # TODO: if loop with non-initialisable actions, will fail
                     cache = LoopCache.build(workflow=wk, loops=template.loops)
                     for idx, loop in enumerate(template.loops):
@@ -1630,6 +1633,7 @@ class Workflow(AppAware):
     def _add_loop(
         self, loop: Loop, cache: LoopCache | None = None, status: Status | None = None
     ) -> None:
+        loop._validate_against_workflow(self)
         cache_ = cache or LoopCache.build(workflow=self, loops=[loop])
         new_wk_loop = self._add_empty_loop(loop, cache_)
         if loop.num_iterations is not None:

@@ -185,7 +185,7 @@ def make_workflow(
         tuple[dict[str, Any], tuple[str, ...]]
         | tuple[dict[str, Any], tuple[str, ...], str]
     ],
-    path: PathLike,
+    path: PathLike | None = None,
     local_inputs: dict[int, Iterable[str]] | None = None,
     local_sequences: (
         dict[int, Iterable[tuple[str, int, int | float | None]]] | None

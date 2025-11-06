@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from textwrap import dedent
 import pytest
 
 from valida.conditions import Value  # type: ignore
@@ -21,6 +22,52 @@ def test_loop_tasks_obj_insert_ID_equivalence(tmp_path: Path, store: str):
     lp_0 = hf.Loop(tasks=[wk_1.tasks.t1], num_iterations=2)
     lp_1 = hf.Loop(tasks=[0], num_iterations=2)
     assert lp_0.task_insert_IDs == lp_1.task_insert_IDs
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_loop_tasks_names(tmp_path: Path, store: str):
+    wk_1 = make_workflow(
+        schemas_spec=[({"p1": None}, ("p1",), "t1")],
+        local_inputs={0: ("p1",)},
+        path=tmp_path,
+        store=store,
+    )
+    lp_0 = hf.Loop(tasks=["t1"], num_iterations=2)
+    wk_1.add_loop(lp_0)
+
+    assert wk_1.loops[0].template.task_insert_IDs == (0,)
+    assert wk_1.loops[0].template.task_refs == ("t1",)
+    assert wk_1.loops[0].template.termination_task_insert_ID == 0
+    assert wk_1.loops[0].template.termination_task_ref == "t1"
+
+    wk_1 = wk_1.reload()
+    assert wk_1.loops[0].template.task_insert_IDs == (0,)
+    assert wk_1.loops[0].template.task_refs == ("t1",)
+    assert wk_1.loops[0].template.termination_task_insert_ID == 0
+    assert wk_1.loops[0].template.termination_task_ref == "t1"
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_loop_task_names_yaml_template(tmp_path: Path, store: str):
+    wk_yaml = dedent(
+        """\
+    name: test_loops
+    loops:
+      - tasks: [test_t1_conditional_OS]
+        num_iterations: 2
+    
+    tasks:
+      - schema: test_t1_conditional_OS
+        inputs:
+          p1: 100
+    """
+    )
+    wf = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path, store=store)
+
+    assert wf.loops[0].template.task_insert_IDs == (0,)
+    assert wf.loops[0].template.task_refs == ("test_t1_conditional_OS",)
+    assert wf.loops[0].template.termination_task_insert_ID == 0
+    assert wf.loops[0].template.termination_task_ref == "test_t1_conditional_OS"
 
 
 def test_raise_on_add_loop_same_name(tmp_path: Path):

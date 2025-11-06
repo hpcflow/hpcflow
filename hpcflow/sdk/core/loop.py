@@ -85,50 +85,46 @@ class Loop(JSONLike):
 
     def __init__(
         self,
-        tasks: Iterable[int | WorkflowTask],
+        tasks: Iterable[int | str | WorkflowTask],
         num_iterations: int,
         name: str | None = None,
         non_iterable_parameters: list[str] | None = None,
         termination: Rule | None = None,
-        termination_task: int | WorkflowTask | None = None,
+        termination_task: int | str | WorkflowTask | None = None,
     ) -> None:
-        _task_insert_IDs: list[int] = []
-        for task in tasks:
-            if self.__is_WorkflowTask(task):
-                _task_insert_IDs.append(task.insert_ID)
-            elif isinstance(task, int):
-                _task_insert_IDs.append(task)
-            else:
-                raise TypeError(
-                    f"`tasks` must be a list whose elements are either task insert IDs "
-                    f"or `WorkflowTask` objects, but received the following: {tasks!r}."
-                )
+        _task_refs: list[int | str] = [
+            ref_i.insert_ID if self.__is_WorkflowTask(ref_i) else ref_i for ref_i in tasks
+        ]
 
         if termination_task is None:
-            _term_task_iID = _task_insert_IDs[-1]  # terminate on final task by default
+            _term_task_ref = _task_refs[-1]  # terminate on final task by default
         elif self.__is_WorkflowTask(termination_task):
-            _term_task_iID = termination_task.insert_ID
-        elif isinstance(task, int):
-            _term_task_iID = termination_task
+            _term_task_ref = termination_task.insert_ID
         else:
-            raise TypeError(
-                f"`termination_task` must be a task insert ID or a `WorkflowTask` "
-                f"object, but received the following: {termination_task!r}."
-            )
+            _term_task_ref = termination_task
 
-        if _term_task_iID not in _task_insert_IDs:
+        if _term_task_ref not in _task_refs:
             raise ValueError(
                 f"If specified, `termination_task` (provided: {termination_task!r}) must "
-                f"refer to a task that is part of the loop. Available task insert IDs "
-                f"are: {_task_insert_IDs!r}."
+                f"refer to a task that is part of the loop. Available task references "
+                f"are: {_task_refs!r}."
             )
 
-        self._task_insert_IDs = _task_insert_IDs
+        self._task_refs = _task_refs
+        self._task_insert_IDs = (
+            cast("list[int]", _task_refs)
+            if all(isinstance(ref_i, int) for ref_i in _task_refs)
+            else None
+        )
+
         self._num_iterations = num_iterations
         self._name = check_valid_py_identifier(name) if name else name
         self._non_iterable_parameters = non_iterable_parameters or []
         self._termination = termination
-        self._termination_task_insert_ID = _term_task_iID
+        self._termination_task_ref = _term_task_ref
+        self._termination_task_insert_ID = (
+            _term_task_ref if isinstance(_term_task_ref, int) else None
+        )
 
         self._workflow_template: WorkflowTemplate | None = (
             None  # assigned by parent WorkflowTemplate
@@ -145,20 +141,40 @@ class Loop(JSONLike):
         if "task_insert_IDs" in json_like:
             insert_IDs = json_like.pop("task_insert_IDs")
         else:
-            insert_IDs = json_like.pop("tasks")
+            insert_IDs = json_like.pop("tasks")  # e.g. from YAML
 
         if "termination_task_insert_ID" in json_like:
             tt_iID = json_like.pop("termination_task_insert_ID")
         elif "termination_task" in json_like:
-            tt_iID = json_like.pop("termination_task")
+            tt_iID = json_like.pop("termination_task")  # e.g. from YAML
         else:
             tt_iID = None
 
-        return cls(tasks=insert_IDs, termination_task=tt_iID, **json_like)
+        task_refs = None
+        term_task_ref = None
+        if "task_refs" in json_like:
+            task_refs = json_like.pop("task_refs")
+        if "termination_task_ref" in json_like:
+            term_task_ref = json_like.pop("termination_task_ref")
+
+        obj = cls(tasks=insert_IDs, termination_task=tt_iID, **json_like)
+        if task_refs:
+            obj._task_refs = task_refs
+        if term_task_ref is not None:
+            obj._termination_task_ref = term_task_ref
+
+        return obj
+
+    @property
+    def task_refs(self) -> tuple[int | str, ...]:
+        """Get the list of task references (insert IDs or task unique names) that define
+        the extent of the loop."""
+        return tuple(self._task_refs)
 
     @property
     def task_insert_IDs(self) -> tuple[int, ...]:
         """Get the list of task insert_IDs that define the extent of the loop."""
+        assert self._task_insert_IDs
         return tuple(self._task_insert_IDs)
 
     @property
@@ -190,10 +206,18 @@ class Loop(JSONLike):
         return self._termination
 
     @property
+    def termination_task_ref(self) -> int | str:
+        """
+        The unique name of the task at which the loop will terminate.
+        """
+        return self._termination_task_ref
+
+    @property
     def termination_task_insert_ID(self) -> int:
         """
         The insert ID of the task at which the loop will terminate.
         """
+        assert self._termination_task_insert_ID is not None
         return self._termination_task_insert_ID
 
     @property
@@ -218,7 +242,6 @@ class Loop(JSONLike):
     @workflow_template.setter
     def workflow_template(self, template: WorkflowTemplate):
         self._workflow_template = template
-        self.__validate_against_template()
 
     def __workflow(self) -> None | Workflow:
         if (wt := self.workflow_template) is None:
@@ -236,22 +259,40 @@ class Loop(JSONLike):
             )
         return tuple(wf.tasks.get(insert_ID=t_id) for t_id in self.task_insert_IDs)
 
-    def __validate_against_template(self) -> None:
+    def _validate_against_workflow(self, workflow: Workflow) -> None:
         """Validate the loop parameters against the associated workflow."""
 
-        # insert IDs must exist:
-        if not (wf := self.__workflow()):
-            raise RuntimeError(
-                "workflow cannot be validated against as it is not assigned"
+        names = workflow.get_task_unique_names(map_to_insert_ID=True)
+        if self._task_insert_IDs is None:
+            err = lambda ref_i: (
+                f"Loop {self.name + ' ' if self.name else ''}has an invalid "
+                f"task reference {ref_i!r}. Such a task does not exist in "
+                f"the associated workflow, which has task names/insert IDs: "
+                f"{names!r}."
             )
-        for insert_ID in self.task_insert_IDs:
-            try:
-                wf.tasks.get(insert_ID=insert_ID)
-            except ValueError:
-                raise ValueError(
-                    f"Loop {self.name!r} has an invalid task insert ID {insert_ID!r}. "
-                    f"Such as task does not exist in the associated workflow."
-                )
+            self._task_insert_IDs = []
+            for ref_i in self._task_refs:
+                if isinstance(ref_i, str):
+                    # reference is task unique name, so retrieve the insert ID:
+                    try:
+                        iID = names[ref_i]
+                    except KeyError:
+                        raise ValueError(err(ref_i)) from None
+                else:
+                    try:
+                        workflow.tasks.get(insert_ID=ref_i)
+                    except ValueError:
+                        raise ValueError(err(ref_i)) from None
+                    iID = ref_i
+                self._task_insert_IDs.append(iID)
+
+        if self._termination_task_insert_ID is None:
+            tt_ref = self._termination_task_ref
+            if isinstance(tt_ref, str):
+                tt_iID = names[tt_ref]
+            else:
+                tt_iID = tt_ref
+            self._termination_task_insert_ID = tt_iID
 
     def __repr__(self) -> str:
         num_iterations_str = ""
@@ -272,8 +313,12 @@ class Loop(JSONLike):
         kwargs = self.to_dict()
         kwargs["tasks"] = kwargs.pop("task_insert_IDs")
         kwargs["termination_task"] = kwargs.pop("termination_task_insert_ID")
+        task_refs = kwargs.pop("task_refs", None)
+        term_task_ref = kwargs.pop("termination_task_ref", None)
         obj = self.__class__(**copy.deepcopy(kwargs, memo))
         obj._workflow_template = self._workflow_template
+        obj._task_refs = task_refs
+        obj._termination_task_ref = term_task_ref
         return obj
 
 
@@ -407,6 +452,13 @@ class WorkflowLoop(AppAware):
         The index of this loop within its workflow.
         """
         return self._index
+
+    @property
+    def task_refs(self) -> tuple[int | str, ...]:
+        """
+        The list of task references (insert IDs or task unique names) that define the
+        extent of the loop."""
+        return self.template.task_refs
 
     @property
     def task_insert_IDs(self) -> tuple[int, ...]:
