@@ -2644,4 +2644,31 @@ def test_multi_nested_loop_num_added_iterations_on_reload_single_iter_outer(
     assert wk.loops.outer.num_added_iterations == {(): 1}
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_updated_data_idx(null_config, tmp_path: Path, store):
+    s1, s2 = make_schemas(
+        (
+            {"p0": None, "p1": None},
+            (
+                "p0",
+                "p2",
+            ),
+        ),
+        ({"p2": None}, ("p3",)),
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="loop_update_test",
+        tasks=[
+            hf.Task(s1, inputs={"p0": 1}),
+            hf.Task(s2),
+        ],
+        path=tmp_path,
+        loops=[hf.Loop(tasks=[0], num_iterations=2)],
+        store=store,
+    )
+
+    runs = wk.get_all_EARs()
+    assert runs[1].get_data_idx()["inputs.p2"] == runs[2].get_data_idx()["outputs.p2"]
+
+
 # TODO: test loop termination across jobscripts

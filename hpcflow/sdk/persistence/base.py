@@ -1222,6 +1222,7 @@ class PersistentStore(
             yield
         else:
             self._use_cache = True
+            self._reset_cache()
             try:
                 yield
             finally:
