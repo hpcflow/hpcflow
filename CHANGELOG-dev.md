@@ -1,4 +1,20 @@
 
+<a name="v0.2.0a258"></a>
+## [v0.2.0a258](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a257...v0.2.0a258) - 2025.11.06
+
+### ✨ Features
+
+* support referencing loop tasks by unique name
+
+### 🐛 Bug Fixes
+
+* bugs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a257"></a>
 ## [v0.2.0a257](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a256...v0.2.0a257) - 2025.11.05
 
