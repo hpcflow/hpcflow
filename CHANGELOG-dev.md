@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a262"></a>
+## [v0.2.0a262](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a261...v0.2.0a262) - 2025.11.10
+
+### 🐛 Bug Fixes
+
+* config init command for remote files
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a261"></a>
 ## [v0.2.0a261](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a260...v0.2.0a261) - 2025.11.10
 
