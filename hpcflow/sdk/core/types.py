@@ -229,6 +229,8 @@ class RuleArgs(TypedDict):
     cast: NotRequired[str]
     #: Optional descriptive text.
     doc: NotRequired[str]
+    #: A default value to return from testing the rule if the path is not valid.
+    default: NotRequired[bool]
 
 
 class ActParameterDependence(TypedDict):

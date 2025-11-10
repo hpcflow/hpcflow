@@ -1803,6 +1803,8 @@ class ActionRule(JSONLike):
         The name of a class to cast the attribute to before checking.
     doc: str
         Documentation for this rule, if any.
+    default: bool
+        Optional default value to return when testing the rule if the path is not valid.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -1818,6 +1820,7 @@ class ActionRule(JSONLike):
         condition: dict[str, Any] | ConditionLike | None = None,
         cast: str | None = None,
         doc: str | None = None,
+        default: bool | None = None,
     ):
         if rule is None:
             #: The rule to apply.
@@ -1828,10 +1831,11 @@ class ActionRule(JSONLike):
                 condition=condition,
                 cast=cast,
                 doc=doc,
+                default=default,
             )
         elif any(
             arg is not None
-            for arg in (check_exists, check_missing, path, condition, cast, doc)
+            for arg in (check_exists, check_missing, path, condition, cast, doc, default)
         ):
             raise TypeError(
                 f"{self.__class__.__name__} `rule` specified in addition to rule "
