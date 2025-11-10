@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a261"></a>
+## [v0.2.0a261](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a260...v0.2.0a261) - 2025.11.10
+
+### ✨ Features
+
+* support an optional default value for testing rules
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a260"></a>
 ## [v0.2.0a260](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a259...v0.2.0a260) - 2025.11.10
 
