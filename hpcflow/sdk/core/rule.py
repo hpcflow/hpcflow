@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from valida.conditions import ConditionLike  # type: ignore
 from valida import Rule as ValidaRule  # type: ignore
 
+from hpcflow.sdk.core.errors import ContainerKeyError, UnsetParameterDataError
 from hpcflow.sdk.core.json_like import JSONLike
 from hpcflow.sdk.core.utils import get_in_container
 from hpcflow.sdk.log import TimeIt
@@ -40,6 +41,8 @@ class Rule(JSONLike):
         If set, a cast to apply prior to running the general check.
     doc: str
         Optional descriptive text.
+    default: bool
+        Optional default value to return when testing the rule if the path is not valid.
     """
 
     def __init__(
@@ -50,6 +53,7 @@ class Rule(JSONLike):
         condition: dict[str, Any] | ConditionLike | None = None,
         cast: str | None = None,
         doc: str | None = None,
+        default: bool | None = None,
     ):
         if sum(arg is not None for arg in (check_exists, check_missing, condition)) != 1:
             raise ValueError(
@@ -73,6 +77,8 @@ class Rule(JSONLike):
         self.cast = cast
         #: Optional descriptive text.
         self.doc = doc
+        #: A default value to return from testing the rule if the path is not valid.
+        self.default = default
 
     def __repr__(self) -> str:
         out = f"{self.__class__.__name__}("
@@ -86,6 +92,8 @@ class Rule(JSONLike):
                 out += f", path={self.path!r}"
             if self.cast:
                 out += f", cast={self.cast!r}"
+            if self.default is not None:
+                out += f", default={self.default!r}"
 
         out += ")"
         return out
@@ -100,6 +108,7 @@ class Rule(JSONLike):
             and self.condition == other.condition
             and self.cast == other.cast
             and self.doc == other.doc
+            and self.default == other.default
         )
 
     @classmethod
@@ -144,15 +153,27 @@ class Rule(JSONLike):
                     elem_res = element_like.get_resources()
 
                 res_path = self.path.split(".")[1:]
-                element_dat = get_in_container(
-                    cont=elem_res, path=res_path, cast_indices=True
-                )
+                try:
+                    element_dat = get_in_container(
+                        cont=elem_res, path=res_path, cast_indices=True
+                    )
+                except ContainerKeyError:
+                    if self.default is not None:
+                        return bool(self.default)
+                    else:
+                        raise
             else:
-                element_dat = element_like.get(
-                    self.path,
-                    raise_on_missing=True,
-                    raise_on_unset=True,
-                )
+                try:
+                    element_dat = element_like.get(
+                        self.path,
+                        raise_on_missing=True,
+                        raise_on_unset=True,
+                    )
+                except (ValueError, IndexError, UnsetParameterDataError):
+                    if self.default is not None:
+                        return bool(self.default)
+                    else:
+                        raise
             # test the rule:
             return self._valida_check(element_dat)
 
