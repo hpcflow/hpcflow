@@ -1339,7 +1339,8 @@ class Config:
         self._logger.debug(f"init with `path` = {path!r}")
 
         fs: AbstractFileSystem = fsspec.open(path).fs
-        local_path = f"{path}/" if isinstance(fs, LocalFileSystem) else ""
+        is_local = isinstance(fs, LocalFileSystem)
+        local_path = f"{path}/" if is_local else ""
         files = fs.glob(f"{local_path}*.yaml") + fs.glob(f"{local_path}*.yml")
         self._logger.debug(f"All YAML files found in file-system {fs!r}: {files}")
 
@@ -1349,7 +1350,8 @@ class Config:
 
         print(f"Found configuration-import files: {files!r}")
         for file_i in files:
-            self.import_from_file(file_path=file_i, make_new=True)
+            path_i = file_i if is_local else f"{path}/{file_i}"
+            self.import_from_file(file_path=path_i, make_new=True)
 
         print("imports complete")
         # if current config is named "default", rename machine to DEFAULT_CONFIG:
