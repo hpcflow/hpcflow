@@ -36,7 +36,7 @@ jobs:
           poetry run make clean html
         working-directory: docs
       - name: Upload documentation artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hpcflow-documentation (${{ github.sha }})
           path: docs/build/html

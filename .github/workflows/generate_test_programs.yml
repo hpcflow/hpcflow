@@ -60,7 +60,7 @@ jobs:
         shell: bash
 
       - name: Upload `hello_world` artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hello_world_${{ runner.os }}${{ runner.os == 'Windows' && '.exe' || '' }}
           path: hpcflow/data/programs/hello_world/hello_world${{ runner.os == 'Windows' && '.exe' || '' }}
