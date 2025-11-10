@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a260"></a>
+## [v0.2.0a260](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a259...v0.2.0a260) - 2025.11.10
+
+### 🐛 Bug Fixes
+
+* allow matching environments without specifiers
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a259"></a>
 ## [v0.2.0a259](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a258...v0.2.0a259) - 2025.11.06
 
