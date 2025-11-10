@@ -144,6 +144,15 @@ class ObjectList(JSONLike, Generic[T]):
 
         return self._get_all_from_objs(self._objects, **kwargs)
 
+    def _handle_multi_results(
+        self, result: Sequence[T], kwargs: dict[str, Any]
+    ) -> Sequence[T]:
+        if len(result) > 1:
+            raise ObjectListMultipleMatchError(
+                f"Multiple objects with attributes: {kwargs}."
+            )
+        return result
+
     def _validate_get(self, result: Sequence[T], kwargs: dict[str, Any]):
         if not result:
             available: list[dict[str, Any]] = []
@@ -159,13 +168,10 @@ class ObjectList(JSONLike, Generic[T]):
                 f"No {self._descriptor} objects with attributes: {kwargs}. Available "
                 f"objects have attributes: {tuple(available)!r}."
             )
-
-        elif len(result) > 1:
-            raise ObjectListMultipleMatchError(
-                f"Multiple objects with attributes: {kwargs}."
-            )
-
-        return result[0]
+        else:
+            result = self._handle_multi_results(result, kwargs)
+            assert len(result) == 1
+            return result[0]
 
     def get(self, **kwargs):
         """Get a single object from the object list, by specifying the value of the access
@@ -598,6 +604,22 @@ class EnvironmentsList(AppDataList["Environment"]):
             return getattr(obj, attr)
         else:
             return obj.specifiers[attr]
+
+    def _handle_multi_results(
+        self, result: Sequence[Environment], kwargs: dict[str, Any]
+    ) -> Sequence[Environment]:
+        """If no specifiers were provided, match the environment with no specifiers,
+        if one exists."""
+        if len(result) > 1:
+            specifiers = {k: v for k, v in kwargs.items() if k != "name"}
+            if not specifiers:
+                for res_i in result:
+                    if not res_i.specifiers:
+                        return [res_i]
+            raise ObjectListMultipleMatchError(
+                f"Multiple objects with attributes: {kwargs}."
+            )
+        return result
 
 
 class ExecutablesList(AppDataList["Executable"]):
