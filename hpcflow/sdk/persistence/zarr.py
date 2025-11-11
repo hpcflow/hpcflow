@@ -216,6 +216,10 @@ def _decode_masked_arrays(
     return obj_
 
 
+def _encode_bytes(obj: dict, **kwargs):
+    return obj  # msgpack can handle bytes
+
+
 def append_items_to_ragged_array(arr: Array, items: Sequence[int]):
     """Append an array to a Zarr ragged array.
 
@@ -398,6 +402,7 @@ class ZarrStoreParameter(StoreParameter):
     _encoders: ClassVar[dict[type, Callable]] = {  # keys are types
         np.ndarray: _encode_numpy_array,
         MaskedArray: _encode_masked_array,
+        bytes: _encode_bytes,
     }
     _decoders: ClassVar[dict[str, Callable]] = {  # keys are keys in type_lookup
         "arrays": _decode_numpy_arrays,
