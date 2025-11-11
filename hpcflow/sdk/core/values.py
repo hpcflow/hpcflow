@@ -278,6 +278,33 @@ class ValuesMixin(ABC):
         return obj._remember_values_method_args("from_file", args)
 
     @classmethod
+    def _from_load_txt(
+        cls: Type[T],
+        file_path: str | Path,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Load an array from a text file with Numpy.
+        """
+        args = {"fname": file_path, **kwargs}
+        obj = cls(
+            **cls._process_mixin_args(
+                np.loadtxt(**args),
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("_from_load_txt", args)
+
+    @classmethod
     def _from_rectangle(
         cls: Type[T],
         start: Sequence[float],

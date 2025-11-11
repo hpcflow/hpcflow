@@ -1294,6 +1294,28 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         )
 
     @classmethod
+    def from_load_txt(
+        cls,
+        path: str,
+        file_path: str | Path,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from data within a text file using Numpy's `loadtxt`.
+        """
+        return super()._from_load_txt(
+            path=path,
+            file_path=file_path,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
     def from_rectangle(
         cls,
         path: str,
@@ -2262,9 +2284,29 @@ class InputValue(AbstractInputValue, ValuesMixin):
         **kwargs,
     ) -> Self:
         """
-        Generate a value from a NumPy range.
+        Generate a value from lines within a simple text file.
         """
         return super()._from_file(
+            parameter=parameter,
+            file_path=file_path,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_load_txt(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        file_path: str | Path,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from data within a text file using Numpy's `loadtxt`.
+        """
+        return super()._from_load_txt(
             parameter=parameter,
             file_path=file_path,
             path=path,
