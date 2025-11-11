@@ -293,6 +293,11 @@ class RunTimeInfo:
                 # itself, so trim if off:
                 script = self.__CMD_TRIM.sub("", script)  # Work with 3.8 too
                 # script = script.removesuffix(".cmd")
+                if not Path(script).is_file():
+                    # conda generates an `.exe` file
+                    script = f"{script}.exe"
+                    if not Path(script).is_file():
+                        raise RuntimeError("Cannot locate invocation script.")
             return (str(self.python_executable_path), script)
         else:
             app_module = import_module(self.package_name)
