@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a264"></a>
+## [v0.2.0a264](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a263...v0.2.0a264) - 2025.11.12
+
+### ✨ Features
+
+* support serialisig bytes in Zarr store
+* generate an input value or sequence values from Numpy `loadtxt`
+
+### 🐛 Bug Fixes
+
+* locating invocation script when in conda
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a263"></a>
 ## [v0.2.0a263](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a262...v0.2.0a263) - 2025.11.10
 
