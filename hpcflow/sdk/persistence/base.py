@@ -6,6 +6,7 @@ Store* classes represent the element-metadata in the store, in a store-agnostic 
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from collections import defaultdict
 import contextlib
 import copy
 from dataclasses import dataclass, field
@@ -716,16 +717,6 @@ class StoreParameter:
 
         return isinstance(value, PV)
 
-    def _init_type_lookup(self) -> TypeLookup:
-        return cast(
-            "TypeLookup",
-            {
-                "tuples": [],
-                "sets": [],
-                **{k: [] for k in self._decoders},
-            },
-        )
-
     def _encode(
         self,
         obj: ParameterTypes,
@@ -737,7 +728,7 @@ class StoreParameter:
 
         path = path or []
         if type_lookup is None:
-            type_lookup = self._init_type_lookup()
+            type_lookup = cast(TypeLookup, defaultdict(list))
 
         if len(path) > self._MAX_DEPTH:
             raise RuntimeError("I'm in too deep!")
@@ -843,25 +834,30 @@ class StoreParameter:
 
         obj = get_in_container(data_["data"], path)
 
-        for tuple_path in data_["type_lookup"]["tuples"]:
-            try:
-                rel_path = get_relative_path(tuple_path, path)
-            except ValueError:
-                continue
-            if rel_path:
-                set_in_container(obj, rel_path, tuple(get_in_container(obj, rel_path)))
-            else:
-                obj = tuple(obj)
-
-        for set_path in data_["type_lookup"]["sets"]:
-            try:
-                rel_path = get_relative_path(set_path, path)
-            except ValueError:
-                continue
-            if rel_path:
-                set_in_container(obj, rel_path, set(get_in_container(obj, rel_path)))
-            else:
-                obj = set(obj)
+        for type_, paths in data_["type_lookup"].items():
+            for type_path in paths:
+                if type_ == "tuples":
+                    try:
+                        rel_path = get_relative_path(type_path, path)
+                    except ValueError:
+                        continue
+                    if rel_path:
+                        set_in_container(
+                            obj, rel_path, tuple(get_in_container(obj, rel_path))
+                        )
+                    else:
+                        obj = tuple(obj)
+                elif type_ == "sets":
+                    try:
+                        rel_path = get_relative_path(type_path, path)
+                    except ValueError:
+                        continue
+                    if rel_path:
+                        set_in_container(
+                            obj, rel_path, set(get_in_container(obj, rel_path))
+                        )
+                    else:
+                        obj = set(obj)
 
         for data_type in cls._decoders:
             obj = cls._decoders[data_type](

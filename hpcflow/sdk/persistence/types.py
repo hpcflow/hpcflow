@@ -3,7 +3,7 @@ Types used in type-checking the persistence subsystem.
 """
 
 from __future__ import annotations
-from typing import Any, Generic, TypeVar, TYPE_CHECKING
+from typing import Any, Generic, TypeVar, TYPE_CHECKING, DefaultDict
 from typing_extensions import TypedDict, NotRequired, TypeAlias
 
 if TYPE_CHECKING:
@@ -238,23 +238,8 @@ class Metadata(TypedDict):
     ts_name_fmt: NotRequired[str]
 
 
-class TypeLookup(TypedDict, total=False):
-    """
-    Information for looking up the type of a parameter.
-
-    Note
-    ----
-    Not a total typed dictionary.
-    """
-
-    #: Tuples involving the parameter.
-    tuples: list[list[int]]
-    #: Sets involving the parameter.
-    sets: list[list[int]]
-    #: Arrays involving the parameter.
-    arrays: list[list[list[int] | int]]
-    #: Masked arrays involving the parameter.
-    masked_arrays: list[list[int | list[int]]]
+#: Information for looking up the type of a parameter.
+TypeLookup = DefaultDict[str, list[list]]
 
 
 class EncodedStoreParameter(TypedDict):
