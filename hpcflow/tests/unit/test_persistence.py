@@ -1,8 +1,8 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Tuple
-from typing import cast, TYPE_CHECKING
+
+from typing import Any, cast, TYPE_CHECKING
 import numpy as np
 import zarr  # type: ignore
 import pytest
@@ -18,6 +18,7 @@ from hpcflow.sdk.persistence.json import (
     JsonStoreEAR,
 )
 from hpcflow.sdk.persistence.zarr import ZarrPersistentStore
+from hpcflow.sdk.core.parameters import NullDefault
 
 from hpcflow.app import app as hf
 
@@ -590,3 +591,62 @@ def test_zarr_single_chunk_threshold(null_config, tmp_path):
         tasks=[t1],
         path=tmp_path,
     )
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
+
+    (s1,) = make_schemas(
+        (
+            {
+                "p1": NullDefault.NULL,
+                "p2": NullDefault.NULL,
+                "p3": NullDefault.NULL,
+                "p4": NullDefault.NULL,
+                "p5": NullDefault.NULL,
+                "p6": NullDefault.NULL,
+                "p7": NullDefault.NULL,
+            },
+            tuple(),
+        ),
+    )
+
+    p1 = [1, 2, 3]
+    p2 = (1, 2, 3)
+    p3 = {1, 2, 3}
+    p4 = None
+    p5 = np.arange(10)
+    p6 = np.ma.array(np.arange(10), mask=np.random.randint(0, 2, 10))
+    p7 = [[1, 2], (3, 4), {5, 6}]
+
+    t1 = hf.Task(
+        schema=s1,
+        inputs={
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+            "p4": p4,
+            "p5": p5 if store == "zarr" else None,
+            "p6": p6 if store == "zarr" else None,
+            "p7": p7,
+        },
+    )
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_store_encoders",
+        overwrite=True,
+        name_use_dir=False,
+        name_add_timestamp=False,
+        tasks=[t1],
+        store="zarr",
+    )
+
+    assert wk.tasks[0].elements[0].get("inputs.p1") == p1
+    assert wk.tasks[0].elements[0].get("inputs.p2") == p2
+    assert wk.tasks[0].elements[0].get("inputs.p3") == p3
+    assert wk.tasks[0].elements[0].get("inputs.p4") == p4
+    assert wk.tasks[0].elements[0].get("inputs.p7") == p7
+
+    if store == "zarr":
+        assert np.allclose(wk.tasks[0].elements[0].get("inputs.p5"), p5)
+        assert np.allclose(wk.tasks[0].elements[0].get("inputs.p6"), p6)
