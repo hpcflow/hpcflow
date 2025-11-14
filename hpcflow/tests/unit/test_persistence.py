@@ -634,11 +634,9 @@ def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
 
     wk = hf.Workflow.from_template_data(
         template_name="test_store_encoders",
-        overwrite=True,
-        name_use_dir=False,
-        name_add_timestamp=False,
         tasks=[t1],
-        store="zarr",
+        store=store,
+        path=tmp_path,
     )
 
     assert wk.tasks[0].elements[0].get("inputs.p1") == p1
