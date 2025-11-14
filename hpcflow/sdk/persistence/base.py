@@ -6,6 +6,7 @@ Store* classes represent the element-metadata in the store, in a store-agnostic 
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from collections import defaultdict
 import contextlib
 import copy
 from dataclasses import dataclass, field
@@ -699,6 +700,9 @@ class StoreParameter:
     _decoders: ClassVar[dict[str, Callable]] = {}
     _MAX_DEPTH: ClassVar[int] = 50
 
+    _all_encoders: ClassVar[dict[type, Callable]] = {}
+    _all_decoders: ClassVar[dict[type, Callable]] = {}
+
     def encode(self, **kwargs) -> dict[str, Any] | int:
         """Prepare store parameter data for the persistent store."""
         if self.is_set:
@@ -716,16 +720,6 @@ class StoreParameter:
 
         return isinstance(value, PV)
 
-    def _init_type_lookup(self) -> TypeLookup:
-        return cast(
-            "TypeLookup",
-            {
-                "tuples": [],
-                "sets": [],
-                **{k: [] for k in self._decoders},
-            },
-        )
-
     def _encode(
         self,
         obj: ParameterTypes,
@@ -737,7 +731,7 @@ class StoreParameter:
 
         path = path or []
         if type_lookup is None:
-            type_lookup = self._init_type_lookup()
+            type_lookup = cast("TypeLookup", defaultdict(list))
 
         if len(path) > self._MAX_DEPTH:
             raise RuntimeError("I'm in too deep!")
@@ -787,12 +781,13 @@ class StoreParameter:
         elif isinstance(obj, PRIMITIVES):
             data = obj
 
-        elif type(obj) in self._encoders:
+        elif type(obj) in self._all_encoders:
             assert type_lookup is not None
-            data = self._encoders[type(obj)](
+            data = self._all_encoders[type(obj)](
                 obj=obj,
                 path=path,
                 type_lookup=type_lookup,
+                root_encoder=self._encode,
                 **kwargs,
             )
 
@@ -843,28 +838,33 @@ class StoreParameter:
 
         obj = get_in_container(data_["data"], path)
 
-        for tuple_path in data_["type_lookup"]["tuples"]:
-            try:
-                rel_path = get_relative_path(tuple_path, path)
-            except ValueError:
-                continue
-            if rel_path:
-                set_in_container(obj, rel_path, tuple(get_in_container(obj, rel_path)))
-            else:
-                obj = tuple(obj)
+        for type_, paths in data_["type_lookup"].items():
+            for type_path in paths:
+                if type_ == "tuples":
+                    try:
+                        rel_path = get_relative_path(type_path, path)
+                    except ValueError:
+                        continue
+                    if rel_path:
+                        set_in_container(
+                            obj, rel_path, tuple(get_in_container(obj, rel_path))
+                        )
+                    else:
+                        obj = tuple(obj)
+                elif type_ == "sets":
+                    try:
+                        rel_path = get_relative_path(type_path, path)
+                    except ValueError:
+                        continue
+                    if rel_path:
+                        set_in_container(
+                            obj, rel_path, set(get_in_container(obj, rel_path))
+                        )
+                    else:
+                        obj = set(obj)
 
-        for set_path in data_["type_lookup"]["sets"]:
-            try:
-                rel_path = get_relative_path(set_path, path)
-            except ValueError:
-                continue
-            if rel_path:
-                set_in_container(obj, rel_path, set(get_in_container(obj, rel_path)))
-            else:
-                obj = set(obj)
-
-        for data_type in cls._decoders:
-            obj = cls._decoders[data_type](
+        for data_type in cls._all_decoders:
+            obj = cls._all_decoders[data_type](
                 obj=obj,
                 type_lookup=data_["type_lookup"],
                 path=path,
@@ -999,6 +999,26 @@ class PersistentStore(
         self._reset_cache()
 
         self._use_parameters_metadata_cache: bool = False  # subclass-specific cache
+
+    def _ensure_all_encoders(self):
+        """Ensure app-defined encoders are included in the StoreParameter's encoders
+        map."""
+        param_cls = self._store_param_cls()
+        if not param_cls._all_encoders:
+            param_cls._all_encoders = {
+                **param_cls._encoders,
+                **self.workflow._app.encoders().get(self._name, {}),
+            }
+
+    def _ensure_all_decoders(self):
+        """Ensure app-defined decoders are included in the StoreParameter's encoders
+        map."""
+        param_cls = self._store_param_cls()
+        if not param_cls._all_decoders:
+            param_cls._all_decoders = {
+                **param_cls._decoders,
+                **self.workflow._app.decoders().get(self._name, {}),
+            }
 
     @abstractmethod
     def cached_load(self) -> contextlib.AbstractContextManager[None]:

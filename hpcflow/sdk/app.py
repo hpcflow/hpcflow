@@ -486,6 +486,12 @@ class BaseApp(metaclass=Singleton):
         `module` argument and `hf` is the `docs_import_conv` argument.
     docs_url:
         URL to documentation.
+    encoders:
+        callable that takes no arguments and returns a mapping between string store types
+        (e.g. "zarr", "json") and a dictionary of additional parameter encoders.
+    decoders:
+        callable that takes no arguments and returns a mapping between string store types
+        (e.g. "zarr", "json") and a dictionary of additional parameter decoders.
     """
 
     _known_subs_file_name: ClassVar = "known_submissions.txt"
@@ -513,6 +519,8 @@ class BaseApp(metaclass=Singleton):
         package_name: str | None = None,
         docs_import_conv: str | None = None,
         docs_url: str | None = None,
+        encoders: Callable | None = None,
+        decoders: Callable | None = None,
     ):
         SDK_logger.info(f"Generating {self.__class__.__name__} {name!r}.")
 
@@ -550,6 +558,10 @@ class BaseApp(metaclass=Singleton):
         self.docs_import_conv = docs_import_conv
         #: URL to documentation.
         self.docs_url = docs_url
+        #: Callable that returns additional parameter encoders.
+        self.encoders = encoders or (lambda: {})
+        #: Callable that returns additional parameter decoders.
+        self.decoders = decoders or (lambda: {})
 
         #: Command line interface subsystem.
         self.cli = make_cli(self)
@@ -3685,15 +3697,15 @@ class BaseApp(metaclass=Singleton):
 
         columns: tuple[str, ...]
         if full:
-            columns = ("id", "name", "status", "times", "actions")
+            columns = ("id", "name", "status", "actions")
         else:
             columns = (
                 "id",
                 "name",
                 "status",
-                "submit_time",
-                "start_time",
-                "end_time",
+                # "submit_time",
+                # "start_time",
+                # "end_time",
                 "actions_compact",
             )
 

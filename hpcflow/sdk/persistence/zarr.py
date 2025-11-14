@@ -125,6 +125,7 @@ def _encode_numpy_array(
     path: list[int],
     root_group: Group,
     arr_path: list[int],
+    root_encoder: Callable,
 ) -> int:
     # Might need to generate new group:
     param_arr_group = root_group.require_group(arr_path)
@@ -177,10 +178,13 @@ def _encode_masked_array(
     path: list[int],
     root_group: Group,
     arr_path: list[int],
+    root_encoder: Callable,
 ):
-    data_idx = _encode_numpy_array(obj.data, type_lookup, path, root_group, arr_path)
+    data_idx = _encode_numpy_array(
+        obj.data, type_lookup, path, root_group, arr_path, root_encoder
+    )
     mask_idx = _encode_numpy_array(
-        cast("NDArray", obj.mask), type_lookup, path, root_group, arr_path
+        cast("NDArray", obj.mask), type_lookup, path, root_group, arr_path, root_encoder
     )
     type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
 
@@ -1298,6 +1302,7 @@ class ZarrPersistentStore(
 
     def _append_parameters(self, params: Sequence[StoreParameter]):
         """Add new persistent parameters."""
+        self._ensure_all_encoders()
         base_arr = self._get_parameter_base_array(mode="r+", write_empty_chunks=False)
         src_arr = self._get_parameter_sources_array(mode="r+")
         self.logger.debug(
@@ -1323,7 +1328,7 @@ class ZarrPersistentStore(
 
     def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
         """Set multiple unset persistent parameters."""
-
+        self._ensure_all_encoders()
         param_ids = list(set_parameters)
         # the `decode` call in `_get_persistent_parameters` should be quick:
         params = self._get_persistent_parameters(param_ids)
@@ -1759,6 +1764,7 @@ class ZarrPersistentStore(
     def _get_persistent_parameters(
         self, id_lst: Iterable[int], *, dataset_copy: bool = False, **kwargs
     ) -> dict[int, ZarrStoreParameter]:
+        self._ensure_all_decoders()
         params, id_lst = self._get_cached_persistent_parameters(id_lst)
         if id_lst:
 
