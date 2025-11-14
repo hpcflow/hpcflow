@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a266"></a>
+## [v0.2.0a266](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a265...v0.2.0a266) - 2025.11.14
+
+### 🐛 Bug Fixes
+
+* process demo data paths in `ValuesMixin` classmethods
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a265"></a>
 ## [v0.2.0a265](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a264...v0.2.0a265) - 2025.11.14
 
