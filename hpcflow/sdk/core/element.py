@@ -492,8 +492,7 @@ class ElementResources(JSONLike):
         """
         Get the default value for platform.
         """
-        PLAT_LOOKUP = {"win32": "win", "darwin": "macos"}
-        return PLAT_LOOKUP.get(sys.platform, sys.platform)
+        return cls._app.run_time_info.platform
 
     @classmethod
     @TimeIt.decorator
@@ -501,7 +500,7 @@ class ElementResources(JSONLike):
         """
         Get the default value for the CPU architecture.
         """
-        return platform.machine()
+        return cls._app.run_time_info.CPU_arch
 
     @classmethod
     @TimeIt.decorator
