@@ -124,6 +124,14 @@ class RunTimeInfo:
             f"is_conda_venv: {self.is_conda_venv!r}"
             f"{f' ({self.conda_prefix!r})' if self.is_conda_venv else ''}"
         )
+
+        _PLAT_LOOKUP = {"win32": "win", "darwin": "macos"}
+        #: CPU architecture, e.g. "AMD64" (on Windows), "x86-64" (Linux, or Intel Macs),
+        #: and "arm64" (Mac with Apple silicon).
+        self.CPU_arch = platform.machine()
+        # Broadly defined operating system, typically: "win", "macos", or "linux".
+        self.platform = _PLAT_LOOKUP.get(sys.platform, sys.platform)
+
         # TODO: investigate
         # if self.is_venv and self.is_conda_venv:
         #     msg = (
@@ -150,6 +158,8 @@ class RunTimeInfo:
             "in_ipython": self.in_ipython,
             "in_pytest": self.in_pytest,
             "from_CLI": self.from_CLI,
+            "CPU_arch": self.CPU_arch,
+            "platform": self.platform,
         }
         if self.is_frozen:
             out.update(
