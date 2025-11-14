@@ -700,6 +700,9 @@ class StoreParameter:
     _decoders: ClassVar[dict[str, Callable]] = {}
     _MAX_DEPTH: ClassVar[int] = 50
 
+    _all_encoders: ClassVar[dict[type, Callable]] = {}
+    _all_decoders: ClassVar[dict[type, Callable]] = {}
+
     def encode(self, **kwargs) -> dict[str, Any] | int:
         """Prepare store parameter data for the persistent store."""
         if self.is_set:
@@ -728,7 +731,7 @@ class StoreParameter:
 
         path = path or []
         if type_lookup is None:
-            type_lookup = cast(TypeLookup, defaultdict(list))
+            type_lookup = cast("TypeLookup", defaultdict(list))
 
         if len(path) > self._MAX_DEPTH:
             raise RuntimeError("I'm in too deep!")
@@ -778,12 +781,13 @@ class StoreParameter:
         elif isinstance(obj, PRIMITIVES):
             data = obj
 
-        elif type(obj) in self._encoders:
+        elif type(obj) in self._all_encoders:
             assert type_lookup is not None
-            data = self._encoders[type(obj)](
+            data = self._all_encoders[type(obj)](
                 obj=obj,
                 path=path,
                 type_lookup=type_lookup,
+                root_encoder=self._encode,
                 **kwargs,
             )
 
@@ -859,8 +863,8 @@ class StoreParameter:
                     else:
                         obj = set(obj)
 
-        for data_type in cls._decoders:
-            obj = cls._decoders[data_type](
+        for data_type in cls._all_decoders:
+            obj = cls._all_decoders[data_type](
                 obj=obj,
                 type_lookup=data_["type_lookup"],
                 path=path,
@@ -995,6 +999,26 @@ class PersistentStore(
         self._reset_cache()
 
         self._use_parameters_metadata_cache: bool = False  # subclass-specific cache
+
+    def _ensure_all_encoders(self):
+        """Ensure app-defined encoders are included in the StoreParameter's encoders
+        map."""
+        param_cls = self._store_param_cls()
+        if not param_cls._all_encoders:
+            param_cls._all_encoders = {
+                **param_cls._encoders,
+                **self.workflow._app.encoders().get(self._name, {}),
+            }
+
+    def _ensure_all_decoders(self):
+        """Ensure app-defined decoders are included in the StoreParameter's encoders
+        map."""
+        param_cls = self._store_param_cls()
+        if not param_cls._all_decoders:
+            param_cls._all_decoders = {
+                **param_cls._decoders,
+                **self.workflow._app.decoders().get(self._name, {}),
+            }
 
     @abstractmethod
     def cached_load(self) -> contextlib.AbstractContextManager[None]:
