@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a267"></a>
+## [v0.2.0a267](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a266...v0.2.0a267) - 2025.11.14
+
+### ✨ Features
+
+* add `RunTimeInfo.is_apple_silicon` property
+* add `CPU_arch` and `platform` to `RunTimeInfo`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a266"></a>
 ## [v0.2.0a266](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a265...v0.2.0a266) - 2025.11.14
 
