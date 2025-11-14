@@ -1,4 +1,25 @@
 
+<a name="v0.2.0a265"></a>
+## [v0.2.0a265](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a264...v0.2.0a265) - 2025.11.14
+
+### ♻ Code Refactoring
+
+* defer a scipy import
+* only store used type lookups
+
+### ✨ Features
+
+* support app-defined parameter en/decoders
+
+### 🐛 Bug Fixes
+
+* ensure extra encoders/decoders in JSON store
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a264"></a>
 ## [v0.2.0a264](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a263...v0.2.0a264) - 2025.11.12
 
