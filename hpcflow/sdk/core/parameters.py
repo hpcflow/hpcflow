@@ -15,7 +15,6 @@ from typing_extensions import override, TypeIs
 import warnings
 
 import numpy as np
-from scipy.stats.qmc import LatinHypercube, scale
 from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
@@ -1667,6 +1666,8 @@ class MultiPathSequence(_BaseSequence):
         optimization: Literal["random-cd", "lloyd"] | None = None,
         rng=None,
     ) -> NDArray:
+
+        from scipy.stats.qmc import LatinHypercube, scale
 
         num_paths = len(paths)
         kwargs = dict(
