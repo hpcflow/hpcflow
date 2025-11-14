@@ -313,3 +313,8 @@ class RunTimeInfo:
             app_module = import_module(self.package_name)
             CLI_path = Path(*app_module.__path__, "cli.py")
             return (str(self.python_executable_path), str(CLI_path))
+
+    @property
+    def is_apple_silicon(self) -> bool:
+        """Return True if running on Apple silicon."""
+        return self.platform == "macos" and self.CPU_arch == "arm64"
