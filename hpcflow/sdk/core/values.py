@@ -6,17 +6,32 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TypeVar, Type, TYPE_CHECKING, overload, Protocol, Any, cast
+from typing import TypeVar, Type, TYPE_CHECKING, overload, ClassVar, Any, cast
 from typing_extensions import Self
+import re
 import numpy as np
 
-from hpcflow.sdk.core.utils import linspace_rect
+from hpcflow.sdk.core.utils import linspace_rect, process_string_nodes
 
 
 if TYPE_CHECKING:
+    from ..app import BaseApp
     from hpcflow.sdk.core.parameters import SchemaInput, Parameter
 
 T = TypeVar("T", bound="ValuesMixin")
+
+
+def process_demo_data_strings(app: BaseApp, value: Any) -> Any:
+    demo_pattern = re.compile(r"\<\<demo_data_file:(.*)\>\>")
+
+    def string_processor(str_in: str) -> str:
+        str_out = demo_pattern.sub(
+            repl=lambda x: str(app.get_demo_data_file_path(x[1])),
+            string=str_in,
+        )
+        return str_out
+
+    return process_string_nodes(value, string_processor)
 
 
 def _get_seed(seed: int | list[int] | None) -> int | list[int]:
@@ -26,6 +41,8 @@ def _get_seed(seed: int | list[int] | None) -> int | list[int]:
 
 
 class ValuesMixin(ABC):
+
+    _app: ClassVar[BaseApp]
 
     @classmethod
     @abstractmethod
@@ -264,7 +281,7 @@ class ValuesMixin(ABC):
         """
         Build a sequence from a simple file.
         """
-        args = {"file_path": file_path, **kwargs}
+        args = {"file_path": process_demo_data_strings(cls._app, file_path), **kwargs}
         obj = cls(
             **cls._process_mixin_args(
                 cls._values_from_file(**args),
@@ -291,7 +308,7 @@ class ValuesMixin(ABC):
         """
         Load an array from a text file with Numpy.
         """
-        args = {"fname": file_path, **kwargs}
+        args = {"fname": process_demo_data_strings(cls._app, file_path), **kwargs}
         obj = cls(
             **cls._process_mixin_args(
                 np.loadtxt(**args),
