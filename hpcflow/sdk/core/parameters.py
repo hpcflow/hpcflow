@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 import enum
 from pathlib import Path
-import re
 from typing import TypeVar, cast, TYPE_CHECKING
 from typing_extensions import override, TypeIs
 import warnings
@@ -33,11 +32,10 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import (
     check_valid_py_identifier,
     get_enum_by_name_or_val,
-    process_string_nodes,
     split_param_label,
     timedelta_format,
 )
-from hpcflow.sdk.core.values import ValuesMixin
+from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -45,7 +43,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self, TypeAlias
     from h5py import Group as HDF5Group  # type: ignore
     from numpy.typing import NDArray
-    from ..app import BaseApp
     from ..typing import ParamSource
     from .actions import ActionScope
     from .element import ElementFilter
@@ -66,19 +63,6 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T")
-
-
-def _process_demo_data_strings(app: BaseApp, value: T) -> T:
-    demo_pattern = re.compile(r"\<\<demo_data_file:(.*)\>\>")
-
-    def string_processor(str_in: str) -> str:
-        str_out = demo_pattern.sub(
-            repl=lambda x: str(app.get_demo_data_file_path(x[1])),
-            string=str_in,
-        )
-        return str_out
-
-    return process_string_nodes(value, string_processor)
 
 
 @dataclass
@@ -747,7 +731,7 @@ class _BaseSequence(JSONLike):
             # class method (e.g. `from_range`, `from_file` etc):
             _, method = val_key.split("::")
             json_like.update(json_like.pop(val_key))
-            json_like = _process_demo_data_strings(cls._app, json_like)
+            json_like = process_demo_data_strings(cls._app, json_like)
             obj = getattr(cls, method)(**json_like)
         else:
             obj = super().from_json_like(json_like, shared_data)
@@ -793,7 +777,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         if values is not None:
             self._values: list[Any] | None = [
-                _process_demo_data_strings(self._app, i) for i in values
+                process_demo_data_strings(self._app, i) for i in values
             ]
         else:
             self._values = None
@@ -1958,7 +1942,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         #: A class method that can be invoked with the `value` attribute as keyword
         #: arguments.
         self.value_class_method = value_class_method
-        self._value = _process_demo_data_strings(self._app, value)
+        self._value = process_demo_data_strings(self._app, value)
 
         #: Which class method of this class was used to instantiate this instance, if any:
         self._value_method: str | None = None
