@@ -583,6 +583,7 @@ class JSONPersistentStore(
                     )
 
     def _append_parameters(self, params: Sequence[StoreParameter]):
+        self._ensure_all_encoders()
         with self.using_resource("parameters", "update") as params_u:
             for param_i in params:
                 params_u["data"][str(param_i.id_)] = param_i.encode()
@@ -590,6 +591,7 @@ class JSONPersistentStore(
 
     def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
         """Set multiple unset persistent parameters."""
+        self._ensure_all_encoders()
         param_objs = self._get_persistent_parameters(set_parameters)
         with self.using_resource("parameters", "update") as params:
             for param_id, (value, is_file) in set_parameters.items():
@@ -831,6 +833,7 @@ class JSONPersistentStore(
     def _get_persistent_parameters(
         self, id_lst: Iterable[int], **kwargs
     ) -> Mapping[int, StoreParameter]:
+        self._ensure_all_decoders()
         params, id_lst_ = self._get_cached_persistent_parameters(id_lst)
         if id_lst_:
             with self.using_resource("parameters", "read") as params_:
