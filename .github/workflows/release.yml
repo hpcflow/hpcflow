@@ -23,7 +23,7 @@ jobs:
       executable_name: hpcflow
       pyinstaller_dir: pyinstaller
       pypi-url: https://upload.pypi.org/legacy/
-      repository: hpcflow/hpcflow-new
+      repository: hpcflow/hpcflow
       version_file: hpcflow/_version.py
       website_source_org: hpcflow
       website_source_repo: hpcflow.github.io

@@ -4,7 +4,7 @@
 
 # hpcFlow
 
-![PyPI - Version](https://img.shields.io/pypi/v/hpcflow-new2) ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/hpcflow-new2)
+![PyPI - Version](https://img.shields.io/pypi/v/hpcflow) ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/hpcflow)
 
 **hpcFlow manages your scientific workflows**
 

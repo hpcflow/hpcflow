@@ -1,6 +1,6 @@
 {
     "org": "hpcflow",
-    "repo": "hpcflow-new",
+    "repo": "hpcflow",
     "app_name": "hpcFlow",
     "app_package": "hpcflow.app",
     "docs_url_prefix": "docs",
