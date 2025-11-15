@@ -188,7 +188,7 @@ def _encode_masked_array(
 ):
     """Encode a masked array as two normal arrays, and return the fill value."""
     # no need to add "array" entries to the type lookup, so pass an empty `type_lookup`:
-    type_lookup_ = defaultdict(list)
+    type_lookup_: TypeLookup = defaultdict(list)
     data_idx = _encode_numpy_array(
         obj.data, type_lookup_, path, root_group, arr_path, root_encoder
     )

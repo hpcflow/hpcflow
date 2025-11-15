@@ -701,7 +701,7 @@ class StoreParameter:
     _MAX_DEPTH: ClassVar[int] = 50
 
     _all_encoders: ClassVar[dict[type, Callable]] = {}
-    _all_decoders: ClassVar[dict[type, Callable]] = {}
+    _all_decoders: ClassVar[dict[str, Callable]] = {}
 
     def encode(self, **kwargs) -> dict[str, Any] | int:
         """Prepare store parameter data for the persistent store."""
