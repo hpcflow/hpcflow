@@ -20,7 +20,7 @@ jobs:
       - name: Checkout MatFlow develop branch
         uses: actions/checkout@v5
         with:
-          repository: hpcflow/matflow-new
+          repository: hpcflow/matflow
           fetch-depth: 0 # get all history and tags
           token: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
           ref: develop
