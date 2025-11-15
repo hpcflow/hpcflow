@@ -227,7 +227,6 @@ def _decode_masked_arrays(
             set_in_container(obj_, rel_path, dataset)
         else:
             obj_ = dataset
-    print(f"_decode_masked_arrays: {obj_=!r}")
     return obj_
 
 
