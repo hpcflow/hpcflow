@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
@@ -33,7 +34,12 @@ from hpcflow.sdk.core.errors import (
     MissingStoreElementIterationError,
     MissingStoreTaskError,
 )
-from hpcflow.sdk.core.utils import ensure_in, get_relative_path, set_in_container
+from hpcflow.sdk.core.utils import (
+    ensure_in,
+    get_relative_path,
+    set_in_container,
+    get_in_container,
+)
 from hpcflow.sdk.persistence.base import (
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
@@ -180,13 +186,17 @@ def _encode_masked_array(
     arr_path: list[int],
     root_encoder: Callable,
 ):
+    """Encode a masked array as two normal arrays, and return the fill value."""
+    # no need to add "array" entries to the type lookup, so pass an empty `type_lookup`:
+    type_lookup_: TypeLookup = defaultdict(list)
     data_idx = _encode_numpy_array(
-        obj.data, type_lookup, path, root_group, arr_path, root_encoder
+        obj.data, type_lookup_, path, root_group, arr_path, root_encoder
     )
     mask_idx = _encode_numpy_array(
-        cast("NDArray", obj.mask), type_lookup, path, root_group, arr_path, root_encoder
+        cast("NDArray", obj.mask), type_lookup_, path, root_group, arr_path, root_encoder
     )
     type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
+    return obj.fill_value.item()
 
 
 def _decode_masked_arrays(
@@ -208,15 +218,15 @@ def _decode_masked_arrays(
         except ValueError:
             continue
 
+        fill_value = get_in_container(obj_, rel_path)
         data = arr_group.get(f"arr_{data_idx}")
         mask = arr_group.get(f"arr_{mask_idx}")
-        dataset: MaskedArray = MaskedArray(data=data, mask=mask)
+        dataset: MaskedArray = MaskedArray(data=data, mask=mask, fill_value=fill_value)
 
         if rel_path:
             set_in_container(obj_, rel_path, dataset)
         else:
             obj_ = dataset
-
     return obj_
 
 

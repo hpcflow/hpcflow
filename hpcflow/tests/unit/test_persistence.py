@@ -606,6 +606,8 @@ def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
                 "p5": NullDefault.NULL,
                 "p6": NullDefault.NULL,
                 "p7": NullDefault.NULL,
+                "p8": NullDefault.NULL,
+                "p9": NullDefault.NULL,
             },
             tuple(),
         ),
@@ -618,6 +620,10 @@ def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
     p5 = np.arange(10)
     p6 = np.ma.array(np.arange(10), mask=np.random.randint(0, 2, 10))
     p7 = [[1, 2], (3, 4), {5, 6}]
+    p8 = np.ma.array(np.arange(10), mask=np.ones(10))  # fully masked
+    p9 = {
+        "a2": np.ma.array(np.arange(10), mask=np.ones(10), fill_value=999)
+    }  # custom fill value
 
     t1 = hf.Task(
         schema=s1,
@@ -629,6 +635,8 @@ def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
             "p5": p5 if store == "zarr" else None,
             "p6": p6 if store == "zarr" else None,
             "p7": p7,
+            "p8": p8 if store == "zarr" else None,
+            "p9": p9 if store == "zarr" else None,
         },
     )
 
@@ -647,4 +655,10 @@ def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
 
     if store == "zarr":
         assert np.allclose(wk.tasks[0].elements[0].get("inputs.p5"), p5)
-        assert np.allclose(wk.tasks[0].elements[0].get("inputs.p6"), p6)
+        assert np.ma.allclose(wk.tasks[0].elements[0].get("inputs.p6"), p6)
+        assert np.ma.allclose(wk.tasks[0].elements[0].get("inputs.p8"), p8)
+        assert np.ma.allclose(wk.tasks[0].elements[0].get("inputs.p9.a2"), p9["a2"])
+        assert (
+            wk.tasks[0].elements[0].get("inputs.p9")["a2"].fill_value
+            == p9["a2"].fill_value
+        )
