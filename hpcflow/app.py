@@ -14,7 +14,7 @@ __dir__ = sdk_app.get_app_module_dir()
 # set app-level config options:
 config_options = ConfigOptions(
     directory_env_var="HPCFLOW_CONFIG_DIR",
-    default_directory="~/.hpcflow-new",
+    default_directory="~/.hpcflow",
 )
 
 # load built in template components (in this case, for demonstration purposes):

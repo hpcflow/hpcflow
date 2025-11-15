@@ -26,6 +26,7 @@ from hpcflow.sdk.config.errors import (
     ConfigFileValidationError,
     ConfigInvocationKeyNotFoundError,
     ConfigValidationError,
+    IncompatibleConfigError,
 )
 
 if TYPE_CHECKING:
@@ -377,6 +378,23 @@ class ConfigFile:
             data = yaml.load(handle)
             handle.seek(0)
             data_rt = yaml_rt.load(handle)
+
+        # stop if it looks like the config file is from a very old version of hpcflow (or
+        # MatFlow):
+        if self.directory.joinpath("profiles").is_dir():
+            raise IncompatibleConfigError(
+                f"Found a `profiles` directory in the config directory: "
+                f"{self.directory!r}, which indicates the directory was created by a "
+                f"very old version (<= 0.1.16) of hpcflow. Please rename or delete this "
+                f"directory."
+            )
+        elif "software_sources" in data:
+            raise IncompatibleConfigError(
+                f"Found a `software_sources` key in the config file: {self.path!r}, "
+                f"which indicates the file was created by a very old version (<= 0.2.27) "
+                f"of MatFlow. Please rename or delete this file, or its parent directory:"
+                f" {self.directory!r}."
+            )
 
         self.__contents = contents
         self.__data = data

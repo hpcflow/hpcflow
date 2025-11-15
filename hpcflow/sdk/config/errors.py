@@ -18,6 +18,12 @@ class ConfigError(Exception):
     """
 
 
+class IncompatibleConfigError(ConfigError):
+    """
+    Raised when the config file is from an incompatible version of the app.
+    """
+
+
 class ConfigUnknownItemError(ConfigError):
     """
     Raised when the configuration contains an unknown item.
