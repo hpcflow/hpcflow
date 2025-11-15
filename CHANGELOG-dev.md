@@ -1,6 +1,18 @@
 
+<a name="v0.2.0a269"></a>
+## [v0.2.0a269](https://github.com/hpcflow/hpcflow/compare/v0.2.0a268...v0.2.0a269) - 2025.11.15
+
+### ♻ Code Refactoring
+
+* update PyPI project from `hpcflow-new2` to `hpcflow` and repo references to `hpcflow`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a268"></a>
-## [v0.2.0a268](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a267...v0.2.0a268) - 2025.11.14
+## [v0.2.0a268](https://github.com/hpcflow/hpcflow/compare/v0.2.0a267...v0.2.0a268) - 2025.11.14
 
 ### 👷 Build changes
 
@@ -9,7 +21,7 @@
 
 
 <a name="v0.2.0a267"></a>
-## [v0.2.0a267](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a266...v0.2.0a267) - 2025.11.14
+## [v0.2.0a267](https://github.com/hpcflow/hpcflow/compare/v0.2.0a266...v0.2.0a267) - 2025.11.14
 
 ### ✨ Features
 
@@ -22,7 +34,7 @@
 
 
 <a name="v0.2.0a266"></a>
-## [v0.2.0a266](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a265...v0.2.0a266) - 2025.11.14
+## [v0.2.0a266](https://github.com/hpcflow/hpcflow/compare/v0.2.0a265...v0.2.0a266) - 2025.11.14
 
 ### 🐛 Bug Fixes
 
@@ -34,7 +46,7 @@
 
 
 <a name="v0.2.0a265"></a>
-## [v0.2.0a265](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a264...v0.2.0a265) - 2025.11.14
+## [v0.2.0a265](https://github.com/hpcflow/hpcflow/compare/v0.2.0a264...v0.2.0a265) - 2025.11.14
 
 ### ♻ Code Refactoring
 
@@ -55,7 +67,7 @@
 
 
 <a name="v0.2.0a264"></a>
-## [v0.2.0a264](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a263...v0.2.0a264) - 2025.11.12
+## [v0.2.0a264](https://github.com/hpcflow/hpcflow/compare/v0.2.0a263...v0.2.0a264) - 2025.11.12
 
 ### ✨ Features
 
@@ -72,7 +84,7 @@
 
 
 <a name="v0.2.0a263"></a>
-## [v0.2.0a263](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a262...v0.2.0a263) - 2025.11.10
+## [v0.2.0a263](https://github.com/hpcflow/hpcflow/compare/v0.2.0a262...v0.2.0a263) - 2025.11.10
 
 ### 👷 Build changes
 
@@ -82,7 +94,7 @@
 
 
 <a name="v0.2.0a262"></a>
-## [v0.2.0a262](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a261...v0.2.0a262) - 2025.11.10
+## [v0.2.0a262](https://github.com/hpcflow/hpcflow/compare/v0.2.0a261...v0.2.0a262) - 2025.11.10
 
 ### 🐛 Bug Fixes
 
@@ -94,7 +106,7 @@
 
 
 <a name="v0.2.0a261"></a>
-## [v0.2.0a261](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a260...v0.2.0a261) - 2025.11.10
+## [v0.2.0a261](https://github.com/hpcflow/hpcflow/compare/v0.2.0a260...v0.2.0a261) - 2025.11.10
 
 ### ✨ Features
 
@@ -106,7 +118,7 @@
 
 
 <a name="v0.2.0a260"></a>
-## [v0.2.0a260](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a259...v0.2.0a260) - 2025.11.10
+## [v0.2.0a260](https://github.com/hpcflow/hpcflow/compare/v0.2.0a259...v0.2.0a260) - 2025.11.10
 
 ### 🐛 Bug Fixes
 
@@ -118,7 +130,7 @@
 
 
 <a name="v0.2.0a259"></a>
-## [v0.2.0a259](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a258...v0.2.0a259) - 2025.11.06
+## [v0.2.0a259](https://github.com/hpcflow/hpcflow/compare/v0.2.0a258...v0.2.0a259) - 2025.11.06
 
 ### 🐛 Bug Fixes
 
@@ -130,7 +142,7 @@
 
 
 <a name="v0.2.0a258"></a>
-## [v0.2.0a258](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a257...v0.2.0a258) - 2025.11.06
+## [v0.2.0a258](https://github.com/hpcflow/hpcflow/compare/v0.2.0a257...v0.2.0a258) - 2025.11.06
 
 ### ✨ Features
 
@@ -146,7 +158,7 @@
 
 
 <a name="v0.2.0a257"></a>
-## [v0.2.0a257](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a256...v0.2.0a257) - 2025.11.05
+## [v0.2.0a257](https://github.com/hpcflow/hpcflow/compare/v0.2.0a256...v0.2.0a257) - 2025.11.05
 
 ### 🐛 Bug Fixes
 
@@ -159,7 +171,7 @@
 
 
 <a name="v0.2.0a256"></a>
-## [v0.2.0a256](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a255...v0.2.0a256) - 2025.11.05
+## [v0.2.0a256](https://github.com/hpcflow/hpcflow/compare/v0.2.0a255...v0.2.0a256) - 2025.11.05
 
 ### ♻ Code Refactoring
 
@@ -182,7 +194,7 @@
 
 
 <a name="v0.2.0a255"></a>
-## [v0.2.0a255](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a254...v0.2.0a255) - 2025.11.04
+## [v0.2.0a255](https://github.com/hpcflow/hpcflow/compare/v0.2.0a254...v0.2.0a255) - 2025.11.04
 
 ### ✨ Features
 
@@ -198,7 +210,7 @@
 
 
 <a name="v0.2.0a254"></a>
-## [v0.2.0a254](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a253...v0.2.0a254) - 2025.10.29
+## [v0.2.0a254](https://github.com/hpcflow/hpcflow/compare/v0.2.0a253...v0.2.0a254) - 2025.10.29
 
 ### 🐛 Bug Fixes
 
@@ -210,7 +222,7 @@
 
 
 <a name="v0.2.0a253"></a>
-## [v0.2.0a253](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a252...v0.2.0a253) - 2025.10.27
+## [v0.2.0a253](https://github.com/hpcflow/hpcflow/compare/v0.2.0a252...v0.2.0a253) - 2025.10.27
 
 ### 🐛 Bug Fixes
 
@@ -223,7 +235,7 @@
 
 
 <a name="v0.2.0a252"></a>
-## [v0.2.0a252](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a251...v0.2.0a252) - 2025.10.27
+## [v0.2.0a252](https://github.com/hpcflow/hpcflow/compare/v0.2.0a251...v0.2.0a252) - 2025.10.27
 
 ### 🐛 Bug Fixes
 
@@ -236,7 +248,7 @@
 
 
 <a name="v0.2.0a251"></a>
-## [v0.2.0a251](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a250...v0.2.0a251) - 2025.10.07
+## [v0.2.0a251](https://github.com/hpcflow/hpcflow/compare/v0.2.0a250...v0.2.0a251) - 2025.10.07
 
 ### 👷 Build changes
 
@@ -245,7 +257,7 @@
 
 
 <a name="v0.2.0a250"></a>
-## [v0.2.0a250](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a249...v0.2.0a250) - 2025.09.27
+## [v0.2.0a250](https://github.com/hpcflow/hpcflow/compare/v0.2.0a249...v0.2.0a250) - 2025.09.27
 
 ### ✨ Features
 
@@ -257,7 +269,7 @@
 
 
 <a name="v0.2.0a249"></a>
-## [v0.2.0a249](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a248...v0.2.0a249) - 2025.09.25
+## [v0.2.0a249](https://github.com/hpcflow/hpcflow/compare/v0.2.0a248...v0.2.0a249) - 2025.09.25
 
 ### ✨ Features
 
@@ -267,7 +279,7 @@
 ### 🐛 Bug Fixes
 
 * typing
-* backwards compat missing from PR [#874](https://github.com/hpcflow/hpcflow-new/issues/874)
+* backwards compat missing from PR [#874](https://github.com/hpcflow/hpcflow/issues/874)
 * CLI
 * typing
 
@@ -277,7 +289,7 @@
 
 
 <a name="v0.2.0a248"></a>
-## [v0.2.0a248](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a247...v0.2.0a248) - 2025.09.24
+## [v0.2.0a248](https://github.com/hpcflow/hpcflow/compare/v0.2.0a247...v0.2.0a248) - 2025.09.24
 
 ### 👷 Build changes
 
@@ -286,7 +298,7 @@
 
 
 <a name="v0.2.0a247"></a>
-## [v0.2.0a247](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a246...v0.2.0a247) - 2025.09.24
+## [v0.2.0a247](https://github.com/hpcflow/hpcflow/compare/v0.2.0a246...v0.2.0a247) - 2025.09.24
 
 ### 🐛 Bug Fixes
 
@@ -299,7 +311,7 @@
 
 
 <a name="v0.2.0a246"></a>
-## [v0.2.0a246](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a245...v0.2.0a246) - 2025.09.21
+## [v0.2.0a246](https://github.com/hpcflow/hpcflow/compare/v0.2.0a245...v0.2.0a246) - 2025.09.21
 
 ### 🐛 Bug Fixes
 
@@ -307,7 +319,7 @@
 
 
 <a name="v0.2.0a245"></a>
-## [v0.2.0a245](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a244...v0.2.0a245) - 2025.09.21
+## [v0.2.0a245](https://github.com/hpcflow/hpcflow/compare/v0.2.0a244...v0.2.0a245) - 2025.09.21
 
 ### ♻ Code Refactoring
 
@@ -338,13 +350,13 @@
 * add some more time-its
 * update binary download links file [skip ci]
 * merge branch 'feat/templates' of https://github.com/hpcflow/hpcflow-new into feat/templates
-* merge in feat/programs, which is ready for review in [#857](https://github.com/hpcflow/hpcflow-new/issues/857)
+* merge in feat/programs, which is ready for review in [#857](https://github.com/hpcflow/hpcflow/issues/857)
 * merge branch 'develop' into feat/templates
 * merge branch 'develop' into feat/templates
 
 
 <a name="v0.2.0a244"></a>
-## [v0.2.0a244](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a243...v0.2.0a244) - 2025.09.21
+## [v0.2.0a244](https://github.com/hpcflow/hpcflow/compare/v0.2.0a243...v0.2.0a244) - 2025.09.21
 
 ### 👷 Build changes
 
@@ -353,7 +365,7 @@
 
 
 <a name="v0.2.0a243"></a>
-## [v0.2.0a243](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a242...v0.2.0a243) - 2025.09.21
+## [v0.2.0a243](https://github.com/hpcflow/hpcflow/compare/v0.2.0a242...v0.2.0a243) - 2025.09.21
 
 ### 👷 Build changes
 
@@ -362,7 +374,7 @@
 
 
 <a name="v0.2.0a242"></a>
-## [v0.2.0a242](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a241...v0.2.0a242) - 2025.08.26
+## [v0.2.0a242](https://github.com/hpcflow/hpcflow/compare/v0.2.0a241...v0.2.0a242) - 2025.08.26
 
 ### 👷 Build changes
 
@@ -371,7 +383,7 @@
 
 
 <a name="v0.2.0a241"></a>
-## [v0.2.0a241](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a240...v0.2.0a241) - 2025.08.23
+## [v0.2.0a241](https://github.com/hpcflow/hpcflow/compare/v0.2.0a240...v0.2.0a241) - 2025.08.23
 
 ### 👷 Build changes
 
@@ -380,7 +392,7 @@
 
 
 <a name="v0.2.0a240"></a>
-## [v0.2.0a240](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a239...v0.2.0a240) - 2025.08.12
+## [v0.2.0a240](https://github.com/hpcflow/hpcflow/compare/v0.2.0a239...v0.2.0a240) - 2025.08.12
 
 ### 👷 Build changes
 
@@ -389,7 +401,7 @@
 
 
 <a name="v0.2.0a239"></a>
-## [v0.2.0a239](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a238...v0.2.0a239) - 2025.08.12
+## [v0.2.0a239](https://github.com/hpcflow/hpcflow/compare/v0.2.0a238...v0.2.0a239) - 2025.08.12
 
 ### 👷 Build changes
 
@@ -398,7 +410,7 @@
 
 
 <a name="v0.2.0a238"></a>
-## [v0.2.0a238](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a237...v0.2.0a238) - 2025.08.05
+## [v0.2.0a238](https://github.com/hpcflow/hpcflow/compare/v0.2.0a237...v0.2.0a238) - 2025.08.05
 
 ### 👷 Build changes
 
@@ -407,7 +419,7 @@
 
 
 <a name="v0.2.0a237"></a>
-## [v0.2.0a237](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a236...v0.2.0a237) - 2025.08.04
+## [v0.2.0a237](https://github.com/hpcflow/hpcflow/compare/v0.2.0a236...v0.2.0a237) - 2025.08.04
 
 ### 👷 Build changes
 
@@ -416,7 +428,7 @@
 
 
 <a name="v0.2.0a236"></a>
-## [v0.2.0a236](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a235...v0.2.0a236) - 2025.08.01
+## [v0.2.0a236](https://github.com/hpcflow/hpcflow/compare/v0.2.0a235...v0.2.0a236) - 2025.08.01
 
 ### 👷 Build changes
 
@@ -424,7 +436,7 @@
 
 
 <a name="v0.2.0a235"></a>
-## [v0.2.0a235](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a234...v0.2.0a235) - 2025.08.01
+## [v0.2.0a235](https://github.com/hpcflow/hpcflow/compare/v0.2.0a234...v0.2.0a235) - 2025.08.01
 
 ### ♻ Code Refactoring
 
@@ -475,7 +487,7 @@
 
 
 <a name="v0.2.0a234"></a>
-## [v0.2.0a234](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a233...v0.2.0a234) - 2025.07.31
+## [v0.2.0a234](https://github.com/hpcflow/hpcflow/compare/v0.2.0a233...v0.2.0a234) - 2025.07.31
 
 ### ♻ Code Refactoring
 
@@ -500,7 +512,7 @@
 
 
 <a name="v0.2.0a233"></a>
-## [v0.2.0a233](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a232...v0.2.0a233) - 2025.07.31
+## [v0.2.0a233](https://github.com/hpcflow/hpcflow/compare/v0.2.0a232...v0.2.0a233) - 2025.07.31
 
 ### 👷 Build changes
 
@@ -509,7 +521,7 @@
 
 
 <a name="v0.2.0a232"></a>
-## [v0.2.0a232](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a231...v0.2.0a232) - 2025.07.22
+## [v0.2.0a232](https://github.com/hpcflow/hpcflow/compare/v0.2.0a231...v0.2.0a232) - 2025.07.22
 
 ### 👷 Build changes
 
@@ -518,7 +530,7 @@
 
 
 <a name="v0.2.0a231"></a>
-## [v0.2.0a231](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a230...v0.2.0a231) - 2025.07.22
+## [v0.2.0a231](https://github.com/hpcflow/hpcflow/compare/v0.2.0a230...v0.2.0a231) - 2025.07.22
 
 ### 🐛 Bug Fixes
 
@@ -530,7 +542,7 @@
 
 
 <a name="v0.2.0a230"></a>
-## [v0.2.0a230](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a229...v0.2.0a230) - 2025.07.22
+## [v0.2.0a230](https://github.com/hpcflow/hpcflow/compare/v0.2.0a229...v0.2.0a230) - 2025.07.22
 
 ### 👷 Build changes
 
@@ -544,7 +556,7 @@
 
 
 <a name="v0.2.0a229"></a>
-## [v0.2.0a229](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a228...v0.2.0a229) - 2025.07.13
+## [v0.2.0a229](https://github.com/hpcflow/hpcflow/compare/v0.2.0a228...v0.2.0a229) - 2025.07.13
 
 ### 🐛 Bug Fixes
 
@@ -557,7 +569,7 @@
 
 
 <a name="v0.2.0a228"></a>
-## [v0.2.0a228](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a227...v0.2.0a228) - 2025.07.13
+## [v0.2.0a228](https://github.com/hpcflow/hpcflow/compare/v0.2.0a227...v0.2.0a228) - 2025.07.13
 
 ### ⚡ Performance Improvements
 
@@ -569,7 +581,7 @@
 
 
 <a name="v0.2.0a227"></a>
-## [v0.2.0a227](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a226...v0.2.0a227) - 2025.07.13
+## [v0.2.0a227](https://github.com/hpcflow/hpcflow/compare/v0.2.0a226...v0.2.0a227) - 2025.07.13
 
 ### ♻ Code Refactoring
 
@@ -586,7 +598,7 @@
 
 
 <a name="v0.2.0a226"></a>
-## [v0.2.0a226](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a225...v0.2.0a226) - 2025.07.13
+## [v0.2.0a226](https://github.com/hpcflow/hpcflow/compare/v0.2.0a225...v0.2.0a226) - 2025.07.13
 
 ### 🐛 Bug Fixes
 
@@ -594,11 +606,11 @@
 
 
 <a name="v0.2.0a225"></a>
-## [v0.2.0a225](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a224...v0.2.0a225) - 2025.07.09
+## [v0.2.0a225](https://github.com/hpcflow/hpcflow/compare/v0.2.0a224...v0.2.0a225) - 2025.07.09
 
 
 <a name="v0.2.0a224"></a>
-## [v0.2.0a224](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a223...v0.2.0a224) - 2025.07.02
+## [v0.2.0a224](https://github.com/hpcflow/hpcflow/compare/v0.2.0a223...v0.2.0a224) - 2025.07.02
 
 ### ✨ Features
 
@@ -620,7 +632,7 @@
 
 
 <a name="v0.2.0a223"></a>
-## [v0.2.0a223](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a222...v0.2.0a223) - 2025.06.23
+## [v0.2.0a223](https://github.com/hpcflow/hpcflow/compare/v0.2.0a222...v0.2.0a223) - 2025.06.23
 
 ### 🐛 Bug Fixes
 
@@ -634,7 +646,7 @@
 
 
 <a name="v0.2.0a222"></a>
-## [v0.2.0a222](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a221...v0.2.0a222) - 2025.05.27
+## [v0.2.0a222](https://github.com/hpcflow/hpcflow/compare/v0.2.0a221...v0.2.0a222) - 2025.05.27
 
 ### 👷 Build changes
 
@@ -643,7 +655,7 @@
 
 
 <a name="v0.2.0a221"></a>
-## [v0.2.0a221](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a220...v0.2.0a221) - 2025.05.20
+## [v0.2.0a221](https://github.com/hpcflow/hpcflow/compare/v0.2.0a220...v0.2.0a221) - 2025.05.20
 
 ### ♻ Code Refactoring
 
@@ -660,7 +672,7 @@
 
 
 <a name="v0.2.0a220"></a>
-## [v0.2.0a220](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a219...v0.2.0a220) - 2025.05.20
+## [v0.2.0a220](https://github.com/hpcflow/hpcflow/compare/v0.2.0a219...v0.2.0a220) - 2025.05.20
 
 ### ⚡ Performance Improvements
 
@@ -684,7 +696,7 @@
 
 
 <a name="v0.2.0a219"></a>
-## [v0.2.0a219](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a218...v0.2.0a219) - 2025.05.20
+## [v0.2.0a219](https://github.com/hpcflow/hpcflow/compare/v0.2.0a218...v0.2.0a219) - 2025.05.20
 
 ### 👷 Build changes
 
@@ -692,7 +704,7 @@
 
 
 <a name="v0.2.0a218"></a>
-## [v0.2.0a218](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a217...v0.2.0a218) - 2025.05.20
+## [v0.2.0a218](https://github.com/hpcflow/hpcflow/compare/v0.2.0a217...v0.2.0a218) - 2025.05.20
 
 ### 🐛 Bug Fixes
 
@@ -704,7 +716,7 @@
 
 
 <a name="v0.2.0a217"></a>
-## [v0.2.0a217](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a216...v0.2.0a217) - 2025.05.20
+## [v0.2.0a217](https://github.com/hpcflow/hpcflow/compare/v0.2.0a216...v0.2.0a217) - 2025.05.20
 
 ### 👷 Build changes
 
@@ -713,7 +725,7 @@
 
 
 <a name="v0.2.0a216"></a>
-## [v0.2.0a216](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a215...v0.2.0a216) - 2025.05.16
+## [v0.2.0a216](https://github.com/hpcflow/hpcflow/compare/v0.2.0a215...v0.2.0a216) - 2025.05.16
 
 ### 👷 Build changes
 
@@ -722,7 +734,7 @@
 
 
 <a name="v0.2.0a215"></a>
-## [v0.2.0a215](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a214...v0.2.0a215) - 2025.05.15
+## [v0.2.0a215](https://github.com/hpcflow/hpcflow/compare/v0.2.0a214...v0.2.0a215) - 2025.05.15
 
 ### 👷 Build changes
 
@@ -731,7 +743,7 @@
 
 
 <a name="v0.2.0a214"></a>
-## [v0.2.0a214](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a213...v0.2.0a214) - 2025.05.07
+## [v0.2.0a214](https://github.com/hpcflow/hpcflow/compare/v0.2.0a213...v0.2.0a214) - 2025.05.07
 
 ### ♻ Code Refactoring
 
@@ -749,7 +761,7 @@
 
 
 <a name="v0.2.0a213"></a>
-## [v0.2.0a213](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a212...v0.2.0a213) - 2025.05.02
+## [v0.2.0a213](https://github.com/hpcflow/hpcflow/compare/v0.2.0a212...v0.2.0a213) - 2025.05.02
 
 ### 🐛 Bug Fixes
 
@@ -762,7 +774,7 @@
 
 
 <a name="v0.2.0a212"></a>
-## [v0.2.0a212](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a211...v0.2.0a212) - 2025.05.02
+## [v0.2.0a212](https://github.com/hpcflow/hpcflow/compare/v0.2.0a211...v0.2.0a212) - 2025.05.02
 
 ### 🐛 Bug Fixes
 
@@ -784,7 +796,7 @@
 
 
 <a name="v0.2.0a211"></a>
-## [v0.2.0a211](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a210...v0.2.0a211) - 2025.04.15
+## [v0.2.0a211](https://github.com/hpcflow/hpcflow/compare/v0.2.0a210...v0.2.0a211) - 2025.04.15
 
 ### 🐛 Bug Fixes
 
@@ -807,7 +819,7 @@
 
 
 <a name="v0.2.0a210"></a>
-## [v0.2.0a210](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a209...v0.2.0a210) - 2025.04.10
+## [v0.2.0a210](https://github.com/hpcflow/hpcflow/compare/v0.2.0a209...v0.2.0a210) - 2025.04.10
 
 ### 🐛 Bug Fixes
 
@@ -819,7 +831,7 @@
 
 
 <a name="v0.2.0a209"></a>
-## [v0.2.0a209](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a208...v0.2.0a209) - 2025.04.07
+## [v0.2.0a209](https://github.com/hpcflow/hpcflow/compare/v0.2.0a208...v0.2.0a209) - 2025.04.07
 
 ### 👷 Build changes
 
@@ -827,7 +839,7 @@
 
 
 <a name="v0.2.0a208"></a>
-## [v0.2.0a208](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a207...v0.2.0a208) - 2025.04.06
+## [v0.2.0a208](https://github.com/hpcflow/hpcflow/compare/v0.2.0a207...v0.2.0a208) - 2025.04.06
 
 ### 🐛 Bug Fixes
 
@@ -842,7 +854,7 @@
 
 
 <a name="v0.2.0a207"></a>
-## [v0.2.0a207](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a206...v0.2.0a207) - 2025.04.06
+## [v0.2.0a207](https://github.com/hpcflow/hpcflow/compare/v0.2.0a206...v0.2.0a207) - 2025.04.06
 
 ### 👷 Build changes
 
@@ -850,7 +862,7 @@
 
 
 <a name="v0.2.0a206"></a>
-## [v0.2.0a206](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a205...v0.2.0a206) - 2025.04.01
+## [v0.2.0a206](https://github.com/hpcflow/hpcflow/compare/v0.2.0a205...v0.2.0a206) - 2025.04.01
 
 ### 👷 Build changes
 
@@ -858,7 +870,7 @@
 
 
 <a name="v0.2.0a205"></a>
-## [v0.2.0a205](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a204...v0.2.0a205) - 2025.03.30
+## [v0.2.0a205](https://github.com/hpcflow/hpcflow/compare/v0.2.0a204...v0.2.0a205) - 2025.03.30
 
 ### 🐛 Bug Fixes
 
@@ -871,7 +883,7 @@
 
 
 <a name="v0.2.0a204"></a>
-## [v0.2.0a204](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a203...v0.2.0a204) - 2025.03.29
+## [v0.2.0a204](https://github.com/hpcflow/hpcflow/compare/v0.2.0a203...v0.2.0a204) - 2025.03.29
 
 ### 🐛 Bug Fixes
 
@@ -887,7 +899,7 @@
 
 
 <a name="v0.2.0a203"></a>
-## [v0.2.0a203](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a202...v0.2.0a203) - 2025.03.29
+## [v0.2.0a203](https://github.com/hpcflow/hpcflow/compare/v0.2.0a202...v0.2.0a203) - 2025.03.29
 
 ### 🐛 Bug Fixes
 
@@ -900,7 +912,7 @@
 
 
 <a name="v0.2.0a202"></a>
-## [v0.2.0a202](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a201...v0.2.0a202) - 2025.03.28
+## [v0.2.0a202](https://github.com/hpcflow/hpcflow/compare/v0.2.0a201...v0.2.0a202) - 2025.03.28
 
 ### 🐛 Bug Fixes
 
@@ -912,7 +924,7 @@
 
 
 <a name="v0.2.0a201"></a>
-## [v0.2.0a201](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a200...v0.2.0a201) - 2025.03.28
+## [v0.2.0a201](https://github.com/hpcflow/hpcflow/compare/v0.2.0a200...v0.2.0a201) - 2025.03.28
 
 ### 🐛 Bug Fixes
 
@@ -924,7 +936,7 @@
 
 
 <a name="v0.2.0a200"></a>
-## [v0.2.0a200](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a199...v0.2.0a200) - 2025.03.27
+## [v0.2.0a200](https://github.com/hpcflow/hpcflow/compare/v0.2.0a199...v0.2.0a200) - 2025.03.27
 
 ### 🐛 Bug Fixes
 
@@ -941,7 +953,7 @@
 
 
 <a name="v0.2.0a199"></a>
-## [v0.2.0a199](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a198...v0.2.0a199) - 2025.03.26
+## [v0.2.0a199](https://github.com/hpcflow/hpcflow/compare/v0.2.0a198...v0.2.0a199) - 2025.03.26
 
 ### 🐛 Bug Fixes
 
@@ -949,7 +961,7 @@
 
 
 <a name="v0.2.0a198"></a>
-## [v0.2.0a198](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a197...v0.2.0a198) - 2025.03.26
+## [v0.2.0a198](https://github.com/hpcflow/hpcflow/compare/v0.2.0a197...v0.2.0a198) - 2025.03.26
 
 ### ✨ Features
 
@@ -962,7 +974,7 @@
 
 
 <a name="v0.2.0a197"></a>
-## [v0.2.0a197](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a196...v0.2.0a197) - 2025.03.25
+## [v0.2.0a197](https://github.com/hpcflow/hpcflow/compare/v0.2.0a196...v0.2.0a197) - 2025.03.25
 
 ### 🐛 Bug Fixes
 
@@ -970,11 +982,11 @@
 
 
 <a name="v0.2.0a196"></a>
-## [v0.2.0a196](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a195...v0.2.0a196) - 2025.03.25
+## [v0.2.0a196](https://github.com/hpcflow/hpcflow/compare/v0.2.0a195...v0.2.0a196) - 2025.03.25
 
 
 <a name="v0.2.0a195"></a>
-## [v0.2.0a195](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a194...v0.2.0a195) - 2025.03.21
+## [v0.2.0a195](https://github.com/hpcflow/hpcflow/compare/v0.2.0a194...v0.2.0a195) - 2025.03.21
 
 ### Other changes
 
@@ -1199,7 +1211,7 @@
 * remove unrequired `ctx.exit()` in CLI
 * downgrade zarr to fix issues with object array retrieval
 * stop zmq server if exception raised in `execute_run`
-* encode directory snapshot data as strings; fix [#692](https://github.com/hpcflow/hpcflow-new/issues/692)
+* encode directory snapshot data as strings; fix [#692](https://github.com/hpcflow/hpcflow/issues/692)
 * sorting `JobscriptElementState`s in `_show`
 * using new dependency keys correctly in `Jobscript.submit`
 * submission dependency check
@@ -1230,11 +1242,11 @@
 
 
 <a name="v0.2.0a194"></a>
-## [v0.2.0a194](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a193...v0.2.0a194) - 2025.03.05
+## [v0.2.0a194](https://github.com/hpcflow/hpcflow/compare/v0.2.0a193...v0.2.0a194) - 2025.03.05
 
 
 <a name="v0.2.0a193"></a>
-## [v0.2.0a193](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a192...v0.2.0a193) - 2025.02.19
+## [v0.2.0a193](https://github.com/hpcflow/hpcflow/compare/v0.2.0a192...v0.2.0a193) - 2025.02.19
 
 ### 🐛 Bug Fixes
 
@@ -1242,11 +1254,11 @@
 
 
 <a name="v0.2.0a192"></a>
-## [v0.2.0a192](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a191...v0.2.0a192) - 2025.02.19
+## [v0.2.0a192](https://github.com/hpcflow/hpcflow/compare/v0.2.0a191...v0.2.0a192) - 2025.02.19
 
 
 <a name="v0.2.0a191"></a>
-## [v0.2.0a191](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a190...v0.2.0a191) - 2025.02.03
+## [v0.2.0a191](https://github.com/hpcflow/hpcflow/compare/v0.2.0a190...v0.2.0a191) - 2025.02.03
 
 ### 🐛 Bug Fixes
 
@@ -1258,7 +1270,7 @@
 
 
 <a name="v0.2.0a190"></a>
-## [v0.2.0a190](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a189...v0.2.0a190) - 2024.12.13
+## [v0.2.0a190](https://github.com/hpcflow/hpcflow/compare/v0.2.0a189...v0.2.0a190) - 2024.12.13
 
 ### 🐛 Bug Fixes
 
@@ -1270,7 +1282,7 @@
 
 
 <a name="v0.2.0a189"></a>
-## [v0.2.0a189](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a188...v0.2.0a189) - 2024.12.12
+## [v0.2.0a189](https://github.com/hpcflow/hpcflow/compare/v0.2.0a188...v0.2.0a189) - 2024.12.12
 
 ### 👷 Build changes
 
@@ -1278,7 +1290,7 @@
 
 
 <a name="v0.2.0a188"></a>
-## [v0.2.0a188](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a187...v0.2.0a188) - 2024.12.12
+## [v0.2.0a188](https://github.com/hpcflow/hpcflow/compare/v0.2.0a187...v0.2.0a188) - 2024.12.12
 
 ### 👷 Build changes
 
@@ -1286,7 +1298,7 @@
 
 
 <a name="v0.2.0a187"></a>
-## [v0.2.0a187](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a186...v0.2.0a187) - 2024.12.08
+## [v0.2.0a187](https://github.com/hpcflow/hpcflow/compare/v0.2.0a186...v0.2.0a187) - 2024.12.08
 
 ### ♻ Code Refactoring
 
@@ -1298,7 +1310,7 @@
 
 
 <a name="v0.2.0a186"></a>
-## [v0.2.0a186](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a185...v0.2.0a186) - 2024.12.06
+## [v0.2.0a186](https://github.com/hpcflow/hpcflow/compare/v0.2.0a185...v0.2.0a186) - 2024.12.06
 
 ### 👷 Build changes
 
@@ -1306,7 +1318,7 @@
 
 
 <a name="v0.2.0a185"></a>
-## [v0.2.0a185](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a184...v0.2.0a185) - 2024.12.05
+## [v0.2.0a185](https://github.com/hpcflow/hpcflow/compare/v0.2.0a184...v0.2.0a185) - 2024.12.05
 
 ### 🐛 Bug Fixes
 
@@ -1318,7 +1330,7 @@
 
 
 <a name="v0.2.0a184"></a>
-## [v0.2.0a184](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a183...v0.2.0a184) - 2024.12.05
+## [v0.2.0a184](https://github.com/hpcflow/hpcflow/compare/v0.2.0a183...v0.2.0a184) - 2024.12.05
 
 ### 🐛 Bug Fixes
 
@@ -1330,7 +1342,7 @@
 
 
 <a name="v0.2.0a183"></a>
-## [v0.2.0a183](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
+## [v0.2.0a183](https://github.com/hpcflow/hpcflow/compare/v0.2.0a182...v0.2.0a183) - 2024.12.05
 
 ### 🐛 Bug Fixes
 
@@ -1338,7 +1350,7 @@
 
 
 <a name="v0.2.0a182"></a>
-## [v0.2.0a182](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
+## [v0.2.0a182](https://github.com/hpcflow/hpcflow/compare/v0.2.0a181...v0.2.0a182) - 2024.12.04
 
 ### 🐛 Bug Fixes
 
@@ -1358,7 +1370,7 @@
 
 
 <a name="v0.2.0a181"></a>
-## [v0.2.0a181](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
+## [v0.2.0a181](https://github.com/hpcflow/hpcflow/compare/v0.2.0a180...v0.2.0a181) - 2024.11.14
 
 ### 🐛 Bug Fixes
 
@@ -1370,7 +1382,7 @@
 
 
 <a name="v0.2.0a180"></a>
-## [v0.2.0a180](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a179...v0.2.0a180) - 2024.09.24
+## [v0.2.0a180](https://github.com/hpcflow/hpcflow/compare/v0.2.0a179...v0.2.0a180) - 2024.09.24
 
 ### 👷 Build changes
 
@@ -1378,7 +1390,7 @@
 
 
 <a name="v0.2.0a179"></a>
-## [v0.2.0a179](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a178...v0.2.0a179) - 2024.09.21
+## [v0.2.0a179](https://github.com/hpcflow/hpcflow/compare/v0.2.0a178...v0.2.0a179) - 2024.09.21
 
 ### 👷 Build changes
 
@@ -1386,7 +1398,7 @@
 
 
 <a name="v0.2.0a178"></a>
-## [v0.2.0a178](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a177...v0.2.0a178) - 2024.07.14
+## [v0.2.0a178](https://github.com/hpcflow/hpcflow/compare/v0.2.0a177...v0.2.0a178) - 2024.07.14
 
 ### ✨ Features
 
@@ -1406,7 +1418,7 @@
 
 
 <a name="v0.2.0a177"></a>
-## [v0.2.0a177](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a176...v0.2.0a177) - 2024.05.22
+## [v0.2.0a177](https://github.com/hpcflow/hpcflow/compare/v0.2.0a176...v0.2.0a177) - 2024.05.22
 
 ### ♻ Code Refactoring
 
@@ -1432,7 +1444,7 @@
 
 
 <a name="v0.2.0a176"></a>
-## [v0.2.0a176](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a175...v0.2.0a176) - 2024.05.15
+## [v0.2.0a176](https://github.com/hpcflow/hpcflow/compare/v0.2.0a175...v0.2.0a176) - 2024.05.15
 
 ### 🐛 Bug Fixes
 
@@ -1445,11 +1457,11 @@
 
 
 <a name="v0.2.0a175"></a>
-## [v0.2.0a175](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a174...v0.2.0a175) - 2024.05.13
+## [v0.2.0a175](https://github.com/hpcflow/hpcflow/compare/v0.2.0a174...v0.2.0a175) - 2024.05.13
 
 ### 🐛 Bug Fixes
 
-* restrict Zarr version to workaround [#680](https://github.com/hpcflow/hpcflow-new/issues/680)
+* restrict Zarr version to workaround [#680](https://github.com/hpcflow/hpcflow/issues/680)
 
 ### 👷 Build changes
 
@@ -1457,7 +1469,7 @@
 
 
 <a name="v0.2.0a174"></a>
-## [v0.2.0a174](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a173...v0.2.0a174) - 2024.05.13
+## [v0.2.0a174](https://github.com/hpcflow/hpcflow/compare/v0.2.0a173...v0.2.0a174) - 2024.05.13
 
 ### 🐛 Bug Fixes
 
@@ -1473,7 +1485,7 @@
 
 
 <a name="v0.2.0a173"></a>
-## [v0.2.0a173](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a172...v0.2.0a173) - 2024.05.02
+## [v0.2.0a173](https://github.com/hpcflow/hpcflow/compare/v0.2.0a172...v0.2.0a173) - 2024.05.02
 
 ### 🐛 Bug Fixes
 
@@ -1481,7 +1493,7 @@
 
 
 <a name="v0.2.0a172"></a>
-## [v0.2.0a172](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a171...v0.2.0a172) - 2024.05.02
+## [v0.2.0a172](https://github.com/hpcflow/hpcflow/compare/v0.2.0a171...v0.2.0a172) - 2024.05.02
 
 ### 🐛 Bug Fixes
 
@@ -1489,7 +1501,7 @@
 
 
 <a name="v0.2.0a171"></a>
-## [v0.2.0a171](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a170...v0.2.0a171) - 2024.05.02
+## [v0.2.0a171](https://github.com/hpcflow/hpcflow/compare/v0.2.0a170...v0.2.0a171) - 2024.05.02
 
 ### 🐛 Bug Fixes
 
@@ -1507,7 +1519,7 @@
 
 
 <a name="v0.2.0a170"></a>
-## [v0.2.0a170](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a169...v0.2.0a170) - 2024.05.02
+## [v0.2.0a170](https://github.com/hpcflow/hpcflow/compare/v0.2.0a169...v0.2.0a170) - 2024.05.02
 
 ### ✨ Features
 
@@ -1515,7 +1527,7 @@
 
 ### 🐛 Bug Fixes
 
-* consider non-local inputs as `task_source_type="input"` sources; fix [#671](https://github.com/hpcflow/hpcflow-new/issues/671)
+* consider non-local inputs as `task_source_type="input"` sources; fix [#671](https://github.com/hpcflow/hpcflow/issues/671)
 
 ### 👷 Build changes
 
@@ -1523,7 +1535,7 @@
 
 
 <a name="v0.2.0a169"></a>
-## [v0.2.0a169](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a168...v0.2.0a169) - 2024.05.01
+## [v0.2.0a169](https://github.com/hpcflow/hpcflow/compare/v0.2.0a168...v0.2.0a169) - 2024.05.01
 
 ### 🐛 Bug Fixes
 
@@ -1535,7 +1547,7 @@
 
 
 <a name="v0.2.0a168"></a>
-## [v0.2.0a168](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a167...v0.2.0a168) - 2024.04.28
+## [v0.2.0a168](https://github.com/hpcflow/hpcflow/compare/v0.2.0a167...v0.2.0a168) - 2024.04.28
 
 ### 🐛 Bug Fixes
 
@@ -1547,7 +1559,7 @@
 
 
 <a name="v0.2.0a167"></a>
-## [v0.2.0a167](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a166...v0.2.0a167) - 2024.04.28
+## [v0.2.0a167](https://github.com/hpcflow/hpcflow/compare/v0.2.0a166...v0.2.0a167) - 2024.04.28
 
 ### 🐛 Bug Fixes
 
@@ -1561,7 +1573,7 @@
 
 
 <a name="v0.2.0a166"></a>
-## [v0.2.0a166](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a165...v0.2.0a166) - 2024.04.28
+## [v0.2.0a166](https://github.com/hpcflow/hpcflow/compare/v0.2.0a165...v0.2.0a166) - 2024.04.28
 
 ### ♻ Code Refactoring
 
@@ -1576,7 +1588,7 @@
 ### 🐛 Bug Fixes
 
 * partially revert GHA version updates to fix running in old-GLIBC container
-* fix macos runner to macos-13 to workaround macos-latest issues in [#657](https://github.com/hpcflow/hpcflow-new/issues/657)
+* fix macos runner to macos-13 to workaround macos-latest issues in [#657](https://github.com/hpcflow/hpcflow/issues/657)
 * validate `nesting_order` paths
 * support sourcing inputs from sub-parameter sequences in multiple element sets in the upstream task
 * raise on no coincident input sources from the same task
@@ -1592,7 +1604,7 @@
 
 
 <a name="v0.2.0a165"></a>
-## [v0.2.0a165](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a164...v0.2.0a165) - 2024.04.25
+## [v0.2.0a165](https://github.com/hpcflow/hpcflow/compare/v0.2.0a164...v0.2.0a165) - 2024.04.25
 
 ### ✨ Features
 
@@ -1605,7 +1617,7 @@
 
 
 <a name="v0.2.0a164"></a>
-## [v0.2.0a164](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a163...v0.2.0a164) - 2024.04.23
+## [v0.2.0a164](https://github.com/hpcflow/hpcflow/compare/v0.2.0a163...v0.2.0a164) - 2024.04.23
 
 ### ✨ Features
 
@@ -1621,7 +1633,7 @@
 
 
 <a name="v0.2.0a163"></a>
-## [v0.2.0a163](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a162...v0.2.0a163) - 2024.04.19
+## [v0.2.0a163](https://github.com/hpcflow/hpcflow/compare/v0.2.0a162...v0.2.0a163) - 2024.04.19
 
 ### ♻ Code Refactoring
 
@@ -1648,7 +1660,7 @@
 
 
 <a name="v0.2.0a162"></a>
-## [v0.2.0a162](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a161...v0.2.0a162) - 2024.04.09
+## [v0.2.0a162](https://github.com/hpcflow/hpcflow/compare/v0.2.0a161...v0.2.0a162) - 2024.04.09
 
 ### 🐛 Bug Fixes
 
@@ -1660,7 +1672,7 @@
 
 
 <a name="v0.2.0a161"></a>
-## [v0.2.0a161](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a160...v0.2.0a161) - 2024.04.09
+## [v0.2.0a161](https://github.com/hpcflow/hpcflow/compare/v0.2.0a160...v0.2.0a161) - 2024.04.09
 
 ### 🐛 Bug Fixes
 
@@ -1676,7 +1688,7 @@
 
 
 <a name="v0.2.0a160"></a>
-## [v0.2.0a160](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a159...v0.2.0a160) - 2024.04.05
+## [v0.2.0a160](https://github.com/hpcflow/hpcflow/compare/v0.2.0a159...v0.2.0a160) - 2024.04.05
 
 ### ✨ Features
 
@@ -1710,11 +1722,11 @@
 
 
 <a name="v0.2.0a159"></a>
-## [v0.2.0a159](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a158...v0.2.0a159) - 2024.03.14
+## [v0.2.0a159](https://github.com/hpcflow/hpcflow/compare/v0.2.0a158...v0.2.0a159) - 2024.03.14
 
 ### ♻ Code Refactoring
 
-* defer imports, fix [#610](https://github.com/hpcflow/hpcflow-new/issues/610)
+* defer imports, fix [#610](https://github.com/hpcflow/hpcflow/issues/610)
 * remove unused sentry dep
 
 ### 🐛 Bug Fixes
@@ -1730,7 +1742,7 @@
 
 
 <a name="v0.2.0a158"></a>
-## [v0.2.0a158](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a157...v0.2.0a158) - 2024.03.14
+## [v0.2.0a158](https://github.com/hpcflow/hpcflow/compare/v0.2.0a157...v0.2.0a158) - 2024.03.14
 
 ### 🐛 Bug Fixes
 
@@ -1742,7 +1754,7 @@
 
 
 <a name="v0.2.0a157"></a>
-## [v0.2.0a157](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a156...v0.2.0a157) - 2024.03.13
+## [v0.2.0a157](https://github.com/hpcflow/hpcflow/compare/v0.2.0a156...v0.2.0a157) - 2024.03.13
 
 ### 🐛 Bug Fixes
 
@@ -1755,7 +1767,7 @@
 
 
 <a name="v0.2.0a156"></a>
-## [v0.2.0a156](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a155...v0.2.0a156) - 2024.03.13
+## [v0.2.0a156](https://github.com/hpcflow/hpcflow/compare/v0.2.0a155...v0.2.0a156) - 2024.03.13
 
 ### ✨ Features
 
@@ -1773,7 +1785,7 @@
 
 
 <a name="v0.2.0a155"></a>
-## [v0.2.0a155](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a154...v0.2.0a155) - 2024.03.13
+## [v0.2.0a155](https://github.com/hpcflow/hpcflow/compare/v0.2.0a154...v0.2.0a155) - 2024.03.13
 
 ### 🐛 Bug Fixes
 
@@ -1781,7 +1793,7 @@
 
 
 <a name="v0.2.0a154"></a>
-## [v0.2.0a154](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a153...v0.2.0a154) - 2024.03.12
+## [v0.2.0a154](https://github.com/hpcflow/hpcflow/compare/v0.2.0a153...v0.2.0a154) - 2024.03.12
 
 ### 🐛 Bug Fixes
 
@@ -1793,7 +1805,7 @@
 
 
 <a name="v0.2.0a153"></a>
-## [v0.2.0a153](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a152...v0.2.0a153) - 2024.03.12
+## [v0.2.0a153](https://github.com/hpcflow/hpcflow/compare/v0.2.0a152...v0.2.0a153) - 2024.03.12
 
 ### 🐛 Bug Fixes
 
@@ -1805,7 +1817,7 @@
 
 
 <a name="v0.2.0a152"></a>
-## [v0.2.0a152](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a151...v0.2.0a152) - 2024.03.12
+## [v0.2.0a152](https://github.com/hpcflow/hpcflow/compare/v0.2.0a151...v0.2.0a152) - 2024.03.12
 
 ### 🐛 Bug Fixes
 
@@ -1813,7 +1825,7 @@
 
 
 <a name="v0.2.0a151"></a>
-## [v0.2.0a151](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a150...v0.2.0a151) - 2024.03.12
+## [v0.2.0a151](https://github.com/hpcflow/hpcflow/compare/v0.2.0a150...v0.2.0a151) - 2024.03.12
 
 ### 🐛 Bug Fixes
 
@@ -1821,7 +1833,7 @@
 
 
 <a name="v0.2.0a150"></a>
-## [v0.2.0a150](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a149...v0.2.0a150) - 2024.03.12
+## [v0.2.0a150](https://github.com/hpcflow/hpcflow/compare/v0.2.0a149...v0.2.0a150) - 2024.03.12
 
 ### ✨ Features
 
@@ -1847,7 +1859,7 @@
 
 
 <a name="v0.2.0a149"></a>
-## [v0.2.0a149](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a148...v0.2.0a149) - 2024.02.19
+## [v0.2.0a149](https://github.com/hpcflow/hpcflow/compare/v0.2.0a148...v0.2.0a149) - 2024.02.19
 
 ### 🐛 Bug Fixes
 
@@ -1863,7 +1875,7 @@
 
 
 <a name="v0.2.0a148"></a>
-## [v0.2.0a148](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a147...v0.2.0a148) - 2024.01.16
+## [v0.2.0a148](https://github.com/hpcflow/hpcflow/compare/v0.2.0a147...v0.2.0a148) - 2024.01.16
 
 ### 🐛 Bug Fixes
 
@@ -1878,7 +1890,7 @@
 
 
 <a name="v0.2.0a147"></a>
-## [v0.2.0a147](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a146...v0.2.0a147) - 2024.01.04
+## [v0.2.0a147](https://github.com/hpcflow/hpcflow/compare/v0.2.0a146...v0.2.0a147) - 2024.01.04
 
 ### ✨ Features
 
@@ -1887,16 +1899,16 @@
 
 ### 🐛 Bug Fixes
 
-* try to fix cancel bug [#572](https://github.com/hpcflow/hpcflow-new/issues/572)
+* try to fix cancel bug [#572](https://github.com/hpcflow/hpcflow/issues/572)
 * failing tests
 
 
 <a name="v0.2.0a146"></a>
-## [v0.2.0a146](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a145...v0.2.0a146) - 2023.12.12
+## [v0.2.0a146](https://github.com/hpcflow/hpcflow/compare/v0.2.0a145...v0.2.0a146) - 2023.12.12
 
 ### 🐛 Bug Fixes
 
-* fix `get_active_jobscripts` for SLURM when using `max_array_items`; fix [#598](https://github.com/hpcflow/hpcflow-new/issues/598)
+* fix `get_active_jobscripts` for SLURM when using `max_array_items`; fix [#598](https://github.com/hpcflow/hpcflow/issues/598)
 
 ### 👷 Build changes
 
@@ -1904,7 +1916,7 @@
 
 
 <a name="v0.2.0a145"></a>
-## [v0.2.0a145](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a144...v0.2.0a145) - 2023.12.07
+## [v0.2.0a145](https://github.com/hpcflow/hpcflow/compare/v0.2.0a144...v0.2.0a145) - 2023.12.07
 
 ### 🐛 Bug Fixes
 
@@ -1918,7 +1930,7 @@
 
 
 <a name="v0.2.0a144"></a>
-## [v0.2.0a144](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a143...v0.2.0a144) - 2023.11.22
+## [v0.2.0a144](https://github.com/hpcflow/hpcflow/compare/v0.2.0a143...v0.2.0a144) - 2023.11.22
 
 ### ✨ Features
 
@@ -1929,7 +1941,7 @@
 
 * format of `Jobscript.task_elements`
 * remove unrequired show config item
-* update show command iconography to be more accessible; fix [#560](https://github.com/hpcflow/hpcflow-new/issues/560)
+* update show command iconography to be more accessible; fix [#560](https://github.com/hpcflow/hpcflow/issues/560)
 
 ### 👷 Build changes
 
@@ -1938,7 +1950,7 @@
 
 
 <a name="v0.2.0a143"></a>
-## [v0.2.0a143](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a142...v0.2.0a143) - 2023.11.22
+## [v0.2.0a143](https://github.com/hpcflow/hpcflow/compare/v0.2.0a142...v0.2.0a143) - 2023.11.22
 
 ### 🐛 Bug Fixes
 
@@ -1950,7 +1962,7 @@
 
 
 <a name="v0.2.0a142"></a>
-## [v0.2.0a142](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a141...v0.2.0a142) - 2023.11.22
+## [v0.2.0a142](https://github.com/hpcflow/hpcflow/compare/v0.2.0a141...v0.2.0a142) - 2023.11.22
 
 ### ✨ Features
 
@@ -1962,7 +1974,7 @@
 
 
 <a name="v0.2.0a141"></a>
-## [v0.2.0a141](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a140...v0.2.0a141) - 2023.11.21
+## [v0.2.0a141](https://github.com/hpcflow/hpcflow/compare/v0.2.0a140...v0.2.0a141) - 2023.11.21
 
 ### ✨ Features
 
@@ -1974,11 +1986,11 @@
 
 
 <a name="v0.2.0a140"></a>
-## [v0.2.0a140](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a139...v0.2.0a140) - 2023.11.20
+## [v0.2.0a140](https://github.com/hpcflow/hpcflow/compare/v0.2.0a139...v0.2.0a140) - 2023.11.20
 
 ### 🐛 Bug Fixes
 
-* check for matching env executable instance on submit and fix [#574](https://github.com/hpcflow/hpcflow-new/issues/574)
+* check for matching env executable instance on submit and fix [#574](https://github.com/hpcflow/hpcflow/issues/574)
 
 ### 👷 Build changes
 
@@ -1986,11 +1998,11 @@
 
 
 <a name="v0.2.0a139"></a>
-## [v0.2.0a139](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a138...v0.2.0a139) - 2023.11.20
+## [v0.2.0a139](https://github.com/hpcflow/hpcflow/compare/v0.2.0a138...v0.2.0a139) - 2023.11.20
 
 ### 🐛 Bug Fixes
 
-* simplify `user_runtime_path` and fix [#581](https://github.com/hpcflow/hpcflow-new/issues/581)
+* simplify `user_runtime_path` and fix [#581](https://github.com/hpcflow/hpcflow/issues/581)
 
 ### 👷 Build changes
 
@@ -1998,7 +2010,7 @@
 
 
 <a name="v0.2.0a138"></a>
-## [v0.2.0a138](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a137...v0.2.0a138) - 2023.11.20
+## [v0.2.0a138](https://github.com/hpcflow/hpcflow/compare/v0.2.0a137...v0.2.0a138) - 2023.11.20
 
 ### 🐛 Bug Fixes
 
@@ -2010,7 +2022,7 @@
 
 
 <a name="v0.2.0a137"></a>
-## [v0.2.0a137](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a136...v0.2.0a137) - 2023.11.20
+## [v0.2.0a137](https://github.com/hpcflow/hpcflow/compare/v0.2.0a136...v0.2.0a137) - 2023.11.20
 
 ### 👷 Build changes
 
@@ -2018,7 +2030,7 @@
 
 
 <a name="v0.2.0a136"></a>
-## [v0.2.0a136](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a135...v0.2.0a136) - 2023.11.17
+## [v0.2.0a136](https://github.com/hpcflow/hpcflow/compare/v0.2.0a135...v0.2.0a136) - 2023.11.17
 
 ### ✨ Features
 
@@ -2030,7 +2042,7 @@
 
 
 <a name="v0.2.0a135"></a>
-## [v0.2.0a135](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a134...v0.2.0a135) - 2023.11.17
+## [v0.2.0a135](https://github.com/hpcflow/hpcflow/compare/v0.2.0a134...v0.2.0a135) - 2023.11.17
 
 ### 🐛 Bug Fixes
 
@@ -2046,7 +2058,7 @@
 
 
 <a name="v0.2.0a134"></a>
-## [v0.2.0a134](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a133...v0.2.0a134) - 2023.11.13
+## [v0.2.0a134](https://github.com/hpcflow/hpcflow/compare/v0.2.0a133...v0.2.0a134) - 2023.11.13
 
 ### ✨ Features
 
@@ -2069,7 +2081,7 @@
 
 
 <a name="v0.2.0a133"></a>
-## [v0.2.0a133](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a132...v0.2.0a133) - 2023.11.11
+## [v0.2.0a133](https://github.com/hpcflow/hpcflow/compare/v0.2.0a132...v0.2.0a133) - 2023.11.11
 
 ### ♻ Code Refactoring
 
@@ -2093,7 +2105,7 @@
 
 
 <a name="v0.2.0a132"></a>
-## [v0.2.0a132](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a131...v0.2.0a132) - 2023.11.11
+## [v0.2.0a132](https://github.com/hpcflow/hpcflow/compare/v0.2.0a131...v0.2.0a132) - 2023.11.11
 
 ### 🐛 Bug Fixes
 
@@ -2105,7 +2117,7 @@
 
 
 <a name="v0.2.0a131"></a>
-## [v0.2.0a131](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a130...v0.2.0a131) - 2023.11.09
+## [v0.2.0a131](https://github.com/hpcflow/hpcflow/compare/v0.2.0a130...v0.2.0a131) - 2023.11.09
 
 ### 🐛 Bug Fixes
 
@@ -2117,7 +2129,7 @@
 
 
 <a name="v0.2.0a130"></a>
-## [v0.2.0a130](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a129...v0.2.0a130) - 2023.11.09
+## [v0.2.0a130](https://github.com/hpcflow/hpcflow/compare/v0.2.0a129...v0.2.0a130) - 2023.11.09
 
 ### ♻ Code Refactoring
 
@@ -2145,7 +2157,7 @@
 
 
 <a name="v0.2.0a129"></a>
-## [v0.2.0a129](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a128...v0.2.0a129) - 2023.11.07
+## [v0.2.0a129](https://github.com/hpcflow/hpcflow/compare/v0.2.0a128...v0.2.0a129) - 2023.11.07
 
 ### 🐛 Bug Fixes
 
@@ -2158,7 +2170,7 @@
 
 
 <a name="v0.2.0a128"></a>
-## [v0.2.0a128](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a127...v0.2.0a128) - 2023.11.06
+## [v0.2.0a128](https://github.com/hpcflow/hpcflow/compare/v0.2.0a127...v0.2.0a128) - 2023.11.06
 
 ### ✨ Features
 
@@ -2171,7 +2183,7 @@
 
 
 <a name="v0.2.0a127"></a>
-## [v0.2.0a127](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a126...v0.2.0a127) - 2023.11.06
+## [v0.2.0a127](https://github.com/hpcflow/hpcflow/compare/v0.2.0a126...v0.2.0a127) - 2023.11.06
 
 ### 🐛 Bug Fixes
 
@@ -2183,7 +2195,7 @@
 
 
 <a name="v0.2.0a126"></a>
-## [v0.2.0a126](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a125...v0.2.0a126) - 2023.11.06
+## [v0.2.0a126](https://github.com/hpcflow/hpcflow/compare/v0.2.0a125...v0.2.0a126) - 2023.11.06
 
 ### 👷 Build changes
 
@@ -2191,7 +2203,7 @@
 
 
 <a name="v0.2.0a125"></a>
-## [v0.2.0a125](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a124...v0.2.0a125) - 2023.11.06
+## [v0.2.0a125](https://github.com/hpcflow/hpcflow/compare/v0.2.0a124...v0.2.0a125) - 2023.11.06
 
 ### 🐛 Bug Fixes
 
@@ -2199,7 +2211,7 @@
 
 
 <a name="v0.2.0a124"></a>
-## [v0.2.0a124](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a123...v0.2.0a124) - 2023.11.06
+## [v0.2.0a124](https://github.com/hpcflow/hpcflow/compare/v0.2.0a123...v0.2.0a124) - 2023.11.06
 
 ### ♻ Code Refactoring
 
@@ -2219,7 +2231,7 @@
 
 
 <a name="v0.2.0a123"></a>
-## [v0.2.0a123](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a122...v0.2.0a123) - 2023.11.05
+## [v0.2.0a123](https://github.com/hpcflow/hpcflow/compare/v0.2.0a122...v0.2.0a123) - 2023.11.05
 
 ### 🐛 Bug Fixes
 
@@ -2231,7 +2243,7 @@
 
 
 <a name="v0.2.0a122"></a>
-## [v0.2.0a122](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a121...v0.2.0a122) - 2023.11.05
+## [v0.2.0a122](https://github.com/hpcflow/hpcflow/compare/v0.2.0a121...v0.2.0a122) - 2023.11.05
 
 ### 🐛 Bug Fixes
 
@@ -2245,11 +2257,11 @@
 
 
 <a name="v0.2.0a121"></a>
-## [v0.2.0a121](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a120...v0.2.0a121) - 2023.11.04
+## [v0.2.0a121](https://github.com/hpcflow/hpcflow/compare/v0.2.0a120...v0.2.0a121) - 2023.11.04
 
 ### 🐛 Bug Fixes
 
-* try fix [#534](https://github.com/hpcflow/hpcflow-new/issues/534)
+* try fix [#534](https://github.com/hpcflow/hpcflow/issues/534)
 
 ### 👷 Build changes
 
@@ -2257,7 +2269,7 @@
 
 
 <a name="v0.2.0a120"></a>
-## [v0.2.0a120](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a119...v0.2.0a120) - 2023.11.03
+## [v0.2.0a120](https://github.com/hpcflow/hpcflow/compare/v0.2.0a119...v0.2.0a120) - 2023.11.03
 
 ### 🐛 Bug Fixes
 
@@ -2265,7 +2277,7 @@
 
 
 <a name="v0.2.0a119"></a>
-## [v0.2.0a119](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a118...v0.2.0a119) - 2023.11.03
+## [v0.2.0a119](https://github.com/hpcflow/hpcflow/compare/v0.2.0a118...v0.2.0a119) - 2023.11.03
 
 ### ♻ Code Refactoring
 
@@ -2297,7 +2309,7 @@
 
 
 <a name="v0.2.0a118"></a>
-## [v0.2.0a118](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a117...v0.2.0a118) - 2023.10.31
+## [v0.2.0a118](https://github.com/hpcflow/hpcflow/compare/v0.2.0a117...v0.2.0a118) - 2023.10.31
 
 ### ✨ Features
 
@@ -2309,7 +2321,7 @@
 
 
 <a name="v0.2.0a117"></a>
-## [v0.2.0a117](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a116...v0.2.0a117) - 2023.10.31
+## [v0.2.0a117](https://github.com/hpcflow/hpcflow/compare/v0.2.0a116...v0.2.0a117) - 2023.10.31
 
 ### 👷 Build changes
 
@@ -2317,7 +2329,7 @@
 
 
 <a name="v0.2.0a116"></a>
-## [v0.2.0a116](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a115...v0.2.0a116) - 2023.10.26
+## [v0.2.0a116](https://github.com/hpcflow/hpcflow/compare/v0.2.0a115...v0.2.0a116) - 2023.10.26
 
 ### ♻ Code Refactoring
 
@@ -2345,7 +2357,7 @@
 
 
 <a name="v0.2.0a115"></a>
-## [v0.2.0a115](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a114...v0.2.0a115) - 2023.10.13
+## [v0.2.0a115](https://github.com/hpcflow/hpcflow/compare/v0.2.0a114...v0.2.0a115) - 2023.10.13
 
 ### ✨ Features
 
@@ -2362,7 +2374,7 @@
 
 
 <a name="v0.2.0a114"></a>
-## [v0.2.0a114](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a113...v0.2.0a114) - 2023.10.12
+## [v0.2.0a114](https://github.com/hpcflow/hpcflow/compare/v0.2.0a113...v0.2.0a114) - 2023.10.12
 
 ### ✨ Features
 
@@ -2370,7 +2382,7 @@
 
 ### 🐛 Bug Fixes
 
-* resolve environments at submit-time; fix [#524](https://github.com/hpcflow/hpcflow-new/issues/524)
+* resolve environments at submit-time; fix [#524](https://github.com/hpcflow/hpcflow/issues/524)
 
 ### 👷 Build changes
 
@@ -2378,7 +2390,7 @@
 
 
 <a name="v0.2.0a113"></a>
-## [v0.2.0a113](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a112...v0.2.0a113) - 2023.10.12
+## [v0.2.0a113](https://github.com/hpcflow/hpcflow/compare/v0.2.0a112...v0.2.0a113) - 2023.10.12
 
 ### ♻ Code Refactoring
 
@@ -2397,7 +2409,7 @@
 
 
 <a name="v0.2.0a112"></a>
-## [v0.2.0a112](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a111...v0.2.0a112) - 2023.10.08
+## [v0.2.0a112](https://github.com/hpcflow/hpcflow/compare/v0.2.0a111...v0.2.0a112) - 2023.10.08
 
 ### 🐛 Bug Fixes
 
@@ -2409,9 +2421,9 @@
 * missing arg to `get_enum_by_name_or_val` in `ElementResources`
 * incorrect shell vars return from `EAR.compose_command`
 * iter method of `Elements` and `Parameters`
-* do not create non-existent hyperlink in `TaskSchema._show_info`; fix [#520](https://github.com/hpcflow/hpcflow-new/issues/520)
-* copy template-level resources on workflow creation; fix [#461](https://github.com/hpcflow/hpcflow-new/issues/461)
-* allow using parameter types that are not pre-defined; finish fix (with previous) [#518](https://github.com/hpcflow/hpcflow-new/issues/518)
+* do not create non-existent hyperlink in `TaskSchema._show_info`; fix [#520](https://github.com/hpcflow/hpcflow/issues/520)
+* copy template-level resources on workflow creation; fix [#461](https://github.com/hpcflow/hpcflow/issues/461)
+* allow using parameter types that are not pre-defined; finish fix (with previous) [#518](https://github.com/hpcflow/hpcflow/issues/518)
 * check app data for parameter type in `SchemaInput`
 
 ### 👷 Build changes
@@ -2420,7 +2432,7 @@
 
 
 <a name="v0.2.0a111"></a>
-## [v0.2.0a111](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a110...v0.2.0a111) - 2023.09.25
+## [v0.2.0a111](https://github.com/hpcflow/hpcflow/compare/v0.2.0a110...v0.2.0a111) - 2023.09.25
 
 ### ✨ Features
 
@@ -2437,7 +2449,7 @@
 
 
 <a name="v0.2.0a110"></a>
-## [v0.2.0a110](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a109...v0.2.0a110) - 2023.09.25
+## [v0.2.0a110](https://github.com/hpcflow/hpcflow/compare/v0.2.0a109...v0.2.0a110) - 2023.09.25
 
 ### ✨ Features
 
@@ -2450,7 +2462,7 @@
 
 
 <a name="v0.2.0a109"></a>
-## [v0.2.0a109](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a108...v0.2.0a109) - 2023.09.24
+## [v0.2.0a109](https://github.com/hpcflow/hpcflow/compare/v0.2.0a108...v0.2.0a109) - 2023.09.24
 
 ### ✨ Features
 
@@ -2467,7 +2479,7 @@
 
 
 <a name="v0.2.0a108"></a>
-## [v0.2.0a108](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a107...v0.2.0a108) - 2023.09.23
+## [v0.2.0a108](https://github.com/hpcflow/hpcflow/compare/v0.2.0a107...v0.2.0a108) - 2023.09.23
 
 ### ✨ Features
 
@@ -2487,7 +2499,7 @@
 
 
 <a name="v0.2.0a107"></a>
-## [v0.2.0a107](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a106...v0.2.0a107) - 2023.09.22
+## [v0.2.0a107](https://github.com/hpcflow/hpcflow/compare/v0.2.0a106...v0.2.0a107) - 2023.09.22
 
 ### ✨ Features
 
@@ -2500,7 +2512,7 @@
 
 
 <a name="v0.2.0a106"></a>
-## [v0.2.0a106](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a105...v0.2.0a106) - 2023.09.22
+## [v0.2.0a106](https://github.com/hpcflow/hpcflow/compare/v0.2.0a105...v0.2.0a106) - 2023.09.22
 
 ### 🐛 Bug Fixes
 
@@ -2513,7 +2525,7 @@
 
 
 <a name="v0.2.0a105"></a>
-## [v0.2.0a105](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a104...v0.2.0a105) - 2023.09.21
+## [v0.2.0a105](https://github.com/hpcflow/hpcflow/compare/v0.2.0a104...v0.2.0a105) - 2023.09.21
 
 ### 🐛 Bug Fixes
 
@@ -2521,7 +2533,7 @@
 
 
 <a name="v0.2.0a104"></a>
-## [v0.2.0a104](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a103...v0.2.0a104) - 2023.09.21
+## [v0.2.0a104](https://github.com/hpcflow/hpcflow/compare/v0.2.0a103...v0.2.0a104) - 2023.09.21
 
 ### ✨ Features
 
@@ -2539,7 +2551,7 @@
 
 
 <a name="v0.2.0a103"></a>
-## [v0.2.0a103](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a102...v0.2.0a103) - 2023.09.21
+## [v0.2.0a103](https://github.com/hpcflow/hpcflow/compare/v0.2.0a102...v0.2.0a103) - 2023.09.21
 
 ### ✨ Features
 
@@ -2552,7 +2564,7 @@
 
 
 <a name="v0.2.0a102"></a>
-## [v0.2.0a102](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a101...v0.2.0a102) - 2023.09.20
+## [v0.2.0a102](https://github.com/hpcflow/hpcflow/compare/v0.2.0a101...v0.2.0a102) - 2023.09.20
 
 ### 🐛 Bug Fixes
 
@@ -2560,7 +2572,7 @@
 
 
 <a name="v0.2.0a101"></a>
-## [v0.2.0a101](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a100...v0.2.0a101) - 2023.09.20
+## [v0.2.0a101](https://github.com/hpcflow/hpcflow/compare/v0.2.0a100...v0.2.0a101) - 2023.09.20
 
 ### ✨ Features
 
@@ -2572,7 +2584,7 @@
 
 
 <a name="v0.2.0a100"></a>
-## [v0.2.0a100](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a99...v0.2.0a100) - 2023.09.19
+## [v0.2.0a100](https://github.com/hpcflow/hpcflow/compare/v0.2.0a99...v0.2.0a100) - 2023.09.19
 
 ### 🐛 Bug Fixes
 
@@ -2584,7 +2596,7 @@
 
 
 <a name="v0.2.0a99"></a>
-## [v0.2.0a99](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a98...v0.2.0a99) - 2023.09.19
+## [v0.2.0a99](https://github.com/hpcflow/hpcflow/compare/v0.2.0a98...v0.2.0a99) - 2023.09.19
 
 ### ♻ Code Refactoring
 
@@ -2616,8 +2628,8 @@
 * use conditional actions in test failing on posix
 * add missing import
 * invoc tests
-* fix [#501](https://github.com/hpcflow/hpcflow-new/issues/501)
-* fix [#500](https://github.com/hpcflow/hpcflow-new/issues/500)
+* fix [#501](https://github.com/hpcflow/hpcflow/issues/501)
+* fix [#500](https://github.com/hpcflow/hpcflow/issues/500)
 
 ### 👷 Build changes
 
@@ -2626,7 +2638,7 @@
 
 
 <a name="v0.2.0a98"></a>
-## [v0.2.0a98](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a97...v0.2.0a98) - 2023.09.18
+## [v0.2.0a98](https://github.com/hpcflow/hpcflow/compare/v0.2.0a97...v0.2.0a98) - 2023.09.18
 
 ### 🐛 Bug Fixes
 
@@ -2639,12 +2651,12 @@
 
 
 <a name="v0.2.0a97"></a>
-## [v0.2.0a97](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a96...v0.2.0a97) - 2023.09.06
+## [v0.2.0a97](https://github.com/hpcflow/hpcflow/compare/v0.2.0a96...v0.2.0a97) - 2023.09.06
 
 ### 🐛 Bug Fixes
 
 * add double quotes to path args in bash jobscripts to support spaces
-* process spaces in invocation command executable fix [#498](https://github.com/hpcflow/hpcflow-new/issues/498)
+* process spaces in invocation command executable fix [#498](https://github.com/hpcflow/hpcflow/issues/498)
 
 ### 👷 Build changes
 
@@ -2652,7 +2664,7 @@
 
 
 <a name="v0.2.0a96"></a>
-## [v0.2.0a96](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a95...v0.2.0a96) - 2023.09.06
+## [v0.2.0a96](https://github.com/hpcflow/hpcflow/compare/v0.2.0a95...v0.2.0a96) - 2023.09.06
 
 ### 🐛 Bug Fixes
 
@@ -2664,7 +2676,7 @@
 
 
 <a name="v0.2.0a95"></a>
-## [v0.2.0a95](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a94...v0.2.0a95) - 2023.09.03
+## [v0.2.0a95](https://github.com/hpcflow/hpcflow/compare/v0.2.0a94...v0.2.0a95) - 2023.09.03
 
 ### ✨ Features
 
@@ -2674,8 +2686,8 @@
 ### 🐛 Bug Fixes
 
 * App.show always reports submissions as inactive
-* add_to_known option in Workflow.submit [#483](https://github.com/hpcflow/hpcflow-new/issues/483)
-* try fix [#490](https://github.com/hpcflow/hpcflow-new/issues/490)
+* add_to_known option in Workflow.submit [#483](https://github.com/hpcflow/hpcflow/issues/483)
+* try fix [#490](https://github.com/hpcflow/hpcflow/issues/490)
 * print scheduler submission stderr
 * SGEPosix.process_resources
 * Config.init path arg if local
@@ -2686,7 +2698,7 @@
 
 
 <a name="v0.2.0a94"></a>
-## [v0.2.0a94](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a93...v0.2.0a94) - 2023.08.30
+## [v0.2.0a94](https://github.com/hpcflow/hpcflow/compare/v0.2.0a93...v0.2.0a94) - 2023.08.30
 
 ### 🐛 Bug Fixes
 
@@ -2694,7 +2706,7 @@
 
 
 <a name="v0.2.0a93"></a>
-## [v0.2.0a93](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a92...v0.2.0a93) - 2023.08.30
+## [v0.2.0a93](https://github.com/hpcflow/hpcflow/compare/v0.2.0a92...v0.2.0a93) - 2023.08.30
 
 ### ✨ Features
 
@@ -2710,7 +2722,7 @@
 
 
 <a name="v0.2.0a92"></a>
-## [v0.2.0a92](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a91...v0.2.0a92) - 2023.08.30
+## [v0.2.0a92](https://github.com/hpcflow/hpcflow/compare/v0.2.0a91...v0.2.0a92) - 2023.08.30
 
 ### 🐛 Bug Fixes
 
@@ -2722,7 +2734,7 @@
 
 
 <a name="v0.2.0a91"></a>
-## [v0.2.0a91](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a90...v0.2.0a91) - 2023.08.29
+## [v0.2.0a91](https://github.com/hpcflow/hpcflow/compare/v0.2.0a90...v0.2.0a91) - 2023.08.29
 
 ### 🐛 Bug Fixes
 
@@ -2734,7 +2746,7 @@
 
 
 <a name="v0.2.0a90"></a>
-## [v0.2.0a90](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a89...v0.2.0a90) - 2023.08.29
+## [v0.2.0a90](https://github.com/hpcflow/hpcflow/compare/v0.2.0a89...v0.2.0a90) - 2023.08.29
 
 ### 🐛 Bug Fixes
 
@@ -2746,7 +2758,7 @@
 
 
 <a name="v0.2.0a89"></a>
-## [v0.2.0a89](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a88...v0.2.0a89) - 2023.08.29
+## [v0.2.0a89](https://github.com/hpcflow/hpcflow/compare/v0.2.0a88...v0.2.0a89) - 2023.08.29
 
 ### ♻ Code Refactoring
 
@@ -2777,7 +2789,7 @@
 
 
 <a name="v0.2.0a88"></a>
-## [v0.2.0a88](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a87...v0.2.0a88) - 2023.08.27
+## [v0.2.0a88](https://github.com/hpcflow/hpcflow/compare/v0.2.0a87...v0.2.0a88) - 2023.08.27
 
 ### 🐛 Bug Fixes
 
@@ -2789,7 +2801,7 @@
 
 
 <a name="v0.2.0a87"></a>
-## [v0.2.0a87](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a86...v0.2.0a87) - 2023.08.27
+## [v0.2.0a87](https://github.com/hpcflow/hpcflow/compare/v0.2.0a86...v0.2.0a87) - 2023.08.27
 
 ### Other changes
 
@@ -2853,7 +2865,7 @@
 
 
 <a name="v0.2.0a86"></a>
-## [v0.2.0a86](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a85...v0.2.0a86) - 2023.08.22
+## [v0.2.0a86](https://github.com/hpcflow/hpcflow/compare/v0.2.0a85...v0.2.0a86) - 2023.08.22
 
 ### Other changes
 
@@ -2862,8 +2874,8 @@
 ### 🐛 Bug Fixes
 
 * remove unused import (tkinter)
-* Jobscript.is_array for direct scheduler; maybe affects [#459](https://github.com/hpcflow/hpcflow-new/issues/459) but not sure how
-* catch any Workflow._submit exception to fix [#460](https://github.com/hpcflow/hpcflow-new/issues/460)
+* Jobscript.is_array for direct scheduler; maybe affects [#459](https://github.com/hpcflow/hpcflow/issues/459) but not sure how
+* catch any Workflow._submit exception to fix [#460](https://github.com/hpcflow/hpcflow/issues/460)
 
 ### 👷 Build changes
 
@@ -2872,11 +2884,11 @@
 
 
 <a name="v0.2.0a85"></a>
-## [v0.2.0a85](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a84...v0.2.0a85) - 2023.08.21
+## [v0.2.0a85](https://github.com/hpcflow/hpcflow/compare/v0.2.0a84...v0.2.0a85) - 2023.08.21
 
 ### 🐛 Bug Fixes
 
-* try and test fix for [#467](https://github.com/hpcflow/hpcflow-new/issues/467)
+* try and test fix for [#467](https://github.com/hpcflow/hpcflow/issues/467)
 * **GHA:** testing
 * **GHA:** testing
 * **GHA:** testing
@@ -2891,7 +2903,7 @@
 
 
 <a name="v0.2.0a84"></a>
-## [v0.2.0a84](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a83...v0.2.0a84) - 2023.08.19
+## [v0.2.0a84](https://github.com/hpcflow/hpcflow/compare/v0.2.0a83...v0.2.0a84) - 2023.08.19
 
 ### 🐛 Bug Fixes
 
@@ -2903,11 +2915,11 @@
 
 
 <a name="v0.2.0a83"></a>
-## [v0.2.0a83](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a82...v0.2.0a83) - 2023.08.19
+## [v0.2.0a83](https://github.com/hpcflow/hpcflow/compare/v0.2.0a82...v0.2.0a83) - 2023.08.19
 
 ### 🐛 Bug Fixes
 
-* refactor RunTimeInfo to not use sys.argv on init; fix [#462](https://github.com/hpcflow/hpcflow-new/issues/462)
+* refactor RunTimeInfo to not use sys.argv on init; fix [#462](https://github.com/hpcflow/hpcflow/issues/462)
 * **GHA:** testing
 * **GHA:** testing
 * **GHA:** testing
@@ -2940,7 +2952,7 @@
 
 
 <a name="v0.2.0a82"></a>
-## [v0.2.0a82](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a81...v0.2.0a82) - 2023.08.18
+## [v0.2.0a82](https://github.com/hpcflow/hpcflow/compare/v0.2.0a81...v0.2.0a82) - 2023.08.18
 
 ### ✨ Features
 
@@ -2958,7 +2970,7 @@
 
 
 <a name="v0.2.0a81"></a>
-## [v0.2.0a81](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a80...v0.2.0a81) - 2023.08.17
+## [v0.2.0a81](https://github.com/hpcflow/hpcflow/compare/v0.2.0a80...v0.2.0a81) - 2023.08.17
 
 ### 🐛 Bug Fixes
 
@@ -2970,7 +2982,7 @@
 
 
 <a name="v0.2.0a80"></a>
-## [v0.2.0a80](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a79...v0.2.0a80) - 2023.08.17
+## [v0.2.0a80](https://github.com/hpcflow/hpcflow/compare/v0.2.0a79...v0.2.0a80) - 2023.08.17
 
 ### ♻ Code Refactoring
 
@@ -3017,7 +3029,7 @@
 
 
 <a name="v0.2.0a79"></a>
-## [v0.2.0a79](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a78...v0.2.0a79) - 2023.08.15
+## [v0.2.0a79](https://github.com/hpcflow/hpcflow/compare/v0.2.0a78...v0.2.0a79) - 2023.08.15
 
 ### 👷 Build changes
 
@@ -3025,7 +3037,7 @@
 
 
 <a name="v0.2.0a78"></a>
-## [v0.2.0a78](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a77...v0.2.0a78) - 2023.08.15
+## [v0.2.0a78](https://github.com/hpcflow/hpcflow/compare/v0.2.0a77...v0.2.0a78) - 2023.08.15
 
 ### ✨ Features
 
@@ -3043,7 +3055,7 @@
 
 
 <a name="v0.2.0a77"></a>
-## [v0.2.0a77](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a76...v0.2.0a77) - 2023.08.14
+## [v0.2.0a77](https://github.com/hpcflow/hpcflow/compare/v0.2.0a76...v0.2.0a77) - 2023.08.14
 
 ### ♻ Code Refactoring
 
@@ -3073,7 +3085,7 @@
 
 
 <a name="v0.2.0a76"></a>
-## [v0.2.0a76](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a75...v0.2.0a76) - 2023.08.10
+## [v0.2.0a76](https://github.com/hpcflow/hpcflow/compare/v0.2.0a75...v0.2.0a76) - 2023.08.10
 
 ### 🐛 Bug Fixes
 
@@ -3081,12 +3093,12 @@
 
 
 <a name="v0.2.0a75"></a>
-## [v0.2.0a75](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a74...v0.2.0a75) - 2023.08.10
+## [v0.2.0a75](https://github.com/hpcflow/hpcflow/compare/v0.2.0a74...v0.2.0a75) - 2023.08.10
 
 ### 🐛 Bug Fixes
 
 * skip failing test on non-windows for now
-* RunTimeInfo.get_invocation_command within pytest running; fixes [#447](https://github.com/hpcflow/hpcflow-new/issues/447)
+* RunTimeInfo.get_invocation_command within pytest running; fixes [#447](https://github.com/hpcflow/hpcflow/issues/447)
 
 ### 👷 Build changes
 
@@ -3095,7 +3107,7 @@
 
 
 <a name="v0.2.0a74"></a>
-## [v0.2.0a74](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a73...v0.2.0a74) - 2023.08.10
+## [v0.2.0a74](https://github.com/hpcflow/hpcflow/compare/v0.2.0a73...v0.2.0a74) - 2023.08.10
 
 ### ✨ Features
 
@@ -3114,7 +3126,7 @@
 
 
 <a name="v0.2.0a73"></a>
-## [v0.2.0a73](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a72...v0.2.0a73) - 2023.08.10
+## [v0.2.0a73](https://github.com/hpcflow/hpcflow/compare/v0.2.0a72...v0.2.0a73) - 2023.08.10
 
 ### 👷 Build changes
 
@@ -3122,7 +3134,7 @@
 
 
 <a name="v0.2.0a72"></a>
-## [v0.2.0a72](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a71...v0.2.0a72) - 2023.08.09
+## [v0.2.0a72](https://github.com/hpcflow/hpcflow/compare/v0.2.0a71...v0.2.0a72) - 2023.08.09
 
 ### ✨ Features
 
@@ -3134,7 +3146,7 @@
 
 
 <a name="v0.2.0a71"></a>
-## [v0.2.0a71](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a70...v0.2.0a71) - 2023.08.03
+## [v0.2.0a71](https://github.com/hpcflow/hpcflow/compare/v0.2.0a70...v0.2.0a71) - 2023.08.03
 
 ### 🐛 Bug Fixes
 
@@ -3147,7 +3159,7 @@
 
 
 <a name="v0.2.0a70"></a>
-## [v0.2.0a70](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a69...v0.2.0a70) - 2023.08.03
+## [v0.2.0a70](https://github.com/hpcflow/hpcflow/compare/v0.2.0a69...v0.2.0a70) - 2023.08.03
 
 ### ♻ Code Refactoring
 
@@ -3179,7 +3191,7 @@
 
 
 <a name="v0.2.0a69"></a>
-## [v0.2.0a69](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a68...v0.2.0a69) - 2023.07.28
+## [v0.2.0a69](https://github.com/hpcflow/hpcflow/compare/v0.2.0a68...v0.2.0a69) - 2023.07.28
 
 ### ✨ Features
 
@@ -3193,7 +3205,7 @@
 
 
 <a name="v0.2.0a68"></a>
-## [v0.2.0a68](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a67...v0.2.0a68) - 2023.07.27
+## [v0.2.0a68](https://github.com/hpcflow/hpcflow/compare/v0.2.0a67...v0.2.0a68) - 2023.07.27
 
 ### 👷 Build changes
 
@@ -3202,7 +3214,7 @@
 
 
 <a name="v0.2.0a67"></a>
-## [v0.2.0a67](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a66...v0.2.0a67) - 2023.07.26
+## [v0.2.0a67](https://github.com/hpcflow/hpcflow/compare/v0.2.0a66...v0.2.0a67) - 2023.07.26
 
 ### 🐛 Bug Fixes
 
@@ -3219,7 +3231,7 @@
 
 
 <a name="v0.2.0a66"></a>
-## [v0.2.0a66](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a65...v0.2.0a66) - 2023.07.24
+## [v0.2.0a66](https://github.com/hpcflow/hpcflow/compare/v0.2.0a65...v0.2.0a66) - 2023.07.24
 
 ### 🐛 Bug Fixes
 
@@ -3231,7 +3243,7 @@
 
 
 <a name="v0.2.0a65"></a>
-## [v0.2.0a65](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a64...v0.2.0a65) - 2023.07.20
+## [v0.2.0a65](https://github.com/hpcflow/hpcflow/compare/v0.2.0a64...v0.2.0a65) - 2023.07.20
 
 ### ✨ Features
 
@@ -3251,7 +3263,7 @@
 
 
 <a name="v0.2.0a64"></a>
-## [v0.2.0a64](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a63...v0.2.0a64) - 2023.07.18
+## [v0.2.0a64](https://github.com/hpcflow/hpcflow/compare/v0.2.0a63...v0.2.0a64) - 2023.07.18
 
 ### ✨ Features
 
@@ -3259,7 +3271,7 @@
 
 
 <a name="v0.2.0a63"></a>
-## [v0.2.0a63](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a62...v0.2.0a63) - 2023.07.18
+## [v0.2.0a63](https://github.com/hpcflow/hpcflow/compare/v0.2.0a62...v0.2.0a63) - 2023.07.18
 
 ### ♻ Code Refactoring
 
@@ -3275,7 +3287,7 @@
 
 
 <a name="v0.2.0a62"></a>
-## [v0.2.0a62](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a61...v0.2.0a62) - 2023.07.17
+## [v0.2.0a62](https://github.com/hpcflow/hpcflow/compare/v0.2.0a61...v0.2.0a62) - 2023.07.17
 
 ### 🐛 Bug Fixes
 
@@ -3287,7 +3299,7 @@
 
 
 <a name="v0.2.0a61"></a>
-## [v0.2.0a61](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a60...v0.2.0a61) - 2023.07.17
+## [v0.2.0a61](https://github.com/hpcflow/hpcflow/compare/v0.2.0a60...v0.2.0a61) - 2023.07.17
 
 ### ♻ Code Refactoring
 
@@ -3323,7 +3335,7 @@
 
 
 <a name="v0.2.0a60"></a>
-## [v0.2.0a60](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a59...v0.2.0a60) - 2023.07.13
+## [v0.2.0a60](https://github.com/hpcflow/hpcflow/compare/v0.2.0a59...v0.2.0a60) - 2023.07.13
 
 ### ✨ Features
 
@@ -3340,7 +3352,7 @@
 
 
 <a name="v0.2.0a59"></a>
-## [v0.2.0a59](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a58...v0.2.0a59) - 2023.07.04
+## [v0.2.0a59](https://github.com/hpcflow/hpcflow/compare/v0.2.0a58...v0.2.0a59) - 2023.07.04
 
 ### ♻ Code Refactoring
 
@@ -3367,7 +3379,7 @@
 
 
 <a name="v0.2.0a58"></a>
-## [v0.2.0a58](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a57...v0.2.0a58) - 2023.06.30
+## [v0.2.0a58](https://github.com/hpcflow/hpcflow/compare/v0.2.0a57...v0.2.0a58) - 2023.06.30
 
 ### 🐛 Bug Fixes
 
@@ -3379,7 +3391,7 @@
 
 
 <a name="v0.2.0a57"></a>
-## [v0.2.0a57](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a56...v0.2.0a57) - 2023.06.30
+## [v0.2.0a57](https://github.com/hpcflow/hpcflow/compare/v0.2.0a56...v0.2.0a57) - 2023.06.30
 
 ### 👷 Build changes
 
@@ -3390,7 +3402,7 @@
 
 
 <a name="v0.2.0a56"></a>
-## [v0.2.0a56](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a55...v0.2.0a56) - 2023.06.30
+## [v0.2.0a56](https://github.com/hpcflow/hpcflow/compare/v0.2.0a55...v0.2.0a56) - 2023.06.30
 
 ### 👷 Build changes
 
@@ -3398,7 +3410,7 @@
 
 
 <a name="v0.2.0a55"></a>
-## [v0.2.0a55](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a54...v0.2.0a55) - 2023.06.30
+## [v0.2.0a55](https://github.com/hpcflow/hpcflow/compare/v0.2.0a54...v0.2.0a55) - 2023.06.30
 
 ### ✨ Features
 
@@ -3415,7 +3427,7 @@
 
 
 <a name="v0.2.0a54"></a>
-## [v0.2.0a54](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a53...v0.2.0a54) - 2023.06.29
+## [v0.2.0a54](https://github.com/hpcflow/hpcflow/compare/v0.2.0a53...v0.2.0a54) - 2023.06.29
 
 ### ✨ Features
 
@@ -3434,7 +3446,7 @@
 
 
 <a name="v0.2.0a53"></a>
-## [v0.2.0a53](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a52...v0.2.0a53) - 2023.06.29
+## [v0.2.0a53](https://github.com/hpcflow/hpcflow/compare/v0.2.0a52...v0.2.0a53) - 2023.06.29
 
 ### 🐛 Bug Fixes
 
@@ -3446,7 +3458,7 @@
 
 
 <a name="v0.2.0a52"></a>
-## [v0.2.0a52](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a51...v0.2.0a52) - 2023.06.29
+## [v0.2.0a52](https://github.com/hpcflow/hpcflow/compare/v0.2.0a51...v0.2.0a52) - 2023.06.29
 
 ### 🐛 Bug Fixes
 
@@ -3458,7 +3470,7 @@
 
 
 <a name="v0.2.0a51"></a>
-## [v0.2.0a51](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a50...v0.2.0a51) - 2023.06.28
+## [v0.2.0a51](https://github.com/hpcflow/hpcflow/compare/v0.2.0a50...v0.2.0a51) - 2023.06.28
 
 ### ♻ Code Refactoring
 
@@ -3471,7 +3483,7 @@
 
 
 <a name="v0.2.0a50"></a>
-## [v0.2.0a50](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a49...v0.2.0a50) - 2023.06.20
+## [v0.2.0a50](https://github.com/hpcflow/hpcflow/compare/v0.2.0a49...v0.2.0a50) - 2023.06.20
 
 ### 🐛 Bug Fixes
 
@@ -3488,7 +3500,7 @@
 
 
 <a name="v0.2.0a49"></a>
-## [v0.2.0a49](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a48...v0.2.0a49) - 2023.06.06
+## [v0.2.0a49](https://github.com/hpcflow/hpcflow/compare/v0.2.0a48...v0.2.0a49) - 2023.06.06
 
 ### 🐛 Bug Fixes
 
@@ -3502,7 +3514,7 @@
 
 
 <a name="v0.2.0a48"></a>
-## [v0.2.0a48](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a47...v0.2.0a48) - 2023.05.31
+## [v0.2.0a48](https://github.com/hpcflow/hpcflow/compare/v0.2.0a47...v0.2.0a48) - 2023.05.31
 
 ### ♻ Code Refactoring
 
@@ -3514,7 +3526,7 @@
 
 
 <a name="v0.2.0a47"></a>
-## [v0.2.0a47](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a46...v0.2.0a47) - 2023.05.30
+## [v0.2.0a47](https://github.com/hpcflow/hpcflow/compare/v0.2.0a46...v0.2.0a47) - 2023.05.30
 
 ### 🐛 Bug Fixes
 
@@ -3529,7 +3541,7 @@
 
 
 <a name="v0.2.0a46"></a>
-## [v0.2.0a46](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a45...v0.2.0a46) - 2023.05.30
+## [v0.2.0a46](https://github.com/hpcflow/hpcflow/compare/v0.2.0a45...v0.2.0a46) - 2023.05.30
 
 ### ♻ Code Refactoring
 
@@ -3553,7 +3565,7 @@
 
 
 <a name="v0.2.0a45"></a>
-## [v0.2.0a45](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a44...v0.2.0a45) - 2023.05.28
+## [v0.2.0a45](https://github.com/hpcflow/hpcflow/compare/v0.2.0a44...v0.2.0a45) - 2023.05.28
 
 ### 🐛 Bug Fixes
 
@@ -3565,7 +3577,7 @@
 
 
 <a name="v0.2.0a44"></a>
-## [v0.2.0a44](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a43...v0.2.0a44) - 2023.05.28
+## [v0.2.0a44](https://github.com/hpcflow/hpcflow/compare/v0.2.0a43...v0.2.0a44) - 2023.05.28
 
 ### 👷 Build changes
 
@@ -3573,7 +3585,7 @@
 
 
 <a name="v0.2.0a43"></a>
-## [v0.2.0a43](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a42...v0.2.0a43) - 2023.05.28
+## [v0.2.0a43](https://github.com/hpcflow/hpcflow/compare/v0.2.0a42...v0.2.0a43) - 2023.05.28
 
 ### ♻ Code Refactoring
 
@@ -3607,7 +3619,7 @@
 
 
 <a name="v0.2.0a42"></a>
-## [v0.2.0a42](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a41...v0.2.0a42) - 2023.05.20
+## [v0.2.0a42](https://github.com/hpcflow/hpcflow/compare/v0.2.0a41...v0.2.0a42) - 2023.05.20
 
 ### Other changes
 
@@ -3625,7 +3637,7 @@
 
 
 <a name="v0.2.0a41"></a>
-## [v0.2.0a41](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a40...v0.2.0a41) - 2023.05.20
+## [v0.2.0a41](https://github.com/hpcflow/hpcflow/compare/v0.2.0a40...v0.2.0a41) - 2023.05.20
 
 ### ♻ Code Refactoring
 
@@ -3645,7 +3657,7 @@
 
 
 <a name="v0.2.0a40"></a>
-## [v0.2.0a40](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a39...v0.2.0a40) - 2023.05.17
+## [v0.2.0a40](https://github.com/hpcflow/hpcflow/compare/v0.2.0a39...v0.2.0a40) - 2023.05.17
 
 ### 🐛 Bug Fixes
 
@@ -3657,7 +3669,7 @@
 
 
 <a name="v0.2.0a39"></a>
-## [v0.2.0a39](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a38...v0.2.0a39) - 2023.05.16
+## [v0.2.0a39](https://github.com/hpcflow/hpcflow/compare/v0.2.0a38...v0.2.0a39) - 2023.05.16
 
 ### 👷 Build changes
 
@@ -3665,7 +3677,7 @@
 
 
 <a name="v0.2.0a38"></a>
-## [v0.2.0a38](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a37...v0.2.0a38) - 2023.05.16
+## [v0.2.0a38](https://github.com/hpcflow/hpcflow/compare/v0.2.0a37...v0.2.0a38) - 2023.05.16
 
 ### Other changes
 
@@ -3688,7 +3700,7 @@
 
 ### 🐛 Bug Fixes
 
-* logging; fix [#307](https://github.com/hpcflow/hpcflow-new/issues/307)
+* logging; fix [#307](https://github.com/hpcflow/hpcflow/issues/307)
 * RunTimeInfo repr
 
 ### 👷 Build changes
@@ -3697,7 +3709,7 @@
 
 
 <a name="v0.2.0a37"></a>
-## [v0.2.0a37](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a36...v0.2.0a37) - 2023.05.16
+## [v0.2.0a37](https://github.com/hpcflow/hpcflow/compare/v0.2.0a36...v0.2.0a37) - 2023.05.16
 
 ### 🐛 Bug Fixes
 
@@ -3709,7 +3721,7 @@
 
 
 <a name="v0.2.0a36"></a>
-## [v0.2.0a36](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a35...v0.2.0a36) - 2023.05.05
+## [v0.2.0a36](https://github.com/hpcflow/hpcflow/compare/v0.2.0a35...v0.2.0a36) - 2023.05.05
 
 ### ✨ Features
 
@@ -3717,7 +3729,7 @@
 
 
 <a name="v0.2.0a35"></a>
-## [v0.2.0a35](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a34...v0.2.0a35) - 2023.05.05
+## [v0.2.0a35](https://github.com/hpcflow/hpcflow/compare/v0.2.0a34...v0.2.0a35) - 2023.05.05
 
 ### Other changes
 
@@ -3761,7 +3773,7 @@
 
 
 <a name="v0.2.0a34"></a>
-## [v0.2.0a34](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a33...v0.2.0a34) - 2023.05.04
+## [v0.2.0a34](https://github.com/hpcflow/hpcflow/compare/v0.2.0a33...v0.2.0a34) - 2023.05.04
 
 ### 🐛 Bug Fixes
 
@@ -3773,7 +3785,7 @@
 
 
 <a name="v0.2.0a33"></a>
-## [v0.2.0a33](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a32...v0.2.0a33) - 2023.05.03
+## [v0.2.0a33](https://github.com/hpcflow/hpcflow/compare/v0.2.0a32...v0.2.0a33) - 2023.05.03
 
 ### 👷 Build changes
 
@@ -3781,7 +3793,7 @@
 
 
 <a name="v0.2.0a32"></a>
-## [v0.2.0a32](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a31...v0.2.0a32) - 2023.05.02
+## [v0.2.0a32](https://github.com/hpcflow/hpcflow/compare/v0.2.0a31...v0.2.0a32) - 2023.05.02
 
 ### 🐛 Bug Fixes
 
@@ -3796,7 +3808,7 @@
 
 
 <a name="v0.2.0a31"></a>
-## [v0.2.0a31](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a30...v0.2.0a31) - 2023.05.01
+## [v0.2.0a31](https://github.com/hpcflow/hpcflow/compare/v0.2.0a30...v0.2.0a31) - 2023.05.01
 
 ### Other changes
 
@@ -3841,7 +3853,7 @@
 * add machine (socket.hostname) to run-time info
 * add more Workflow/Template creation class methods and reflect changes in CLI/API
 * add Workflow(Template).from_JSON_file/string and WorkflowTemplate.from_file
-* allow specifying template components in the template file; fix [#373](https://github.com/hpcflow/hpcflow-new/issues/373)
+* allow specifying template components in the template file; fix [#373](https://github.com/hpcflow/hpcflow/issues/373)
 * add Workflow.from_YAML_string
 * add initial workflow creation CLI
 * enable jobscript execution
@@ -3873,7 +3885,7 @@
 * shebang in jobscripts
 * cannot use Literal type in py3.7/8
 * remove debug prints
-* get_invocation_command when in ipython/jupyter; fix [#374](https://github.com/hpcflow/hpcflow-new/issues/374)
+* get_invocation_command when in ipython/jupyter; fix [#374](https://github.com/hpcflow/hpcflow/issues/374)
 * json persistent store is_modified_check should not check non-metadata
 * compose_jobscript env_setup
 * define a bash function for app invocation
@@ -3940,7 +3952,7 @@
 
 
 <a name="v0.2.0a30"></a>
-## [v0.2.0a30](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a29...v0.2.0a30) - 2023.05.01
+## [v0.2.0a30](https://github.com/hpcflow/hpcflow/compare/v0.2.0a29...v0.2.0a30) - 2023.05.01
 
 ### ✨ Features
 
@@ -3953,7 +3965,7 @@
 
 
 <a name="v0.2.0a29"></a>
-## [v0.2.0a29](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a28...v0.2.0a29) - 2023.04.25
+## [v0.2.0a29](https://github.com/hpcflow/hpcflow/compare/v0.2.0a28...v0.2.0a29) - 2023.04.25
 
 ### ♻ Code Refactoring
 
@@ -3970,7 +3982,7 @@
 
 
 <a name="v0.2.0a28"></a>
-## [v0.2.0a28](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a27...v0.2.0a28) - 2023.04.20
+## [v0.2.0a28](https://github.com/hpcflow/hpcflow/compare/v0.2.0a27...v0.2.0a28) - 2023.04.20
 
 ### ✨ Features
 
@@ -3986,11 +3998,11 @@
 
 
 <a name="v0.2.0a27"></a>
-## [v0.2.0a27](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a26...v0.2.0a27) - 2023.04.19
+## [v0.2.0a27](https://github.com/hpcflow/hpcflow/compare/v0.2.0a26...v0.2.0a27) - 2023.04.19
 
 
 <a name="v0.2.0a26"></a>
-## [v0.2.0a26](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a25...v0.2.0a26) - 2023.03.28
+## [v0.2.0a26](https://github.com/hpcflow/hpcflow/compare/v0.2.0a25...v0.2.0a26) - 2023.03.28
 
 ### 👷 Build changes
 
@@ -4003,7 +4015,7 @@
 
 
 <a name="v0.2.0a25"></a>
-## [v0.2.0a25](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a24...v0.2.0a25) - 2023.03.22
+## [v0.2.0a25](https://github.com/hpcflow/hpcflow/compare/v0.2.0a24...v0.2.0a25) - 2023.03.22
 
 ### ♻ Code Refactoring
 
@@ -4011,7 +4023,7 @@
 
 
 <a name="v0.2.0a24"></a>
-## [v0.2.0a24](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a23...v0.2.0a24) - 2023.03.06
+## [v0.2.0a24](https://github.com/hpcflow/hpcflow/compare/v0.2.0a23...v0.2.0a24) - 2023.03.06
 
 ### ✨ Features
 
@@ -4033,11 +4045,11 @@
 
 
 <a name="v0.2.0a23"></a>
-## [v0.2.0a23](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a22...v0.2.0a23) - 2023.02.09
+## [v0.2.0a23](https://github.com/hpcflow/hpcflow/compare/v0.2.0a22...v0.2.0a23) - 2023.02.09
 
 ### ✨ Features
 
-* allow passing input files (fix [#345](https://github.com/hpcflow/hpcflow-new/issues/345)); also add rules to actions
+* allow passing input files (fix [#345](https://github.com/hpcflow/hpcflow/issues/345)); also add rules to actions
 * add Element.test_rule to test a Rule on an element's data
 
 ### 👷 Build changes
@@ -4047,7 +4059,7 @@
 
 
 <a name="v0.2.0a22"></a>
-## [v0.2.0a22](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a21...v0.2.0a22) - 2023.01.26
+## [v0.2.0a22](https://github.com/hpcflow/hpcflow/compare/v0.2.0a21...v0.2.0a22) - 2023.01.26
 
 ### ✨ Features
 
@@ -4064,7 +4076,7 @@
 
 
 <a name="v0.2.0a21"></a>
-## [v0.2.0a21](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a20...v0.2.0a21) - 2023.01.23
+## [v0.2.0a21](https://github.com/hpcflow/hpcflow/compare/v0.2.0a20...v0.2.0a21) - 2023.01.23
 
 ### ♻ Code Refactoring
 
@@ -4077,7 +4089,7 @@
 
 
 <a name="v0.2.0a20"></a>
-## [v0.2.0a20](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a19...v0.2.0a20) - 2023.01.20
+## [v0.2.0a20](https://github.com/hpcflow/hpcflow/compare/v0.2.0a19...v0.2.0a20) - 2023.01.20
 
 ### ♻ Code Refactoring
 
@@ -4123,7 +4135,7 @@
 
 
 <a name="v0.2.0a19"></a>
-## [v0.2.0a19](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a18...v0.2.0a19) - 2022.12.22
+## [v0.2.0a19](https://github.com/hpcflow/hpcflow/compare/v0.2.0a18...v0.2.0a19) - 2022.12.22
 
 ### ♻ Code Refactoring
 
@@ -4180,7 +4192,7 @@
 
 
 <a name="v0.2.0a18"></a>
-## [v0.2.0a18](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a17...v0.2.0a18) - 2022.12.12
+## [v0.2.0a18](https://github.com/hpcflow/hpcflow/compare/v0.2.0a17...v0.2.0a18) - 2022.12.12
 
 ### Other changes
 
@@ -4200,7 +4212,7 @@
 
 
 <a name="v0.2.0a17"></a>
-## [v0.2.0a17](https://github.com/hpcflow/hpcflow-new/compare/v0.0.1...v0.2.0a17) - 2022.12.09
+## [v0.2.0a17](https://github.com/hpcflow/hpcflow/compare/v0.0.1...v0.2.0a17) - 2022.12.09
 
 ### Other changes
 
@@ -4425,7 +4437,7 @@
 
 
 <a name="v0.0.1"></a>
-## [v0.0.1](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a16...v0.0.1) - 2022.12.09
+## [v0.0.1](https://github.com/hpcflow/hpcflow/compare/v0.2.0a16...v0.0.1) - 2022.12.09
 
 ### Other changes
 
@@ -4433,7 +4445,7 @@
 
 
 <a name="v0.2.0a16"></a>
-## [v0.2.0a16](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a15...v0.2.0a16) - 2022.11.28
+## [v0.2.0a16](https://github.com/hpcflow/hpcflow/compare/v0.2.0a15...v0.2.0a16) - 2022.11.28
 
 ### ✨ Features
 
@@ -4485,7 +4497,7 @@
 
 
 <a name="v0.2.0a15"></a>
-## [v0.2.0a15](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a14...v0.2.0a15) - 2022.11.14
+## [v0.2.0a15](https://github.com/hpcflow/hpcflow/compare/v0.2.0a14...v0.2.0a15) - 2022.11.14
 
 ### ♻ Code Refactoring
 
@@ -4503,7 +4515,7 @@
 
 
 <a name="v0.2.0a14"></a>
-## [v0.2.0a14](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a13...v0.2.0a14) - 2022.10.30
+## [v0.2.0a14](https://github.com/hpcflow/hpcflow/compare/v0.2.0a13...v0.2.0a14) - 2022.10.30
 
 ### 👷 Build changes
 
@@ -4512,7 +4524,7 @@
 
 
 <a name="v0.2.0a13"></a>
-## [v0.2.0a13](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a12...v0.2.0a13) - 2022.10.30
+## [v0.2.0a13](https://github.com/hpcflow/hpcflow/compare/v0.2.0a12...v0.2.0a13) - 2022.10.30
 
 ### 👷 Build changes
 
@@ -4527,7 +4539,7 @@
 
 
 <a name="v0.2.0a12"></a>
-## [v0.2.0a12](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a11...v0.2.0a12) - 2022.10.29
+## [v0.2.0a12](https://github.com/hpcflow/hpcflow/compare/v0.2.0a11...v0.2.0a12) - 2022.10.29
 
 ### 🐛 Bug Fixes
 
@@ -4539,7 +4551,7 @@
 
 
 <a name="v0.2.0a11"></a>
-## [v0.2.0a11](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a10...v0.2.0a11) - 2022.10.29
+## [v0.2.0a11](https://github.com/hpcflow/hpcflow/compare/v0.2.0a10...v0.2.0a11) - 2022.10.29
 
 ### 👷 Build changes
 
@@ -4548,7 +4560,7 @@
 
 
 <a name="v0.2.0a10"></a>
-## [v0.2.0a10](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a9...v0.2.0a10) - 2022.10.29
+## [v0.2.0a10](https://github.com/hpcflow/hpcflow/compare/v0.2.0a9...v0.2.0a10) - 2022.10.29
 
 ### 🐛 Bug Fixes
 
@@ -4570,7 +4582,7 @@
 
 
 <a name="v0.2.0a9"></a>
-## [v0.2.0a9](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a8...v0.2.0a9) - 2022.10.29
+## [v0.2.0a9](https://github.com/hpcflow/hpcflow/compare/v0.2.0a8...v0.2.0a9) - 2022.10.29
 
 ### ♻ Code Refactoring
 
@@ -4596,7 +4608,7 @@
 
 
 <a name="v0.2.0a8"></a>
-## [v0.2.0a8](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a7...v0.2.0a8) - 2022.10.25
+## [v0.2.0a8](https://github.com/hpcflow/hpcflow/compare/v0.2.0a7...v0.2.0a8) - 2022.10.25
 
 ### ♻ Code Refactoring
 
@@ -4610,7 +4622,7 @@
 
 
 <a name="v0.2.0a7"></a>
-## [v0.2.0a7](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a6...v0.2.0a7) - 2022.10.19
+## [v0.2.0a7](https://github.com/hpcflow/hpcflow/compare/v0.2.0a6...v0.2.0a7) - 2022.10.19
 
 ### 🐛 Bug Fixes
 
@@ -4625,7 +4637,7 @@
 
 
 <a name="v0.2.0a6"></a>
-## [v0.2.0a6](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a5...v0.2.0a6) - 2022.10.19
+## [v0.2.0a6](https://github.com/hpcflow/hpcflow/compare/v0.2.0a5...v0.2.0a6) - 2022.10.19
 
 ### 👷 Build changes
 
@@ -4636,7 +4648,7 @@
 
 
 <a name="v0.2.0a5"></a>
-## [v0.2.0a5](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a4...v0.2.0a5) - 2022.10.19
+## [v0.2.0a5](https://github.com/hpcflow/hpcflow/compare/v0.2.0a4...v0.2.0a5) - 2022.10.19
 
 ### ✨ Features
 
@@ -4668,7 +4680,7 @@
 
 
 <a name="v0.2.0a4"></a>
-## [v0.2.0a4](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a3...v0.2.0a4) - 2022.03.30
+## [v0.2.0a4](https://github.com/hpcflow/hpcflow/compare/v0.2.0a3...v0.2.0a4) - 2022.03.30
 
 ### 🐛 Bug Fixes
 
@@ -4691,7 +4703,7 @@
 
 
 <a name="v0.2.0a3"></a>
-## [v0.2.0a3](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a2...v0.2.0a3) - 2022.03.29
+## [v0.2.0a3](https://github.com/hpcflow/hpcflow/compare/v0.2.0a2...v0.2.0a3) - 2022.03.29
 
 ### ✨ Features
 
@@ -4732,7 +4744,7 @@
 
 
 <a name="v0.2.0a2"></a>
-## [v0.2.0a2](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a1...v0.2.0a2) - 2022.03.21
+## [v0.2.0a2](https://github.com/hpcflow/hpcflow/compare/v0.2.0a1...v0.2.0a2) - 2022.03.21
 
 ### ✨ Features
 
@@ -4747,7 +4759,7 @@
 
 
 <a name="v0.2.0a1"></a>
-## [v0.2.0a1](https://github.com/hpcflow/hpcflow-new/compare/v0.2.0a0...v0.2.0a1) - 2022.03.21
+## [v0.2.0a1](https://github.com/hpcflow/hpcflow/compare/v0.2.0a0...v0.2.0a1) - 2022.03.21
 
 ### ✨ Features
 
@@ -4765,7 +4777,7 @@
 
 
 <a name="v0.2.0a0"></a>
-## [v0.2.0a0](https://github.com/hpcflow/hpcflow-new/compare/v0.1.16...v0.2.0a0) - 2022.03.18
+## [v0.2.0a0](https://github.com/hpcflow/hpcflow/compare/v0.1.16...v0.2.0a0) - 2022.03.18
 
 ### ✨ Features
 
@@ -4780,63 +4792,63 @@
 
 
 <a name="v0.1.16"></a>
-## [v0.1.16](https://github.com/hpcflow/hpcflow-new/compare/v0.1.15...v0.1.16) - 2021.06.06
+## [v0.1.16](https://github.com/hpcflow/hpcflow/compare/v0.1.15...v0.1.16) - 2021.06.06
 
 
 <a name="v0.1.15"></a>
-## [v0.1.15](https://github.com/hpcflow/hpcflow-new/compare/v0.1.14...v0.1.15) - 2021.04.10
+## [v0.1.15](https://github.com/hpcflow/hpcflow/compare/v0.1.14...v0.1.15) - 2021.04.10
 
 
 <a name="v0.1.14"></a>
-## [v0.1.14](https://github.com/hpcflow/hpcflow-new/compare/v0.1.13...v0.1.14) - 2021.02.05
+## [v0.1.14](https://github.com/hpcflow/hpcflow/compare/v0.1.13...v0.1.14) - 2021.02.05
 
 
 <a name="v0.1.13"></a>
-## [v0.1.13](https://github.com/hpcflow/hpcflow-new/compare/v0.1.12...v0.1.13) - 2021.01.18
+## [v0.1.13](https://github.com/hpcflow/hpcflow/compare/v0.1.12...v0.1.13) - 2021.01.18
 
 
 <a name="v0.1.12"></a>
-## [v0.1.12](https://github.com/hpcflow/hpcflow-new/compare/v0.1.11...v0.1.12) - 2020.12.16
+## [v0.1.12](https://github.com/hpcflow/hpcflow/compare/v0.1.11...v0.1.12) - 2020.12.16
 
 
 <a name="v0.1.11"></a>
-## [v0.1.11](https://github.com/hpcflow/hpcflow-new/compare/v0.1.10...v0.1.11) - 2020.08.25
+## [v0.1.11](https://github.com/hpcflow/hpcflow/compare/v0.1.10...v0.1.11) - 2020.08.25
 
 
 <a name="v0.1.10"></a>
-## [v0.1.10](https://github.com/hpcflow/hpcflow-new/compare/v0.1.9...v0.1.10) - 2020.07.07
+## [v0.1.10](https://github.com/hpcflow/hpcflow/compare/v0.1.9...v0.1.10) - 2020.07.07
 
 
 <a name="v0.1.9"></a>
-## [v0.1.9](https://github.com/hpcflow/hpcflow-new/compare/v0.1.8...v0.1.9) - 2020.06.09
+## [v0.1.9](https://github.com/hpcflow/hpcflow/compare/v0.1.8...v0.1.9) - 2020.06.09
 
 
 <a name="v0.1.8"></a>
-## [v0.1.8](https://github.com/hpcflow/hpcflow-new/compare/v0.1.7...v0.1.8) - 2020.06.09
+## [v0.1.8](https://github.com/hpcflow/hpcflow/compare/v0.1.7...v0.1.8) - 2020.06.09
 
 
 <a name="v0.1.7"></a>
-## [v0.1.7](https://github.com/hpcflow/hpcflow-new/compare/v0.1.6...v0.1.7) - 2020.05.12
+## [v0.1.7](https://github.com/hpcflow/hpcflow/compare/v0.1.6...v0.1.7) - 2020.05.12
 
 
 <a name="v0.1.6"></a>
-## [v0.1.6](https://github.com/hpcflow/hpcflow-new/compare/v0.1.5...v0.1.6) - 2020.05.11
+## [v0.1.6](https://github.com/hpcflow/hpcflow/compare/v0.1.5...v0.1.6) - 2020.05.11
 
 
 <a name="v0.1.5"></a>
-## [v0.1.5](https://github.com/hpcflow/hpcflow-new/compare/v0.1.4...v0.1.5) - 2020.05.07
+## [v0.1.5](https://github.com/hpcflow/hpcflow/compare/v0.1.4...v0.1.5) - 2020.05.07
 
 
 <a name="v0.1.4"></a>
-## [v0.1.4](https://github.com/hpcflow/hpcflow-new/compare/v0.1.3...v0.1.4) - 2020.05.07
+## [v0.1.4](https://github.com/hpcflow/hpcflow/compare/v0.1.3...v0.1.4) - 2020.05.07
 
 
 <a name="v0.1.3"></a>
-## [v0.1.3](https://github.com/hpcflow/hpcflow-new/compare/v0.1.2...v0.1.3) - 2020.05.07
+## [v0.1.3](https://github.com/hpcflow/hpcflow/compare/v0.1.2...v0.1.3) - 2020.05.07
 
 
 <a name="v0.1.2"></a>
-## [v0.1.2](https://github.com/hpcflow/hpcflow-new/compare/v0.1.1...v0.1.2) - 2020.05.06
+## [v0.1.2](https://github.com/hpcflow/hpcflow/compare/v0.1.1...v0.1.2) - 2020.05.06
 
 
 <a name="v0.1.1"></a>
