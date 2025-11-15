@@ -1,4 +1,19 @@
 
+<a name="v0.2.0a270"></a>
+## [v0.2.0a270](https://github.com/hpcflow/hpcflow/compare/v0.2.0a269...v0.2.0a270) - 2025.11.15
+
+### ♻ Code Refactoring
+
+* more efficient `StoreParameter.decode`
+
+### 🐛 Bug Fixes
+
+* test not using tmp_path
+* remove a print
+* type check
+* encode masked array fill values
+
+
 <a name="v0.2.0a269"></a>
 ## [v0.2.0a269](https://github.com/hpcflow/hpcflow/compare/v0.2.0a268...v0.2.0a269) - 2025.11.15
 
