@@ -862,14 +862,13 @@ class StoreParameter:
                         )
                     else:
                         obj = set(obj)
-
-        for data_type in cls._all_decoders:
-            obj = cls._all_decoders[data_type](
-                obj=obj,
-                type_lookup=data_["type_lookup"],
-                path=path,
-                **kwargs,
-            )
+                elif type_ in cls._all_decoders:
+                    obj = cls._all_decoders[type_](
+                        obj=obj,
+                        type_lookup=data_["type_lookup"],
+                        path=path,
+                        **kwargs,
+                    )
 
         return cls(
             id_=id_,
@@ -1011,7 +1010,7 @@ class PersistentStore(
             }
 
     def _ensure_all_decoders(self):
-        """Ensure app-defined decoders are included in the StoreParameter's encoders
+        """Ensure app-defined decoders are included in the StoreParameter's decoders
         map."""
         param_cls = self._store_param_cls()
         if not param_cls._all_decoders:
