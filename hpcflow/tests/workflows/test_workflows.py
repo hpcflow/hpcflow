@@ -533,7 +533,7 @@ def test_get_text_file_zarr_zip(null_config, tmp_path):
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    wkz = hf.Workflow(wk.zip())
+    wkz = hf.Workflow(wk.zip(path=tmp_path))
 
     combine = wkz.submissions[0].jobscripts[0].resources.combine_jobscript_std
     filename = "js_0_std.log" if combine else "js_0_stdout.log"
