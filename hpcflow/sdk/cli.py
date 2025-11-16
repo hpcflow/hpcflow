@@ -1216,7 +1216,7 @@ def _make_open_CLI(app: BaseApp):
     return open_file
 
 
-def _make_demo_data_CLI(app: BaseApp):
+def _make_data_CLI(app: BaseApp):
     """Generate the CLI for interacting with example data files that are used in demo
     workflows."""
 
@@ -1243,17 +1243,17 @@ def _make_demo_data_CLI(app: BaseApp):
         expose_value=False,
         callback=list_callback,
     )
-    def demo_data():
+    def data():
         """Interact with builtin demo data files."""
 
-    @demo_data.command("copy")
+    @data.command("copy")
     @click.argument("file_name")
     @click.argument("destination")
     def copy_demo_data(file_name: str, destination: str):
         """Copy a demo data file to the specified location."""
         app.copy_data_file(file_key=file_name, dst=destination)
 
-    @demo_data.command("cache")
+    @data.command("cache")
     @click.option(
         "--all",
         help="Cache all demo data files.",
@@ -1262,12 +1262,79 @@ def _make_demo_data_CLI(app: BaseApp):
         expose_value=False,
         callback=cache_all_callback,
     )
+    @click.option(
+        "--exist-ok/--exist-not-ok",
+        help="Whether to raise an exception if the file is already cached.",
+        is_flag=True,
+        default=True,
+    )
     @click.argument("file_name")
-    def cache_demo_data(file_name: str):
+    def cache_demo_data(file_name: str, exist_ok: bool):
         """Ensure a demo data file is in the demo data cache."""
-        app.cache_data_file(file_name)
+        print(f"{exist_ok=!r}")
+        app.cache_data_file(file_name, exist_ok=exist_ok)
 
-    return demo_data
+    return data
+
+
+def _make_program_CLI(app: BaseApp):
+    """Generate the CLI for interacting with built-in programs."""
+
+    def list_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        # TODO: format with Rich with a one-line description
+        click.echo("\n".join(app.list_programs()))
+        ctx.exit()
+
+    def cache_all_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        app.cache_all_programs()
+        ctx.exit()
+
+    @click.group()
+    @click.option(
+        "-l",
+        "--list",
+        help="Print available built-in programs.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=list_callback,
+    )
+    def program():
+        """Interact with builtin programs."""
+
+    @program.command("copy")
+    @click.argument("file_name")
+    @click.argument("destination")
+    def copy_program(file_name: str, destination: str):
+        """Copy a builtin program to the specified location."""
+        app.copy_program(file_key=file_name, dst=destination)
+
+    @program.command("cache")
+    @click.option(
+        "--all",
+        help="Cache all built-in programs.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=cache_all_callback,
+    )
+    @click.option(
+        "--exist-ok/--exist-not-ok",
+        help="Whether to raise an exception if the file is already cached.",
+        is_flag=True,
+        default=True,
+    )
+    @click.argument("file_name")
+    def cache_program(file_name: str, exist_ok: bool):
+        """Ensure a demo data file is in the demo data cache."""
+        print(f"{exist_ok=!r}")
+        app.cache_program(file_name, exist_ok=exist_ok)
+
+    return program
 
 
 def _make_manage_CLI(app: BaseApp):
@@ -1461,7 +1528,8 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(get_demo_software_CLI(app))
     new_CLI.add_command(get_demo_workflow_CLI(app))
     new_CLI.add_command(get_helper_CLI(app))
-    new_CLI.add_command(_make_demo_data_CLI(app))
+    new_CLI.add_command(_make_data_CLI(app))
+    new_CLI.add_command(_make_program_CLI(app))
     new_CLI.add_command(_make_manage_CLI(app))
     new_CLI.add_command(_make_workflow_CLI(app))
     new_CLI.add_command(_make_submission_CLI(app))

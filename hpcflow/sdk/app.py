@@ -4126,6 +4126,7 @@ class BaseApp(metaclass=Singleton):
         data_type: Literal["data", "program"],
         file_key: str,
         manifest: dict[str, dict[str, str]] | None = None,
+        exist_ok: bool = True,
     ) -> Path:
         """
         Cache and retrieve the path to a data file (demo data or built-in program),
@@ -4177,9 +4178,12 @@ class BaseApp(metaclass=Singleton):
         cache_file_path = ENSURE_LOOKUP[data_type]().joinpath(file_key)
         cache_file_path.parent.mkdir(parents=True, exist_ok=True)
         if cache_file_path.exists():
-            raise ValueError(
-                f"Cache already exists for {data_type} file key: {file_key!r}"
-            )
+            if not exist_ok:
+                raise ValueError(
+                    f"Cache already exists for {data_type} file key: {file_key!r}"
+                )
+            self.logger.debug(f"Cache of {file_key!r} already exists.")
+            return cache_file_path
 
         fs, url_path = rate_limit_safe_url_to_fs(self, url, logger=self.logger)
 
@@ -4300,31 +4304,37 @@ class BaseApp(metaclass=Singleton):
         """
         return self.get_data_file_path("program", file_key=file_name)
 
-    def cache_data_file(self, file_key: str) -> Path:
+    def cache_data_file(self, file_key: str, exist_ok: bool = True) -> Path:
         """
         Cache a data file and return its cached path.
         """
-        return self.cache_file("data", file_key)
+        return self.cache_file("data", file_key, exist_ok=exist_ok)
 
-    def cache_program(self, file_key: str) -> Path:
+    def cache_program(self, file_key: str, exist_ok: bool = True) -> Path:
         """
         Cache a built-in program and return its cached path.
         """
-        return self.cache_file("program", file_key)
+        return self.cache_file("program", file_key, exist_ok=exist_ok)
 
-    def cache_all_data_files(self) -> list[Path]:
+    def cache_all_data_files(self, exist_ok: bool = True) -> list[Path]:
         """
         Cache all data files, and return their paths.
         """
         manifest = self.get_data_manifest("data")
-        return [self.cache_file("data", key, manifest) for key in self.list_data_files()]
+        return [
+            self.cache_file("data", key, manifest=manifest, exist_ok=exist_ok)
+            for key in self.list_data_files()
+        ]
 
-    def cache_all_programs(self) -> list[Path]:
+    def cache_all_programs(self, exist_ok: bool = True) -> list[Path]:
         """
         Cache all built-in programs, and return their paths.
         """
         manifest = self.get_data_manifest("program")
-        return [self.cache_file("program", key, manifest) for key in self.list_programs()]
+        return [
+            self.cache_file("program", key, manifest=manifest, exist_ok=exist_ok)
+            for key in self.list_programs()
+        ]
 
     def copy_cacheable_file(
         self,
