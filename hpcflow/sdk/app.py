@@ -1802,7 +1802,6 @@ class BaseApp(metaclass=Singleton):
                 "task_schemas",
                 "scripts",
                 "jinja_templates",
-                "programs",
             )
 
         self.logger.debug(f"Loading template components: {include!r}.")
@@ -1861,11 +1860,6 @@ class BaseApp(metaclass=Singleton):
             jinja_templates = self._load_jinja_templates()
             self._template_components["jinja_templates"] = jinja_templates
             self._jinja_templates = jinja_templates
-
-        if "programs" in include:
-            programs = self._load_programs()
-            self._template_components["programs"] = programs
-            self._programs = programs
 
         self.logger.info(f"Template components loaded ({include!r}).")
 
@@ -2406,13 +2400,6 @@ class BaseApp(metaclass=Singleton):
         Discover where the built-in Jinja templates are.
         """
         return self.__load_builtin_files_from_nested_package(self.jinja_templates_dir)
-
-    @TimeIt.decorator
-    def _load_programs(self) -> dict[str, Path]:
-        """
-        Discover where the built-in programs are.
-        """
-        return self.__load_builtin_files_from_nested_package(self.programs_dir)
 
     def _get_demo_workflows(self) -> dict[str, Path]:
         """Get all builtin demo workflow template file paths."""

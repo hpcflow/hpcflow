@@ -491,7 +491,7 @@ class ElementActionRun(AppAware):
         if prog_or_path := self.action.program_or_program_path:
             prog_path_str = self.__substitute_vars_in_paths(prog_or_path)
             return (
-                self._app.programs[prog_path_str]
+                self._app.get_program_path(prog_path_str)
                 if self.action.program
                 else Path(prog_path_str)
             )
