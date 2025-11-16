@@ -426,7 +426,7 @@ def test_demo_data_values(null_config):
     name = "text_file.txt"
     assert hf.ValueSequence(
         path="inputs.p1", values=[f"<<demo_data_file:{name}>>"]
-    ).values[0] == str(hf.demo_data_cache_dir.joinpath(name))
+    ).values[0] == str(hf.data_cache_dir.joinpath(name))
 
 
 def test_from_linear_space(null_config):

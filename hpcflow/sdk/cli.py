@@ -1204,7 +1204,7 @@ def _make_open_CLI(app: BaseApp):
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)
     def demo_data_cache_dir(path: bool = False):
-        dir_path = app._ensure_demo_data_cache_dir()
+        dir_path = app._ensure_data_cache_dir()
         if path:
             click.echo(dir_path)
         else:
@@ -1224,13 +1224,13 @@ def _make_demo_data_CLI(app: BaseApp):
         if not value or ctx.resilient_parsing:
             return
         # TODO: format with Rich with a one-line description
-        click.echo("\n".join(app.list_demo_data_files()))
+        click.echo("\n".join(app.list_data_files()))
         ctx.exit()
 
     def cache_all_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        app.cache_all_demo_data_files()
+        app.cache_all_data_files()
         ctx.exit()
 
     @click.group()
@@ -1251,7 +1251,7 @@ def _make_demo_data_CLI(app: BaseApp):
     @click.argument("destination")
     def copy_demo_data(file_name: str, destination: str):
         """Copy a demo data file to the specified location."""
-        app.copy_demo_data(file_name=file_name, dst=destination)
+        app.copy_data_file(file_name=file_name, dst=destination)
 
     @demo_data.command("cache")
     @click.option(
@@ -1265,7 +1265,7 @@ def _make_demo_data_CLI(app: BaseApp):
     @click.argument("file_name")
     def cache_demo_data(file_name: str):
         """Ensure a demo data file is in the demo data cache."""
-        app.cache_demo_data_file(file_name)
+        app.cache_data_file(file_name)
 
     return demo_data
 
@@ -1329,7 +1329,7 @@ def _make_manage_CLI(app: BaseApp):
     @manage.command("clear-demo-data-cache")
     def clear_demo_data_cache():
         """Delete the app demo data cache directory."""
-        app.clear_demo_data_cache_dir()
+        app.clear_data_cache_dir()
 
     return manage
 

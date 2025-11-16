@@ -185,7 +185,7 @@ def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_pa
     )
     wk = hf.Workflow.from_YAML_string(YAML_str=yaml_str, path=tmp_path)
     assert wk.tasks[0].template.element_sets[0].inputs[0].value == {
-        "path": str(hf.demo_data_cache_dir.joinpath("text_file.txt"))
+        "path": str(hf.data_cache_dir.joinpath("text_file.txt"))
     }
 
 
