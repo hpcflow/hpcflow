@@ -1271,7 +1271,6 @@ def _make_data_CLI(app: BaseApp):
     @click.argument("file_name")
     def cache_demo_data(file_name: str, exist_ok: bool):
         """Ensure a demo data file is in the demo data cache."""
-        print(f"{exist_ok=!r}")
         app.cache_data_file(file_name, exist_ok=exist_ok)
 
     return data
@@ -1331,7 +1330,6 @@ def _make_program_CLI(app: BaseApp):
     @click.argument("file_name")
     def cache_program(file_name: str, exist_ok: bool):
         """Ensure a demo data file is in the demo data cache."""
-        print(f"{exist_ok=!r}")
         app.cache_program(file_name, exist_ok=exist_ok)
 
     return program
