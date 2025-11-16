@@ -247,7 +247,9 @@ def callback_unset_log_file_path(config: Config) -> None:
     config._app.log.remove_file_handler()
 
 
-def callback_deprecation_demo_data_dir(config: Config, value: str | None = None) -> None:
+def callback_deprecation_demo_data_dir(
+    config: Config, value: str | None = None
+) -> str | None:
     warnings.warn(
         "`demo_data_dir` is deprecated; please remove from your config file, and use "
         "`data_dir` instead.",
@@ -257,7 +259,7 @@ def callback_deprecation_demo_data_dir(config: Config, value: str | None = None)
 
 def callback_deprecation_demo_data_manifest_file(
     config: Config, value: str | None = None
-) -> None:
+) -> str | None:
     warnings.warn(
         "`demo_data_manifest_file` is deprecated; please remove from your config file, "
         "and use `data_manifest_file` instead.",

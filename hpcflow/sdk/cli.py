@@ -1251,7 +1251,7 @@ def _make_demo_data_CLI(app: BaseApp):
     @click.argument("destination")
     def copy_demo_data(file_name: str, destination: str):
         """Copy a demo data file to the specified location."""
-        app.copy_data_file(file_name=file_name, dst=destination)
+        app.copy_data_file(file_key=file_name, dst=destination)
 
     @demo_data.command("cache")
     @click.option(
