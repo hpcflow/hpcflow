@@ -1,5 +1,6 @@
 {
     "hello_world/linux_x86_64/hello_world": {},
     "hello_world/macos_x86_64/hello_world": {},
+    "hello_world/macos_arm64/hello_world": {},
     "hello_world/win_AMD64/hello_world.exe": {}
 }
