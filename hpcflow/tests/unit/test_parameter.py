@@ -158,9 +158,8 @@ def test_slice(new_null_config, tmp_path: Path):
     assert p1_params[1].value == values[2]
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."
@@ -189,9 +188,8 @@ def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_pa
     }
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."

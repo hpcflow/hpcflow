@@ -101,9 +101,8 @@ def test_get_program_manifest(null_config) -> None:
     assert hf.get_data_manifest("program")
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."

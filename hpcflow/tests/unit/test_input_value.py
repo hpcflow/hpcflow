@@ -164,9 +164,8 @@ def test_value_is_dict_check_no_raise_if_sub_parameter(null_config):
     hf.InputValue("p1c", path="a", value=101)
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."

@@ -414,9 +414,8 @@ def test_nesting_order_three_seqs_all_decimal(null_config, tmp_path: Path):
     assert wk.tasks.test.elements[5].get("inputs") == {"p1": "b", "p2": "e", "p3": "k"}
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."
