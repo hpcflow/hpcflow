@@ -4233,7 +4233,7 @@ class BaseApp(metaclass=Singleton):
 
         if data_type == "program" and os.name == "posix":
             # set executable bit
-            cache_file_path.chmod(cache_file_path.st_mode | stat.S_IEXEC)
+            cache_file_path.chmod(cache_file_path.stat().st_mode | stat.S_IEXEC)
 
         return cache_file_path
 
