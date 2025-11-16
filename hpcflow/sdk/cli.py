@@ -1203,8 +1203,17 @@ def _make_open_CLI(app: BaseApp):
 
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)
-    def demo_data_cache_dir(path: bool = False):
+    def data_cache_dir(path: bool = False):
         dir_path = app._ensure_data_cache_dir()
+        if path:
+            click.echo(dir_path)
+        else:
+            utils.open_file(dir_path)
+
+    @open_file.command()
+    @click.option("--path", is_flag=True, default=False)
+    def program_cache_dir(path: bool = False):
+        dir_path = app._ensure_program_cache_dir()
         if path:
             click.echo(dir_path)
         else:
@@ -1391,10 +1400,15 @@ def _make_manage_CLI(app: BaseApp):
         else:
             app.clear_user_cache_dir()
 
-    @manage.command("clear-demo-data-cache")
-    def clear_demo_data_cache():
+    @manage.command("clear-data-cache")
+    def clear_data_cache():
         """Delete the app demo data cache directory."""
         app.clear_data_cache_dir()
+
+    @manage.command("clear-program-cache")
+    def clear_program_cache():
+        """Delete the app program cache directory."""
+        app.clear_program_cache_dir()
 
     return manage
 
