@@ -1,3 +1,0 @@
-"""
-Manifest for demonstration data.
-"""
