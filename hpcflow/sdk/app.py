@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
+import stat
 import enum
 import json
 import shutil
@@ -4229,6 +4230,10 @@ class BaseApp(metaclass=Singleton):
         if delete:
             self.logger.debug(f"deleting file {file_key!r} source file {src_path!r}.")
             src_path.unlink()
+
+        if data_type == "program" and os.name == "posix":
+            # set executable bit
+            cache_file_path.chmod(cache_file_path.st_mode | stat.S_IEXEC)
 
         return cache_file_path
 
