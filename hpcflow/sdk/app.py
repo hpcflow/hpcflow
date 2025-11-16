@@ -465,8 +465,6 @@ class BaseApp(metaclass=Singleton):
         Directory for scripts.
     jinja_templates_dir:
         Directory for Jinja templates.
-    programs_dir
-        Directory for programs.
     workflows_dir:
         Directory for workflows.
     data_manifest_dir:
@@ -516,7 +514,6 @@ class BaseApp(metaclass=Singleton):
         config_options: ConfigOptions,
         scripts_dir: str,
         jinja_templates_dir: str | None = None,
-        programs_dir: str | None = None,
         workflows_dir: str | None = None,
         data_manifest_dir: str | None = None,
         data_dir: str | None = None,
@@ -553,8 +550,6 @@ class BaseApp(metaclass=Singleton):
         self.scripts_dir = scripts_dir
         #: Directory for Jinja templates.
         self.jinja_templates_dir = jinja_templates_dir
-        #: Directory for programs.
-        self.programs_dir = programs_dir
         #: Directory for workflows.
         self.workflows_dir = workflows_dir
         #: Directory for JSON manifest files.
