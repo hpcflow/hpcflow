@@ -1,4 +1,36 @@
 
+<a name="v0.2.0a274"></a>
+## [v0.2.0a274](https://github.com/hpcflow/hpcflow/compare/v0.2.0a273...v0.2.0a274) - 2025.11.17
+
+### ♻ Code Refactoring
+
+* remove generate_test_programs workflow
+* remove programs as template components
+
+### ✨ Features
+
+* add program cli
+* use external repo for demo data and builtin programs
+
+### 🐛 Bug Fixes
+
+* update open and clear cache CLIs
+* remove unused `App.programs_dir`
+* skip macos program tests as well
+* skip offending macos tests entirely
+* pyinstaller hook; remove unused
+* remove prints
+* chmod
+* set executable bit when caching programs on posix
+* type check
+* add missing mac arm64 test program in manifest
+* generate an intel Mac test program aswell
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a273"></a>
 ## [v0.2.0a273](https://github.com/hpcflow/hpcflow/compare/v0.2.0a272...v0.2.0a273) - 2025.11.15
 
