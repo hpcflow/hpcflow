@@ -179,12 +179,12 @@ def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_pa
           - schema: test
             inputs:
               p1c::from_file:
-                path: <<demo_data_file:text_file.txt>>
+                path: <<demo_data_file:text_file_1.txt>>
     """
     )
     wk = hf.Workflow.from_YAML_string(YAML_str=yaml_str, path=tmp_path)
     assert wk.tasks[0].template.element_sets[0].inputs[0].value == {
-        "path": str(hf.data_cache_dir.joinpath("text_file.txt"))
+        "path": str(hf.data_cache_dir.joinpath("text_file_1.txt"))
     }
 
 

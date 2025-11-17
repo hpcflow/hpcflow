@@ -4116,6 +4116,46 @@ class BaseApp(metaclass=Singleton):
         """
         return self.get_data_manifest("program")
 
+    def __validate_cacheable_file_spec(
+        self, data_type: Literal["data", "program"], file_key: str, spec: dict[str, str]
+    ) -> dict[str, str]:
+        """
+        Validate the spec dictionary of a cacheable file (demo data or program), as found
+        within the respective manifest JSON file.
+
+        Note the distinction between the "zip_file" and "zip_contents" keys, both of which
+        point to the location of a zip file within the data or program directory. The use
+        of the "zip_file" key means the uncompressed zip file will be associated with the
+        spec's key directly (meaning it must contain only a single file/directory). On the
+        other hand, the "zip_contents" key indicates that the contents of the uncompressed
+        zip file will be placed under the key (meaning it can contain one or more items).
+
+        """
+        ALLOWED = {
+            "data": {"zip_file", "zip_contents"},
+            "program": {"zip_file", "zip_contents", "executable"},
+        }
+        REQ = {"data": set(), "program": {"executable"}}
+
+        allowed = ALLOWED[data_type]
+        required = REQ[data_type]
+        spec_keys = set(spec)
+
+        if missing := required - spec_keys:
+            raise ValueError(
+                f"Manifest spec for {data_type} {file_key!r} is missing keys: "
+                f"{missing!r}."
+            )
+        if extra := spec_keys - allowed:
+            raise ValueError(
+                f"Manifest spec for {data_type} {file_key!r} has unknown keys: "
+                f"{extra!r}. Allowed keys are {allowed!r}."
+            )
+        return spec
+
+    def __copy_file_or_dir(self, src: Path, dst: Path):
+        shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)
+
     def cache_file(
         self,
         data_type: Literal["data", "program"],
@@ -4135,14 +4175,6 @@ class BaseApp(metaclass=Singleton):
         directory.
         """
 
-        manifest = manifest or self.get_data_manifest(data_type)
-        if file_key not in manifest:
-            raise ValueError(f"No such {data_type} file {file_key!r}.")
-
-        spec: dict[str, str] = manifest[file_key]
-        requires_unpack = bool(in_zip := spec.get("in_zip"))
-        src_fn = in_zip or file_key
-
         DIR_ATTR_LOOKUP = {
             "data": "data_dir",
             "program": "program_dir",
@@ -4159,6 +4191,16 @@ class BaseApp(metaclass=Singleton):
                 f"`data_type` must be 'data' or 'program', but received {data_type}."
             )
 
+        manifest = manifest or self.get_data_manifest(data_type)
+        if file_key not in manifest:
+            raise ValueError(f"No such {data_type} file {file_key!r}.")
+
+        spec = self.__validate_cacheable_file_spec(
+            data_type, file_key, manifest[file_key]
+        )
+        req_unpack = bool(zip_path := (spec.get("zip_file") or spec.get("zip_contents")))
+        src_fn = zip_path or file_key
+
         # first try the config; if not set use the app defined attribute:
         msg_attr = "config"
         if not (url := self.config.get(dir_key)):
@@ -4170,7 +4212,8 @@ class BaseApp(metaclass=Singleton):
             f"to cache."
         )
 
-        cache_file_path = ENSURE_LOOKUP[data_type]().joinpath(file_key)
+        cache_base = ENSURE_LOOKUP[data_type]()
+        cache_file_path = cache_base.joinpath(file_key)
         cache_file_path.parent.mkdir(parents=True, exist_ok=True)
         if cache_file_path.exists():
             if not exist_ok:
@@ -4183,7 +4226,7 @@ class BaseApp(metaclass=Singleton):
         fs, url_path = rate_limit_safe_url_to_fs(self, url, logger=self.logger)
 
         if isinstance(fs, LocalFileSystem):
-            src_path = url_path
+            src_path = f"{url_path}/{src_fn}"
             delete = False
         else:
             # download to a temporary directory:
@@ -4204,22 +4247,55 @@ class BaseApp(metaclass=Singleton):
             delete = True
             src_path = temp_path
 
-        if requires_unpack:
+        if req_unpack:
             self.logger.debug(f"unzipping {data_type} file path {src_path!r}")
             with TemporaryDirectory() as zip_temp_dir:
                 with zipfile.ZipFile(src_path, "r") as zip_ref:
                     zip_ref.extractall(zip_temp_dir)
-                extracted = Path(zip_temp_dir).joinpath(file_key)
-                self.logger.debug(
-                    f"copying unzipped {data_type} file path {extracted!r} to cache "
-                    f"location: {cache_file_path!r}."
-                )
-                if extracted.is_dir():
-                    shutil.copytree(extracted, cache_file_path)
+
+                unzipped_paths = list(Path(zip_temp_dir).glob("*"))
+
+                if num_paths := len(unzipped_paths) == 0:
+                    raise FileNotFoundError(f"Empty zip file: {src_path!r}.")
+                elif spec.get("zip_file"):
+                    if num_paths > 1:
+                        raise ValueError(
+                            f"When using the 'zip_file' key, the referenced zip file "
+                            f"must contain exactly one item (file or directory), but the "
+                            f"zip file contains {num_paths} items: {unzipped_paths!r}."
+                        )
+                    ext_src = unzipped_paths[0]
+                    if data_type == "program":
+                        # add on the executable:
+                        cache_file_path.mkdir(exist_ok=True)
+                        cache_file_path = cache_file_path.joinpath(spec["executable"])
+                    self.logger.debug(
+                        f"copying unzipped {data_type} file {ext_src.name!r} to "
+                        f"cache location: {cache_file_path!r}."
+                    )
+                    self.__copy_file_or_dir(ext_src, cache_file_path)
+
                 else:
-                    shutil.copy(extracted, cache_file_path)
+                    # copy contents of zip file to directory under `file_key`
+                    cache_file_path.mkdir(exist_ok=True)
+                    for ext_src_i in unzipped_paths:
+                        dst_i = cache_file_path / ext_src_i.name
+                        self.logger.debug(
+                            f"copying unzipped {data_type} file {ext_src_i.name!r} to "
+                            f"cache location: {dst_i!r}."
+                        )
+                        self.__copy_file_or_dir(ext_src_i, dst_i)
+                    if data_type == "program":
+                        # add on the executable:
+                        cache_file_path = cache_file_path.joinpath(spec["executable"])
+
         else:
             # copy to cache dir:
+            if data_type == "program":
+                # add on the executable:
+                cache_file_path.mkdir(exist_ok=True)
+                cache_file_path = cache_file_path.joinpath(spec["executable"])
+                src_path = Path(src_path).joinpath(spec["executable"])
             self.logger.debug(
                 f"copying {data_type} file path {src_path!r} to cache location: "
                 f"{cache_file_path!r}."
@@ -4262,14 +4338,23 @@ class BaseApp(metaclass=Singleton):
                 f"{data_type} file {file_key!r} is already in the cache: "
                 f"{cache_file_path!r}."
             )
+            if data_type == "program":
+                cached_path = cache_file_path.joinpath(manifest[file_key]["executable"])
+            else:
+                cached_path = cache_file_path
         else:
             self.logger.info(
                 f"{data_type} file {file_key!r} is not in the cache, so copying to the "
                 f"cache: {cache_file_path!r}."
             )
-            assert self.cache_file(data_type, file_key, manifest) == cache_file_path
+            cached_path = self.cache_file(data_type, file_key, manifest)
+            if data_type == "program":
+                # program cached path has the executable on the end:
+                assert cached_path.parent == cache_file_path
+            else:
+                assert cached_path == cache_file_path
 
-        return cache_file_path
+        return cached_path
 
     def list_data_files(self) -> tuple[str, ...]:
         """List available demonstration data files."""

@@ -110,8 +110,8 @@ def test_get_program_manifest(null_config) -> None:
 )
 def test_get_demo_data_cache(null_config) -> None:
     hf.clear_data_cache_dir()
-    hf.cache_data_file("text_file.txt")
-    with hf.data_cache_dir.joinpath("text_file.txt").open("rt") as fh:
+    hf.cache_data_file("text_file_1.txt")
+    with hf.data_cache_dir.joinpath("text_file_1.txt").open("rt") as fh:
         contents = fh.read()
     assert contents == "\n".join(f"{i}" for i in range(1, 11)) + "\n"
 
