@@ -4226,7 +4226,7 @@ class BaseApp(metaclass=Singleton):
         fs, url_path = rate_limit_safe_url_to_fs(self, url, logger=self.logger)
 
         if isinstance(fs, LocalFileSystem):
-            src_path = f"{url_path}/{src_fn}"
+            src_path = Path(f"{url_path}/{src_fn}")
             delete = False
         else:
             # download to a temporary directory:
