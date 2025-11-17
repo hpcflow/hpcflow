@@ -43,6 +43,7 @@ from hpcflow.sdk.config.errors import (
 from hpcflow.sdk.core import (
     ALL_TEMPLATE_FORMATS,
     ABORT_EXIT_CODE,
+    NO_PROGRAM_EXIT_CODE,
     RUN_DIR_ARR_FILL,
     SKIPPED_EXIT_CODE,
     NO_COMMANDS_EXIT_CODE,
@@ -4203,18 +4204,27 @@ class Workflow(AppAware):
                                     ),
                                 }
                             )
-                        if program_path := run.program_path_actual:
-                            program_dir = program_path.parent
-                            program_name = program_path.name
-                            program_name_no_ext = program_path.stem
-                            add_env.update(
-                                {
-                                    f"{app_caps}_RUN_PROGRAM_NAME": program_name,
-                                    f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
-                                    f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
-                                    f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
-                                }
+                        try:
+                            if program_path := run.program_path_actual:
+                                program_dir = program_path.parent
+                                program_name = program_path.name
+                                program_name_no_ext = program_path.stem
+                                add_env.update(
+                                    {
+                                        f"{app_caps}_RUN_PROGRAM_NAME": program_name,
+                                        f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
+                                        f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
+                                        f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
+                                    }
+                                )
+                        except ValueError:
+                            # set run end:
+                            self.set_EAR_end(
+                                block_act_key=block_act_key,
+                                run=run,
+                                exit_code=NO_PROGRAM_EXIT_CODE,
                             )
+                            return
 
                         env = {**dict(os.environ), **add_env}
 

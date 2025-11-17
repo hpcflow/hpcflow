@@ -16,6 +16,7 @@ ALL_TEMPLATE_FORMATS = ("yaml", "json")
 ABORT_EXIT_CODE = 64
 SKIPPED_EXIT_CODE = 65
 NO_COMMANDS_EXIT_CODE = 66
+NO_PROGRAM_EXIT_CODE = 67
 RUN_DIR_ARR_DTYPE = [
     ("task_insert_ID", np.uint8),
     ("element_idx", np.uint32),
