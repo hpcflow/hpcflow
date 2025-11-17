@@ -211,7 +211,7 @@ def test_demo_data_substitution_value_sequence_class_method(
             sequences:
               - path: inputs.p1
                 values::from_file:
-                  file_path: <<demo_data_file:text_file.txt>>
+                  file_path: <<demo_data_file:text_file_1.txt>>
     """
     )
     wk = hf.Workflow.from_YAML_string(YAML_str=yaml_str, path=tmp_path)
