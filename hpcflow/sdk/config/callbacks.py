@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import fsspec  # type: ignore
+import warnings
 from typing import overload, TYPE_CHECKING
 from hpcflow.sdk.core.errors import UnsupportedSchedulerError, UnsupportedShellError
 from hpcflow.sdk.submission.shells import get_supported_shells
@@ -244,3 +245,23 @@ def callback_unset_log_file_level(config: Config) -> None:
 def callback_unset_log_file_path(config: Config) -> None:
     """Callback to remove the log file handler."""
     config._app.log.remove_file_handler()
+
+
+def callback_deprecation_demo_data_dir(
+    config: Config, value: str | None = None
+) -> str | None:
+    warnings.warn(
+        "`demo_data_dir` is deprecated; please remove from your config file, and use "
+        "`data_dir` instead.",
+    )
+    return value
+
+
+def callback_deprecation_demo_data_manifest_file(
+    config: Config, value: str | None = None
+) -> str | None:
+    warnings.warn(
+        "`demo_data_manifest_file` is deprecated; please remove from your config file, "
+        "and use `data_manifest_file` instead.",
+    )
+    return value

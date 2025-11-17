@@ -7,7 +7,7 @@ from hpcflow.sdk import sdk_classes
 hiddenimports = [
     *sdk_classes.values(),
     "hpcflow.sdk.data",
-    "hpcflow.data.demo_data_manifest",
+    "hpcflow.data.data_manifests",
     "hpcflow.data.scripts",
     "hpcflow.data.jinja_templates",
     "hpcflow.data.template_components",
@@ -22,7 +22,7 @@ hiddenimports = [
 
 datas = (
     collect_data_files("hpcflow.sdk.data")
-    + collect_data_files("hpcflow.data.demo_data_manifest")
+    + collect_data_files("hpcflow.data.data_manifests")
     + collect_data_files(
         "hpcflow.data.scripts", include_py_files=True, excludes=("**/__pycache__",)
     )

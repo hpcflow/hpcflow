@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast, overload, TYPE_CHECKING
 import fsspec  # type: ignore
+import warnings
 
 from rich.console import Console, Group
 from rich.table import Table
@@ -50,6 +51,8 @@ from hpcflow.sdk.config.callbacks import (
     callback_unset_log_file_level,
     callback_unset_log_file_path,
     callback_log_file_path,
+    callback_deprecation_demo_data_dir,
+    callback_deprecation_demo_data_manifest_file,
 )
 from hpcflow.sdk.config.config_file import ConfigFile
 from hpcflow.sdk.config.errors import (
@@ -227,8 +230,7 @@ class Config:
         At what level to do logging to the console. Usually coarser than to a file.
         Mapped to a field in the configuration file.
     demo_data_manifest_file: str
-        Where the manifest describing the demo data is.
-        Mapped to a field in the configuration file.
+        Deprecated; please use data_manifest_file instead.
     """
 
     def __init__(
@@ -271,7 +273,15 @@ class Config:
             "shells": (callback_lowercase,),
             "default_scheduler": (callback_lowercase, exists_in_schedulers),
             "default_shell": (callback_lowercase, callback_supported_shells),
-            "demo_data_manifest_file": (callback_file_paths,),
+            "demo_data_manifest_file": (
+                callback_file_paths,
+                callback_deprecation_demo_data_manifest_file,
+            ),
+            "demo_data_dir": (callback_file_paths, callback_deprecation_demo_data_dir),
+            "data_dir": (callback_file_paths,),
+            "program_dir": (callback_file_paths,),
+            "data_manifest_file": (callback_file_paths,),
+            "program_manifest_file": (callback_file_paths,),
             **(callbacks or {}),
         }
 
@@ -287,7 +297,12 @@ class Config:
             "log_file_path": (callback_update_log_file_path,),
             "log_file_level": (callback_update_log_file_level,),
             "log_console_level": (callback_update_log_console_level,),
-            "demo_data_manifest_file": (set_callback_file_paths,),
+            "demo_data_manifest_file": (callback_deprecation_demo_data_manifest_file,),
+            "demo_data_dir": (callback_deprecation_demo_data_dir,),
+            "data_dir": (set_callback_file_paths,),
+            "program_dir": (set_callback_file_paths,),
+            "data_manifest_file": (set_callback_file_paths,),
+            "program_manifest_file": (set_callback_file_paths,),
         }
 
         self._unset_callbacks: dict[str, tuple[UnsetterCallback, ...]] = {
@@ -519,13 +534,19 @@ class Config:
     @property
     def demo_data_dir(self) -> str | None:
         """
-        Location of demo data.
-        Mapped to a field in the configuration file.
+        Deprecated; please use `data_dir` instead.
         """
         return self._get("demo_data_dir")
 
     @demo_data_dir.setter
     def demo_data_dir(self, value: str | None):
+        """
+        Deprecated; please use `data_dir` instead.
+        """
+        warnings.warn(
+            "`demo_data_dir` is deprecated; please remove from your config file, and use "
+            "`data_dir` instead.",
+        )
         self._set("demo_data_dir", value)
 
     def __getattr__(self, name: str):
@@ -1358,22 +1379,6 @@ class Config:
         if self._config_key == "default":
             self.set("machine", "DEFAULT_MACHINE")
             self.save()
-
-    def set_github_demo_data_dir(self, sha: str) -> None:
-        """
-        Set the `demo_data_dir` item, to an fsspec Github URL.
-
-        We use this (via the CLI) when testing the frozen app on Github, because, by
-        default, the SHA is set to the current version tag, which might not include recent
-        changes to the demo data.
-        """
-        assert self._app.demo_data_dir is not None
-        self.set(
-            "demo_data_dir",
-            self._app._get_github_url(
-                sha=sha, path=self._app.demo_data_dir.replace(".", "/")
-            ),
-        )
 
     @contextlib.contextmanager
     def cached_config(self) -> Iterator[None]:

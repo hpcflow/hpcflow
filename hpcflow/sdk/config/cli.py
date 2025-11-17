@@ -343,14 +343,6 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         config.save()
 
     @config.command()
-    @click.argument("sha")
-    @pass_config
-    @CLI_exception_wrapper_gen(ConfigError)
-    def set_github_demo_data_dir(config: Config, sha: str):
-        config.set_github_demo_data_dir(sha=sha)
-        config.save()
-
-    @config.command()
     def load_data_files():
         """Check we can load the data files (e.g. task schema files) as specified in the
         configuration."""

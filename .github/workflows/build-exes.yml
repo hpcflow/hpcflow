@@ -37,6 +37,16 @@ on:
         required: false
         type: string
         default: ""
+      config_data_dir:
+        description: "URL to set the config item `data_dir` to before running the tests."
+        type: string
+        required: false
+        default: ""
+      config_program_dir:
+        description: "URL to set the config item `program_dir` to before running the tests."
+        type: string
+        required: false
+        default: ""
 
 jobs:
   build-exes:
@@ -49,5 +59,7 @@ jobs:
       build_onefile: ${{ github.event.inputs.build_onefile }}
       logLevel: ${{ github.event.inputs.logLevel }}
       unit_test_args: ${{ github.event.inputs.unit_test_args }}
+      config_data_dir: ${{ github.event.inputs.config_data_dir }}
+      config_program_dir: ${{ github.event.inputs.config_program_dir }}
       executable_name: hpcflow
       pyinstaller_dir: pyinstaller

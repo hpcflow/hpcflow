@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
+import stat
 import enum
 import json
 import shutil
@@ -464,14 +465,17 @@ class BaseApp(metaclass=Singleton):
         Directory for scripts.
     jinja_templates_dir:
         Directory for Jinja templates.
-    programs_dir
-        Directory for programs.
     workflows_dir:
         Directory for workflows.
-    demo_data_dir:
-        Directory for demonstration data.
-    data_data_manifest_dir:
-        Directory for demonstration data manifests.
+    data_manifest_dir:
+        Directory that contains JSON manifest files for the demonstration data
+        ("data.json") and built-in program data ("programs.json").
+    data_dir:
+        fsspec-compatible URL pointing to a directory that contains the app's built-in
+        demonstration data, as referenced in the data manifest.
+    program_dir:
+        fsspec-compatible URL pointing to a directory that contains the app's built-in
+        programs, as referenced in the data manifest.
     template_components:
         Template components.
     pytest_args:
@@ -510,10 +514,10 @@ class BaseApp(metaclass=Singleton):
         config_options: ConfigOptions,
         scripts_dir: str,
         jinja_templates_dir: str | None = None,
-        programs_dir: str | None = None,
         workflows_dir: str | None = None,
-        demo_data_dir: str | None = None,
-        demo_data_manifest_dir: str | None = None,
+        data_manifest_dir: str | None = None,
+        data_dir: str | None = None,
+        program_dir: str | None = None,
         template_components: dict[str, list[dict]] | None = None,
         pytest_args: list[str] | None = None,
         package_name: str | None = None,
@@ -546,14 +550,14 @@ class BaseApp(metaclass=Singleton):
         self.scripts_dir = scripts_dir
         #: Directory for Jinja templates.
         self.jinja_templates_dir = jinja_templates_dir
-        #: Directory for programs.
-        self.programs_dir = programs_dir
         #: Directory for workflows.
         self.workflows_dir = workflows_dir
+        #: Directory for JSON manifest files.
+        self.data_manifest_dir = data_manifest_dir
         #: Directory for demonstration data.
-        self.demo_data_dir = demo_data_dir
-        #: Directory for demonstration data manifests.
-        self.demo_data_manifest_dir = demo_data_manifest_dir
+        self.data_dir = data_dir
+        #: Directory for built-in program data.
+        self.program_dir = program_dir
         #: The convention for the app alias used in import statements in the documentation.
         self.docs_import_conv = docs_import_conv
         #: URL to documentation.
@@ -602,7 +606,9 @@ class BaseApp(metaclass=Singleton):
         self._user_runtime_dir: Path | None = None
         self._user_data_hostname_dir: Path | None = None
         self._user_cache_hostname_dir: Path | None = None
-        self._demo_data_cache_dir: Path | None = None
+
+        self._data_cache_dir: Path | None = None
+        self._program_cache_dir: Path | None = None
 
     @property
     def ElementActionRun(self) -> type[ElementActionRun]:
@@ -1792,7 +1798,6 @@ class BaseApp(metaclass=Singleton):
                 "task_schemas",
                 "scripts",
                 "jinja_templates",
-                "programs",
             )
 
         self.logger.debug(f"Loading template components: {include!r}.")
@@ -1851,11 +1856,6 @@ class BaseApp(metaclass=Singleton):
             jinja_templates = self._load_jinja_templates()
             self._template_components["jinja_templates"] = jinja_templates
             self._jinja_templates = jinja_templates
-
-        if "programs" in include:
-            programs = self._load_programs()
-            self._template_components["programs"] = programs
-            self._programs = programs
 
         self.logger.info(f"Template components loaded ({include!r}).")
 
@@ -2102,11 +2102,18 @@ class BaseApp(metaclass=Singleton):
         return self._user_runtime_dir
 
     @property
-    def demo_data_cache_dir(self) -> Path:
-        """A directory for example data caching."""
-        if self._demo_data_cache_dir is None:
-            self._demo_data_cache_dir = self.user_cache_dir.joinpath("demo_data")
-        return self._demo_data_cache_dir
+    def data_cache_dir(self) -> Path:
+        """A directory for demonstration data caching."""
+        if self._data_cache_dir is None:
+            self._data_cache_dir = self.user_cache_dir.joinpath("data")
+        return self._data_cache_dir
+
+    @property
+    def program_cache_dir(self) -> Path:
+        """A directory for built-in program caching."""
+        if self._program_cache_dir is None:
+            self._program_cache_dir = self.user_cache_dir.joinpath("programs")
+        return self._program_cache_dir
 
     @property
     def user_data_hostname_dir(self) -> Path:
@@ -2163,14 +2170,24 @@ class BaseApp(metaclass=Singleton):
             self.logger.info(f"Created user cache directory: {self.user_cache_dir!r}.")
         return self.user_cache_dir
 
-    def _ensure_demo_data_cache_dir(self) -> Path:
-        """Ensure a cache directory for example data files exists."""
-        if not self.demo_data_cache_dir.exists():
-            self.demo_data_cache_dir.mkdir(parents=True)
+    def _ensure_data_cache_dir(self) -> Path:
+        """Ensure a cache directory for demonstration data files exists."""
+        if not self.data_cache_dir.exists():
+            self.data_cache_dir.mkdir(parents=True)
             self.logger.info(
-                f"Created example data cache directory: " f"{self.demo_data_cache_dir!r}."
+                f"Created demonstration data cache directory: {self.data_cache_dir!r}."
             )
-        return self.demo_data_cache_dir
+        return self.data_cache_dir
+
+    def _ensure_program_cache_dir(self) -> Path:
+        """Ensure a cache directory for built-in programs exists."""
+        if not self.program_cache_dir.exists():
+            self.program_cache_dir.mkdir(parents=True)
+            self.logger.info(
+                f"Created built-in program cache directory: "
+                f"{self.program_cache_dir!r}."
+            )
+        return self.program_cache_dir
 
     def _ensure_user_data_hostname_dir(self) -> Path:
         """
@@ -2206,11 +2223,17 @@ class BaseApp(metaclass=Singleton):
             shutil.rmtree(self.user_cache_dir)
             self._ensure_user_cache_dir()
 
-    def clear_demo_data_cache_dir(self) -> None:
-        """Delete the contents of the example data files cache directory."""
-        if self.demo_data_cache_dir.exists():
-            shutil.rmtree(self.demo_data_cache_dir)
-            self._ensure_demo_data_cache_dir()
+    def clear_data_cache_dir(self) -> None:
+        """Delete the contents of the demonstration data files cache directory."""
+        if self.data_cache_dir.exists():
+            shutil.rmtree(self.data_cache_dir)
+            self._ensure_data_cache_dir()
+
+    def clear_program_cache_dir(self) -> None:
+        """Delete the contents of the built-in program cache directory."""
+        if self.program_cache_dir.exists():
+            shutil.rmtree(self.program_cache_dir)
+            self._ensure_program_cache_dir()
 
     def clear_user_cache_hostname_dir(self) -> None:
         """Delete the contents of the hostname-scoped cache directory."""
@@ -2373,13 +2396,6 @@ class BaseApp(metaclass=Singleton):
         Discover where the built-in Jinja templates are.
         """
         return self.__load_builtin_files_from_nested_package(self.jinja_templates_dir)
-
-    @TimeIt.decorator
-    def _load_programs(self) -> dict[str, Path]:
-        """
-        Discover where the built-in programs are.
-        """
-        return self.__load_builtin_files_from_nested_package(self.programs_dir)
 
     def _get_demo_workflows(self) -> dict[str, Path]:
         """Get all builtin demo workflow template file paths."""
@@ -4038,137 +4054,230 @@ class BaseApp(metaclass=Singleton):
             self.config.append("environment_sources", str(env_source))
             self.config.save()
 
-    def get_demo_data_files_manifest(self) -> dict[str, Any]:
+    def get_data_manifest(
+        self, data_type: Literal["data", "program"]
+    ) -> dict[str, dict[str, str]]:
         """
-        Get a dict whose keys are example data file names and whose values are the
-        source files if the source file required unzipping or `None` otherwise.
+        Get a dict whose keys are example data file or program names and whose values are
+        the source files if the source file required unzipping or `None` otherwise.
 
-        If the config item `demo_data_manifest_file` is set, this is used as the manifest
-        file path. Otherwise, the app attribute `demo_data_manifest_dir` is used, and is
-        expected to be the package/directory in the source code within which a file
-        `demo_data_manifest.json` is expected.
+        If the config items `data_manifest_file`/`program_manifest_file` is set, this is
+        used as the manifest file path. Otherwise, the app attribute `data_manifest_dir`
+        is used, and is expected to be a (fsspec-compatible) URL to a directory that
+        contains `data.json` and `programs.json` manifest files.
 
         """
-        if self.config.demo_data_manifest_file:
+        CONFIG_LOOKUP = {
+            "data": "data_manifest_file",
+            "program": "program_manifest_file",
+        }
+        try:
+            config_key = CONFIG_LOOKUP[data_type]
+        except KeyError:
+            raise ValueError(
+                f"`data_type` must be 'data' or 'program', but received {data_type}."
+            )
+
+        if config_attr := self.config.get(config_key):
             self.logger.debug(
-                f"loading example data files manifest from the config item "
-                f"`demo_data_manifest_file`: "
-                f"{self.config.demo_data_manifest_file!r}."
+                f"loading {data_type} files manifest from the config item `{config_key}` "
+                f"with value: {config_attr!r}."
             )
             fs, url_path = rate_limit_safe_url_to_fs(
-                self,
-                str(self.config.demo_data_manifest_file),
-                logger=self.logger,
+                self, str(config_attr), logger=self.logger
             )
             with fs.open(url_path) as fh:
                 return json.load(fh)
         else:
             self.logger.debug(
-                f"loading example data files manifest from the app attribute "
-                f"`demo_data_manifest_dir`: "
-                f"{self.demo_data_manifest_dir!r}."
+                f"loading {data_type} files manifest from the directory defined by the app "
+                f"attribute `data_manifest_dir` with value: {self.data_manifest_dir!r}."
             )
-            if (package := self.demo_data_manifest_dir) is None:
-                self.logger.warning("no demo data dir defined")
-                return {}
-            with open_text_resource(package, "demo_data_manifest.json") as fh:
-                return json.load(fh)
+        if (package := self.data_manifest_dir) is None:
+            self.logger.warning("`data_manifest_dir` is not defined.")
+            return {}
 
-    def list_demo_data_files(self) -> tuple[str, ...]:
-        """List available example data files."""
-        return tuple(self.get_demo_data_files_manifest())
+        MANIFEST_LOOKUP = {
+            "data": "data.json",
+            "program": "programs.json",
+        }
+        with open_text_resource(package, MANIFEST_LOOKUP[data_type]) as fh:
+            return json.load(fh)
 
-    def _get_demo_data_file_source_path(self, file_name: str) -> tuple[Path, bool, bool]:
+    def get_data_files_manifest(self) -> dict[str, dict[str, str]]:
         """
-        Get the full path to an example data file on the local file system, whether
-        the file must be unpacked, and whether the file should be deleted.
+        Get the demonstration data files manifest.
+        """
+        return self.get_data_manifest("data")
 
-        If `config.demo_data_dir` is set, this directory will be used as the example data
-        file source directory. This could be set to a local path or an fsspec URL. This
-        directory is expected to contain `file_name` if `file_name` exists in the
-        manifest. If this points to a remote file system (e.g. GitHub), the file will be
-        copied from the remote file system to a temporary local file, which should then be
-        deleted at a later point.
+    def get_programs_manifest(self) -> dict[str, dict[str, str]]:
+        """
+        Get the built-in programs manifest.
+        """
+        return self.get_data_manifest("program")
 
-        If `config.demo_data_dir` is not set, we use the app attribute
-        `app.demo_data_dir`, which should point to a package resource within the source
-        code tree. It may be that this package resource is not present in the case of
-        using the frozen app, or installing via PyPI. In this case, we then set a default
-        value of `config.demo_data_dir` (without saving to the persistent config file),
-        and then retrieve the example data file path as above. The default value is set to
-        the GitHub repo of the app using the current tag/version.
+    def cache_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+        exist_ok: bool = True,
+    ) -> Path:
+        """
+        Cache and retrieve the path to a data file (demo data or built-in program),
+        according to the config or app attributes `data_dir` or `program_dir` (which
+        are fsspec-compatible URLs), and a file key that represents the relative path of
+        the file within the respective data directory.
+
+        For remote file systems, this will involve downloading the file to a
+        temporary directory. For files that live within a zip file, as specified in the
+        manifest, this method will first unzip the files before moving to the cache
+        directory.
         """
 
-        def _retrieve_source_path_from_config(src_fn: str):
-            fs, url_path = rate_limit_safe_url_to_fs(
-                self,
-                self.config.demo_data_dir,
-                logger=self.logger,
+        manifest = manifest or self.get_data_manifest(data_type)
+        if file_key not in manifest:
+            raise ValueError(f"No such {data_type} file {file_key!r}.")
+
+        spec: dict[str, str] = manifest[file_key]
+        requires_unpack = bool(in_zip := spec.get("in_zip"))
+        src_fn = in_zip or file_key
+
+        DIR_ATTR_LOOKUP = {
+            "data": "data_dir",
+            "program": "program_dir",
+        }
+        ENSURE_LOOKUP = {
+            "data": self._ensure_data_cache_dir,
+            "program": self._ensure_program_cache_dir,
+        }
+
+        try:
+            dir_key = DIR_ATTR_LOOKUP[data_type]
+        except KeyError:
+            raise ValueError(
+                f"`data_type` must be 'data' or 'program', but received {data_type}."
             )
-            if isinstance(fs, LocalFileSystem):
-                out = url_path
-                delete = False
-            else:
-                # download to a temporary directory:
-                self._ensure_user_runtime_dir()
-                temp_path = self.user_runtime_dir.joinpath(src_fn)
-                self.logger.debug(
-                    f"downloading example data file source {src_fn!r} from remote file "
-                    f"system {fs!r} at remote path {url_path!r} to a temporary "
-                    f"directory file {temp_path!r}."
+
+        # first try the config; if not set use the app defined attribute:
+        msg_attr = "config"
+        if not (url := self.config.get(dir_key)):
+            url = getattr(self, dir_key)
+            msg_attr = "app"
+
+        self.logger.debug(
+            f"using {msg_attr} attribute {dir_key!r} with value {url!r} to locate file "
+            f"to cache."
+        )
+
+        cache_file_path = ENSURE_LOOKUP[data_type]().joinpath(file_key)
+        cache_file_path.parent.mkdir(parents=True, exist_ok=True)
+        if cache_file_path.exists():
+            if not exist_ok:
+                raise ValueError(
+                    f"Cache already exists for {data_type} file key: {file_key!r}"
                 )
-                if temp_path.is_file():
-                    # overwrite if it already exists:
-                    temp_path.unlink()
-                fs.get(rpath=f"{url_path}/{src_fn}", lpath=str(temp_path))
-                delete = True
-                out = temp_path
-            return out, delete
+            self.logger.debug(f"Cache of {file_key!r} already exists.")
+            return cache_file_path
 
-        manifest = self.get_demo_data_files_manifest()
-        if file_name not in manifest:
-            raise ValueError(f"No such example data file {file_name!r}.")
+        fs, url_path = rate_limit_safe_url_to_fs(self, url, logger=self.logger)
 
-        spec: dict[str, str] = manifest[file_name]
-        requires_unpack = bool(spec)
-        src_fn = spec["in_zip"] if requires_unpack else file_name
-
-        if self.config.demo_data_dir:
-            self.logger.info(
-                f"using config item `demo_data_dir` as example data file source "
-                f"directory: {self.config.demo_data_dir!r}."
+        if isinstance(fs, LocalFileSystem):
+            src_path = url_path
+            delete = False
+        else:
+            # download to a temporary directory:
+            self._ensure_user_runtime_dir()
+            temp_path = self.user_runtime_dir.joinpath(src_fn)
+            self.logger.debug(
+                f"downloading {data_type} file source {src_fn!r} from remote file "
+                f"system {fs!r} at remote path {url_path!r} to a temporary "
+                f"directory file {temp_path!r}."
             )
-            # use this directory (could be local or remote)
-            out, delete = _retrieve_source_path_from_config(src_fn)
+            if temp_path.is_file():
+                # overwrite if it already exists:
+                temp_path.unlink()
 
+            local_path = str(temp_path)
+            remote_path = f"{url_path}/{src_fn}"
+            fs.get(rpath=remote_path, lpath=local_path)
+            delete = True
+            src_path = temp_path
+
+        if requires_unpack:
+            self.logger.debug(f"unzipping {data_type} file path {src_path!r}")
+            with TemporaryDirectory() as zip_temp_dir:
+                with zipfile.ZipFile(src_path, "r") as zip_ref:
+                    zip_ref.extractall(zip_temp_dir)
+                extracted = Path(zip_temp_dir).joinpath(file_key)
+                self.logger.debug(
+                    f"copying unzipped {data_type} file path {extracted!r} to cache "
+                    f"location: {cache_file_path!r}."
+                )
+                if extracted.is_dir():
+                    shutil.copytree(extracted, cache_file_path)
+                else:
+                    shutil.copy(extracted, cache_file_path)
+        else:
+            # copy to cache dir:
+            self.logger.debug(
+                f"copying {data_type} file path {src_path!r} to cache location: "
+                f"{cache_file_path!r}."
+            )
+            shutil.copy(src_path, cache_file_path)
+
+        if delete:
+            self.logger.debug(f"deleting file {file_key!r} source file {src_path!r}.")
+            src_path.unlink()
+
+        if data_type == "program" and os.name == "posix":
+            # set executable bit
+            cache_file_path.chmod(cache_file_path.stat().st_mode | stat.S_IEXEC)
+
+        return cache_file_path
+
+    def get_data_file_path(
+        self, data_type: Literal["data", "program"], file_key: str
+    ) -> Path:
+        """
+        Retrieve the local path to a cached data or builtin program file.
+        """
+        manifest = self.get_data_manifest(data_type)
+        if file_key not in manifest:
+            raise ValueError(f"No such {data_type} file {file_key!r}.")
+
+        CACHE_LOOKUP = {
+            "data": self.data_cache_dir,
+            "program": self.program_cache_dir,
+        }
+        try:
+            cache_dir = CACHE_LOOKUP[data_type]
+        except KeyError:
+            raise ValueError(
+                f"`data_type` must be 'data' or 'program', but received {data_type}."
+            )
+        cache_file_path = cache_dir.joinpath(file_key)
+        if cache_file_path.exists():
+            self.logger.info(
+                f"{data_type} file {file_key!r} is already in the cache: "
+                f"{cache_file_path!r}."
+            )
         else:
             self.logger.info(
-                f"trying to use app attribute `demo_data_dir` as example data file "
-                f"source directory: {self.demo_data_dir!r}."
+                f"{data_type} file {file_key!r} is not in the cache, so copying to the "
+                f"cache: {cache_file_path!r}."
             )
-            # `config.demo_data_dir` not set, so try to use `app.demo_data_dir`:
+            assert self.cache_file(data_type, file_key, manifest) == cache_file_path
 
-            if package := self.demo_data_dir:
-                try:
-                    with get_file_context(package, src_fn) as path:
-                        out = path
-                        delete = False
-                except (ModuleNotFoundError, FileNotFoundError):
-                    # example data not included (e.g. frozen, or installed via
-                    # PyPI/conda), so set a default value for `config.demo_data_dir`
-                    # (point to the package GitHub repo for the current tag):
-                    path_ = package.replace(".", "/")
-                    url = self._get_github_url(sha=f"v{self.version}", path=path_)
-                    self.logger.info(
-                        f"path {path_!r} does not exist as a package resource (example data "
-                        f"was probably not included in the app), so non-persistently setting "
-                        f"the config item `demo_data_dir` to the app's GitHub repo path: "
-                        f"{url!r}."
-                    )
-                    self.config.demo_data_dir = url
-                    out, delete = _retrieve_source_path_from_config(src_fn)
+        return cache_file_path
 
-        return out, requires_unpack, delete
+    def list_data_files(self) -> tuple[str, ...]:
+        """List available demonstration data files."""
+        return tuple(self.get_data_manifest("data"))
+
+    def list_programs(self) -> tuple[str, ...]:
+        """List available built-in program files."""
+        return tuple(self.get_data_manifest("program"))
 
     def get_demo_data_file_path(self, file_name: str) -> Path:
         """
@@ -4176,81 +4285,166 @@ class BaseApp(metaclass=Singleton):
 
         If the file does not already exist in the app cache directory, it will be added
         (and unzipped if required). The file may first be downloaded from a remote file
-        system such as GitHub (see `_get_demo_data_file_source_path` for details).
+        system such as GitHub (see `get_data_file_path` for details).
         """
-        # check if file exists in cache dir already
-        cache_file_path = self.demo_data_cache_dir.joinpath(file_name)
-        if cache_file_path.exists():
-            self.logger.info(
-                f"example data file {file_name!r} is already in the cache: "
-                f"{cache_file_path!r}."
-            )
-        else:
-            self.logger.info(
-                f"example data file {file_name!r} is not in the cache, so copying to the "
-                f"cache: {cache_file_path!r}."
-            )
-            self._ensure_demo_data_cache_dir()
-            src, unpack, delete = self._get_demo_data_file_source_path(file_name)
-            if unpack:
-                # extract file to cache dir:
-                self.logger.debug(
-                    f"extracting example data file {file_name!r} source file {src!r}."
-                )
-                with TemporaryDirectory() as temp_dir:
-                    with zipfile.ZipFile(src, "r") as zip_ref:
-                        zip_ref.extractall(temp_dir)
-                    extracted = Path(temp_dir).joinpath(file_name)
-                    if extracted.is_dir():
-                        shutil.copytree(extracted, cache_file_path)
-                    else:
-                        shutil.copy(extracted, cache_file_path)
-            else:
-                # copy to cache dir:
-                shutil.copy(src, cache_file_path)
-            if delete:
-                # e.g. `src` is in a temporary directory because it was downloaded from
-                # GitHub:
-                self.logger.debug(
-                    f"deleting example data file {file_name!r} source file {src!r}."
-                )
-                src.unlink()
-        return cache_file_path
+        return self.get_data_file_path("data", file_key=file_name)
 
-    def cache_demo_data_file(self, file_name: str) -> Path:
+    def get_program_path(self, file_name: str) -> Path:
         """
-        Get the name of a cached demo data file.
-        """
-        return self.get_demo_data_file_path(file_name)
+        Get the full path to a built-in program in the app cache directory.
 
-    def cache_all_demo_data_files(self) -> list[Path]:
+        If the file does not already exist in the app cache directory, it will be added
+        (and unzipped if required). The file may first be downloaded from a remote file
+        system such as GitHub (see `get_data_file_path` for details).
         """
-        Get the name of all cached demo data file.
+        return self.get_data_file_path("program", file_key=file_name)
+
+    def cache_data_file(self, file_key: str, exist_ok: bool = True) -> Path:
         """
+        Cache a data file and return its cached path.
+        """
+        return self.cache_file("data", file_key, exist_ok=exist_ok)
+
+    def cache_program(self, file_key: str, exist_ok: bool = True) -> Path:
+        """
+        Cache a built-in program and return its cached path.
+        """
+        return self.cache_file("program", file_key, exist_ok=exist_ok)
+
+    def cache_all_data_files(self, exist_ok: bool = True) -> list[Path]:
+        """
+        Cache all data files, and return their paths.
+        """
+        manifest = self.get_data_manifest("data")
         return [
-            self.get_demo_data_file_path(filename)
-            for filename in self.list_demo_data_files()
+            self.cache_file("data", key, manifest=manifest, exist_ok=exist_ok)
+            for key in self.list_data_files()
         ]
 
-    def copy_demo_data(
-        self, file_name: str, dst: PathLike | None = None, doc: bool = True
-    ) -> str:
+    def cache_all_programs(self, exist_ok: bool = True) -> list[Path]:
         """
-        Copy a builtin demo data file to the specified location.
+        Cache all built-in programs, and return their paths.
+        """
+        manifest = self.get_data_manifest("program")
+        return [
+            self.cache_file("program", key, manifest=manifest, exist_ok=exist_ok)
+            for key in self.list_programs()
+        ]
+
+    def copy_cacheable_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        dst: PathLike | None = None,
+    ) -> Path:
+        """
+        Copy a builtin demo data or program file to the specified location, or the current
+        directory.
 
         Parameters
         ----------
-        file_name
-            The name of the demo data file to copy
+        data_type
+            Type of the data: "data" or "program".
+        file_key
+            The file key to copy.
         dst
-            Directory or full file path to copy the demo data file to. If not specified,
-            the current working directory will be used.
+            File path to copy the file to, or, if an existing directory, the parent
+            directory to copy the source file or directory to. If not specified, the
+            current working directory will be used. Note that if the source is a
+            directory, this must be specified as the parent directory to copy into.
+
+        Returns
+        -------
+        new_path
+            The new path created at or in the destination.
+
+        Raises
+        ------
+        FileExistsError
+            If the source is a directory, and the destination directory already contains a
+            directory of the same name, FileExistsError will be raised. However, if the
+            source is a file, and the destination directory already contains a file of the
+            same name, it will be over-written.
+
         """
         dst = dst or Path(".")
-        src = self.get_demo_data_file_path(file_name)
-        shutil.copy2(src, dst)  # copies metadata, and `dst` can be a dir
+        dst = Path(dst).resolve()
+        src = self.get_data_file_path(data_type, file_key)
 
-        return src.name
+        if src.is_file():
+            new_path = dst.joinpath(src.name) if dst.is_dir() else dst
+            shutil.copy2(src, new_path)
+
+        elif src.is_dir():
+            if not dst.is_dir():
+                raise ValueError(
+                    "Destination must exist as a directory, if the source is a directory."
+                )
+            new_path = dst.joinpath(src.name)
+            shutil.copytree(src, new_path)  # uses copy2 by default
+
+        return new_path
+
+    def copy_data_file(self, file_key: str, dst: PathLike | None = None) -> Path:
+        """
+        Copy a demonstration data file to the specified location, or the current
+        directory.
+
+        Parameters
+        ----------
+        file_key
+            The file key to copy.
+        dst
+            File path to copy the file to, or, if an existing directory, the parent
+            directory to copy the source file or directory to. If not specified, the
+            current working directory will be used. Note that if the source is a
+            directory, this must be specified as the parent directory to copy into.
+
+        Returns
+        -------
+        new_path
+            The new path created at or in the destination.
+
+        Raises
+        ------
+        FileExistsError
+            If the source is a directory, and the destination directory already contains a
+            directory of the same name, FileExistsError will be raised. However, if the
+            source is a file, and the destination directory already contains a file of the
+            same name, it will be over-written.
+
+        """
+        return self.copy_cacheable_file("data", file_key, dst)
+
+    def copy_program(self, file_key: str, dst: PathLike | None = None) -> Path:
+        """
+        Copy a built-in program to the specified location, or the current directory.
+
+        Parameters
+        ----------
+        file_key
+            The file key to copy.
+        dst
+            File path to copy the file to, or, if an existing directory, the parent
+            directory to copy the source file or directory to. If not specified, the
+            current working directory will be used. Note that if the source is a
+            directory, this must be specified as the parent directory to copy into.
+
+        Returns
+        -------
+        new_path
+            The new path created at or in the destination.
+
+        Raises
+        ------
+        FileExistsError
+            If the source is a directory, and the destination directory already contains a
+            directory of the same name, FileExistsError will be raised. However, if the
+            source is a file, and the destination directory already contains a file of the
+            same name, it will be over-written.
+
+        """
+        return self.copy_cacheable_file("program", file_key, dst)
 
     def _get_github_url(self, sha: str, path: str):
         """

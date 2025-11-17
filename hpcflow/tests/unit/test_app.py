@@ -93,22 +93,25 @@ def test_shared_data_from_json_like_with_shared_data_dependency(act_1: Action):
     ] == hf.TaskSchemasList([ts1])
 
 
-def test_get_demo_data_manifest(null_config) -> None:
-    hf.get_demo_data_files_manifest()
+def test_get_data_manifest(null_config) -> None:
+    assert hf.get_data_manifest("data")
 
 
-@pytest.mark.xfail(
+def test_get_program_manifest(null_config) -> None:
+    assert hf.get_data_manifest("program")
+
+
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."
     ),
 )
 def test_get_demo_data_cache(null_config) -> None:
-    hf.clear_demo_data_cache_dir()
-    hf.cache_demo_data_file("text_file.txt")
-    with hf.demo_data_cache_dir.joinpath("text_file.txt").open("rt") as fh:
+    hf.clear_data_cache_dir()
+    hf.cache_data_file("text_file.txt")
+    with hf.data_cache_dir.joinpath("text_file.txt").open("rt") as fh:
         contents = fh.read()
     assert contents == "\n".join(f"{i}" for i in range(1, 11)) + "\n"
 

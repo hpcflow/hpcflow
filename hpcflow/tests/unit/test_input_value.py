@@ -164,9 +164,8 @@ def test_value_is_dict_check_no_raise_if_sub_parameter(null_config):
     hf.InputValue("p1c", path="a", value=101)
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."
@@ -175,7 +174,7 @@ def test_value_is_dict_check_no_raise_if_sub_parameter(null_config):
 def test_demo_data_value(null_config) -> None:
     name = "text_file.txt"
     assert hf.InputValue("p1", value=f"<<demo_data_file:{name}>>").value == str(
-        hf.demo_data_cache_dir.joinpath(name)
+        hf.data_cache_dir.joinpath(name)
     )
 
 

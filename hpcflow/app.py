@@ -35,9 +35,9 @@ app: sdk_app.BaseApp = sdk_app.BaseApp(
     template_components=template_components,
     scripts_dir="data.scripts",  # relative to root package
     jinja_templates_dir="data.jinja_templates",  # relative to root package
-    programs_dir="data.programs",  # relative to root package
     workflows_dir="data.workflows",  # relative to root package
-    demo_data_dir="hpcflow.data.demo_data",
-    demo_data_manifest_dir="hpcflow.data.demo_data_manifest",
+    data_manifest_dir="hpcflow.data.data_manifests",
+    data_dir="github://hpcflow:hpcflow-data@main/data",
+    program_dir="github://hpcflow:hpcflow-data@main/programs",
     docs_url="https://hpcflow.github.io/docs/stable",
 )  #: |app|

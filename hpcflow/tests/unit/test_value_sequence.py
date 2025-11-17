@@ -414,9 +414,8 @@ def test_nesting_order_three_seqs_all_decimal(null_config, tmp_path: Path):
     assert wk.tasks.test.elements[5].get("inputs") == {"p1": "b", "p2": "e", "p3": "k"}
 
 
-@pytest.mark.xfail(
+@pytest.mark.skipif(
     condition=sys.platform == "darwin",
-    raises=requests.exceptions.HTTPError,
     reason=(
         "GHA MacOS runners use the same IP address, so we get rate limited when "
         "retrieving demo data from GitHub."
@@ -426,7 +425,7 @@ def test_demo_data_values(null_config):
     name = "text_file.txt"
     assert hf.ValueSequence(
         path="inputs.p1", values=[f"<<demo_data_file:{name}>>"]
-    ).values[0] == str(hf.demo_data_cache_dir.joinpath(name))
+    ).values[0] == str(hf.data_cache_dir.joinpath(name))
 
 
 def test_from_linear_space(null_config):
