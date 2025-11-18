@@ -4232,6 +4232,9 @@ class BaseApp(metaclass=Singleton):
             # download to a temporary directory:
             self._ensure_user_runtime_dir()
             temp_path = self.user_runtime_dir.joinpath(src_fn)
+            if add_exec := data_type == "program" and not zip_path:
+                temp_path = temp_path.joinpath(spec["executable"])
+
             self.logger.debug(
                 f"downloading {data_type} file source {src_fn!r} from remote file "
                 f"system {fs!r} at remote path {url_path!r} to a temporary "
@@ -4243,9 +4246,15 @@ class BaseApp(metaclass=Singleton):
 
             local_path = str(temp_path)
             remote_path = f"{url_path}/{src_fn}"
+            if add_exec:
+                remote_path += f"/{spec['executable']}"
+
             fs.get(rpath=remote_path, lpath=local_path)
+
             delete = True
             src_path = temp_path
+            if add_exec:
+                src_path = src_path.parent
 
         if req_unpack:
             self.logger.debug(f"unzipping {data_type} file path {src_path!r}")
