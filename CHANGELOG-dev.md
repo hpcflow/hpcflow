@@ -1,4 +1,24 @@
 
+<a name="v0.2.0a275"></a>
+## [v0.2.0a275](https://github.com/hpcflow/hpcflow/compare/v0.2.0a274...v0.2.0a275) - 2025.11.18
+
+### ✨ Features
+
+* more refined spec of cacheable data/programs, missing
+* more refined spec of cacheable data/programs
+
+### 🐛 Bug Fixes
+
+* cache_file for remote non-zip program
+* program integration tests
+* test and typecheck
+* verify directories exist in `set_callback_paths`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a274"></a>
 ## [v0.2.0a274](https://github.com/hpcflow/hpcflow/compare/v0.2.0a273...v0.2.0a274) - 2025.11.17
 
