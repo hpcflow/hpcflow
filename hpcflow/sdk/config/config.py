@@ -41,9 +41,9 @@ from hpcflow.sdk.config.callbacks import (
     callback_update_log_console_level,
     callback_unset_log_console_level,
     callback_vars,
-    callback_file_paths,
+    callback_paths,
     exists_in_schedulers,
-    set_callback_file_paths,
+    set_callback_paths,
     check_load_data_files,
     set_scheduler_invocation_match,
     callback_update_log_file_path,
@@ -263,10 +263,10 @@ class Config:
 
         # Callbacks are run on get:
         self._get_callbacks: dict[str, tuple[GetterCallback, ...]] = {
-            "task_schema_sources": (callback_file_paths,),
-            "environment_sources": (callback_file_paths,),
-            "parameter_sources": (callback_file_paths,),
-            "command_file_sources": (callback_file_paths,),
+            "task_schema_sources": (callback_paths,),
+            "environment_sources": (callback_paths,),
+            "parameter_sources": (callback_paths,),
+            "command_file_sources": (callback_paths,),
             "log_file_path": (callback_vars, callback_log_file_path),
             "telemetry": (callback_bool,),
             "schedulers": (callback_lowercase, callback_supported_schedulers),
@@ -274,23 +274,23 @@ class Config:
             "default_scheduler": (callback_lowercase, exists_in_schedulers),
             "default_shell": (callback_lowercase, callback_supported_shells),
             "demo_data_manifest_file": (
-                callback_file_paths,
+                callback_paths,
                 callback_deprecation_demo_data_manifest_file,
             ),
-            "demo_data_dir": (callback_file_paths, callback_deprecation_demo_data_dir),
-            "data_dir": (callback_file_paths,),
-            "program_dir": (callback_file_paths,),
-            "data_manifest_file": (callback_file_paths,),
-            "program_manifest_file": (callback_file_paths,),
+            "demo_data_dir": (callback_paths, callback_deprecation_demo_data_dir),
+            "data_dir": (callback_paths,),
+            "program_dir": (callback_paths,),
+            "data_manifest_file": (callback_paths,),
+            "program_manifest_file": (callback_paths,),
             **(callbacks or {}),
         }
 
         # Set callbacks are run on set:
         self._set_callbacks: dict[str, tuple[SetterCallback, ...]] = {
-            "task_schema_sources": (set_callback_file_paths, check_load_data_files),
-            "environment_sources": (set_callback_file_paths, check_load_data_files),
-            "parameter_sources": (set_callback_file_paths, check_load_data_files),
-            "command_file_sources": (set_callback_file_paths, check_load_data_files),
+            "task_schema_sources": (set_callback_paths, check_load_data_files),
+            "environment_sources": (set_callback_paths, check_load_data_files),
+            "parameter_sources": (set_callback_paths, check_load_data_files),
+            "command_file_sources": (set_callback_paths, check_load_data_files),
             "default_scheduler": (exists_in_schedulers, set_scheduler_invocation_match),
             "default_shell": (callback_supported_shells,),
             "schedulers": (callback_supported_schedulers, callback_scheduler_set_up),
@@ -299,10 +299,10 @@ class Config:
             "log_console_level": (callback_update_log_console_level,),
             "demo_data_manifest_file": (callback_deprecation_demo_data_manifest_file,),
             "demo_data_dir": (callback_deprecation_demo_data_dir,),
-            "data_dir": (set_callback_file_paths,),
-            "program_dir": (set_callback_file_paths,),
-            "data_manifest_file": (set_callback_file_paths,),
-            "program_manifest_file": (set_callback_file_paths,),
+            "data_dir": (set_callback_paths,),
+            "program_dir": (set_callback_paths,),
+            "data_manifest_file": (set_callback_paths,),
+            "program_manifest_file": (set_callback_paths,),
         }
 
         self._unset_callbacks: dict[str, tuple[UnsetterCallback, ...]] = {
@@ -617,7 +617,7 @@ class Config:
         )
 
     def _resolve_path(self, path: PathLike) -> PathLike:
-        """Resolve a file path, but leave fsspec protocols alone."""
+        """Resolve a file/directory path, but leave fsspec protocols alone."""
         if path is None:
             return None
         if any(str(path).startswith(i + ":") for i in fsspec_protocols):
@@ -628,6 +628,7 @@ class Config:
         real_path = Path(path).expanduser()
         if real_path.is_absolute():
             return real_path
+        # assume relative paths are relative to the config directory:
         return self._meta_data["config_directory"].joinpath(real_path)
 
     def register_config_get_callback(

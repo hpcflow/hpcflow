@@ -1,7 +1,7 @@
 
 [tool.poetry]
 name = "hpcflow"
-version = "0.2.0a274"
+version = "0.2.0a276"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
@@ -102,7 +102,7 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0a274"
+version = "0.2.0a276"
 tag_format = "v$version"
 version_files = [ 
     "pyproject.toml:version",

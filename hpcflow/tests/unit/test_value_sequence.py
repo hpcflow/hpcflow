@@ -422,7 +422,7 @@ def test_nesting_order_three_seqs_all_decimal(null_config, tmp_path: Path):
     ),
 )
 def test_demo_data_values(null_config):
-    name = "text_file.txt"
+    name = "text_file_1.txt"
     assert hf.ValueSequence(
         path="inputs.p1", values=[f"<<demo_data_file:{name}>>"]
     ).values[0] == str(hf.data_cache_dir.joinpath(name))

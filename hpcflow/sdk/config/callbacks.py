@@ -34,16 +34,16 @@ def callback_vars(config: Config, value) -> str:
 
 
 @overload
-def callback_file_paths(config: Config, file_path: PathLike) -> PathLike: ...
+def callback_paths(config: Config, file_path: PathLike) -> PathLike: ...
 
 
 @overload
-def callback_file_paths(config: Config, file_path: list[PathLike]) -> list[PathLike]: ...
+def callback_paths(config: Config, file_path: list[PathLike]) -> list[PathLike]: ...
 
 
-def callback_file_paths(config: Config, file_path: PathLike | list[PathLike]):
+def callback_paths(config: Config, file_path: PathLike | list[PathLike]):
     """
-    Callback that resolves file paths.
+    Callback that resolves file/directory paths.
     """
     if isinstance(file_path, list):
         return [config._resolve_path(path) for path in file_path]
@@ -179,20 +179,21 @@ def callback_supported_shells(config: Config, shell_name: str) -> str:
     return shell_name
 
 
-def set_callback_file_paths(config: Config, value: PathLike | list[PathLike]) -> None:
+def set_callback_paths(config: Config, value: PathLike | list[PathLike]) -> None:
     """Check the file(s) is/are accessible. This is only done on `config.set` (and not on
     `config.get` or `config._validate`) because it could be expensive in the case of remote
     files."""
-    value = callback_file_paths(config, value)
-
+    value = callback_paths(config, value)
     to_check = value if isinstance(value, list) else [value]
 
     for file_path in to_check:
         if file_path is None:
             continue
-        with fsspec.open(file_path, mode="rt") as fh:
-            pass
-            # TODO: also check something in it?
+        fs, url_path = fsspec.url_to_fs(file_path)
+        if not fs.exists(url_path):
+            raise FileNotFoundError(
+                f"Path does not exist: {url_path!r} on filesystem: {fs!r}."
+            )
         print(f"Checked access to: {file_path}")
 
 
