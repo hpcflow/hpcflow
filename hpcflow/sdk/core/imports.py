@@ -68,8 +68,11 @@ class ImportParameter(JSONLike):
         self.as_ = as_
         self.original_source = source
 
-        self.__import = None  # the parent `Import` object, assigned in `Import.__init__`
-        self.source = None  # assigned when `__import` is set
+        # the parent `Import` object, assigned in `Import.__init__`:
+        self.__import: Import | None = None
+
+        # assigned when `__import` is set:
+        self.source: InputSource | None = None
 
     def _ensure_source(self, source: InputSource | str | None) -> InputSource:
         """
@@ -131,7 +134,7 @@ class ImportParameter(JSONLike):
         )
 
     @property
-    def import_(self) -> Import:
+    def import_(self) -> Import | None:
         return self.__import
 
     @import_.setter
@@ -170,7 +173,9 @@ class Import(JSONLike):
         self.workflow = (
             workflow
             if isinstance(workflow, self._app.Workflow)
-            else self._app.Workflow(self._app._resolve_workflow_reference(workflow, None))
+            else self._app.Workflow(
+                self._app._resolve_workflow_reference(str(workflow), None)
+            )
         )
         self.parameters = parameters or [
             self._app.ImportParameter(self._app.Parameter(self.label))
