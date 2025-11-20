@@ -1,3 +1,4 @@
+import pytest
 import hpcflow.app as hf
 from hpcflow.sdk.core.parameters import NullDefault
 from hpcflow.sdk.core.test_utils import make_schemas
@@ -148,3 +149,34 @@ def test_import_source_selected_explicit(null_config, tmp_path):
     assert wfB.tasks[0].template.element_sets[0].input_sources["p2"] == [
         hf.InputSource.import_(import_ref=0)
     ]
+
+
+@pytest.mark.integration
+def test_import_simple(null_config, tmp_path):
+
+    s1, s2 = make_schemas(
+        ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
+        ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
+    )
+
+    wfA = hf.Workflow.from_template_data(
+        template_name="test_import_A",
+        tasks=[hf.Task(schema=s1, inputs={"p1": 100})],
+        path=tmp_path,
+    )
+    wfA.submit(wait=True, status=False)
+
+    p2_wfA_val = wfA.tasks[0].elements[0].get("outputs.p2")
+
+    wfB = hf.Workflow.from_template_data(
+        template_name="test_import_B",
+        imports=[hf.Import("p2", wfA)],
+        tasks=[hf.Task(schema=s2)],
+        path=tmp_path,
+    )
+    assert wfB.tasks[0].elements[0].input_sources["inputs.p2"] == hf.InputSource.import_(
+        import_ref=0
+    )
+    p2_wfB_val = wfB.tasks[0].elements[0].get("inputs.p2")
+
+    assert p2_wfB_val == p2_wfA_val

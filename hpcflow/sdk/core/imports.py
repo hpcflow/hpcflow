@@ -5,14 +5,16 @@ Importing parameter data from other workflows.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast, Literal
 
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import InputSource, Parameter
+from hpcflow.sdk.core.enums import InputSourceType
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.core.input_sources import (
     get_available_task_sources,
     validate_specified_source,
+    get_task_source_element_iters,
 )
 from typing_extensions import override, Self
 
@@ -222,3 +224,44 @@ class Import(JSONLike):
         out = super()._postprocess_to_dict(d)
         out["workflow"] = self.workflow.path
         return out
+
+    def get_import_parameter_from_type(self, input_type: str) -> ImportParameter:
+        """Return the child import parameter that provides the specified type."""
+        for param_i in self.parameters:
+            if param_i.as_.typ == input_type:
+                return param_i
+        raise ValueError(f"No import parameter provides input type: {input_type!r}.")
+
+    def get_parameters(self, input_type: str) -> list[Any]:
+        """Load parameters from the existing workflow."""
+
+        imp_param = self.get_import_parameter_from_type(input_type)
+        src = imp_param.source
+        assert src
+        if src.source_type is not InputSourceType.TASK:
+            raise NotImplementedError()
+        assert src.task_source_type
+
+        in_out = cast(
+            'Literal["input", "output", "any"]', src.task_source_type.name.lower()
+        )
+        # retrieve data from the input source in the source workflow:
+        src_elem_iters = get_task_source_element_iters(
+            in_or_out=in_out,
+            src_task=self.workflow.tasks.get(insert_ID=src.task_ref).template,
+            labelled_path=input_type,
+            sourceable_elem_iters=src.element_iters,
+        )
+        src_elem_iter_objs = self.workflow.get_element_iterations_from_IDs(src_elem_iters)
+
+        src_key = f"{src.task_source_type.name.lower()}s.{input_type}"
+        data_indices = [
+            elem_iter_i.get_data_idx(src_key)[src_key]
+            for elem_iter_i in src_elem_iter_objs
+        ]
+        parameters = [
+            self.workflow.get_parameter_data(cast("int", dat_idx))
+            for dat_idx in data_indices
+        ]
+
+        return parameters

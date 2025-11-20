@@ -646,7 +646,7 @@ class SchemaInput(SchemaParameter):
                     )
 
     @property
-    def input_or_output(self) -> str:
+    def input_or_output(self) -> Literal["input"]:
         """
         Whether this is an input or output. Always ``input``.
         """
@@ -675,7 +675,7 @@ class SchemaOutput(SchemaParameter):
         self.propagation_mode = propagation_mode
 
     @property
-    def input_or_output(self) -> str:
+    def input_or_output(self) -> Literal["output"]:
         """
         Whether this is an input or output. Always ``output``.
         """

@@ -1428,12 +1428,12 @@ class Task(JSONLike):
             if inp_j.typ in self.undefined_input_types
         ]
 
-    def provides_parameters(self) -> tuple[tuple[str, str], ...]:
+    def provides_parameters(self) -> tuple[tuple[Literal["input", "output"], str], ...]:
         """Get all provided parameter labelled types and whether they are inputs and
         outputs, considering all element sets.
 
         """
-        out: dict[tuple[str, str], None] = {}
+        out: dict[tuple[Literal["input", "output"], str], None] = {}
         for schema in self.schemas:
             out.update(dict.fromkeys(schema.provides_parameters))
 
@@ -1859,6 +1859,23 @@ class WorkflowTask(AppAware):
                     else:
                         input_data_idx[key] = [grp_idx_]
                         source_idx[key] = [inp_src_idx]
+
+                elif inp_src.source_type is InputSourceType.IMPORT:
+                    # retrieve parameter data from other workflow to this workflow
+                    assert (imp_ref := inp_src.import_ref) is not None
+                    import_obj = self.workflow.template.imports[imp_ref]
+                    params = import_obj.get_parameters(labelled_path_i)
+                    p_source: ParamSource = {  # TODO: consider what would be useful here
+                        "type": "import",
+                        "import_ID": imp_ref,
+                    }
+                    # save parameters to this workflow:
+                    imp_grp_idx: list[int | list[int]] = [
+                        self.workflow._add_parameter_data(data=param_i, source=p_source)
+                        for param_i in params
+                    ]
+                    input_data_idx[key] = imp_grp_idx
+                    source_idx[key] = [inp_src_idx] * len(imp_grp_idx)
 
         # sort smallest to largest path, so more-specific items overwrite less-specific
         # items in parameter retrieval in `WorkflowTask._get_merged_parameter_data`:

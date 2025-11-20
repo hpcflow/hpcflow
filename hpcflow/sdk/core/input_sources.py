@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, Literal
 
 from hpcflow.sdk.core.enums import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.errors import NoAvailableElementSetsError
@@ -125,8 +125,8 @@ def __filtered_iters(wk_task: WorkflowTask, where: Rule) -> list[int]:
     return src_elem_iters
 
 
-def __get_task_source_element_iters(
-    in_or_out: str,
+def get_task_source_element_iters(
+    in_or_out: Literal["input", "output", "any"],
     src_task: Task,
     labelled_path: str,
     sourceable_elem_iters: list[int] | None,
@@ -229,7 +229,7 @@ def get_available_task_sources(
 
             if not src_elem_iters:
                 try:
-                    src_elem_iters = __get_task_source_element_iters(
+                    src_elem_iters = get_task_source_element_iters(
                         in_or_out=in_or_out,
                         src_task=src_task_i,
                         labelled_path=labelled_path,

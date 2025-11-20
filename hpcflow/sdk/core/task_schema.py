@@ -8,7 +8,7 @@ import copy
 from dataclasses import dataclass
 from importlib import import_module
 from itertools import chain
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from html import escape
 
 from rich import print as rich_print
@@ -853,7 +853,7 @@ class TaskSchema(JSONLike):
         return [out.typ for out in self.outputs]
 
     @property
-    def provides_parameters(self) -> Iterator[tuple[str, str]]:
+    def provides_parameters(self) -> Iterator[tuple[Literal["input", "output"], str]]:
         """
         The parameters that this schema provides.
         """

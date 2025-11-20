@@ -243,7 +243,7 @@ class WorkflowTemplate(JSONLike):
     #: Documentation information.
     doc: list[str] | str | None = field(repr=False, default=None)
     #: A list of Import objects to use in the workflow.
-    imports: list[Import] | None = field(default_factory=list)
+    imports: list[Import] = field(default_factory=list)
     #: A list of Task objects to include in the workflow.
     tasks: list[Task] = field(default_factory=list)
     #: A list of Loop objects to include in the workflow.
