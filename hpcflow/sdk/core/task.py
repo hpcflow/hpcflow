@@ -21,7 +21,6 @@ from hpcflow.sdk.core.enums import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.errors import (
     ContainerKeyError,
     ExtraInputs,
-    InapplicableInputSourceElementIters,
     MalformedNestingOrderPath,
     MayNeedObjectError,
     MissingElementGroup,
@@ -32,12 +31,14 @@ from hpcflow.sdk.core.errors import (
     TaskTemplateMultipleSchemaObjectives,
     TaskTemplateUnexpectedInput,
     TaskTemplateUnexpectedSequenceInput,
-    UnavailableInputSource,
     UnknownEnvironmentPresetError,
     UnrequiredInputSources,
     UnsetParameterDataError,
 )
-from hpcflow.sdk.core.input_sources import get_available_task_sources
+from hpcflow.sdk.core.input_sources import (
+    get_available_task_sources,
+    validate_specified_source,
+)
 from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.utils import (
     get_duplicate_items,
@@ -1902,43 +1903,13 @@ class WorkflowTask(AppAware):
             for s_idx, specified_source in enumerate(
                 element_set.input_sources.get(path_i, [])
             ):
-                self.workflow._resolve_input_source_task_reference(
-                    specified_source, self.unique_name
+                element_set.input_sources[path_i][s_idx] = validate_specified_source(
+                    specified=specified_source,
+                    available=avail_i,
+                    workflow=self.workflow,
+                    input_path=path_i,
+                    task_uq_name=self.unique_name,
                 )
-                avail_idx = specified_source.is_in(avail_i)
-                if avail_idx is None:
-                    raise UnavailableInputSource(specified_source, path_i, avail_i)
-                available_source: InputSource
-                try:
-                    available_source = avail_i[avail_idx]
-                except TypeError:
-                    raise UnavailableInputSource(
-                        specified_source, path_i, avail_i
-                    ) from None
-
-                elem_iters_IDs = available_source.element_iters
-                if specified_source.element_iters:
-                    # user-specified iter IDs; these must be a subset of available
-                    # element_iters:
-                    if not set(specified_source.element_iters).issubset(
-                        elem_iters_IDs or ()
-                    ):
-                        raise InapplicableInputSourceElementIters(
-                            specified_source, elem_iters_IDs
-                        )
-                    elem_iters_IDs = specified_source.element_iters
-
-                if specified_source.where:
-                    # filter iter IDs by user-specified rules, maintaining order:
-                    elem_iters = self.workflow.get_element_iterations_from_IDs(
-                        elem_iters_IDs or ()
-                    )
-                    elem_iters_IDs = [
-                        ei.id_ for ei in specified_source.where.filter(elem_iters)
-                    ]
-
-                available_source.element_iters = elem_iters_IDs
-                element_set.input_sources[path_i][s_idx] = available_source
 
         # sorting ensures that root parameters come before sub-parameters, which is
         # necessary when considering if we want to include a sub-parameter, when setting
@@ -1960,7 +1931,7 @@ class WorkflowTask(AppAware):
 
             source = None
             try:
-                # first element is defined by default to take precedence in
+                # first item is defined by default to take precedence in
                 # `get_available_task_input_sources`:
                 source = inp_i_sources[0]
             except IndexError:

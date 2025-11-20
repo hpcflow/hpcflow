@@ -5,14 +5,19 @@ from typing import TYPE_CHECKING, cast
 from hpcflow.sdk.core.enums import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.errors import NoAvailableElementSetsError
 from hpcflow.sdk.core.utils import get_relative_path, split_param_label
+from hpcflow.sdk.core.errors import (
+    InapplicableInputSourceElementIters,
+    UnavailableInputSource,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from .parameters import InputSource
-    from .task import WorkflowTask, Task, ElementSet
+    from .task import WorkflowTask, Task
     from ..app import BaseApp
     from .element import ElementParameter, _ElementPrefixedParameter as EPP
     from .rule import Rule
+    from .workflow import Workflow
 
 
 def get_task_out_available_src_insert_idx(
@@ -253,3 +258,39 @@ def get_available_task_sources(
                     element_iters=src_elem_iters,
                 ),
             )
+
+
+def validate_specified_source(
+    specified: InputSource,
+    available: Sequence[InputSource],
+    workflow: Workflow,
+    input_path: str,
+    task_uq_name: str = "",
+) -> InputSource:
+    """Check a specified input source is valid, given the list of available sources."""
+
+    workflow._resolve_input_source_task_reference(specified, task_uq_name)
+    avail_idx = specified.is_in(available)
+    if avail_idx is None:
+        raise UnavailableInputSource(specified, input_path, available)
+    valid_src: InputSource
+    try:
+        valid_src = available[avail_idx]
+    except TypeError:
+        raise UnavailableInputSource(specified, input_path, available) from None
+
+    elem_iters_IDs = valid_src.element_iters
+    if specified.element_iters:
+        # user-specified iter IDs; these must be a subset of available
+        # element_iters:
+        if not set(specified.element_iters).issubset(elem_iters_IDs or ()):
+            raise InapplicableInputSourceElementIters(specified, elem_iters_IDs)
+        elem_iters_IDs = specified.element_iters
+
+    if specified.where:
+        # filter iter IDs by user-specified rules, maintaining order:
+        elem_iters = workflow.get_element_iterations_from_IDs(elem_iters_IDs or ())
+        elem_iters_IDs = [ei.id_ for ei in specified.where.filter(elem_iters)]
+
+    valid_src.element_iters = elem_iters_IDs
+    return valid_src
