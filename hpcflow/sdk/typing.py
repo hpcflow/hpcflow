@@ -52,6 +52,8 @@ class ParamSource(TypedDict):
     task_idx: NotRequired[int]
     #: Name of method used to create the parameter's value(s).
     value_class_method: NotRequired[str]
+    #: Import ID/index in the workflow template list
+    import_ID: NotRequired[int]
 
 
 class KnownSubmission(TypedDict):

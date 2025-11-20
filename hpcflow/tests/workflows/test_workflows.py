@@ -559,6 +559,6 @@ def test_get_text_file_file_not_found_zarr_zip(null_config, tmp_path):
     wk = hf.Workflow.from_template_data(
         tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store="zarr"
     )
-    wkz = hf.Workflow(wk.zip())
+    wkz = hf.Workflow(wk.zip(path=tmp_path))
     with pytest.raises(FileNotFoundError):
         wkz.get_text_file("non_existent_file.txt")

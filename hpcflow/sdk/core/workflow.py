@@ -43,12 +43,13 @@ from hpcflow.sdk.config.errors import (
 from hpcflow.sdk.core import (
     ALL_TEMPLATE_FORMATS,
     ABORT_EXIT_CODE,
+    NO_PROGRAM_EXIT_CODE,
     RUN_DIR_ARR_FILL,
     SKIPPED_EXIT_CODE,
     NO_COMMANDS_EXIT_CODE,
 )
 from hpcflow.sdk.core.app_aware import AppAware
-from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.enums import EARStatus, InputSourceType
 from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
@@ -94,7 +95,7 @@ from hpcflow.sdk.core.errors import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
-    from typing import Any, ClassVar, Literal
+    from typing import Any, ClassVar, Literal, DefaultDict
     from typing_extensions import Self, TypeAlias
     from numpy.typing import NDArray
     import psutil
@@ -105,7 +106,8 @@ if TYPE_CHECKING:
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
     from .parameters import InputSource, ResourceSpec
-    from .task import Task, WorkflowTask
+    from .task import Task, WorkflowTask, InputStatus
+    from .imports import Import
     from .types import (
         AbstractFileSystem,
         CreationInfo,
@@ -180,6 +182,8 @@ class WorkflowTemplate(JSONLike):
     name:
         A string name for the workflow. By default this name will be used in combination
         with a date-time stamp when generating a persistent workflow from the template.
+    imports: list[~hpcflow.app.Import]
+        A list of imports objects to be used in the workflow.
     tasks: list[~hpcflow.app.Task]
         A list of Task objects to include in the workflow.
     loops: list[~hpcflow.app.Loop]
@@ -209,6 +213,13 @@ class WorkflowTemplate(JSONLike):
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
+            name="imports",
+            class_name="Import",
+            is_multiple=True,
+            parent_ref="workflow_template",
+            dict_key_attr="label",
+        ),
+        ChildObjectSpec(
             name="tasks",
             class_name="Task",
             is_multiple=True,
@@ -231,6 +242,8 @@ class WorkflowTemplate(JSONLike):
     name: str
     #: Documentation information.
     doc: list[str] | str | None = field(repr=False, default=None)
+    #: A list of Import objects to use in the workflow.
+    imports: list[Import] = field(default_factory=list)
     #: A list of Task objects to include in the workflow.
     tasks: list[Task] = field(default_factory=list)
     #: A list of Loop objects to include in the workflow.
@@ -735,6 +748,34 @@ class WorkflowTemplate(JSONLike):
 
         loop._workflow_template = self
         self.loops.append(loop)
+
+    def get_available_import_sources(
+        self, input_statuses: Mapping[str, InputStatus]
+    ) -> dict[str, list[InputSource]]:
+        """Get all possible importable sources for the inputs provided."""
+        importable_refs: DefaultDict[str, set[int]] = defaultdict(set)
+        if not self.imports:
+            return {}
+
+        for inp_type in input_statuses:
+            for import_idx, import_ in enumerate(self.imports):
+                for i_param in import_.parameters:
+                    if i_param.as_.typ == inp_type:
+                        importable_refs[inp_type].add(import_idx)
+
+        return {
+            inp_type: [self._app.InputSource.import_(imp_ref) for imp_ref in import_refs]
+            for inp_type, import_refs in importable_refs.items()
+        }
+
+    def _resolve_input_source_import_reference(self, source: InputSource):
+        """Normalise the input source import reference to an integer import index."""
+        if source.source_type is InputSourceType.IMPORT and isinstance(
+            source.import_ref, str
+        ):
+            for idx, import_i in enumerate(self.imports):
+                if import_i.label == source.import_ref:
+                    source.import_ref = idx
 
 
 def resolve_fsspec(
@@ -1408,6 +1449,7 @@ class Workflow(AppAware):
     def from_template_data(
         cls,
         template_name: str,
+        imports: list[Import] | None = None,
         tasks: list[Task] | None = None,
         loops: list[Loop] | None = None,
         resources: Resources = None,
@@ -1430,6 +1472,8 @@ class Workflow(AppAware):
         template_name
             The name to use for the new workflow template, from which the new workflow
             will be generated.
+        imports
+            A list of imports objects to be used in the workflow.
         tasks:
             List of Task objects to add to the new workflow.
         loops:
@@ -1477,6 +1521,7 @@ class Workflow(AppAware):
         """
         template = cls._app.WorkflowTemplate(
             template_name,
+            imports=imports or [],
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
@@ -4203,18 +4248,27 @@ class Workflow(AppAware):
                                     ),
                                 }
                             )
-                        if program_path := run.program_path_actual:
-                            program_dir = program_path.parent
-                            program_name = program_path.name
-                            program_name_no_ext = program_path.stem
-                            add_env.update(
-                                {
-                                    f"{app_caps}_RUN_PROGRAM_NAME": program_name,
-                                    f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
-                                    f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
-                                    f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
-                                }
+                        try:
+                            if program_path := run.program_path_actual:
+                                program_dir = program_path.parent
+                                program_name = program_path.name
+                                program_name_no_ext = program_path.stem
+                                add_env.update(
+                                    {
+                                        f"{app_caps}_RUN_PROGRAM_NAME": program_name,
+                                        f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
+                                        f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
+                                        f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
+                                    }
+                                )
+                        except ValueError:
+                            # set run end:
+                            self.set_EAR_end(
+                                block_act_key=block_act_key,
+                                run=run,
+                                exit_code=NO_PROGRAM_EXIT_CODE,
                             )
+                            return
 
                         env = {**dict(os.environ), **add_env}
 
@@ -4432,8 +4486,8 @@ class Workflow(AppAware):
     def _resolve_input_source_task_reference(
         self, input_source: InputSource, new_task_name: str
     ) -> None:
-        """Normalise the input source task reference and convert a source to a local type
-        if required."""
+        """Normalise the input source task reference to an integer task insert ID, and
+        convert a source to a local type, if required."""
 
         # TODO: test thoroughly!
 

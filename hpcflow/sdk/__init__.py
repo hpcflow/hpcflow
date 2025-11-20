@@ -102,6 +102,8 @@ sdk_classes: Final[Mapping[str, str]] = {
     "SGEPosix": "hpcflow.sdk.submission.schedulers.sge",
     "OutputLabel": "hpcflow.sdk.core.task",
     "RunDirAppFiles": "hpcflow.sdk.core.run_dir_files",
+    "Import": "hpcflow.sdk.core.imports",
+    "ImportParameter": "hpcflow.sdk.core.imports",
 }
 
 # these are defined as `BaseApp` methods with an underscore prefix:

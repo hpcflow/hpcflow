@@ -1396,8 +1396,12 @@ def test_inp_src_task_output_precedence(null_config, tmp_path):
 
     task = wk.tasks.t3
     task_template = task.template
+    element_set = task_template.element_sets[0]
+    all_stats = task_template.get_input_statuses(element_set)
     inp_sources = task_template.get_available_task_input_sources(
-        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+        element_set=element_set,
+        input_statuses=all_stats,
+        source_tasks=list(task.upstream_tasks),
     )
     assert inp_sources["p1"] == [
         hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0]),
@@ -1434,8 +1438,12 @@ def test_task_type_sources_output_input_swapped_on_local_inputs_defined(
 
     task = wk.tasks.t3
     task_template = task.template
+    element_set = task_template.element_sets[0]
+    all_stats = task_template.get_input_statuses(element_set)
     inp_sources = task_template.get_available_task_input_sources(
-        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+        element_set=element_set,
+        input_statuses=all_stats,
+        source_tasks=list(task.upstream_tasks),
     )
     assert inp_sources["p2"] == [
         hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0]),
@@ -1469,8 +1477,12 @@ def test_task_type_sources_output_input_not_swapped_on_no_local_inputs_defined(
 
     task = wk.tasks.t3
     task_template = task.template
+    element_set = task_template.element_sets[0]
+    all_stats = task_template.get_input_statuses(element_set)
     inp_sources = task_template.get_available_task_input_sources(
-        element_set=task_template.element_sets[0], source_tasks=list(task.upstream_tasks)
+        element_set=element_set,
+        input_statuses=all_stats,
+        source_tasks=list(task.upstream_tasks),
     )
     assert inp_sources["p2"] == [
         hf.InputSource.task(task_ref=1, task_source_type="input", element_iters=[1]),
