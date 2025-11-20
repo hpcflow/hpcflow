@@ -107,6 +107,7 @@ if TYPE_CHECKING:
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
     from .parameters import InputSource, ResourceSpec
     from .task import Task, WorkflowTask
+    from .imports import Import
     from .types import (
         AbstractFileSystem,
         CreationInfo,
@@ -181,6 +182,8 @@ class WorkflowTemplate(JSONLike):
     name:
         A string name for the workflow. By default this name will be used in combination
         with a date-time stamp when generating a persistent workflow from the template.
+    imports: list[~hpcflow.app.Import]
+        A list of imports objects to be used in the workflow.
     tasks: list[~hpcflow.app.Task]
         A list of Task objects to include in the workflow.
     loops: list[~hpcflow.app.Loop]
@@ -210,6 +213,13 @@ class WorkflowTemplate(JSONLike):
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
         ChildObjectSpec(
+            name="imports",
+            class_name="Import",
+            is_multiple=True,
+            parent_ref="workflow_template",
+            dict_key_attr="label",
+        ),
+        ChildObjectSpec(
             name="tasks",
             class_name="Task",
             is_multiple=True,
@@ -232,6 +242,8 @@ class WorkflowTemplate(JSONLike):
     name: str
     #: Documentation information.
     doc: list[str] | str | None = field(repr=False, default=None)
+    #: A list of Import objects to use in the workflow.
+    imports: list[Import] | None = field(default_factory=list)
     #: A list of Task objects to include in the workflow.
     tasks: list[Task] = field(default_factory=list)
     #: A list of Loop objects to include in the workflow.
@@ -4442,8 +4454,8 @@ class Workflow(AppAware):
     def _resolve_input_source_task_reference(
         self, input_source: InputSource, new_task_name: str
     ) -> None:
-        """Normalise the input source task reference and convert a source to a local type
-        if required."""
+        """Normalise the input source task reference to an integer task insert ID, and
+        convert a source to a local type, if required."""
 
         # TODO: test thoroughly!
 

@@ -13,6 +13,7 @@ rules:
         - tasks
         - meta_tasks
         - loops
+        - imports
         - store_kwargs
         - merge_resources
         - merge_envs
