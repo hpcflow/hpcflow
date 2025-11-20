@@ -1,4 +1,30 @@
 
+<a name="v0.2.0a277"></a>
+## [v0.2.0a277](https://github.com/hpcflow/hpcflow/compare/v0.2.0a276...v0.2.0a277) - 2025.11.20
+
+### ♻ Code Refactoring
+
+* extract out logic for validating the specified source
+* extract out logic for finding input sources from tasks
+
+### ✨ Features
+
+* basic support for importing parameters
+* support resolving and specifying import sources
+* define an `Import` object to define importing parameters from other workflows
+
+### 🐛 Bug Fixes
+
+* type check
+* pass tmp_path in a test
+* set exit code when program does not exist
+
+### 👷 Build changes
+
+* merge branch 'develop' into feat/imports
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a276"></a>
 ## [v0.2.0a276](https://github.com/hpcflow/hpcflow/compare/v0.2.0a275...v0.2.0a276) - 2025.11.18
 
