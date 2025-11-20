@@ -1142,6 +1142,7 @@ class Task(JSONLike):
     def get_available_task_input_sources(
         self,
         element_set: ElementSet,
+        input_statuses: Mapping[str, InputStatus] | None = None,
         source_tasks: Sequence[WorkflowTask] = (),
     ) -> Mapping[str, Sequence[InputSource]]:
         """For each input parameter of this task, generate a list of possible input sources
@@ -1150,12 +1151,15 @@ class Task(JSONLike):
         Note this only produces a subset of available input sources for each input
         parameter; other available input sources may exist from workflow imports."""
 
+        if input_statuses is None:
+            input_statuses = self.get_input_statuses(element_set)
+
         # ensure parameters provided by later tasks are added to the available sources
         # list first, meaning they take precedence when choosing an input source:
         source_tasks = sorted(source_tasks, key=lambda x: x.index, reverse=True)
 
         available: dict[str, list[InputSource]] = {}
-        for inputs_path, inp_status in self.get_input_statuses(element_set).items():
+        for inputs_path, inp_status in input_statuses.items():
             # local specification takes precedence:
             if inputs_path in element_set.get_locally_defined_inputs():
                 available.setdefault(inputs_path, []).append(
@@ -1862,6 +1866,17 @@ class WorkflowTask(AppAware):
 
         return (input_data_idx, sequence_idx, source_idx)
 
+    @staticmethod
+    def __merge_sources(
+        sources_1: Mapping[str, Sequence[InputSource]],
+        sources_2: Mapping[str, Sequence[InputSource]],
+    ) -> dict[str, list[InputSource]]:
+        all_sources: dict[str, list[InputSource]] = {}
+        for d in (sources_1, sources_2):
+            for key, value in d.items():
+                all_sources.setdefault(key, []).extend(value)
+        return all_sources
+
     @TimeIt.decorator
     def ensure_input_sources(
         self, element_set: ElementSet
@@ -1873,19 +1888,21 @@ class WorkflowTask(AppAware):
         This method mutates `element_set.input_sources`.
 
         """
+        all_stats = self.template.get_input_statuses(element_set)
+        import_sources = self.workflow.template.get_available_import_sources(all_stats)
 
         # this depends on this schema, other task schemas and inputs/sequences:
-        available_sources = self.template.get_available_task_input_sources(
+        task_sources = self.template.get_available_task_input_sources(
             element_set=element_set,
+            input_statuses=all_stats,
             source_tasks=self.workflow.tasks[: self.index],
         )
 
+        # task sources should take precedence over import sources, so those sources
+        # should go first, for a given input:
+        available_sources = self.__merge_sources(task_sources, import_sources)
         if unreq := set(element_set.input_sources).difference(available_sources):
             raise UnrequiredInputSources(unreq)
-
-        # TODO: get available input sources from workflow imports
-
-        all_stats = self.template.get_input_statuses(element_set)
 
         # an input is not required if it is only used to generate an input file that is
         # passed directly:

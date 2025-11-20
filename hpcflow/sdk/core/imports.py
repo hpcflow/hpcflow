@@ -5,6 +5,7 @@ Importing parameter data from other workflows.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import InputSource, Parameter
@@ -13,6 +14,7 @@ from hpcflow.sdk.core.input_sources import (
     get_available_task_sources,
     validate_specified_source,
 )
+from typing_extensions import override, Self
 
 
 class ImportParameter(JSONLike):
@@ -73,6 +75,14 @@ class ImportParameter(JSONLike):
 
         # assigned when `__import` is set:
         self.source: InputSource | None = None
+
+    @classmethod
+    def _json_like_constructor(cls, json_like) -> Self:
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+        orig_src = json_like.pop("original_source", None)
+        obj = cls(**json_like)
+        obj.original_source = orig_src
+        return obj
 
     def _ensure_source(self, source: InputSource | str | None) -> InputSource:
         """
@@ -148,6 +158,12 @@ class ImportParameter(JSONLike):
         assert self.import_
         return self.import_.workflow
 
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        out = super()._postprocess_to_dict(d)
+        del out[f"_{self.__class__.__name__}__import"]
+        return out
+
 
 class Import(JSONLike):
 
@@ -200,3 +216,9 @@ class Import(JSONLike):
             and self.workflow.path == other.workflow.path
             and self.parameters == other.parameters
         )
+
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        out = super()._postprocess_to_dict(d)
+        out["workflow"] = self.workflow.path
+        return out

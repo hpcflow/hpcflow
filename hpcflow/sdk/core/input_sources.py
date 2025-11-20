@@ -270,6 +270,7 @@ def validate_specified_source(
     """Check a specified input source is valid, given the list of available sources."""
 
     workflow._resolve_input_source_task_reference(specified, task_uq_name)
+    workflow.template._resolve_input_source_import_reference(specified)
     avail_idx = specified.is_in(available)
     if avail_idx is None:
         raise UnavailableInputSource(specified, input_path, available)

@@ -3151,11 +3151,11 @@ class InputSource(JSONLike):
 
         if self.source_type is InputSourceType.IMPORT:
             cls_method_name += "_"
-            args_lst.append(f"import_ref={self.import_ref}")
+            args_lst.append(f"import_ref={self.import_ref!r}")
 
         elif self.source_type is InputSourceType.TASK:
             assert self.task_source_type
-            args_lst.append(f"task_ref={self.task_ref}")
+            args_lst.append(f"task_ref={self.task_ref!r}")
             args_lst.append(
                 f"task_source_type={self.task_source_type.name.lower()!r}",
             )
@@ -3261,6 +3261,7 @@ class InputSource(JSONLike):
         source_type = get_enum_by_name_or_val(InputSourceType, parts[0])
         task_ref: int | str | None = None
         task_source_type: TaskSourceType | None = None
+        import_ref: int | str | None = None
         if (
             (
                 source_type in (InputSourceType.LOCAL, InputSourceType.DEFAULT)
@@ -3284,12 +3285,13 @@ class InputSource(JSONLike):
             except IndexError:
                 task_source_type = TaskSourceType.OUTPUT
         elif source_type is InputSourceType.IMPORT:
-            raise NotImplementedError("Import input sources are not yet supported.")
+            import_ref = parts[1]
 
         return {
             "source_type": source_type,
             "task_ref": task_ref,
             "task_source_type": task_source_type,
+            "import_ref": import_ref,
         }
 
     @classmethod

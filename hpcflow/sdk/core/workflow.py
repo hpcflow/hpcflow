@@ -49,7 +49,7 @@ from hpcflow.sdk.core import (
     NO_COMMANDS_EXIT_CODE,
 )
 from hpcflow.sdk.core.app_aware import AppAware
-from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.enums import EARStatus, InputSourceType
 from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
@@ -95,7 +95,7 @@ from hpcflow.sdk.core.errors import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
-    from typing import Any, ClassVar, Literal
+    from typing import Any, ClassVar, Literal, DefaultDict
     from typing_extensions import Self, TypeAlias
     from numpy.typing import NDArray
     import psutil
@@ -106,7 +106,7 @@ if TYPE_CHECKING:
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
     from .parameters import InputSource, ResourceSpec
-    from .task import Task, WorkflowTask
+    from .task import Task, WorkflowTask, InputStatus
     from .imports import Import
     from .types import (
         AbstractFileSystem,
@@ -748,6 +748,34 @@ class WorkflowTemplate(JSONLike):
 
         loop._workflow_template = self
         self.loops.append(loop)
+
+    def get_available_import_sources(
+        self, input_statuses: Mapping[str, InputStatus]
+    ) -> dict[str, list[InputSource]]:
+        """Get all possible importable sources for the inputs provided."""
+        importable_refs: DefaultDict[str, set[int]] = defaultdict(set)
+        if not self.imports:
+            return {}
+
+        for inp_type in input_statuses:
+            for import_idx, import_ in enumerate(self.imports):
+                for i_param in import_.parameters:
+                    if i_param.as_.typ == inp_type:
+                        importable_refs[inp_type].add(import_idx)
+
+        return {
+            inp_type: [self._app.InputSource.import_(imp_ref) for imp_ref in import_refs]
+            for inp_type, import_refs in importable_refs.items()
+        }
+
+    def _resolve_input_source_import_reference(self, source: InputSource):
+        """Normalise the input source import reference to an integer import index."""
+        if source.source_type is InputSourceType.IMPORT and isinstance(
+            source.import_ref, str
+        ):
+            for idx, import_i in enumerate(self.imports):
+                if import_i.label == source.import_ref:
+                    source.import_ref = idx
 
 
 def resolve_fsspec(
@@ -1421,6 +1449,7 @@ class Workflow(AppAware):
     def from_template_data(
         cls,
         template_name: str,
+        imports: list[Import] | None = None,
         tasks: list[Task] | None = None,
         loops: list[Loop] | None = None,
         resources: Resources = None,
@@ -1443,6 +1472,8 @@ class Workflow(AppAware):
         template_name
             The name to use for the new workflow template, from which the new workflow
             will be generated.
+        imports
+            A list of imports objects to be used in the workflow.
         tasks:
             List of Task objects to add to the new workflow.
         loops:
@@ -1490,6 +1521,7 @@ class Workflow(AppAware):
         """
         template = cls._app.WorkflowTemplate(
             template_name,
+            imports=imports or [],
             tasks=tasks or [],
             loops=loops or [],
             resources=resources,
