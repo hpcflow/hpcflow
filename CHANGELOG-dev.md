@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a278"></a>
+## [v0.2.0a278](https://github.com/hpcflow/hpcflow/compare/v0.2.0a277...v0.2.0a278) - 2025.11.21
+
+### ✨ Features
+
+* add `add/remove/save_env` and ability for downsteam apps to define custom env setups
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a277"></a>
 ## [v0.2.0a277](https://github.com/hpcflow/hpcflow/compare/v0.2.0a276...v0.2.0a277) - 2025.11.20
 
