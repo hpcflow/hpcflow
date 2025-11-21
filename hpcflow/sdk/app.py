@@ -4126,7 +4126,7 @@ class BaseApp(metaclass=Singleton):
             env_list_i = self.EnvironmentsList.from_json_like(
                 env_dat_i, shared_data=self._shared_data
             )
-            assert env_list_i
+            assert env_list_i is not None
             if name is not None:
                 assert check_env
                 if check_env in env_list_i:
