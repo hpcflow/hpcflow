@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a279"></a>
+## [v0.2.0a279](https://github.com/hpcflow/hpcflow/compare/v0.2.0a278...v0.2.0a279) - 2025.11.21
+
+### 🐛 Bug Fixes
+
+* remove_env
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a278"></a>
 ## [v0.2.0a278](https://github.com/hpcflow/hpcflow/compare/v0.2.0a277...v0.2.0a278) - 2025.11.21
 
