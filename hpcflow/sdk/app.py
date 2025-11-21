@@ -4288,18 +4288,16 @@ class BaseApp(metaclass=Singleton):
     def __set_executable(
         self, data_type: Literal["data", "program"], spec: dict[str, str], path: Path
     ):
-        """Set the executable bit on the specified path, if required."""
-        if (
-            data_type == "program"
-            and os.name == "posix"
-            and path.is_file()
-            and any(
-                fnmatch.fnmatch(path.name, pattern)
-                for pattern in spec.get("set_executable", [])
-            )
-        ):
-            self.logger.debug(f"setting the executable bit on file: {path!r}.")
-            path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        """Set the executable bit on the specified glob-matched paths, if required."""
+
+        if data_type == "program":
+            self.logger.debug(f"set executable called on path: {path!r}.")
+            for pattern in spec.get("set_executable", []):
+                self.logger.debug(f"pattern is: {pattern!r}.")
+                for match in list(path.glob(pattern)):
+                    if os.name == "posix":
+                        self.logger.debug(f"setting the executable bit on: {match!r}.")
+                        match.chmod(match.stat().st_mode | stat.S_IEXEC)
 
     def cache_file(
         self,
@@ -4428,7 +4426,6 @@ class BaseApp(metaclass=Singleton):
                         f"cache location: {cache_file_path!r}."
                     )
                     self.__copy_file_or_dir(ext_src, cache_file_path)
-                    self.__set_executable(data_type, spec, cache_file_path)
 
                 else:
                     # copy contents of zip file to directory under `file_key`
@@ -4440,7 +4437,6 @@ class BaseApp(metaclass=Singleton):
                             f"cache location: {dst_i!r}."
                         )
                         self.__copy_file_or_dir(ext_src_i, dst_i)
-                        self.__set_executable(data_type, spec, dst_i)
                     if data_type == "program":
                         # add on the executable:
                         cache_file_path = cache_file_path.joinpath(spec["executable"])
@@ -4457,7 +4453,8 @@ class BaseApp(metaclass=Singleton):
                 f"{cache_file_path!r}."
             )
             shutil.copy(src_path, cache_file_path)
-            self.__set_executable(data_type, spec, cache_file_path)
+
+        self.__set_executable(data_type, spec, cache_file_path.parent)
 
         if delete:
             self.logger.debug(f"deleting file {file_key!r} source file {src_path!r}.")
