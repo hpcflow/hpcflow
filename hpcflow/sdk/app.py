@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, namedtuple
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
 import stat
@@ -50,13 +50,14 @@ from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
 from .core.workflow import Workflow as _Workflow
+from .core.environment import Environment as _Environment
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.runtime import RunTimeInfo
 from hpcflow.sdk.cli import make_cli
 from hpcflow.sdk.submission.enums import JobscriptElementState
-from hpcflow.sdk.submission.shells import get_shell
+from hpcflow.sdk.submission.shells import DEFAULT_SHELL_NAMES, get_shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
@@ -160,6 +161,7 @@ if TYPE_CHECKING:
     from .submission.schedulers.sge import SGEPosix
     from .submission.schedulers.slurm import SlurmPosix
     from .submission.shells.base import VersionInfo
+    from .core.json_like import JSONDocument
 
     # Complex types for SDK functions
     class _MakeWorkflow(Protocol):
@@ -315,6 +317,8 @@ SDK_logger = get_SDK_logger(__name__)
 DEMO_WK_FORMATS = {".yaml": "yaml", ".yml": "yaml", ".json": "json", ".jsonc": "json"}
 
 T = TypeVar("T")
+
+EnvInfo = namedtuple("EnvInfo", ["manager", "exe", "prefix"])
 
 
 def rate_limit_safe_url_to_fs(
@@ -568,8 +572,12 @@ class BaseApp(metaclass=Singleton):
         #: Callable that returns additional parameter decoders.
         self.decoders = decoders or (lambda: {})
 
+        main_CLI, env_CLI = make_cli(self)
+
         #: Command line interface subsystem.
-        self.cli = make_cli(self)
+        self.cli = main_CLI
+        #: Environment setup CLI, to which downstream apps can add their own commands
+        self.env_setup_CLI = env_CLI
 
         self._log = AppLog(self)
         self._run_time_info = RunTimeInfo(
@@ -3983,69 +3991,189 @@ class BaseApp(metaclass=Singleton):
     def redirect_std_to_file(*args, **kwargs):
         return redirect_std_to_file_hpcflow(*args, **kwargs)
 
-    def configure_env(
+    def __update_env_source_file(self, env_file: Path, new_contents: list[JSONDocument]):
+        """
+        Update the contents of the specified environments sources file (e.g. when adding
+        or removing environments).
+        """
+        # write a new temporary config file
+        tmp_file = env_file.with_suffix(env_file.suffix + ".tmp")
+        self.logger.debug(f"Creating temporary env source file: {tmp_file!r}.")
+        write_YAML_file(new_contents, tmp_file, typ="rt")
+
+        # atomic rename, overwriting original:
+        self.logger.debug("Replacing original env source file with temporary file.")
+        os.replace(src=tmp_file, dst=env_file)
+
+    @staticmethod
+    def detect_env_manager() -> EnvInfo:
+        mamba_exe = os.environ.get("MAMBA_EXE")
+        conda_exe = os.environ.get("CONDA_EXE")
+
+        manager = None
+
+        if mamba_exe and conda_exe:
+            manager = "mamba"
+            exe = mamba_exe
+        elif mamba_exe:
+            # micromamba sets only MAMBA_EXE
+            manager = "micromamba"
+            exe = mamba_exe
+        elif conda_exe:
+            manager = "conda"
+            exe = conda_exe
+        else:
+            raise ValueError("Cannot detect environment manager.")
+
+        prefix = os.environ.get("CONDA_PREFIX")
+        return EnvInfo(manager=manager, exe=exe, prefix=prefix)
+
+    def get_shell_hook(self, shell: str, env_info: EnvInfo) -> str:
+        """Get the shell hook string that, when executed, will initialise micromamba, mamba,
+        or conda using the executable by which an environment is currently activated.
+
+        """
+        exe = env_info.exe
+        SHELL_HOOKS = {
+            "micromamba": {
+                "bash": f'eval "$({exe} shell hook -s posix)"',
+                "powershell": f"& '{exe}' shell hook -s powershell | Out-String | Invoke-Expression",
+            },
+            "conda": {
+                "bash": f'eval "$({exe} shell.bash hook)"',
+                "powershell": f"& '{exe}' shell.powershell hook | Out-String | Invoke-Expression",
+            },
+            "mamba": {
+                "bash": f'eval "$({exe} shell.bash hook)"',
+                "powershell": f"& '{exe}' shell.powershell hook | Out-String | Invoke-Expression",
+            },
+        }
+        return SHELL_HOOKS[env_info.manager][shell]
+
+    def get_env_setup(self, shell: str) -> list[str]:
+        """Generate shell commands to activate the current conda-like or Python venv
+        environment."""
+
+        if (rti := self.run_time_info).is_venv:
+            ENV_ACTIVATE = {
+                "bash": f"source {rti.venv_path}/bin/activate",
+                "powershell": f"{rti.venv_path}\\Scripts\\activate.ps1",
+            }
+            return [ENV_ACTIVATE[shell]]
+
+        elif rti.is_conda_venv:
+            env_info = self.detect_env_manager()
+            shell_hook = self.get_shell_hook(shell, env_info)
+            # note: the shell hook defines a shell function named e.g. `micromamba`, so
+            # the shell hook won't work if we just try to use the executable to e.g.
+            # activate an environment; it must be this function!
+            ENV_ACTIVATE = {
+                "bash": f"{env_info.manager} activate {env_info.prefix}",
+                "powershell": f"{env_info.manager} activate {env_info.prefix}",
+            }
+            return [shell_hook, ENV_ACTIVATE[shell]]
+        else:
+            raise ValueError("Not in a venv or conda-like environment!")
+
+    def add_env(
         self,
         name: str,
-        setup: list[str] | None = None,
+        setup: str | Sequence[str] | None = None,
         executables: list[_Executable] | None = None,
-        use_current_env: bool = False,
-        env_source_file: Path | None = None,
+        use_current: bool = False,
+        **kwargs,
     ):
         """
-        Configure an execution environment.
+        Generate and save a new environment.
         """
-        if not setup:
-            setup = []
-        if not executables:
-            executables = []
+        shell = DEFAULT_SHELL_NAMES[os.name]
+        setup = self.get_env_setup(shell) if use_current else setup
+        env = self.Environment(name=name, setup=setup, executables=executables)
+        self.save_env(env, **kwargs)
+
+    def remove_env(
+        self,
+        name: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+        label: str | None = None,
+    ):
+        """
+        Remove an environment identified by its name and specifiers, or remove all
+        environments with a particular setup label and specifiers.
+
+        """
+        if all(i is None for i in (name, label)) or all(
+            i is not None for i in (name, label)
+        ):
+            raise ValueError(
+                "Specify either `label` or `name` and optionally `specifiers`"
+            )
+
+        check_env = None
+        if name is not None:
+            check_env = self.Environment(name=name, specifiers=specifiers)
+            if check_env not in self.envs:
+                spec_fmt = " (with no specifiers)"
+                if specs := specifiers:
+                    spec_fmt = f" with specifiers {specs!r}"
+                raise ValueError(
+                    f"Environment {name!r}{spec_fmt} cannot be removed because it "
+                    f"does not exist."
+                )
+
+        for env_file in self.config.environment_sources:
+            env_dat_i = read_YAML_file(env_file)
+            env_list_i = self.EnvironmentsList.from_json_like(
+                env_dat_i, shared_data=self._shared_data
+            )
+            assert env_list_i
+            if name is not None:
+                assert check_env
+                if check_env in env_list_i:
+                    # remove the specified environment:
+                    self.logger.debug(
+                        f"Removing environment {name!r} from file {env_file!r}."
+                    )
+                    all_env_dat = [
+                        env_j.to_json_like(exclude={"_hash_value"})[0]
+                        for env_j in env_list_i
+                        if env_j.id != check_env.id
+                    ]
+                    self.__update_env_source_file(env_file, all_env_dat)
+                    break
+            else:
+                # search by setup label, and look through all files:
+                if label in (env_j.setup_label for env_j in env_list_i):
+                    all_env_dat = [
+                        env_j.to_json_like(exclude={"_hash_value"})[0]
+                        for env_j in env_list_i
+                        if env_j.setup_label != label
+                    ]
+                    self.__update_env_source_file(env_file, all_env_dat)
+
+    def save_env(
+        self,
+        env: _Environment,
+        env_source_file: Path | None = None,
+        file_name: str = "configured_envs.yaml",
+    ):
+        """
+        Save an environment to the environment definitions file.
+        """
+        if env in self.envs:
+            spec_fmt = " (with no specifiers)"
+            if specs := env.specifiers:
+                spec_fmt = f" with specifiers {specs!r}"
+            raise ValueError(f"Environment {env.name!r}{spec_fmt} already exists.")
         env_source = env_source_file or self.config.get("config_directory").joinpath(
-            "configured_envs.yaml"
+            file_name
         )
         assert isinstance(env_source, Path)
-        if use_current_env:
-            if self.run_time_info.is_conda_venv:
-                # use the currently activated conda environment for the new app environment:
-                conda_exe = os.environ.get("MAMBA_EXE", os.environ.get("CONDA_EXE"))
-                setup.append(f"{conda_exe} activate {os.environ['CONDA_PREFIX']}")
-            elif self.run_time_info.is_venv:
-                if os.name == "posix":
-                    cmd = f"source {self.run_time_info.venv_path}/bin/activate"
-                elif os.name == "nt":
-                    cmd = f"{self.run_time_info.venv_path}\\Scripts\\activate.ps1"
-                setup.append(cmd)
-
-            executables = [
-                self.Executable(
-                    label="python_script",
-                    instances=[
-                        self.ExecutableInstance(
-                            command=f"{sys.executable} <<script_name>> <<args>>",
-                            num_cores=1,
-                            parallel_mode=None,
-                        ),
-                    ],
-                ),
-            ]
-
-        new_env = self.Environment(name=name, setup=setup, executables=executables)
-        new_env_dat = new_env.to_json_like(exclude={"_hash_value"})[0]
+        new_env_dat = env.to_json_like(exclude={"_hash_value"})[0]
         if env_source.exists():
             existing_env_dat: list[dict] = read_YAML_file(env_source, typ="rt")
-            if any(name == i["name"] for i in existing_env_dat):
-                # TODO: this doesn't check all app envs, just those added with this method
-                raise ValueError(f"Environment {name!r} already exists.")
-
             all_env_dat = [*existing_env_dat, new_env_dat]
-
-            # write a new temporary config file
-            tmp_file = env_source.with_suffix(env_source.suffix + ".tmp")
-            self.logger.debug(f"Creating temporary env source file: {tmp_file!r}.")
-            write_YAML_file(all_env_dat, tmp_file, typ="rt")
-
-            # atomic rename, overwriting original:
-            self.logger.debug("Replacing original env source file with temporary file.")
-            os.replace(src=tmp_file, dst=env_source)
-
+            self.__update_env_source_file(env_source, all_env_dat)
         else:
             all_env_dat = [new_env_dat]
             write_YAML_file(all_env_dat, env_source, typ="rt")

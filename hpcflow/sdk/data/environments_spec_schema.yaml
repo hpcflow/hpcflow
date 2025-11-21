@@ -2,7 +2,8 @@ rules:
   - path: []
     condition:
       {
-        value.allowed_keys: [name, setup, executables, specifiers, doc, _hash_value],
+        value.allowed_keys:
+          [name, setup, executables, specifiers, doc, _hash_value, setup_label],
       }
   - path: [setup]
     condition:

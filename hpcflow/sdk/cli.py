@@ -1512,26 +1512,58 @@ def make_cli(app: BaseApp):
         if TimeIt.active:
             TimeIt.summarise_string()
 
-    @new_CLI.command()
+    @new_CLI.group()
+    def env():
+        """Configure execution environments."""
+        pass
+
+    @env.command("list")
+    def list_envs():
+        """List available environments."""
+        for env_i in app.envs:
+            click.echo(env_i.name)
+
+    @env.command("add")
     @click.argument("name")
-    @click.option("--use-current-env", is_flag=True, default=False)
-    @click.option("--setup", type=click.STRING)
+    @click.option("--use-current", is_flag=True, default=False)
+    @click.option("--setup", type=click.STRING, multiple=True)
     @click.option("--env-source-file", type=click.STRING)
-    def configure_env(
+    def add_env(
         name: str,
-        use_current_env: bool,
+        use_current: bool,
         setup: list[str] | None = None,
         env_source_file: str | None = None,
     ):
-        """Configure an app environment, using, for example, the currently activated
-        Python environment."""
-        app.configure_env(
+        """Add a simple environment definition."""
+        app.add_env(
             name=name,
             setup=setup,
-            executables=None,
-            use_current_env=use_current_env,
+            use_current=use_current,
             env_source_file=None if env_source_file is None else Path(env_source_file),
         )
+
+    @env.command("remove")
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def remove_env(
+        name: str,
+        label: str,
+        specifier: tuple[tuple[str, str]],
+    ):
+        """Remove an environment definition."""
+        app.remove_env(
+            name=name,
+            specifiers={k: v for (k, v) in specifier},
+            label=label,
+        )
+
+    @env.group("setup")
+    @click.option("--env-source-file", type=click.STRING)
+    def setup_env(
+        env_source_file: str | None = None,
+    ):
+        """Setup one or more environments according to some sensible grouping."""
 
     new_CLI.context_class = ErrorPropagatingClickContext
 
@@ -1556,4 +1588,5 @@ def make_cli(app: BaseApp):
     for cli_cmd in _make_API_CLI(app):
         new_CLI.add_command(cli_cmd)
 
-    return new_CLI
+    # we return the env setup CLI so we can add to in downstream apps:
+    return new_CLI, setup_env

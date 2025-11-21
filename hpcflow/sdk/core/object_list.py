@@ -12,6 +12,7 @@ from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -620,6 +621,14 @@ class EnvironmentsList(AppDataList["Environment"]):
                 f"Multiple objects with attributes: {kwargs}."
             )
         return result
+
+    def __contains__(self, item):
+        """Unique environments are defined by their name and specifiers."""
+        if self._objects:
+            if type(item) is type(self._get_item(self._objects[0])):
+                uq_attrs = ((obj.name, get_hash(obj.specifiers)) for obj in self._objects)
+                return (item.name, get_hash(item.specifiers)) in uq_attrs
+        return False
 
 
 class ExecutablesList(AppDataList["Executable"]):

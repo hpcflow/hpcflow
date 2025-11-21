@@ -12,6 +12,7 @@ from hpcflow.sdk.core.errors import DuplicateExecutableError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ExecutablesList
 from hpcflow.sdk.core.utils import check_valid_py_identifier, get_duplicate_items
+from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -187,6 +188,9 @@ class Environment(JSONLike):
         look up an environment by.
     executables: list[Executable]
         List of abstract executables in the environment.
+    setup_label: str
+        String label of the environment setup helper that generated this environment, if
+        it was generated in that way.
     """
 
     _validation_schema: ClassVar[str] = "environments_spec_schema.yaml"
@@ -205,6 +209,7 @@ class Environment(JSONLike):
         specifiers: Mapping[str, str] | None = None,
         executables: ExecutablesList | Sequence[Executable] | None = None,
         doc: str = "",
+        setup_label: str | None = None,
         _hash_value: str | None = None,
     ):
         #: The name of the environment.
@@ -229,6 +234,9 @@ class Environment(JSONLike):
             self.setup = tuple(cmd.strip() for cmd in setup.strip().split("\n"))
         else:
             self.setup = tuple(setup)
+
+        self.setup_label = setup_label
+
         self._set_parent_refs()
         self._validate()
 
@@ -254,3 +262,9 @@ class Environment(JSONLike):
 
             return markupsafe.Markup(self.doc)
         return repr(self)
+
+    @property
+    def id(self) -> int:
+        """An ID that can be used to compare if two environments are equivalent, in the
+        sense that they must not be defined together."""
+        return hash((self.name, get_hash(self.specifiers)))
