@@ -132,7 +132,7 @@ class _ElementPrefixedParameter(AppAware):
         # If there are one or more labels present, then replace with a single name
         # indicating there could be multiple (using a `*` prefix):
         names = ", ".join(
-            "*" + unlabelled if labels else unlabelled
+            repr("*" + unlabelled if labels else unlabelled)
             for unlabelled, labels in self.prefixed_names_unlabelled.items()
         )
         return f"{self.__class__.__name__}({names})"
