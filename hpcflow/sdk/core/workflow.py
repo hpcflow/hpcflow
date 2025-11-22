@@ -3874,7 +3874,8 @@ class Workflow(AppAware):
         if status:
             status.update("Adding new submission: setting environments...")
         sub_obj._set_environments()
-        all_EAR_ID = sub_obj.all_EAR_IDs
+        all_EAR_ID = list(sub_obj.all_EAR_IDs)
+
         if not all_EAR_ID:
             print(
                 "There are no pending element action runs, so a new submission was not "
