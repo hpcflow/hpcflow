@@ -3712,7 +3712,7 @@ class Workflow(AppAware):
                         for task_iID, elem_idx in zip(
                             block.task_insert_IDs, block.task_elements[js_elem_idx]
                         ):
-                            active_elems[task_iID].add(elem_idx)
+                            active_elems[task_iID].add(int(elem_idx))
 
         # retrieve Element objects:
         out: list[Element] = []
