@@ -778,7 +778,6 @@ class Submission(JSONLike):
                         run.index,
                         int(run.action.requires_dir),
                     ]
-                    run_idx += 1
 
                     if status and run_idx % 10 == 0:
                         status.update(
@@ -828,6 +827,7 @@ class Submission(JSONLike):
                         for name, path in run.get("input_files", {}).items():
                             if path:
                                 run_inp_files[run_idx].append(path)
+                    run_idx += 1
 
         for run_ids in cmd_hashes.values():
             run_ids_srt = sorted(run_ids)
