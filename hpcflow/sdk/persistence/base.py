@@ -838,7 +838,16 @@ class StoreParameter:
 
         obj = get_in_container(data_["data"], path)
 
-        for type_, paths in data_["type_lookup"].items():
+        # need to decode types defined in hpcflow before downstream app types (because
+        # they might rely on arrays being decoded for example), so order in the same way
+        # as `_all_decoders`:
+        types_ordered = {
+            dec_type: data_["type_lookup"][dec_type]
+            for dec_type in cls._all_decoders
+            if dec_type in data_["type_lookup"]
+        }
+
+        for type_, paths in types_ordered.items():
             for type_path in paths:
                 if type_ == "tuples":
                     try:
@@ -1014,6 +1023,9 @@ class PersistentStore(
         map."""
         param_cls = self._store_param_cls()
         if not param_cls._all_decoders:
+            # note: the order is important, we assume types in `param_cls._decoders`
+            # (e.g. arrays) have been decoded before decoding types defined in downstream
+            # apps:
             param_cls._all_decoders = {
                 **param_cls._decoders,
                 **self.workflow._app.decoders().get(self._name, {}),
