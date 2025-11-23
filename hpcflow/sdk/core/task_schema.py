@@ -368,11 +368,13 @@ class TaskSchema(JSONLike):
         panel = Panel(tab, title=f"Task schema: {rich_esc(self.objective.name)!r}")
         return panel
 
-    def basic_info(self) -> None:
+    @property
+    def info(self) -> None:
         """Show inputs and outputs, formatted in a table."""
         rich_print(self.__get_info(include=("inputs", "outputs")))
 
-    def info(self) -> None:
+    @property
+    def full_info(self) -> None:
         """Show inputs, outputs, and actions, formatted in a table."""
         rich_print(self.__get_info(include=()))
 
