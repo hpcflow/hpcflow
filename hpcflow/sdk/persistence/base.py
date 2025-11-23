@@ -841,11 +841,13 @@ class StoreParameter:
         # need to decode types defined in hpcflow before downstream app types (because
         # they might rely on arrays being decoded for example), so order in the same way
         # as `_all_decoders`:
+        primitives = copy.deepcopy(data_["type_lookup"])
         types_ordered = {
-            dec_type: data_["type_lookup"][dec_type]
+            dec_type: primitives.pop(dec_type)
             for dec_type in cls._all_decoders
-            if dec_type in data_["type_lookup"]
+            if dec_type in primitives
         }
+        types_ordered = {**primitives, **types_ordered}
 
         for type_, paths in types_ordered.items():
             for type_path in paths:
