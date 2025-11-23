@@ -202,7 +202,7 @@ class TaskSchema(JSONLike):
         #     )
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.objective.name!r})"
+        return f"{self.__class__.__name__}({self.name!r})"
 
     @classmethod
     def __parameters(cls) -> ParametersList:
