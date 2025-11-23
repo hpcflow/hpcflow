@@ -2118,7 +2118,6 @@ class Workflow(AppAware):
                 yield
 
             except Exception:
-                self._app.persistence_logger.error("batch update exception!")
                 self._in_batch_mode = False
                 self._store._pending.reset()
 
