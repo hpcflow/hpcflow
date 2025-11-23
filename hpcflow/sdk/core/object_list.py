@@ -553,6 +553,10 @@ class TaskSchemasList(AppDataList["TaskSchema"]):
     def __init__(self, _objects: Iterable[TaskSchema]):
         super().__init__(_objects, access_attribute="name", descriptor="task schema")
 
+    def _repr_pretty_(self, p, cycle):
+        for item in self._objects:
+            p.text(f"{item}\n")
+
 
 class GroupList(AppDataList["Group"]):
     """A list-like container for the task schema group list with dot-notation access by
