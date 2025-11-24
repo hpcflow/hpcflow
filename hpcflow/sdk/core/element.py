@@ -143,6 +143,9 @@ class _ElementPrefixedParameter(AppAware):
     def __get_prefixed_names_unlabelled(self) -> Mapping[str, Sequence[str]]:
         all_names: dict[str, list[str]] = {}
         for name in self._get_prefixed_names():
+            if name.startswith("_"):
+                # hidden parameter types
+                continue
             if "[" in name:
                 unlab_i, label_i = split_param_label(name)
                 if unlab_i is not None and label_i is not None:
