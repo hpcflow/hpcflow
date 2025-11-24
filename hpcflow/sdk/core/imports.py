@@ -126,7 +126,23 @@ class ImportParameter(JSONLike):
         else:
             # first item is defined by default to take precedence in
             # `get_available_task_input_sources`:
-            return available[avail_key][0]
+            src = available[avail_key][0]
+            # filter element iterations to include only the latest non-skipped iterations
+            # TODO: consider if we want this behaviour for all input sources in genera
+            # (not just imports)?
+
+            iters = self.workflow.get_element_iterations_from_IDs(src.element_iters)
+
+            # get parent elements:
+            elements = self.workflow.get_elements_from_IDs(
+                set(iter_i.element.id_ for iter_i in iters)
+            )
+
+            # for each element get latest non-skipped iteration id:
+            ns_iter_IDs = [elem_i.latest_iteration_non_skipped.id_ for elem_i in elements]
+
+            src.element_iters = ns_iter_IDs
+            return src
 
     def __repr__(self):
         out = f"{self.__class__.__name__}(parameter={self.parameter}"
