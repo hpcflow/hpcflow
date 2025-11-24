@@ -3824,7 +3824,12 @@ class BaseApp(metaclass=Singleton):
                             elem_tab_i.add_column()
                             for elem_idx, EARs in elements.items():
                                 elem_status = Text(f"{elem_idx} | ", style=style)
+                                iter_idx = 0
                                 for ear in EARs:
+                                    if ear.element_iteration.index >= iter_idx:
+                                        if iter_idx > 0:
+                                            elem_status.append("|")
+                                        iter_idx += 1
                                     elem_status.append(
                                         ear.status.symbol, style=ear.status.colour
                                     )
