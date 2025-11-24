@@ -272,13 +272,15 @@ class TaskSchema(JSONLike):
                     Text("default", style="italic grey50"),
                 )
             for inp_idx, inp in enumerate(self.inputs):
+                if inp.parameter._is_hidden:
+                    continue
                 def_str = "-"
                 if not inp.multiple:
                     if self.__is_InputValue(inp.default_value):
                         if inp.default_value.value is None:
                             def_str = "None"
                         else:
-                            def_str = f"{rich_esc(str(inp.default_value.value))!r}"
+                            def_str = f"{rich_esc(str(inp.default_value.value))}"
                 tab_ins_outs.add_row(
                     "" if inp_idx > 0 else "[bold]Inputs[/bold]",
                     self.__format_parameter_type(inp.parameter),
@@ -298,6 +300,8 @@ class TaskSchema(JSONLike):
                     "",
                 )
             for out_idx, out in enumerate(self.outputs):
+                if out.parameter._is_hidden:
+                    continue
                 tab_ins_outs.add_row(
                     "" if out_idx > 0 else "[bold]Outputs[/bold]",
                     self.__format_parameter_type(out.parameter),
