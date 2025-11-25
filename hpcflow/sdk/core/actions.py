@@ -1052,6 +1052,10 @@ class ElementActionRun(AppAware):
             if out_names:
                 kwargs["_output_files"] = out_names
 
+        if self.action.script_pass_workflow:
+            # hacky McHack hack
+            kwargs["workflow"] = self.workflow
+
         return kwargs
 
     def write_script_data_in_files(self, block_act_key: BlockActionKey) -> None:
@@ -2044,6 +2048,7 @@ class Action(JSONLike):
         data_files_use_opt: bool = False,
         script_exe: str | None = None,
         script_pass_env_spec: bool = False,
+        script_pass_workflow: bool = False,
         jinja_template: str | None = None,
         jinja_template_path: str | None = None,
         program: str | None = None,
@@ -2094,6 +2099,8 @@ class Action(JSONLike):
         self.script_exe = script_exe.lower() if script_exe else None
         #: Whether to pass the environment details to the script.
         self.script_pass_env_spec = script_pass_env_spec
+        #: Whether to pass the workflow object to the script (very hacky).
+        self.script_pass_workflow = script_pass_workflow
         #: Path to a built-in program to run.
         self.program = program
         #: Path to an external program to run
@@ -3022,6 +3029,7 @@ class Action(JSONLike):
             script_data_out=self.script_data_out,
             script_exe=self.script_exe,
             script_pass_env_spec=self.script_pass_env_spec,
+            script_pass_workflow=self.script_pass_workflow,
             jinja_template=self.jinja_template,
             jinja_template_path=self.jinja_template_path,
             program=self.program,
