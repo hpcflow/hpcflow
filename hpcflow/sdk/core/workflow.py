@@ -4746,7 +4746,7 @@ class Workflow(AppAware):
                         c1 = f"{blk.index}"
                     c3 = f"{num_actions}, {blk.num_elements}"
 
-                    deps = "; ".join(f"{i[0],i[1]}" for i in blk.dependencies)
+                    deps = "; ".join(f"{int(i[0]),int(i[1])}" for i in blk.dependencies)
 
                     for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
 
