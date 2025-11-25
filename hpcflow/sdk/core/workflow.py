@@ -4225,6 +4225,12 @@ class Workflow(AppAware):
                             f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
                         }
 
+                        if (num_threads := run.resources.num_threads) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_THREADS"] = str(num_threads)
+
+                        if (num_cores := run.resources.num_cores) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_CORES"] = str(num_cores)
+
                         if run.action.script:
                             if run.is_snippet_script:
                                 script_artifact_name = run.get_script_artifact_name()
