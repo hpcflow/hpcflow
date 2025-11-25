@@ -131,6 +131,7 @@ class ImportParameter(JSONLike):
             # TODO: consider if we want this behaviour for all input sources in genera
             # (not just imports)?
 
+            assert src.element_iters
             iters = self.workflow.get_element_iterations_from_IDs(src.element_iters)
 
             # get parent elements:
