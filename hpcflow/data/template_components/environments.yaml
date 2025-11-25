@@ -5,8 +5,12 @@
   executables:
     - label: python_script
       instances:
-        - command: python <<script_path>> <<args>>
-          num_cores: 1
+        - command: |
+            python <<script_path>> <<args>>
+            echo <<num_cores>>
+          num_cores:
+            start: 1
+            stop: 100
           parallel_mode: null
   doc: |
     An environment for running Python, typically with access to hpcflow and matflow modules and their dependencies.
