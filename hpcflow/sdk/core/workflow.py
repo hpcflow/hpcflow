@@ -4268,7 +4268,7 @@ class Workflow(AppAware):
                                 run=run,
                                 exit_code=NO_PROGRAM_EXIT_CODE,
                             )
-                            return
+                            raise
 
                         env = {**dict(os.environ), **add_env}
 
