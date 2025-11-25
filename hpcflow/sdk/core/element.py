@@ -415,6 +415,9 @@ class ElementResources(JSONLike):
         ):
             self.num_cores = 1
 
+        if self.num_threads is None:
+            self.num_threads = 1
+
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
