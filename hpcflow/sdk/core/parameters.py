@@ -24,6 +24,7 @@ from hpcflow.sdk.core.enums import (
     TaskSourceType,
 )
 from hpcflow.sdk.core.errors import (
+    InvalidIdentifier,
     MalformedParameterPathError,
     UnknownResourceSpecItemError,
     WorkflowParameterMissingError,
@@ -188,6 +189,7 @@ class Parameter(JSONLike):
     _value_class: type[ParameterValue] | None = None
     _hash_value: str | None = field(default=None, repr=False)
     _validation: Schema | None = None
+    _is_hidden: bool = False
 
     def __repr__(self) -> str:
         is_file_str = ""
@@ -209,7 +211,19 @@ class Parameter(JSONLike):
         )
 
     def __post_init__(self) -> None:
-        self.typ = check_valid_py_identifier(self.typ)
+        """Allow parameter names prefixed with an underscore, and consider these to be
+        hidden, such that they will not be shown in the task schema information.
+        """
+        try:
+            self.typ = check_valid_py_identifier(self.typ)
+        except InvalidIdentifier as err:
+            try:
+                self.typ = "_" + check_valid_py_identifier(self.typ.removeprefix("_"))
+            except Exception:
+                raise err
+            else:
+                self._is_hidden = True
+
         self._set_value_class()
 
     def _set_value_class(self) -> None:

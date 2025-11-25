@@ -1759,13 +1759,16 @@ class WorkflowTask(AppAware):
             "task_insert_ID": self.insert_ID,
             "element_set_idx": element_set_idx,
         }
+        has_local = {}
         loc_inp_src = self._app.InputSource.local()
         for res_i in element_set.resources:
             key, dat_ref, _ = res_i.make_persistent(self.workflow, param_src)
+            has_local[key] = True
             input_data_idx[key] = list(dat_ref)
 
         for inp_i in element_set.inputs:
             key, dat_ref, _ = inp_i.make_persistent(self.workflow, param_src)
+            has_local[key] = True
             input_data_idx[key] = list(dat_ref)
             key_ = key.removeprefix("inputs.")
             try:
@@ -1778,10 +1781,12 @@ class WorkflowTask(AppAware):
 
         for inp_file_i in element_set.input_files:
             key, input_dat_ref, _ = inp_file_i.make_persistent(self.workflow, param_src)
+            has_local[key] = True
             input_data_idx[key] = list(input_dat_ref)
 
         for seq_i in element_set.sequences:
             key, seq_dat_ref, _ = seq_i.make_persistent(self.workflow, param_src)
+            has_local[key] = True
             input_data_idx[key] = list(seq_dat_ref)
             sequence_idx[key] = list(range(len(seq_dat_ref)))
             try:
@@ -1840,10 +1845,15 @@ class WorkflowTask(AppAware):
                         input_data_idx[key].extend(grp_idx)
                         source_idx[key].extend([inp_src_idx] * len(grp_idx))
 
-                    else:  # BUG: doesn't work for multiple task inputs sources
-                        # overwrite existing local source (if it exists):
-                        input_data_idx[key] = list(grp_idx)
-                        source_idx[key] = [inp_src_idx] * len(grp_idx)
+                    else:
+                        if has_local.pop(key, None):
+                            # overwrite existing local source (if it exists):
+                            input_data_idx[key] = []
+                            source_idx[key] = []
+                        input_data_idx.setdefault(key, []).extend(list(grp_idx))
+                        source_idx.setdefault(key, []).extend(
+                            [inp_src_idx] * len(grp_idx)
+                        )
                         if key in sequence_idx:
                             sequence_idx.pop(key)
                             # TODO: Use the value retrieved below?

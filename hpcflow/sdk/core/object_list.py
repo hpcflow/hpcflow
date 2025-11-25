@@ -507,6 +507,10 @@ class TaskList(AppDataList["Task"]):
     def __init__(self, _objects: Iterable[Task]):
         super().__init__(_objects, access_attribute="unique_name", descriptor="task")
 
+    def _repr_pretty_(self, p, cycle):
+        for item in self._objects:
+            p.text(f"{item}\n")
+
 
 class TaskTemplateList(AppDataList["TaskTemplate"]):
     """A list-like container for a task-like list with dot-notation access by task
@@ -552,6 +556,10 @@ class TaskSchemasList(AppDataList["TaskSchema"]):
 
     def __init__(self, _objects: Iterable[TaskSchema]):
         super().__init__(_objects, access_attribute="name", descriptor="task schema")
+
+    def _repr_pretty_(self, p, cycle):
+        for item in self._objects:
+            p.text(f"{item}\n")
 
 
 class GroupList(AppDataList["Group"]):
@@ -743,6 +751,10 @@ class WorkflowTaskList(DotAccessObjectList["WorkflowTask"]):
 
     def __init__(self, _objects: Iterable[WorkflowTask]):
         super().__init__(_objects, access_attribute="unique_name", descriptor="task")
+
+    def _repr_pretty_(self, p, cycle):
+        for item in self._objects:
+            p.text(f"{item}\n")
 
     def _reindex(self) -> None:
         """Re-assign the WorkflowTask index attributes so they match their order."""

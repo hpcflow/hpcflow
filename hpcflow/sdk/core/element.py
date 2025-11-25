@@ -132,7 +132,7 @@ class _ElementPrefixedParameter(AppAware):
         # If there are one or more labels present, then replace with a single name
         # indicating there could be multiple (using a `*` prefix):
         names = ", ".join(
-            "*" + unlabelled if labels else unlabelled
+            repr("*" + unlabelled if labels else unlabelled)
             for unlabelled, labels in self.prefixed_names_unlabelled.items()
         )
         return f"{self.__class__.__name__}({names})"
@@ -143,6 +143,9 @@ class _ElementPrefixedParameter(AppAware):
     def __get_prefixed_names_unlabelled(self) -> Mapping[str, Sequence[str]]:
         all_names: dict[str, list[str]] = {}
         for name in self._get_prefixed_names():
+            if name.startswith("_"):
+                # hidden parameter types
+                continue
             if "[" in name:
                 unlab_i, label_i = split_param_label(name)
                 if unlab_i is not None and label_i is not None:
@@ -411,6 +414,9 @@ class ElementResources(JSONLike):
             and self.num_nodes is None
         ):
             self.num_cores = 1
+
+        if self.num_threads is None:
+            self.num_threads = 1
 
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)

@@ -78,6 +78,10 @@ class _ReportableStateEnum(Enum):
         """
         return f"[{self.colour}]{self.symbol}[/{self.colour}]"
 
+    @property
+    def doc(self) -> str:
+        return self.value.__doc__
+
 
 class EARStatus(_ReportableStateEnum):
     """Enumeration of all possible EAR statuses, and their associated status colour."""

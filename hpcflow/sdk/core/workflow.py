@@ -2118,7 +2118,6 @@ class Workflow(AppAware):
                 yield
 
             except Exception:
-                self._app.persistence_logger.error("batch update exception!")
                 self._in_batch_mode = False
                 self._store._pending.reset()
 
@@ -3712,7 +3711,7 @@ class Workflow(AppAware):
                         for task_iID, elem_idx in zip(
                             block.task_insert_IDs, block.task_elements[js_elem_idx]
                         ):
-                            active_elems[task_iID].add(elem_idx)
+                            active_elems[task_iID].add(int(elem_idx))
 
         # retrieve Element objects:
         out: list[Element] = []
@@ -3874,7 +3873,8 @@ class Workflow(AppAware):
         if status:
             status.update("Adding new submission: setting environments...")
         sub_obj._set_environments()
-        all_EAR_ID = sub_obj.all_EAR_IDs
+        all_EAR_ID = list(sub_obj.all_EAR_IDs)
+
         if not all_EAR_ID:
             print(
                 "There are no pending element action runs, so a new submission was not "
@@ -4224,6 +4224,12 @@ class Workflow(AppAware):
                             f"{app_caps}_ELEMENT_ITER_ID": str(run.element_iteration.id_),
                             f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
                         }
+
+                        if (num_threads := run.resources.num_threads) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_THREADS"] = str(num_threads)
+
+                        if (num_cores := run.resources.num_cores) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_CORES"] = str(num_cores)
 
                         if run.action.script:
                             if run.is_snippet_script:

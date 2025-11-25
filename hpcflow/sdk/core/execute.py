@@ -7,6 +7,7 @@ import time
 
 import zmq
 
+from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
 
 
@@ -183,6 +184,7 @@ class Executor(AppAware):
             # subprocess still running but got a stop request; need to kill subprocess:
             self._app.logger.info(f"_run: stop request; killing subprocess")
             subprocess_task.cancel()
+            self.return_code = ABORT_EXIT_CODE
 
         if self.return_code and os.name == "nt":
             # Windows return codes are defined as 32-bit unsigned integers, but

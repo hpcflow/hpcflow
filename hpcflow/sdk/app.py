@@ -3659,7 +3659,7 @@ class BaseApp(metaclass=Singleton):
         js_tab.add_column("State")
         js_tab.add_column("Description")
         for jse_state in JobscriptElementState.__members__.values():
-            js_tab.add_row(jse_state.rich_repr, jse_state.name, jse_state.__doc__)
+            js_tab.add_row(jse_state.rich_repr, jse_state.name, jse_state.doc)
 
         act_notes = Panel(
             "\nThe [i]Actions[/i] column of the `show` command output displays either the "
@@ -3675,7 +3675,7 @@ class BaseApp(metaclass=Singleton):
         act_tab.add_column("State")
         act_tab.add_column("Description")
         for ear_state in EARStatus.__members__.values():
-            act_tab.add_row(ear_state.rich_repr, ear_state.name, ear_state.__doc__)
+            act_tab.add_row(ear_state.rich_repr, ear_state.name, ear_state.doc)
 
         group = Group(
             js_notes,
@@ -3824,7 +3824,12 @@ class BaseApp(metaclass=Singleton):
                             elem_tab_i.add_column()
                             for elem_idx, EARs in elements.items():
                                 elem_status = Text(f"{elem_idx} | ", style=style)
+                                iter_idx = 0
                                 for ear in EARs:
+                                    if ear.element_iteration.index >= iter_idx:
+                                        if iter_idx > 0:
+                                            elem_status.append("|")
+                                        iter_idx += 1
                                     elem_status.append(
                                         ear.status.symbol, style=ear.status.colour
                                     )

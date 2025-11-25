@@ -288,6 +288,7 @@ class WindowsPowerShell(Shell):
             """
         ).format(app_name=app_caps)
 
+        # so we can refer to env vars in a shell agnostic way in commands:
         var_strings = (
             f"{app_caps}_WK_PATH",
             f"{app_caps}_SUB_SCRIPTS_DIR",
@@ -304,6 +305,8 @@ class WindowsPowerShell(Shell):
             f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT",
             f"{app_caps}_RUN_PROGRAM_DIR",
             f"{app_caps}_RUN_PROGRAM_PATH",
+            f"{app_caps}_RUN_NUM_CORES",
+            f"{app_caps}_RUN_NUM_THREADS",
         )
         add = False
         for i in var_strings:
