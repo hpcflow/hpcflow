@@ -1,4 +1,17 @@
 
+<a name="v0.2.0a282"></a>
+## [v0.2.0a282](https://github.com/hpcflow/hpcflow/compare/v0.2.0a281...v0.2.0a282) - 2025.11.25
+
+### 🐛 Bug Fixes
+
+* script_pass_workflow hack
+* list_jobscripts cast to int
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a281"></a>
 ## [v0.2.0a281](https://github.com/hpcflow/hpcflow/compare/v0.2.0a280...v0.2.0a281) - 2025.11.25
 
