@@ -1,4 +1,41 @@
 
+<a name="v0.2.0a281"></a>
+## [v0.2.0a281](https://github.com/hpcflow/hpcflow/compare/v0.2.0a280...v0.2.0a281) - 2025.11.25
+
+### ✨ Features
+
+* expose num_cores and num_threads as shell env vars
+* change `TaskSchema.basic_info` and `info` to `info` and `full_info`, and make properties
+
+### 🐛 Bug Fixes
+
+* remove echo
+* type check
+* update default python env
+* default num threads to 1
+* hide hidden parameters in e.g. `ElementOutputs`
+* filter import source element iters by latest-non-skipped only
+* group show actions by iteration
+* formatting in taskschema info; allow hidden parameters that will not show up in info
+* show legend
+* improve TaskSchemaList repr in notebooks
+* improve TaskSchema repr
+* remove an annoying error log
+* issue where multiple task input sources where disregarded
+* bug in previous commit where we stopped decoding primitives
+* parameter decode ordering
+* formatting in `_ElementPrefixedParameter.__repr__`
+* raise when no runs to submit, fix [#822](https://github.com/hpcflow/hpcflow/issues/822)
+* casting a numpy integer to allow getitem in elements list
+* incremeting an index at the correct place
+* set abort exit code!
+* raise so the error is not hidden!
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a280"></a>
 ## [v0.2.0a280](https://github.com/hpcflow/hpcflow/compare/v0.2.0a279...v0.2.0a280) - 2025.11.21
 
