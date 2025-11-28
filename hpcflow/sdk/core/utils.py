@@ -505,10 +505,10 @@ def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = Non
     return read_JSON_string(json_str, variables=variables)
 
 
-def write_JSON_file(obj, path: str | Path) -> None:
+def write_JSON_file(obj, path: str | Path, **kwargs) -> None:
     """Write a basic object to a JSON file."""
     with Path(path).open("wt") as fp:
-        json.dump(obj, fp)
+        json.dump(obj, fp, **kwargs)
 
 
 def get_item_repeat_index(
@@ -953,6 +953,12 @@ def process_string_nodes(data: T, str_processor: Callable[[str], str]) -> T:
 
     elif isinstance(data, str):
         return cast("T", str_processor(data))
+
+    elif isinstance(data, np.ndarray) and data.size:
+        vec = np.vectorize(
+            functools.partial(process_string_nodes, str_processor=str_processor)
+        )
+        return vec(data)
 
     return data
 

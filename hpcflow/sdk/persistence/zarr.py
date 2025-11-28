@@ -13,6 +13,8 @@ from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import override
 import shutil
 import time
+import json
+from collections import defaultdict
 
 import numpy as np
 from numpy.ma.core import MaskedArray
@@ -22,7 +24,7 @@ from zarr.storage import DirectoryStore, FSStore  # type: ignore
 from zarr.util import guess_chunks  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from rich.console import Console
-from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd  # type: ignore
+from numcodecs import MsgPack, VLenArray, blosc, Blosc, Zstd, JSON  # type: ignore
 from reretry import retry  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
@@ -39,6 +41,8 @@ from hpcflow.sdk.core.utils import (
     get_relative_path,
     set_in_container,
     get_in_container,
+    read_JSON_file,
+    write_JSON_file,
 )
 from hpcflow.sdk.persistence.base import (
     PARAM_DATA_NOT_SET,
@@ -49,6 +53,7 @@ from hpcflow.sdk.persistence.base import (
     StoreElementIter,
     StoreParameter,
     StoreTask,
+    UnsetBaseOutput,
 )
 from hpcflow.sdk.persistence.types import (
     LoopDescriptor,
@@ -107,6 +112,154 @@ _JS: TypeAlias = "dict[str, list[dict[str, dict]]]"
 
 blosc.use_threads = False  # hpcflow is a multiprocess program in general
 
+from typing import Any, Dict, Optional
+import numpy as np
+
+
+@TimeIt.decorator
+def adjacency_list_to_graph(
+    arr: np.ndarray, keys: Optional[np.ndarray] = None, to_list: Optional[bool] = False
+) -> Dict[int, np.ndarray]:
+    # assumes keys and values refer to separate entities
+    graph = {}
+    if not arr.size:
+        return graph
+
+    structured = False
+    if keys is None:
+        num_nodes = arr[0]
+        keys = arr[1 : num_nodes + 1] - (num_nodes + 1)
+        keys_index = keys
+        arr = arr[num_nodes + 1 :]
+    else:
+        if keys.dtype.fields:
+            # structured array, so mapping keys will be tuples ("index" field must exist)
+            structured = True
+            keys_index = keys["index"]
+        else:
+            keys_index = keys
+        num_nodes = len(keys)
+
+    for i in range(num_nodes):
+        start_idx = keys_index[i]
+        end_idx = keys_index[i + 1] if i + 1 < num_nodes else None
+        members_slice = slice(start_idx, end_idx)
+        if end_idx != start_idx:
+            val = arr[members_slice]
+            grph_key_i = keys[i].item() if structured else i
+            graph[grph_key_i] = val.tolist() if to_list else val
+
+    return graph
+
+
+@TimeIt.decorator
+def graph_to_adjacency_list(
+    graph: dict[int | tuple[Any], np.ndarray | list],
+    key_dtype=int,  # TODO: typing
+    val_dtype=int,  # TODO: typing
+    separate_keys: bool = False,
+) -> np.ndarray:
+    """
+    If `key_dtype` is a structured data type, then graph keys should be tuples whose
+    values' types match `key_dtype`.
+    """
+    # assumed to have max(graph.keys()) + 1 number of nodes (i.e a contiguous range from 0->max)
+    # assumes keys and values refer to separate entities
+
+    # TODO: consider non-contiguous keys
+
+    if not graph:
+        if separate_keys:
+            return np.zeros(0, dtype=val_dtype), np.zeros(0, dtype=key_dtype)
+        else:
+            return np.zeros(0, dtype=val_dtype)
+
+    if key_dtype != val_dtype and not separate_keys:
+        raise ValueError(
+            f"Must set `separate_keys` to `True` when `key_dtype` ({key_dtype}) and "
+            f"`val_dtype` ({val_dtype}) are not equal."
+        )
+
+    if key_dtype != int:
+        # key dtype must include an integer field named "index"
+        index_dtype_idx = None
+        for idx, i in enumerate(key_dtype):
+            if i[0] == "index":
+                index_dtype_idx = idx
+        if index_dtype_idx is None:
+            raise ValueError(
+                "If set as a structured data type, `key_dtype` must include "
+                'an integer field named "index"'
+            )
+        grp_keys = {i[index_dtype_idx]: i for i in graph}
+    else:
+        grp_keys = {i: i for i in graph}
+
+    num_nodes = max(grp_keys.keys()) + 1
+
+    num_members = {k: len(v) for k, v in graph.items()}
+
+    num_vals = sum(num_members.values())
+
+    if separate_keys:
+        arr = np.zeros(num_vals, dtype=val_dtype)
+        keys = np.zeros(num_nodes, dtype=key_dtype)
+        start_idx = 0
+    else:
+        arr = np.zeros(num_nodes + 1 + num_vals, dtype=val_dtype)
+        arr[0] = num_nodes
+        start_idx = num_nodes + 1
+
+    for node_idx in range(num_nodes):
+
+        graph_key = grp_keys.get(node_idx)
+
+        members = graph.get(graph_key, np.array([]))
+
+        num_members_i = num_members.get(graph_key, 0)
+
+        end_idx = start_idx + num_members_i
+
+        if separate_keys:
+            if key_dtype == int or graph_key is None:
+                keys[node_idx] = start_idx
+            else:
+                keys[node_idx] = graph_key
+        else:
+            arr[node_idx + 1] = start_idx
+
+        arr[start_idx:end_idx] = members
+        start_idx += num_members_i
+
+    if separate_keys:
+        return arr, keys
+    else:
+        return arr
+
+
+@TimeIt.decorator
+def nested_graph_to_adjacency_list(graph, depth=2):
+    flat_graph = {}
+    for k, v in graph.items():
+        flat_graph[k] = (
+            graph_to_adjacency_list(v)
+            if depth == 2
+            else nested_graph_to_adjacency_list(v, depth=depth - 1)
+        )
+    return graph_to_adjacency_list(flat_graph)
+
+
+@TimeIt.decorator
+def adjacency_list_to_nested_graph(adj_lst, depth=2):
+    nested_graph = {}
+    for k, v in adjacency_list_to_graph(adj_lst).items():
+        nested_graph[k] = (
+            adjacency_list_to_graph(v)
+            if depth == 2
+            else adjacency_list_to_nested_graph(v, depth=depth - 1)
+        )
+    return nested_graph
+
 
 @TimeIt.decorator
 def _zarr_get_coord_selection(arr: Array, selection: Any, logger: Logger):
@@ -150,6 +303,25 @@ def _encode_numpy_array(
     return len(type_lookup["arrays"]) - 1
 
 
+def _encode_numpy_array_NEW(
+    obj: NDArray,
+    type_lookup: TypeLookup,
+    path: list[int],
+    root_group: Group,
+    root_encoder: Callable,
+) -> int:
+    new_idx = max((int(i) for i in root_group.keys()), default=-1) + 1
+    with override_module_attrs(
+        "zarr.util", {"CHUNK_MIN": _ARRAY_CHUNK_MIN, "CHUNK_MAX": _ARRAY_CHUNK_MAX}
+    ):
+        # `guess_chunks` also ensures chunk shape is at least 1 in each dimension:
+        chunk_shape = guess_chunks(obj.shape, obj.dtype.itemsize)
+
+    root_group.create_dataset(name=str(new_idx), data=obj, chunks=chunk_shape)
+    type_lookup["arrays"].append([path, new_idx])
+    return len(type_lookup["arrays"]) - 1
+
+
 def _decode_numpy_arrays(
     obj: dict | None,
     type_lookup: TypeLookup,
@@ -167,6 +339,34 @@ def _decode_numpy_arrays(
             continue
 
         dataset: NDArray = arr_group.get(f"arr_{arr_idx}")
+        if dataset_copy:
+            dataset = dataset[:]
+
+        if rel_path:
+            set_in_container(obj_, rel_path, dataset)
+        else:
+            obj_ = dataset
+
+    return obj_
+
+
+def _decode_numpy_arrays_NEW(
+    obj: dict | None,
+    type_lookup: TypeLookup,
+    path: list[int],
+    arr_group: Group,
+    dataset_copy: bool,
+):
+    # Yuck! Type lies! Zarr's internal types are not modern Python types.
+    arrays = cast("Iterable[tuple[list[int], int]]", type_lookup.get("arrays", []))
+    obj_: dict | NDArray | None = obj
+    for arr_path, arr_idx in arrays:
+        try:
+            rel_path = get_relative_path(arr_path, path)
+        except ValueError:
+            continue
+
+        dataset: NDArray = arr_group.get(str(arr_idx))
         if dataset_copy:
             dataset = dataset[:]
 
@@ -286,6 +486,7 @@ class ZarrStoreElement(StoreElement[ListAny, ZarrAttrs]):
             [[ensure_in(k, attrs["src_idx"]), v] for k, v in self.src_idx.items()],
             self.task_ID,
             self.iteration_IDs,
+            self.es_ID,
         ]
 
     @override
@@ -300,6 +501,7 @@ class ZarrStoreElement(StoreElement[ListAny, ZarrAttrs]):
             "src_idx": {attrs["src_idx"][k]: v for (k, v) in elem_dat[4]},
             "task_ID": elem_dat[5],
             "iteration_IDs": elem_dat[6],
+            "es_ID": elem_dat[7],
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -327,6 +529,7 @@ class ZarrStoreElementIter(StoreElementIter[ListAny, ZarrAttrs]):
             ],
             [ensure_in(i, attrs["schema_parameters"]) for i in self.schema_parameters],
             [[ensure_in(dk, attrs["loops"]), dv] for dk, dv in self.loop_idx.items()],
+            self.index,
         ]
 
     @override
@@ -341,6 +544,7 @@ class ZarrStoreElementIter(StoreElementIter[ListAny, ZarrAttrs]):
             "data_idx": {attrs["parameter_paths"][i[0]]: i[1] for i in iter_dat[4]},
             "schema_parameters": [attrs["schema_parameters"][i] for i in iter_dat[5]],
             "loop_idx": {attrs["loops"][i[0]]: i[1] for i in iter_dat[6]},
+            "index": iter_dat[7],
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -352,6 +556,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
     """
 
     @override
+    @TimeIt.decorator
     def encode(self, ts_fmt: str, attrs: ZarrAttrs) -> ListAny:
         """Prepare store EAR data for the persistent store.
 
@@ -382,6 +587,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
 
     @override
     @classmethod
+    @TimeIt.decorator
     def decode(cls, EAR_dat: ListAny, ts_fmt: str, attrs: ZarrAttrs) -> Self:
         """Initialise a `ZarrStoreEAR` from persistent EAR data"""
         obj_dat = {
@@ -471,10 +677,32 @@ class ZarrPersistentStore(
     _param_base_arr_name: ClassVar[str] = "base"
     _param_sources_arr_name: ClassVar[str] = "sources"
     _param_user_arr_grp_name: ClassVar[str] = "arrays"
+    _param_new_arr_grp_name: ClassVar[str] = "arrays_NEW"
+    _param_base_outs_arr_grp_name: ClassVar[str] = "base_outputs"
+    _base_outputs_fill_value: ClassVar[int] = 0
     _param_data_arr_grp_name: ClassVar = lambda _, param_idx: f"param_{param_idx}"
     _subs_md_group_name: ClassVar[str] = "submissions"
     _task_arr_name: ClassVar[str] = "tasks"
+    _task_v2_arr_name: ClassVar[str] = "v2_tasks"
+    _elem_set_metadata_arr_name: ClassVar[str] = "elem_set_meta"
+    _elem_set_inp_src_iter_IDs_arr_name: ClassVar[str] = "elem_set_inp_src_iter_IDs"
     _elem_arr_name: ClassVar[str] = "elements"
+    _elem_v2_arr_name: ClassVar[str] = "elem_meta"
+    _elem_seq_idx_arr_name: ClassVar[str] = "elem_seq_idx"
+    _elem_seq_idx_lookup_arr_name: ClassVar[str] = "elem_seq_idx_lookup"
+    _elem_src_idx_arr_name: ClassVar[str] = "elem_src_idx"
+    _elem_src_idx_lookup_arr_name: ClassVar[str] = "elem_src_idx_lookup"
+    _elem_iter_IDs_arr_name: ClassVar[str] = "elem_iter_IDs"
+    _iter_run_IDs_arr_name: ClassVar[str] = "iter_run_IDs"
+    _iter_metadata_arr_name: ClassVar[str] = "iter_meta"
+    _iter_loop_idx_arr_name: ClassVar[str] = "iter_loop_idx"
+    _iter_loop_idx_lookup_arr_name: ClassVar[str] = "iter_loop_idx_lookup"
+    _iter_data_idx_arr_name: ClassVar[str] = "iter_data_idx"
+    _iter_data_idx_lookup_arr_name: ClassVar[str] = "iter_data_idx_lookup"
+    _run_metadata_arr_name: ClassVar[str] = "run_meta"
+    _run_data_idx_arr_name: ClassVar[str] = "run_data_idx"
+    _run_data_idx_lookup_arr_name: ClassVar[str] = "run_data_idx_lookup"
+    _local_inputs_arr_name: ClassVar[str] = "local_inputs"
     _iter_arr_name: ClassVar[str] = "iters"
     _EAR_arr_name: ClassVar[str] = "runs"
     _run_dir_arr_name: ClassVar[str] = "run_dirs"
@@ -488,6 +716,26 @@ class ZarrPersistentStore(
     _res_map: ClassVar[CommitResourceMap] = CommitResourceMap(
         commit_template_components=("attrs",)
     )
+
+    elem_seq_idx_dtype = [("sequence_path_idx", np.uint16), ("sequence_idx", np.uint32)]
+    elem_seq_idx_lookup_dtype = np.uint32
+    elem_src_idx_dtype = [("source_path_idx", np.uint16), ("source_idx", np.uint8)]
+    elem_src_idx_lookup_dtype = np.uint32
+    iter_loop_idx_dtype = [("loop_name_idx", np.uint8), ("loop_iteration_idx", np.uint32)]
+    iter_loop_idx_lookup_dtype = np.uint32
+    iter_data_idx_dtype = [
+        ("param_path_idx", np.uint16),
+        ("param_idx", np.uint32),
+        ("param_sub_idx", np.uint32),
+    ]
+    iter_data_idx_lookup_dtype = np.uint32
+    run_data_idx_dtype = [
+        ("param_path_idx", np.uint16),
+        ("param_idx", np.uint32),
+        ("param_sub_idx", np.uint32),
+    ]
+    run_data_idx_lookup_dtype = np.uint32
+    elem_set_inp_src_iter_IDs_dtype = np.uint32
 
     def __init__(self, app, workflow, path: str | Path, fs: AbstractFileSystem) -> None:
         self._zarr_store = None  # assigned on first access to `zarr_store`
@@ -586,12 +834,27 @@ class ZarrPersistentStore(
             "loops": [],
             "submissions": [],
         }
+
+        NEW_attrs = {
+            "task_ID_list": [],
+            "element_src_idx_paths": [],
+            "element_seq_idx_paths": [],
+            "es_inp_src_paths": [],
+            "loop_names": [],
+            "template": template_js,
+            "loops": [],
+            "task_output_array_idx": {},
+        }
+
         if replaced_wk:
             attrs["replaced_workflow"] = replaced_wk
 
         store = cls._get_zarr_store(wk_path, fs)
         root = zarr.group(store=store, overwrite=False)
         root.attrs.update(attrs)
+
+        new_root_group = root.create_group("NEW")
+        new_root_group.attrs.update(NEW_attrs)
 
         # use a nested directory store for the metadata group so the runs array
         # can be stored as a 2D array in nested directories, thereby limiting the maximum
@@ -616,6 +879,14 @@ class ZarrPersistentStore(
             compressor=cmp,
         )
 
+        tasks_v2_arr = md.create_dataset(
+            name=cls._task_v2_arr_name,
+            shape=0,
+            dtype=np.uint32,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
         elems_arr = md.create_dataset(
             name=cls._elem_arr_name,
             shape=0,
@@ -625,6 +896,68 @@ class ZarrPersistentStore(
             compressor=cmp,
         )
         elems_arr.attrs.update({"seq_idx": [], "src_idx": []})
+
+        elem_set_arr = md.create_dataset(
+            name=cls._elem_set_metadata_arr_name,
+            shape=0,
+            dtype=cls.elem_set_metadata_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        elem_set_inp_src_iter_IDs_arr = md.create_dataset(
+            name=cls._elem_set_inp_src_iter_IDs_arr_name,
+            shape=0,
+            dtype=cls.elem_set_inp_src_iter_IDs_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        elems_v2_arr = md.create_dataset(
+            name=cls._elem_v2_arr_name,
+            shape=0,
+            dtype=cls.elem_metadata_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        elem_iter_IDs_arr = md.create_dataset(
+            name=cls._elem_iter_IDs_arr_name,
+            shape=0,
+            dtype=np.uint32,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        iter_metadata_arr = md.create_dataset(
+            name=cls._iter_metadata_arr_name,
+            shape=0,
+            dtype=cls.iter_metadata_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        iter_run_IDs_arr = md.create_dataset(
+            name=cls._iter_run_IDs_arr_name,
+            shape=0,
+            dtype=np.uint32,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        run_metadata_arr = md.create_dataset(
+            name=cls._run_metadata_arr_name,
+            shape=0,
+            dtype=cls.run_metadata_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
+        cls._write_element_src_idx_arrays(md_group=md, element_src_idx={})
+        cls._write_element_seq_idx_arrays(md_group=md, element_seq_idx={})
+        cls._write_iter_loop_idx_arrays(md_group=md, iter_loop_idx={})
+        cls._write_iter_data_idx_arrays(md_group=md, iter_data_idx={})
+        cls._write_run_data_idx_arrays(md_group=md, run_data_idx={})
 
         elem_iters_arr = md.create_dataset(
             name=cls._iter_arr_name,
@@ -683,9 +1016,489 @@ class ZarrPersistentStore(
             compressor=cmp,
         )
         parameter_data.create_group(name=cls._param_user_arr_grp_name)
+        parameter_data.create_group(name=cls._param_new_arr_grp_name)
+        parameter_data.create_group(name=cls._param_base_outs_arr_grp_name)
 
         # for storing submission metadata that should not be stored in the root group:
         md.create_group(name=cls._subs_md_group_name)
+
+        parameter_data.create_dataset(
+            name=cls._local_inputs_arr_name,
+            shape=0,
+            dtype=object,
+            object_codec=cls._CODEC,
+            chunks=1_000_000,  # TODO: should be able to set this to False, or not in zarr 2?
+            compressor=cmp,
+        )
+
+    def load_data(self) -> None:
+
+        self.root_attributes = self._get_root_group().get("NEW").attrs.asdict()
+        self.task_ID_list = self.root_attributes["task_ID_list"]
+        self.element_src_idx_paths = self.root_attributes["element_src_idx_paths"]
+        self.element_seq_idx_paths = self.root_attributes["element_seq_idx_paths"]
+        self.es_inp_src_paths = self.root_attributes["es_inp_src_paths"]
+        self.loop_names = self.root_attributes["loop_names"]
+        self.template = self.root_attributes["template"]
+        self.loops = self.root_attributes["loops"]
+
+        for idx, val in self.root_attributes["task_output_array_idx"].items():
+            for out_name, arr_idx_dat in val.items():
+                val[out_name]["action_indices"] = {
+                    int(idx_from): idx_to
+                    for idx_from, idx_to in arr_idx_dat["action_indices"].items()
+                }
+            self.task_output_array_idx[int(idx)] = val
+
+        self.task_templates = self.template["tasks"]
+        self.loop_templates = self.template["loops"]
+
+        self.element_set_metadata = self._get_v2_element_set_metadata_array()[:]
+        self.element_metadata = self._get_v2_element_metadata_array()[:]
+        self.iter_metadata = self._get_v2_iter_metadata_array()[:]
+        self.run_metadata = self._get_v2_run_metadata_array()[:]
+
+        self.task_element_IDs = adjacency_list_to_graph(
+            self._get_v2_task_element_IDs_array()
+        )
+        self.element_iter_IDs = adjacency_list_to_graph(
+            self._get_v2_element_iter_IDs_array()
+        )
+        self.iter_run_IDs = adjacency_list_to_graph(self._get_v2_iter_run_IDs_array())
+
+        self.element_set_input_source_iter_IDs = {
+            es_ID: {
+                self.es_inp_src_paths[psrc]: iter_IDs
+                for psrc, iter_IDs in inp_src_iters.items()
+            }
+            for es_ID, inp_src_iters in adjacency_list_to_nested_graph(
+                self._get_v2_element_set_input_source_iter_IDs_array()[:], depth=3
+            ).items()
+        }
+
+        src_arr, src_lookup_arr = self._get_v2_element_src_idx_arrays()
+        esrc_idx = adjacency_list_to_graph(src_arr[:], src_lookup_arr[:])
+        self.element_src_idx = {
+            elem_id: {
+                self.element_src_idx_paths[psrc_j["source_path_idx"]]: psrc_j[
+                    "source_idx"
+                ].item()
+                for psrc_j in src_i
+            }
+            for elem_id, src_i in esrc_idx.items()
+        }
+
+        seq_arr, seq_lookup_arr = self._get_v2_element_seq_idx_arrays()
+        eseq_idx = adjacency_list_to_graph(seq_arr[:], seq_lookup_arr[:])
+        # this includes sequences and inputs from upstream tasks (in which case the
+        # indices index into the element iteration IDs list of the input source.):
+        self.element_seq_idx = {
+            elem_id: {
+                self.element_seq_idx_paths[pseq_j["sequence_path_idx"]]: pseq_j[
+                    "sequence_idx"
+                ].item()
+                for pseq_j in seq_i
+            }
+            for elem_id, seq_i in eseq_idx.items()
+        }
+
+        loop_arr, loop_lookup_arr = self._get_v2_iter_loop_idx_arrays()
+        loop_idx = adjacency_list_to_graph(loop_arr[:], loop_lookup_arr[:])
+        self.iter_loop_idx = {
+            iter_id: {
+                self.loop_names[loop_j["loop_name_idx"]]: loop_j[
+                    "loop_iteration_idx"
+                ].item()
+                for loop_j in iter_i_loop_idx
+            }
+            for iter_id, iter_i_loop_idx in loop_idx.items()
+        }
+
+        arr = self._get_v2_local_inputs_array()
+        if arr.size:
+            decoded = (
+                self._store_param_cls()
+                .decode(
+                    id_=None,
+                    data=arr[0],
+                    source=None,
+                    decoders={"array": _decode_numpy_arrays_NEW},
+                    arr_group=self._get_parameter_NEW_array_group(),
+                    dataset_copy=False,
+                )
+                .data
+            )
+        else:
+            decoded = {
+                "inputs": {},  # keyed by element set ID, then path
+                "resources": {},  # keyed by element set ID, then path
+                "workflow_resources": {},  # keyed by element set ID, then path
+                "sequences": {},  # keyed by element set ID, then path
+                "defaults": {},  # keyed by task insert ID (assuming one schema per task), then path
+            }
+
+        self.local_inputs = decoded
+
+    def persist_ctx_start(self, ctx):
+        ctx["files_to_update"] = set()
+
+    def persist_ctx_end(self, ctx):
+        for file_key in ctx["files_to_update"]:
+            if file_key == "root_attributes":
+                self._get_root_group(mode="r+").get("NEW").attrs.put(self.root_attributes)
+
+    def update_task_templates(self, task_templates, ctx):
+        ctx["files_to_update"].add("root_attributes")
+        self.template["tasks"] = task_templates
+
+    def update_loop_templates(self, loop_templates, ctx):
+        ctx["files_to_update"].add("root_attributes")
+        self.template["loops"] = loop_templates
+
+    def update_loops(self, loops, ctx):
+        ctx["files_to_update"].add("root_attributes")
+        self.loops[:] = loops
+
+    def update_task_ID_list(self, task_ID_list, ctx):
+        # metadata is written to disk by persist_ctx_end
+        ctx["files_to_update"].add("root_attributes")
+        self.task_ID_list[:] = task_ID_list
+
+    def update_task_output_array_idx(self, task_output_array_idx, ctx):
+        print(f"Zarr.update_task_output_array_idx: {task_output_array_idx=!r}")
+        ctx["files_to_update"].add("root_attributes")
+        self.task_output_array_idx.update(task_output_array_idx)
+        print(f"Zarr.update_task_output_array_idx: {self.task_output_array_idx=!r}")
+        self.root_attributes["task_output_array_idx"].update(
+            {str(k): v for k, v in task_output_array_idx.items()}
+        )
+
+    def update_local_inputs(self, local_inputs, ctx):
+        inp_arr = self._get_v2_local_inputs_array(mode="r+")
+        inp_arr.resize(1)
+        inp_arr[0] = self._store_param_cls()(
+            id_=None,
+            is_pending=None,
+            is_set=True,
+            data=local_inputs,
+            file=None,
+            source=None,
+        ).encode(
+            root_group=self._get_parameter_NEW_array_group(mode="r+"),
+            encoders={np.ndarray: _encode_numpy_array_NEW},
+        )  # TODO: encode should be something like "extract_non_primitive_types"
+
+    def update_element_set_metadata(self, element_set_metadata, ctx):
+        es_md_arr = self._get_v2_element_set_metadata_array(mode="r+")
+        es_md_arr.resize(len(element_set_metadata))
+        es_md_arr[:] = element_set_metadata
+
+    def update_element_metadata(self, element_metadata, ctx):
+        elem_md_arr = self._get_v2_element_metadata_array(mode="r+")
+        elem_md_arr.resize(len(element_metadata))
+        elem_md_arr[:] = element_metadata
+
+    def update_iter_metadata(self, iter_metadata, ctx):
+        iter_md_arr = self._get_v2_iter_metadata_array(mode="r+")
+        iter_md_arr.resize(len(iter_metadata))
+        iter_md_arr[:] = iter_metadata
+
+    def update_run_metadata(self, run_metadata, ctx):
+        run_md_arr = self._get_v2_run_metadata_array(mode="r+")
+        run_md_arr.resize(len(run_metadata))
+        run_md_arr[:] = run_metadata
+
+    def update_task_element_IDs(self, task_element_IDs, ctx):
+        task_element_IDs_v2_arr = self._get_v2_task_element_IDs_array(mode="r+")
+        task_element_IDs_adj_lst = graph_to_adjacency_list(task_element_IDs)
+        task_element_IDs_v2_arr.resize(len(task_element_IDs_adj_lst))
+        task_element_IDs_v2_arr[:] = task_element_IDs_adj_lst
+
+    def update_element_iter_IDs(self, element_iter_IDs, ctx):
+        elem_iter_IDs_arr = self._get_v2_element_iter_IDs_array(mode="r+")
+        elem_iter_IDs_adj_lst = graph_to_adjacency_list(element_iter_IDs)
+        elem_iter_IDs_arr.resize(len(elem_iter_IDs_adj_lst))
+        elem_iter_IDs_arr[:] = elem_iter_IDs_adj_lst
+
+    def update_iter_run_IDs(self, iter_run_IDs, ctx):
+        iter_run_IDs_arr = self._get_v2_iter_run_IDs_array(mode="r+")
+        iter_run_IDs_adj_lst = graph_to_adjacency_list(iter_run_IDs)
+        iter_run_IDs_arr.resize(len(iter_run_IDs_adj_lst))
+        iter_run_IDs_arr[:] = iter_run_IDs_adj_lst
+
+    def update_element_set_input_source_iter_IDs(self, elem_set_inp_src_iter_IDs, ctx):
+        es_iter_IDs_arr = self._get_v2_element_set_input_source_iter_IDs_array(mode="r+")
+        es_inp_src_paths = []
+        es_inp_src_iter_IDs = {
+            es_ID: {
+                ensure_in(inp_src_path, es_inp_src_paths): inp_src_iter_IDs_j
+                for inp_src_path, inp_src_iter_IDs_j in path_iter_IDs.items()
+            }
+            for es_ID, path_iter_IDs in elem_set_inp_src_iter_IDs.items()
+        }
+        self.es_inp_src_paths[:] = es_inp_src_paths
+        es_iter_IDs_adj_lst = nested_graph_to_adjacency_list(es_inp_src_iter_IDs, depth=3)
+        es_iter_IDs_arr.resize(len(es_iter_IDs_adj_lst))
+        es_iter_IDs_arr[:] = es_iter_IDs_adj_lst
+
+    def update_element_src_idx(self, element_src_idx, ctx):
+        md_group = self._get_root_group(mode="r+").get("metadata")
+        esrc_paths = []
+        esrc_idx = {
+            elem_id: [(ensure_in(k, esrc_paths), v) for k, v in src_i.items()]
+            for elem_id, src_i in element_src_idx.items()
+        }
+        self.element_src_idx_paths[:] = esrc_paths
+        self._write_element_src_idx_arrays(md_group, esrc_idx)
+
+    def update_element_seq_idx(self, element_seq_idx, ctx):
+        md_group = self._get_root_group(mode="r+").get("metadata")
+        eseq_paths = []
+        eseq_idx = {
+            elem_id: [(ensure_in(k, eseq_paths), v) for k, v in seq_i.items()]
+            for elem_id, seq_i in element_seq_idx.items()
+        }
+        self.element_seq_idx_paths[:] = eseq_paths
+        self._write_element_seq_idx_arrays(md_group, eseq_idx)
+
+    def update_iter_loop_idx(self, iter_loop_idx, ctx):
+        md_group = self._get_root_group(mode="r+").get("metadata")
+        loop_names = []
+        loop_idx = {
+            iter_id: [(ensure_in(k, loop_names), v) for k, v in iter_i_loops.items()]
+            for iter_id, iter_i_loops in iter_loop_idx.items()
+        }
+        self.loop_names[:] = loop_names
+        self._write_iter_loop_idx_arrays(md_group, loop_idx)
+
+    def has_base_output_arr(self, task_ID: int) -> bool:
+        return str(task_ID) in self._get_parameter_base_outputs_array_group()
+
+    def _get_base_outputs_array(self, task_ID: int, mode: str = "r") -> Array:
+        return self._get_parameter_base_outputs_array_group(mode).get(str(task_ID))
+
+    def get_base_outputs_array_shape(self, task_ID: int) -> tuple[int, ...]:
+        return self._get_base_outputs_array(task_ID).shape
+
+    def _get_array(self, arr_idx: int, mode: str = "r") -> Array:
+        return self._get_parameter_NEW_array_group(mode).get(str(arr_idx))
+
+    def init_new_output_arrays(
+        self,
+        new_base_output_arrays: Mapping[int, int],
+        new_array_output_arrays: Mapping[int, Mapping[str, dict[str, Any]]],
+        task_arr_shapes: Mapping[int, Sequence[int, int]],
+        ctx,
+    ) -> dict[int]:
+        """
+        Initialise new base-output and array-output arrays as specified.
+
+        Note: this mutates the argument `task_array_shapes`.
+
+        Parameters
+        ----------
+        task_arr_shapes:
+            Dictionary whose keys are task IDs and whose values are the outer shapes to
+            which base-output and array-output arrays should be initialised (corresponding
+            to element and iteration dimensions).
+
+        Returns
+        -------
+        Nested dictionary keyed by task ID and then output parameter type, with values
+        "array_idx", "action_indices", and "dtype", which describe the newly created
+        array-output arrays.
+
+        """
+        base_grp = self._get_parameter_base_outputs_array_group(mode="r+")
+        arr_group = self._get_parameter_NEW_array_group(mode="r+")
+
+        new_task_out_arr_idx = defaultdict(dict)
+        for task_ID, num_acts in new_base_output_arrays.items():
+
+            # TODO: store elements across multiple outer dimensions
+            outer_shape = task_arr_shapes.pop(task_ID)
+            shape = tuple([*outer_shape, num_acts])
+
+            # elements must be distinct files/chunks:
+            chunk_shape = [dim_size for dim_size in shape]
+            chunk_shape[0] = 1
+
+            base_grp.create_dataset(
+                name=str(task_ID),
+                shape=shape,
+                chunks=chunk_shape,
+                write_empty_chunks=False,
+                dtype=object,
+                object_codec=MsgPack(),  # TODO: option: compressor?
+                fill_value=self._base_outputs_fill_value,
+            )
+
+            for out_type, arr_dat in new_array_output_arrays[task_ID].items():
+
+                act_indices = arr_dat["action_indices"]
+                dtype = arr_dat["dtype"]
+                inner_shape = [len(act_indices)]
+                if p_shape := arr_dat["shape"]:
+                    inner_shape.extend(p_shape)
+
+                # TODO: store elements across multiple outer dimensions
+                shape_i = tuple([*outer_shape, *inner_shape])
+
+                # elements must be distinct files/chunks:
+                chunk_shape_i = [dim_size for dim_size in shape]
+                chunk_shape_i[0] = 1
+
+                new_idx = len(arr_group)
+                arr_group.create_dataset(
+                    name=str(new_idx),
+                    shape=shape_i,
+                    chunks=chunk_shape_i,
+                    write_empty_chunks=False,
+                    dtype=dtype,
+                )
+
+                print(f"Zarr.init_new_output_arrays: {out_type=!r}")
+                new_task_out_arr_idx[task_ID][out_type] = {
+                    "array_idx": new_idx,
+                    "action_indices": act_indices,
+                    "dtype": str(dtype),
+                }
+
+        return new_task_out_arr_idx
+
+    def _resize_base_outputs(self, task_ID: int, add_outer_shape: list[int]):
+        # TODO: store elements across multiple outer dimensions
+        arr = self._get_base_outputs_array(task_ID, mode="r+")
+        arr.resize(self._increment_outer_shape(arr.shape, add_outer_shape))
+
+    def _resize_array_outputs(
+        self, arr_indices: tuple[int, ...], add_outer_shape: list[int]
+    ):
+        # TODO: store elements across multiple outer dimensions
+        arr_group = self._get_parameter_NEW_array_group(mode="r+")
+        for arr_idx in arr_indices:
+            arr = arr_group.get(str(arr_idx))
+            arr.resize(self._increment_outer_shape(arr.shape, add_outer_shape))
+
+    def update_output_array_shapes(
+        self,
+        task_arr_shapes: Mapping[int, Sequence[int, int]],
+        arr_indices_by_task: Mapping[int, tuple[int, ...]],
+        ctx,
+    ):
+        """Resize base-output and array-output arrays to accommodate new elements and/or
+        iterations.
+
+        Parameters
+        ----------
+        task_arr_shapes:
+            Dictionary whose keys are task IDs and whose values are the outer shapes to
+            which base-output and array-output arrays should be resized (corresponding to
+            element and iteration dimensions).
+        arr_indices_by_task:
+            Dictionary whose keys are task IDs and whose values are tuples of
+            associated output array indices.
+
+        """
+        print(f"Zarr.update_output_array_shapes: {task_arr_shapes=!r}")
+        print(f"Zarr.update_output_array_shapes: {arr_indices_by_task=!r}")
+        ctx["files_to_update"].add("parameters_v2")
+        for task_ID, outer_shape in task_arr_shapes.items():
+            self._resize_base_outputs(task_ID, outer_shape)
+            if arr_idx := arr_indices_by_task.get(task_ID) is not None:
+                self._resize_array_outputs(arr_idx, outer_shape)
+
+    def get_base_outputs(
+        self,
+        task_ID: int,
+        indices: NDArray[np.void],
+        paths: Sequence[str] | None = None,
+        arr: Array | None = None,
+    ) -> list[Any]:
+        """
+        `indices` should be a structured array with fields "element_idx", "iteration_idx", and
+        "action_idx".
+
+        Parameters
+        ----------
+        arr
+            The base outputs parameter array for the specified task. If not provided,
+            since will be loaded.
+        """
+        arr = arr or self._get_base_outputs_array(task_ID, mode="r")
+        all_outs = []
+        encoded = arr[
+            indices["element_idx"], indices["iteration_idx"], indices["action_idx"]
+        ]
+
+        for enc_i in encoded:
+            if enc_i is self._base_outputs_fill_value:
+                dec_i = UnsetBaseOutput.NULL
+            else:
+                dec_i = (
+                    self._store_param_cls()
+                    .decode(
+                        id_=None,
+                        data=enc_i,
+                        source=None,
+                        decoders={"array": _decode_numpy_arrays_NEW},
+                        arr_group=self._get_parameter_NEW_array_group(),
+                        dataset_copy=False,
+                    )
+                    .data
+                )
+                if paths:
+                    dec_i = {k: v for k, v in dec_i.items() if k in paths}
+            all_outs.append(dec_i)
+        return all_outs
+
+    def set_base_outputs(
+        self, task_ID: int, indices: NDArray[np.void], values: Sequence[dict[str, Any]]
+    ):
+        arr = self._get_base_outputs_array(task_ID, mode="r+")
+        existing = self.get_base_outputs(task_ID, indices=indices, arr=arr)
+
+        all_enc = []
+        for idx, val_i in enumerate(values):
+
+            if existing[idx] is UnsetBaseOutput.NULL:
+                existing_i = {}
+            else:
+                existing_i = existing[idx]
+
+            updated = {**existing_i, **val_i}
+            enc_i = self._store_param_cls()(
+                id_=None,
+                is_pending=None,
+                is_set=True,
+                data=updated,
+                file=None,
+                source=None,
+            ).encode(
+                root_group=self._get_parameter_NEW_array_group(mode="r+"),
+                encoders={np.ndarray: _encode_numpy_array_NEW},
+            )  # TODO: separate functions for encoding decoding
+            all_enc.append(enc_i)
+        arr[indices["element_idx"], indices["iteration_idx"], indices["action_idx"]] = (
+            all_enc
+        )
+
+    def get_output_array(self, arr_idx) -> Array:
+        return self._get_parameter_NEW_array_group().get(str(arr_idx))
+
+    def get_array_items(self, arr_idx, indices):
+        arr = self._get_array(arr_idx, mode="r")
+        # TODO: store elements across multiple outer dimensions
+        return arr[
+            indices["element_idx"], indices["iteration_idx"], indices["action_idx"]
+        ]
+
+    def set_array_items(self, arr_idx, indices, values):
+        arr = self._get_array(arr_idx, mode="r+")
+        # TODO: store elements across multiple outer dimensions
+        arr[indices["element_idx"], indices["iteration_idx"], indices["action_idx"]] = (
+            values
+        )
 
     def _append_tasks(self, tasks: Iterable[ZarrStoreTask]):
         elem_IDs_arr = self._get_tasks_arr(mode="r+")
@@ -1169,6 +1982,7 @@ class ZarrPersistentStore(
             updates={k: {"data_idx": v} for k, v in run_data_indices.items()}
         )
 
+    @TimeIt.decorator
     def _append_EARs(self, EARs: Sequence[ZarrStoreEAR]):
         arr = self._get_EARs_arr(mode="r+")
         with self.__mutate_attrs(arr) as attrs:
@@ -1458,6 +2272,14 @@ class ZarrPersistentStore(
     def _get_parameter_user_array_group(self, mode: str = "r") -> Group:
         return self._get_parameter_group(mode=mode).get(self._param_user_arr_grp_name)
 
+    def _get_parameter_NEW_array_group(self, mode: str = "r") -> Group:
+        return self._get_parameter_group(mode=mode).get(self._param_new_arr_grp_name)
+
+    def _get_parameter_base_outputs_array_group(self, mode: str = "r") -> Group:
+        return self._get_parameter_group(mode=mode).get(
+            self._param_base_outs_arr_grp_name
+        )
+
     def _get_parameter_data_array_group(
         self,
         parameter_idx: int,
@@ -1492,6 +2314,182 @@ class ZarrPersistentStore(
         except (FileNotFoundError, zarr.errors.GroupNotFoundError):
             # zip store?
             return zarr.open_group(self.zarr_store, path="metadata", mode=mode)
+
+    def _get_v2_task_element_IDs_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(f"metadata/{self._task_v2_arr_name}")
+
+    def _get_v2_element_iter_IDs_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._elem_iter_IDs_arr_name}"
+        )
+
+    def _get_v2_iter_run_IDs_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._iter_run_IDs_arr_name}"
+        )
+
+    def _get_v2_element_set_metadata_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._elem_set_metadata_arr_name}"
+        )
+
+    def _get_v2_element_set_input_source_iter_IDs_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._elem_set_inp_src_iter_IDs_arr_name}"
+        )
+
+    def _get_v2_element_metadata_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(f"metadata/{self._elem_v2_arr_name}")
+
+    def _get_v2_element_src_idx_arrays(self, mode: str = "r") -> tuple[Array, Array]:
+        root = self._get_root_group(mode=mode)
+        return (
+            root.get(f"metadata/{self._elem_src_idx_arr_name}"),
+            root.get(f"metadata/{self._elem_src_idx_lookup_arr_name}"),
+        )
+
+    def _get_v2_iter_metadata_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._iter_metadata_arr_name}"
+        )
+
+    def _get_v2_run_metadata_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._run_metadata_arr_name}"
+        )
+
+    def _get_v2_local_inputs_array(self, mode: str = "r") -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"parameters/{self._local_inputs_arr_name}"
+        )
+
+    @classmethod
+    def _write_element_src_idx_arrays(cls, md_group, element_src_idx):
+        esrc, esrc_lookup = graph_to_adjacency_list(
+            element_src_idx, val_dtype=cls.elem_src_idx_dtype, separate_keys=True
+        )
+        elem_src_idx_arr = md_group.create_dataset(
+            name=cls._elem_src_idx_arr_name,
+            data=esrc,
+            dtype=cls.elem_src_idx_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+        elem_src_idx_lookup_arr = md_group.create_dataset(
+            name=cls._elem_src_idx_lookup_arr_name,
+            data=esrc_lookup,
+            dtype=cls.elem_src_idx_lookup_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+
+    @classmethod
+    def _write_element_seq_idx_arrays(cls, md_group, element_seq_idx):
+        eseq, eseq_lookup = graph_to_adjacency_list(
+            element_seq_idx, val_dtype=cls.elem_seq_idx_dtype, separate_keys=True
+        )
+        elem_seq_idx_arr = md_group.create_dataset(
+            name=cls._elem_seq_idx_arr_name,
+            data=eseq,
+            dtype=cls.elem_seq_idx_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+        elem_seq_idx_lookup_arr = md_group.create_dataset(
+            name=cls._elem_seq_idx_lookup_arr_name,
+            data=eseq_lookup,
+            dtype=cls.elem_seq_idx_lookup_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+
+    @classmethod
+    def _write_iter_loop_idx_arrays(cls, md_group, iter_loop_idx):
+        loop_idx, loop_lookup = graph_to_adjacency_list(
+            iter_loop_idx, val_dtype=cls.iter_loop_idx_dtype, separate_keys=True
+        )
+        iter_loop_idx_arr = md_group.create_dataset(
+            name=cls._iter_loop_idx_arr_name,
+            data=loop_idx,
+            dtype=cls.iter_loop_idx_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+        iter_loop_idx_lookup_arr = md_group.create_dataset(
+            name=cls._iter_loop_idx_lookup_arr_name,
+            data=loop_lookup,
+            dtype=cls.iter_loop_idx_lookup_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+
+    @classmethod
+    def _write_iter_data_idx_arrays(cls, md_group, iter_data_idx):
+        data_idx, data_lookup = graph_to_adjacency_list(
+            iter_data_idx, val_dtype=cls.iter_data_idx_dtype, separate_keys=True
+        )
+        iter_loop_idx_arr = md_group.create_dataset(
+            name=cls._iter_data_idx_arr_name,
+            data=data_idx,
+            dtype=cls.iter_data_idx_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+        iter_loop_idx_lookup_arr = md_group.create_dataset(
+            name=cls._iter_data_idx_lookup_arr_name,
+            data=data_lookup,
+            dtype=cls.iter_data_idx_lookup_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+
+    @classmethod
+    def _write_run_data_idx_arrays(cls, md_group, run_data_idx):
+        data_idx, data_lookup = graph_to_adjacency_list(
+            run_data_idx, val_dtype=cls.run_data_idx_dtype, separate_keys=True
+        )
+        run_loop_idx_arr = md_group.create_dataset(
+            name=cls._run_data_idx_arr_name,
+            data=data_idx,
+            dtype=cls.run_data_idx_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+        run_loop_idx_lookup_arr = md_group.create_dataset(
+            name=cls._run_data_idx_lookup_arr_name,
+            data=data_lookup,
+            dtype=cls.run_data_idx_lookup_dtype,
+            chunks=1_000_000,
+            overwrite=True,
+        )
+
+    def _get_v2_element_seq_idx_arrays(self, mode: str = "r") -> tuple[Array, Array]:
+        root = self._get_root_group(mode=mode)
+        return (
+            root.get(f"metadata/{self._elem_seq_idx_arr_name}"),
+            root.get(f"metadata/{self._elem_seq_idx_lookup_arr_name}"),
+        )
+
+    def _get_v2_iter_loop_idx_arrays(self, mode: str = "r") -> tuple[Array, Array]:
+        root = self._get_root_group(mode=mode)
+        return (
+            root.get(f"metadata/{self._iter_loop_idx_arr_name}"),
+            root.get(f"metadata/{self._iter_loop_idx_lookup_arr_name}"),
+        )
+
+    def _get_v2_iter_data_idx_arrays(self, mode: str = "r") -> tuple[Array, Array]:
+        root = self._get_root_group(mode=mode)
+        return (
+            root.get(f"metadata/{self._iter_data_idx_arr_name}"),
+            root.get(f"metadata/{self._iter_data_idx_lookup_arr_name}"),
+        )
+
+    def _get_v2_run_data_idx_arrays(self, mode: str = "r") -> tuple[Array, Array]:
+        root = self._get_root_group(mode=mode)
+        return (
+            root.get(f"metadata/{self._run_data_idx_arr_name}"),
+            root.get(f"metadata/{self._run_data_idx_lookup_arr_name}"),
+        )
 
     def _get_all_submissions_metadata_group(self, mode: str = "r") -> Group:
         return self._get_metadata_group(mode=mode).get(self._subs_md_group_name)

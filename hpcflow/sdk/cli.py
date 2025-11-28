@@ -921,6 +921,7 @@ def _make_internal_CLI(app: BaseApp):
             )
             app.CLI_logger.debug(f"save parameter processed value is: {value!r}")
             wf.save_parameter(name=name, value=value, EAR_ID=ear_id)
+            wf.save_outputs({ear_id: {name.removeprefix("outputs."): value}})
 
     # TODO: in general, maybe the workflow command group can expose the simple Workflow
     # properties; maybe use a decorator on the Workflow property object to signify

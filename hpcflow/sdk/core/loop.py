@@ -430,6 +430,10 @@ class WorkflowLoop(AppAware):
             num_added_iters=self.num_added_iterations,
             parents=self.parents,
         )
+        self.workflow._data.loops[self.index][
+            "num_added_iterations"
+        ] = self.num_added_iterations
+        self.workflow._data.loops[self.index]["parents"] = self.parents
 
     def _reset_pending_num_added_iters(self) -> None:
         self._pending_num_added_iterations = None
@@ -714,6 +718,9 @@ class WorkflowLoop(AppAware):
                 index=child.index,
                 num_added_iters=child.num_added_iterations,
             )
+            self.workflow._data.loops[child.index][
+                "num_added_iterations"
+            ] = child.num_added_iterations
 
         for task in self.task_objects:
             new_loop_idx = LoopIndex(iters_key_dct) + {
@@ -820,12 +827,22 @@ class WorkflowLoop(AppAware):
                 schema_params = set(i for i in new_data_idx if len(i.split(".")) == 2)
                 all_new_data_idx[task.insert_ID, elem_idx] = new_data_idx
 
+                idx_in_elem = len(self.workflow._data.element_iter_IDs[elem_ID])
+
                 iter_ID_i = self.workflow._store.add_element_iteration(
+                    index=idx_in_elem,
                     element_ID=elem_ID,
                     data_idx=new_data_idx,
                     schema_parameters=list(schema_params),
                     loop_idx=new_loop_idx,
                 )
+
+                runs_initialised = 0
+                new_iter_md = (idx_in_elem, elem_ID, runs_initialised)
+                self.workflow._data.element_iter_IDs[elem_ID].append(iter_ID_i)
+                self.workflow._data.iter_metadata.append([new_iter_md])
+                self.workflow._data.iter_loop_idx[iter_ID_i] = dict(new_loop_idx)
+
                 if cache:
                     cache.add_iteration(
                         iter_ID=iter_ID_i,
@@ -839,6 +856,9 @@ class WorkflowLoop(AppAware):
 
             task.initialise_EARs(iter_IDs=added_iter_IDs)
 
+            # increment the iterations dimension:
+            self.workflow._data.modified_output_array_shapes[task.insert_ID][1] += 1
+
         self._increment_pending_added_iters(
             parent_loop_indices_[p_nm] for p_nm in self.parents
         )
@@ -846,6 +866,9 @@ class WorkflowLoop(AppAware):
             index=self.index,
             num_added_iters=self.num_added_iterations,
         )
+        self.workflow._data.loops[self.index][
+            "num_added_iterations"
+        ] = self.num_added_iterations
 
         # add iterations to fixed-number-iteration children only:
         for child in child_loops[::-1]:

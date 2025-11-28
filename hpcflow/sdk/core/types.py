@@ -5,6 +5,7 @@ Types to support the core SDK.
 from __future__ import annotations
 from typing import Any, Literal, Protocol, TYPE_CHECKING
 from typing_extensions import NotRequired, TypeAlias, TypedDict
+from collections import defaultdict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -436,6 +437,10 @@ class ResourcePersistingWorkflow(Protocol):
         """
         Check if all the parameters exist.
         """
+
+
+class ResourcePersistingWorkflowNEW(Protocol):
+    local_inputs: defaultdict  # TODO: type
 
 
 BlockActionKey: TypeAlias = "tuple[int | str, int | str, int | str]"

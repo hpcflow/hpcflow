@@ -57,6 +57,7 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
+from hpcflow.sdk.persistence.data import WorkflowData
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.submission.jobscript import (
     generate_EAR_resource_map,
@@ -911,6 +912,8 @@ class Workflow(AppAware):
         self._is_tracking_unset: bool = False
         self._tracked_unset: dict[str, UnsetParamTracker] | None = None
 
+        self._data = WorkflowData(path, self, store_fmt, fs_kwargs, self._app)
+
     def reload(self) -> Self:
         """Reload the workflow from disk."""
         return self.__class__(self.url)
@@ -1569,6 +1572,9 @@ class Workflow(AppAware):
         assert temp_comps_js is not None
         self._store.add_template_components(temp_comps_js)
         self._store.add_task(new_index, cast("Mapping", task_js))
+        self._data.task_ID_list.insert(new_index, insert_ID)
+        self._data.task_element_IDs[insert_ID] = []
+        self._data.task_templates[new_index] = copy.deepcopy(task_js)
 
         # update in-memory workflow template components:
         temp_comps = cast(
@@ -1671,6 +1677,14 @@ class Workflow(AppAware):
 
         # update cache loop indices:
         cache.update_loop_indices(new_loop_name=loop_c.name or "", iter_IDs=iter_IDs)
+
+        self._data.loop_templates[new_index] = loop_js
+        self._data.loops[new_index] = dict(
+            iterable_parameters=wk_loop.iterable_parameters,
+            output_parameters=wk_loop.output_parameters,
+            parents=wk_loop.parents,
+            num_added_iterations=wk_loop.num_added_iterations,
+        )
 
         return wk_loop
 
@@ -2336,11 +2350,26 @@ class Workflow(AppAware):
                 for dat_i, source_i in self.__ps:
                     workflow._add_parameter_data(dat_i, source_i)
 
+        class PersistenceGrabberNEW:
+            def __init__(self):
+                self.local_inputs = {
+                    k: defaultdict(dict)
+                    for k in ("inputs", "resources", "workflow_resources")
+                }
+
+            def update_workflow_data(self, wk_data: WorkflowData):
+                wk_data.local_inputs["workflow_resources"].update(
+                    self.local_inputs["workflow_resources"]
+                )
+
         # make template-level inputs/resources think they are persistent:
         grabber = PersistenceGrabber()
+        grabber_new = PersistenceGrabberNEW()
         param_src: ParamSource = {"type": "workflow_resources"}
         for res_i_copy in template._get_resources_copy():
-            res_i_copy.make_persistent(grabber, param_src)
+            res_i_copy.make_persistent(
+                grabber, param_src, grabber_new=grabber_new, is_template_level=True
+            )
 
         template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
         template_js: TemplateMeta = {
@@ -2377,6 +2406,7 @@ class Workflow(AppAware):
 
         # actually make template inputs/resources persistent, now the workflow exists:
         grabber.write_persistence_data_to_workflow(wk)
+        grabber_new.update_workflow_data(wk._data)
 
         if template.source_file:
             wk.artifacts_path.mkdir(exist_ok=False)
@@ -2774,7 +2804,8 @@ class Workflow(AppAware):
         """
         return [
             self._app.Element(
-                task=task, **{k: v for k, v in te.items() if k != "task_ID"}
+                task=task,
+                **{k: v for k, v in te.items() if k not in ("task_ID", "es_id")},
             )
             for te in self._store.get_task_elements(task.insert_ID, idx_lst)
         ]
@@ -3569,6 +3600,11 @@ class Workflow(AppAware):
                     tasks=tasks,
                 )
 
+        self._data.register_submission()
+
+        # TODO: this is temporary, since currently we have two store instances!
+        self._store.has_just_submitted = True
+
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
 
@@ -3926,6 +3962,11 @@ class Workflow(AppAware):
                     cmds_ID=cmd_file_IDs[id_],
                     sub_idx=new_idx,
                 )
+            self._data.run_metadata.update_field(
+                name="submission_idx",
+                idx=all_EAR_ID,
+                values=new_idx,
+            )
 
         sub_obj._ensure_JS_parallelism_set()
         sub_obj_js, _ = sub_obj.to_json_like()
@@ -4460,6 +4501,19 @@ class Workflow(AppAware):
             EAR = self.get_EARs_from_IDs(EAR_ID)
             param_id = EAR.data_idx[name]
             self.set_parameter_value(param_id, value)
+
+    def save_outputs(self, values: Mapping[int, Mapping[str, Any]]):
+        """Save (multiple) outputs from (multiple) runs.
+
+        Parameters
+        ----------
+        values
+            Mapping whose keys are integer run IDs, and whose values and the values to set
+            multiple named outputs to.
+
+        """
+        # TODO: check workflow is open in write/append mode?
+        self._data.save_outputs(values)
 
     def show_all_EAR_statuses(self) -> None:
         """

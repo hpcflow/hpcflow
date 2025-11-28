@@ -640,6 +640,9 @@ class ElementActionRun(AppAware):
     @TimeIt.decorator
     def get_EAR_dependencies(self, as_objects=False) -> list[ElementActionRun] | set[int]:
         """Get EARs that this EAR depends on, or just their IDs."""
+
+        # TODO: reimplement with WorkflowData
+
         out: set[int] = set()
         for src in self.get_parameter_sources(typ="EAR_output").values():
             for src_i in src if isinstance(src, list) else [src]:
@@ -1202,6 +1205,7 @@ class ElementActionRun(AppAware):
         )
         return art_name
 
+    @TimeIt.decorator
     def compose_commands(
         self, environments: EnvironmentsList, shell: Shell
     ) -> tuple[str, Mapping[int, Sequence[tuple[str, ...]]]]:
@@ -1271,6 +1275,7 @@ class ElementActionRun(AppAware):
         raise_on_unset: Literal[False] = False,
     ) -> Path | None: ...
 
+    @TimeIt.decorator
     def try_write_commands(
         self,
         jobscript: Jobscript,
@@ -2501,6 +2506,7 @@ class Action(JSONLike):
     ) -> dict[str, Any]:
         return dict(zip(*env_spec_h))
 
+    @TimeIt.decorator
     def get_script_determinants(self) -> tuple:
         """Get the attributes that affect the script."""
         return (
@@ -2511,6 +2517,7 @@ class Action(JSONLike):
             self.script_exe,
         )
 
+    @TimeIt.decorator
     def get_script_determinant_hash(self, env_specs: dict | None = None) -> int:
         """Get a hash of the instance attributes that uniquely determine the script.
 
@@ -3427,6 +3434,7 @@ class Action(JSONLike):
         for command in self.commands:
             yield from command.get_required_executables()
 
+    @TimeIt.decorator
     def compose_source(self, snip_path: Path) -> str:
         """Generate the file contents of this source."""
 
@@ -3517,6 +3525,7 @@ class Action(JSONLike):
                 """\
                 with app.redirect_std_to_file(std_path):
                     wk.save_parameter(name="outputs.{output_typ}", value=output, EAR_ID=run_id)
+                    wk.save_outputs(values={{run_id: {{"{output_typ}": output}}}})
                 """
             ).format(output_typ=self.output_file_parsers[0].output.typ)
         else:

@@ -37,6 +37,7 @@ from hpcflow.sdk.core.utils import (
     timedelta_format,
 )
 from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
+from hpcflow.sdk.utils.arrays import is_primitive_homogeneous
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
         LabelInfo,
         LabellingDescriptor,
         ResourcePersistingWorkflow,
+        ResourcePersistingWorkflowNEW,
         RuleArgs,
         SchemaInputKwargs,
     )
@@ -186,6 +188,13 @@ class Parameter(JSONLike):
     is_file: bool = False
     #: Any parameters packed within this one.
     sub_parameters: list[SubParameter] = field(default_factory=list)
+    #: Numpy-like data type to use when storing multiple values of this parameter type
+    #: within a single array.
+    dtype: str | None = None
+    #: Numpy-like shape to use when storing multiple values of this parameter type
+    #: within a single array.
+    shape: list[int] | None = None
+
     _value_class: type[ParameterValue] | None = None
     _hash_value: str | None = field(default=None, repr=False)
     _validation: Schema | None = None
@@ -686,7 +695,12 @@ class SchemaOutput(SchemaParameter):
             self.parameter: Parameter = self._app.Parameter(typ=parameter)
         else:
             self.parameter = parameter
-        self.propagation_mode = propagation_mode
+
+        if isinstance(prop_mode := propagation_mode, str):
+            prop_mode = get_enum_by_name_or_val(
+                ParameterPropagationMode, propagation_mode
+            )
+        self.propagation_mode = prop_mode
 
     @property
     def input_or_output(self) -> Literal["output"]:
@@ -769,6 +783,11 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         A label for this sequence.
     value_class_method: str
         Name of a method used to generate sequence values. Not normally used directly.
+    array_dtype: str
+        Numpy dtype to use when transforming `values` to an array if `values` is not
+        already an array. This will be disregarded if `values` has an inhomogeneous shape,
+        in which case an "object" dtype will be used. Expected dtypes are those like:
+        "uint16", "int32", "float64", "bool", "complex64" and so on.
     """
 
     def __init__(
@@ -778,6 +797,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         nesting_order: int | float | None = None,
         label: str | int | None = None,
         value_class_method: str | None = None,
+        array_dtype: str | None = None,
     ):
         path_, label_ = self._validate_parameter_path(path, label)
         #: The path to this sequence.
@@ -788,18 +808,26 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         self.nesting_order = None if nesting_order is None else float(nesting_order)
         #: Name of a method used to generate sequence values.
         self.value_class_method = value_class_method
+        #: Which datatype to preferentially use when casting values to an array for more
+        #: efficient storage.
+        self.array_dtype = array_dtype
 
         if values is not None:
-            self._values: list[Any] | None = [
-                process_demo_data_strings(self._app, i) for i in values
-            ]
+            if isinstance(values, np.ndarray):
+                self.array_dtype = str(values.dtype)
+            self._values: list[Any] | NDArray | None = process_demo_data_strings(
+                self._app, values
+            )
+            # TODO: where to check `_check_dict_value_if_object` as in InputValue?
+            # - probably in make_persistent, where we know if its a homogeneous array or
+            #   not
         else:
             self._values = None
 
+        # assigned initially on `make_persistent`:
         self._values_group_idx: list[int] | None = None
-        self._values_are_objs: list[bool] | None = (
-            None  # assigned initially on `make_persistent`
-        )
+        self._values_are_objs: list[bool] | None = None
+        self._values_are_all_objs: bool | None = None
 
         self._workflow: Workflow | None = None  # assigned in `make_persistent`
         self._element_set: ElementSet | None = None  # assigned by parent `ElementSet`
@@ -824,6 +852,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             if self._values_group_idx
             else ""
         )
+        # TODO: custom repr if generating from class method (.from_range etc)
         return (
             f"{self.__class__.__name__}("
             f"path={self.path!r}, "
@@ -840,6 +869,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         _values_group_idx = kwargs.pop("_values_group_idx")
         _values_are_objs = kwargs.pop("_values_are_objs")
+        _values_are_all_objs = kwargs.pop("_values_are_all_objs")
         _values_method = kwargs.pop("_values_method", None)
         _values_method_args = kwargs.pop("_values_method_args", None)
 
@@ -847,6 +877,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         obj._values_group_idx = _values_group_idx
         obj._values_are_objs = _values_are_objs
+        obj._values_are_all_objs = _values_are_all_objs
         obj._values_method = _values_method
         obj._values_method_args = _values_method_args
 
@@ -931,6 +962,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         _values_group_idx = json_like.pop("_values_group_idx", None)
         _values_are_objs = json_like.pop("_values_are_objs", None)
+        _values_are_all_objs = json_like.pop("_values_are_all_objs", None)
         _values_method = json_like.pop("_values_method", None)
         _values_method_args = json_like.pop("_values_method_args", None)
         if "_values" in json_like:
@@ -939,6 +971,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         obj = cls(**json_like)
         obj._values_group_idx = _values_group_idx
         obj._values_are_objs = _values_are_objs
+        obj._values_are_all_objs = _values_are_all_objs
         obj._values_method = _values_method
         obj._values_method_args = _values_method_args
         return obj
@@ -1052,7 +1085,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         return None
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: Workflow, source: ParamSource, element_set_ID: int | None = None
     ) -> tuple[str, list[int], bool]:
         """Save value to a persistent workflow."""
 
@@ -1071,14 +1104,35 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             source["value_class_method"] = self.value_class_method
         are_objs: list[bool] = []
         assert self._values is not None
+
+        is_arr = isinstance(self._values, np.ndarray)
+        # temp; since old code doesn't support arrays:
         for idx, item in enumerate(self._values):
+            # print(f"1 {item=!r}")
+            if is_arr:
+                item = item.item()
+                # print(f"2 {item=!r}")
+
             # record if ParameterValue sub-classes are passed for values, which allows
-            # us to re-init the objects on access to `.value`:
+            # us to re-init the objects on access to `.values` (this only applies when
+            # accessing `ValueSequence.values`; for element input retrieval, the
+            # `ParameterValue` object will be always initialised):
             are_objs.append(isinstance(item, ParameterValue))
             source = copy.deepcopy(source)
             source["sequence_idx"] = idx
             pg_idx_i = workflow._add_parameter_data(item, source=source)
             data_ref.append(pg_idx_i)
+
+        if is_primitive_homogeneous(self._values):
+            self._values = np.asarray(self._values, dtype=self.array_dtype)
+            self._values_are_all_objs = False
+            are_objs = None
+        else:
+            # run through encoder
+            are_objs = [isinstance(item, ParameterValue) for item in self._values]
+            # TODO: save where?
+
+        workflow._data.local_inputs["sequences"][element_set_ID][self.path] = self._values
 
         self._values_group_idx = data_ref
         self._workflow = workflow
@@ -1633,7 +1687,7 @@ class MultiPathSequence(_BaseSequence):
     def values(self) -> list[Sequence[Any]]:
         values = []
         for seq_i in self.sequences:
-            assert seq_i.values
+            assert seq_i.values is not None
             values.append(seq_i.values)
         return values
 
@@ -1806,7 +1860,7 @@ class AbstractInputValue(JSONLike):
         return out
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: Workflow, source: ParamSource, element_set_ID: int | None = None
     ) -> tuple[str, list[int | list[int]], bool]:
         """Save value to a persistent workflow.
 
@@ -1833,6 +1887,13 @@ class AbstractInputValue(JSONLike):
             data_ref = workflow._add_parameter_data(self._value, source=source)
             self._value_group_idx = data_ref
             is_new = True
+
+            if element_set_ID is not None:
+                # TODO: consider setting task schema default values
+                workflow._data.local_inputs["inputs"][element_set_ID][
+                    self.parameter.typ
+                ] = self._value
+
             self._value = None
 
         return (self.normalised_path, [data_ref], is_new)
@@ -2084,12 +2145,15 @@ class InputValue(AbstractInputValue, ValuesMixin):
         return f"inputs.{self.normalised_inputs_path}"
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self,
+        workflow: Workflow,
+        source: ParamSource,
+        element_set_ID: int | None = None,
     ) -> tuple[str, list[int | list[int]], bool]:
         source = copy.deepcopy(source)
         if self.value_class_method is not None:
             source["value_class_method"] = self.value_class_method
-        return super().make_persistent(workflow, source)
+        return super().make_persistent(workflow, source, element_set_ID)
 
     @classmethod
     def from_json_like(cls, json_like, shared_data=None):
@@ -2144,6 +2208,8 @@ class InputValue(AbstractInputValue, ValuesMixin):
             return val
         else:
             return self._value
+
+    # TODO: add def value_NEW(self)
 
     @classmethod
     def _process_mixin_args(
@@ -2750,7 +2816,12 @@ class ResourceSpec(JSONLike):
         return isinstance(value, cls._app.Workflow)
 
     def make_persistent(
-        self, workflow: ResourcePersistingWorkflow, source: ParamSource
+        self,
+        workflow: ResourcePersistingWorkflow,
+        source: ParamSource,
+        element_set_ID: int | None = None,
+        grabber_new: ResourcePersistingWorkflowNEW | None = None,
+        is_template_level: bool = False,
     ) -> tuple[str, list[int | list[int]], bool]:
         """Save to a persistent workflow.
 
@@ -2775,11 +2846,21 @@ class ResourceSpec(JSONLike):
                 )
             # TODO: log if already persistent.
         else:
-            data_ref = workflow._add_parameter_data(self._get_members(), source=source)
+            members = self._get_members()
+            data_ref = workflow._add_parameter_data(members, source=source)
             is_new = True
             self._value_group_idx = data_ref
             if self.__is_Workflow(workflow):
                 self._workflow = workflow
+
+            if is_template_level:
+                grabber_new.local_inputs["workflow_resources"][
+                    self.normalised_resources_path
+                ] = members
+            else:
+                workflow._data.local_inputs["resources"][element_set_ID][
+                    self.normalised_resources_path
+                ] = members
 
             self._num_cores = None
             self._scratch = None

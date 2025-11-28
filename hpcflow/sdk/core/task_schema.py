@@ -810,7 +810,10 @@ class TaskSchema(JSONLike):
             out.parameter._set_value_class()
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self,
+        workflow: Workflow,
+        source: ParamSource,
+        task_insert_ID,
     ) -> list[int | list[int]]:
         """
         Convert this task schema to persistent form within the context of the given
@@ -820,10 +823,14 @@ class TaskSchema(JSONLike):
         for input_i in self.inputs:
             for lab_info in input_i.labelled_info():
                 if "default_value" in lab_info:
+                    value = copy.deepcopy(lab_info["default_value"].value)
                     _, dat_ref, is_new = lab_info["default_value"].make_persistent(
                         workflow, source
                     )
                     new_refs.extend(dat_ref) if is_new else None
+                    workflow._data.local_inputs["defaults"][task_insert_ID][
+                        lab_info["labelled_type"]
+                    ] = value
         return new_refs
 
     @property
@@ -929,6 +936,30 @@ class TaskSchema(JSONLike):
     def multi_input_types(self) -> list[str]:
         """Get a list of input types that have multiple labels."""
         return [inp.parameter.typ for inp in self.inputs if inp.multiple]
+
+    def get_input_type_action_idx(self, in_type: str) -> int:
+        """Get the action index of the first action of this task schema that consumes the
+        specified input type.
+        """
+        for idx, actions in enumerate(self.actions):
+            if in_type in actions.get_input_types():
+                return idx
+        raise ValueError(f"No input-type action index found for input type: {in_type!r}")
+
+    def get_output_type_action_idx(self, out_type: str):
+        """Get the action index of the final action of this task schema that produces the
+        specified output type.
+        """
+        out_idx = None
+        for idx, actions in enumerate(self.actions):
+            act_out_types = actions.get_output_types()
+            if out_type in act_out_types:
+                out_idx = idx
+        if out_idx is None:
+            raise ValueError(
+                f"No output-type action index found for output type: {out_type!r}"
+            )
+        return out_idx
 
 
 class MetaTaskSchema(TaskSchema):

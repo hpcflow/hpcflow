@@ -21,6 +21,7 @@ import time
 from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
 
 import numpy as np
+from numpy.ma.core import MaskedArray
 
 from hpcflow.sdk.core.utils import (
     flatten,
@@ -102,6 +103,15 @@ TEMPLATE_COMP_TYPES = (
 )
 
 PARAM_DATA_NOT_SET: Final[int] = 0
+
+
+class UnsetBaseOutput(enum.Enum):
+    """
+    Sentinel value used to distinguish an unset base output from a set but falsey
+    value.
+    """
+
+    NULL = 0
 
 
 def update_param_source_dict(source: ParamSource, update: ParamSource) -> ParamSource:
@@ -251,6 +261,8 @@ class StoreElement(Generic[SerFormT, ContextT]):
         Index of the element within its parent task.
     es_idx:
         Index of the element set containing this element.
+    es_ID:
+        ID of the element set containing this element.
     seq_idx:
         Value sequence index map.
     src_idx:
@@ -277,6 +289,8 @@ class StoreElement(Generic[SerFormT, ContextT]):
     index: int
     #: Index of the element set containing this element.
     es_idx: int
+    #: ID of the element set containing this element.
+    es_ID: int
     #: Value sequence index map.
     seq_idx: dict[str, int]
     #: Data source index map.
@@ -302,6 +316,7 @@ class StoreElement(Generic[SerFormT, ContextT]):
             "is_pending": self.is_pending,
             "index": self.index,
             "es_idx": self.es_idx,
+            "es_ID": self.es_ID,
             "seq_idx": self.seq_idx,
             "src_idx": self.src_idx,
             "iteration_IDs": self.iteration_IDs,
@@ -318,6 +333,7 @@ class StoreElement(Generic[SerFormT, ContextT]):
             is_pending=self.is_pending,
             index=self.index,
             es_idx=self.es_idx,
+            es_ID=self.es_ID,
             seq_idx=self.seq_idx,
             src_idx=self.src_idx,
             task_ID=self.task_ID,
@@ -334,6 +350,8 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
     ----------
     id_:
         The ID of this element iteration.
+    index:
+        The index of this element iteration within its parent element.
     is_pending:
         Whether the element iteration has changes not yet persisted.
     element_ID:
@@ -361,6 +379,8 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
 
     #: The ID of this element iteration.
     id_: int
+    #: The index of this element iteration within its parent element.
+    index: int
     #: Whether the element iteration has changes not yet persisted.
     is_pending: bool
     #: Which element is an iteration for.
@@ -390,6 +410,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         """Prepare data for the user-facing `ElementIteration` object."""
         return {
             "id_": self.id_,
+            "index": self.index,
             "is_pending": self.is_pending,
             "element_ID": self.element_ID,
             "EAR_IDs": self.EAR_IDs,
@@ -410,6 +431,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
 
         return self.__class__(
             id_=self.id_,
+            index=self.index,
             is_pending=self.is_pending,
             element_ID=self.element_ID,
             EAR_IDs=EAR_IDs,
@@ -426,6 +448,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         loop_idx_new.update(loop_idx)
         return self.__class__(
             id_=self.id_,
+            index=self.index,
             is_pending=self.is_pending,
             element_ID=self.element_ID,
             EAR_IDs=self.EAR_IDs,
@@ -440,6 +463,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         """Return a copy with `EARs_initialised` set to `True`."""
         return self.__class__(
             id_=self.id_,
+            index=self.index,
             is_pending=self.is_pending,
             element_ID=self.element_ID,
             EAR_IDs=self.EAR_IDs,
@@ -460,6 +484,7 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
         new_data_idx.update(data_idx)
         return self.__class__(
             id_=self.id_,
+            index=self.index,
             is_pending=self.is_pending,
             element_ID=self.element_ID,
             EAR_IDs=self.EAR_IDs,
@@ -661,6 +686,87 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         )
 
 
+def _encode_numpy_array(
+    obj: NDArray,
+    type_lookup: TypeLookup,
+    path: list[int],
+    root_encoder: Callable,
+):
+    type_lookup["arrays"].append(path)
+    return obj.tolist()
+
+
+def _decode_numpy_arrays(
+    obj: dict | None,
+    type_lookup: TypeLookup,
+    path: list[int],
+):
+    # Yuck! Type lies! Zarr's internal types are not modern Python types.
+    arrays = cast("Iterable[tuple[list[int], int]]", type_lookup.get("arrays", []))
+    obj_: dict | NDArray | None = obj
+    for arr_path in arrays:
+        try:
+            rel_path = get_relative_path(arr_path, path)
+        except ValueError:
+            continue
+
+        arr_lst: list = get_in_container(obj_, arr_path)
+        arr = np.array(arr_lst)
+
+        if rel_path:
+            set_in_container(obj_, rel_path, arr)
+        else:
+            obj_ = arr
+
+    return obj_
+
+
+def _encode_masked_array(
+    obj: NDArray,
+    type_lookup: TypeLookup,
+    path: list[int],
+    root_encoder: Callable,
+):
+    data_lst = _encode_numpy_array(obj.data, type_lookup, path, root_encoder)
+    mask_lst = _encode_numpy_array(
+        cast("NDArray", obj.mask), type_lookup, path, root_encoder
+    )
+    type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
+    return [data_lst, mask_lst]
+
+
+def _decode_masked_arrays(
+    obj: dict | None,
+    type_lookup: TypeLookup,
+    path: list[int],
+):
+    # Yuck! Type lies! Zarr's internal types are not modern Python types.
+    masked_arrays = cast(
+        "Iterable[tuple[list[int], tuple[int, int]]]",
+        type_lookup.get("masked_arrays", []),
+    )
+    obj_: dict | MaskedArray = obj
+    for arr_path in masked_arrays:
+        try:
+            rel_path = get_relative_path(arr_path, path)
+        except ValueError:
+            continue
+
+        data_lst: list = get_in_container(obj_, [*arr_path, 0])
+        data = np.array(data_lst)
+        mask_lst: list = get_in_container(obj_, [*arr_path, 0])
+        mask = np.array(mask_lst)
+
+        masked_arr: MaskedArray = MaskedArray(data=data, mask=mask)
+
+        if rel_path:
+            set_in_container(obj_, rel_path, masked_arr)
+        else:
+            obj_ = masked_arr
+
+    return obj_
+
+
 @dataclass
 @hydrate
 class StoreParameter:
@@ -696,20 +802,31 @@ class StoreParameter:
     #: Description of where this parameter originated.
     source: ParamSource
 
-    _encoders: ClassVar[dict[type, Callable]] = {}
-    _decoders: ClassVar[dict[str, Callable]] = {}
+    _encoders: ClassVar[dict[type, Callable]] = {  # keys are types
+        np.ndarray: _encode_numpy_array,
+        MaskedArray: _encode_masked_array,
+    }
+    _decoders: ClassVar[dict[str, Callable]] = {  # keys are keys in type_lookup
+        "arrays": _decode_numpy_arrays,
+        "masked_arrays": _decode_masked_arrays,
+    }
+
     _MAX_DEPTH: ClassVar[int] = 50
 
     _all_encoders: ClassVar[dict[type, Callable]] = {}
     _all_decoders: ClassVar[dict[str, Callable]] = {}
 
-    def encode(self, **kwargs) -> dict[str, Any] | int:
+    def encode(
+        self, encoders: dict[type, Callable] | None = None, **kwargs
+    ) -> dict[str, Any] | int:
         """Prepare store parameter data for the persistent store."""
         if self.is_set:
             if self.file:
                 return {"file": self.file}
             else:
-                return cast("dict", self._encode(obj=self.data, **kwargs))
+                return cast(
+                    "dict", self._encode(obj=self.data, encoders=encoders, **kwargs)
+                )
         else:
             return PARAM_DATA_NOT_SET
 
@@ -725,6 +842,7 @@ class StoreParameter:
         obj: ParameterTypes,
         path: list[int] | None = None,
         type_lookup: TypeLookup | None = None,
+        encoders: dict[type, Callable] | None = None,
         **kwargs,
     ) -> EncodedStoreParameter:
         """Recursive encoder."""
@@ -741,6 +859,7 @@ class StoreParameter:
                 obj=obj.to_dict(),
                 path=path,
                 type_lookup=type_lookup,
+                encoders=encoders,
                 **kwargs,
             )
             data, type_lookup = encoded["data"], encoded["type_lookup"]
@@ -752,6 +871,7 @@ class StoreParameter:
                     obj=item,
                     path=[*path, idx],
                     type_lookup=type_lookup,
+                    encoders=encoders,
                     **kwargs,
                 )
                 item, type_lookup = encoded["data"], encoded["type_lookup"]
@@ -768,10 +888,15 @@ class StoreParameter:
             assert type_lookup is not None
             data = {}
             for dct_key, dct_val in obj.items():
+                if isinstance(dct_key, int):
+                    # convert to string key (e.g. for JSON and Msgpack representations)
+                    dct_key = str(dct_key)
+                    type_lookup["ints"].append([*path, dct_key])
                 encoded = self._encode(
                     obj=dct_val,
                     path=[*path, dct_key],
                     type_lookup=type_lookup,
+                    encoders=encoders,
                     **kwargs,
                 )
                 dct_val, type_lookup = encoded["data"], encoded["type_lookup"]
@@ -781,9 +906,9 @@ class StoreParameter:
         elif isinstance(obj, PRIMITIVES):
             data = obj
 
-        elif type(obj) in self._all_encoders:
+        elif type(obj) in (encoders_ := (encoders or self._all_encoders)):
             assert type_lookup is not None
-            data = self._all_encoders[type(obj)](
+            data = encoders_[type(obj)](
                 obj=obj,
                 path=path,
                 type_lookup=type_lookup,
@@ -810,6 +935,7 @@ class StoreParameter:
         source: ParamSource,
         *,
         path: list[str] | None = None,
+        decoders: dict[str, Callable] | None = None,
         **kwargs,
     ) -> Self:
         """Initialise from persistent store parameter data."""
@@ -850,8 +976,22 @@ class StoreParameter:
         types_ordered = {**primitives, **types_ordered}
 
         for type_, paths in types_ordered.items():
+            # TODO: refactor below
             for type_path in paths:
-                if type_ == "tuples":
+                if type_ == "ints":
+                    try:
+                        rel_path = get_relative_path(type_path, path)
+                    except ValueError:
+                        continue
+                    if rel_path:
+                        dct_parent, str_key = rel_path[:-1], rel_path[-1]
+                        dct = dict(get_in_container(obj, dct_parent))
+                        dct[int(str_key)] = dct.pop(str_key)
+                        if dct_parent:
+                            set_in_container(obj, dct_parent, dct)
+                        else:
+                            obj = dct
+                elif type_ == "tuples":
                     try:
                         rel_path = get_relative_path(type_path, path)
                     except ValueError:
@@ -873,8 +1013,8 @@ class StoreParameter:
                         )
                     else:
                         obj = set(obj)
-                elif type_ in cls._all_decoders:
-                    obj = cls._all_decoders[type_](
+                elif type_ in (decoders_ := (decoders or cls._all_decoders)):
+                    obj = decoders_[type_](
                         obj=obj,
                         type_lookup=data_["type_lookup"],
                         path=path,
@@ -962,6 +1102,26 @@ class PersistentStore(
 
     _name: ClassVar[str]
 
+    elem_set_metadata_dtype = [
+        ("index", np.uint16),  # index within task
+        ("task_ID", np.uint16),
+    ]
+    elem_metadata_dtype = [
+        ("index", np.uint32),  # index within task
+        ("task_ID", np.uint16),
+        ("element_set_ID", np.uint16),
+    ]
+    iter_metadata_dtype = [
+        ("index", np.uint32),  # index within element
+        ("element_ID", np.uint32),
+        ("runs_initialised", np.bool_),
+    ]
+    run_metadata_dtype = [
+        ("action_idx", np.uint8),  # index of the action within the task schema
+        ("submission_idx", np.uint8),
+        ("iteration_ID", np.uint32),
+    ]
+
     @classmethod
     @abstractmethod
     def _store_task_cls(cls) -> type[AnySTask]: ...
@@ -1009,6 +1169,38 @@ class PersistentStore(
         self._reset_cache()
 
         self._use_parameters_metadata_cache: bool = False  # subclass-specific cache
+        self._has_just_submitted = False
+
+        #: Track for each task insert ID, the parameters that are stored in arrays,
+        #: including some metadata like the array data type.
+        self.task_output_array_idx = defaultdict(dict)
+
+    @property
+    def has_just_submitted(self) -> bool:
+        """Whether the associated workflow has just been submitted."""
+        return self._has_just_submitted
+
+    @has_just_submitted.setter
+    def has_just_submitted(self, val: bool):
+        """Set to True when the associated workflow has just been submitted."""
+        self._has_just_submitted = val
+
+    @contextlib.contextmanager
+    def persist_ctx(self):
+        """A context manager to provide custom steps before or after the workflow data
+        persist_changes method."""
+        ctx = {}
+        try:
+            self.persist_ctx_start(ctx)
+            yield ctx
+        finally:
+            self.persist_ctx_end(ctx)
+
+    def persist_ctx_start(self, ctx):
+        pass
+
+    def persist_ctx_end(self, ctx):
+        pass
 
     def _ensure_all_encoders(self):
         """Ensure app-defined encoders are included in the StoreParameter's encoders
@@ -1524,6 +1716,7 @@ class PersistentStore(
 
         for i in iter_IDs:
             self._pending.update_loop_indices[i][loop_template["name"]] = 0
+            self.workflow._data.iter_loop_idx[i][loop_template["name"]] = 0
 
         if save:
             self.save()
@@ -1550,6 +1743,7 @@ class PersistentStore(
         self,
         task_ID: int,
         es_idx: int,
+        es_ID: int,
         seq_idx: dict[str, int],
         src_idx: dict[str, int],
         save: bool = True,
@@ -1563,6 +1757,7 @@ class PersistentStore(
             is_pending=True,
             index=new_elem_idx,
             es_idx=es_idx,
+            es_ID=es_ID,
             seq_idx=seq_idx,
             src_idx=src_idx,
             task_ID=task_ID,
@@ -1575,6 +1770,7 @@ class PersistentStore(
 
     def add_element_iteration(
         self,
+        index: int,
         element_ID: int,
         data_idx: DataIndex,
         schema_parameters: list[str],
@@ -1586,6 +1782,7 @@ class PersistentStore(
         new_ID = self._get_num_total_elem_iters()
         self._pending.add_elem_iters[new_ID] = self._store_iter_cls()(
             id_=new_ID,
+            index=index,
             element_ID=element_ID,
             is_pending=True,
             EARs_initialised=False,
@@ -2829,3 +3026,14 @@ class PersistentStore(
     def _update_run_data_indices(
         self, run_data_indices: dict[int, DataIndex]
     ) -> None: ...
+
+    def _increment_outer_shape(
+        self, shape: tuple[int, ...], add_outer_shape: list[int]
+    ) -> tuple[int, ...]:
+        """For an existing array shape tuple, increment the outer part of the shape by
+        the specified sizes."""
+        new_shape = list(shape)
+        new_shape[: len(add_outer_shape)] = [
+            i + j for i, j in zip(new_shape[: len(add_outer_shape)], add_outer_shape)
+        ]
+        return tuple(new_shape)

@@ -270,6 +270,10 @@ class PendingChanges(
     @TimeIt.decorator
     def commit_all(self) -> None:
         """Commit all pending changes to disk."""
+
+        # v2 commits:
+        self.store.workflow._data.persist_changes()
+
         self.logger.info(f"committing all pending changes: {self.where_pending()}")
 
         if not self:

@@ -2130,6 +2130,7 @@ class Jobscript(JSONLike):
                             print(f"{{set_start_multi_time:.4f}}", file=set_start_multi_times_fp, flush=True)
 
                     all_act_outputs = {{}}
+                    all_act_outputs_NEW = defaultdict(dict)
                     run_end_dat = defaultdict(list)
                     block_act_key=({js_idx}, block_idx, block_act_idx)
 
@@ -2243,6 +2244,7 @@ class Jobscript(JSONLike):
                             for name_i, out_i in outputs.items():
                                 p_id = run.data_idx[f"outputs.{{name_i}}"]
                                 all_act_outputs[p_id] = out_i
+                                all_act_outputs_NEW[run_ID][name_i] = out_i
                             app.logger.info(f"run_ID: {{run_ID}}; finished setting outputs to save.")
                                 
                             if req_dir:
@@ -2273,6 +2275,10 @@ class Jobscript(JSONLike):
                                 f"in block {{block_idx}}."
                             )                            
                             wk.set_parameter_values(all_act_outputs)
+                            
+                            # NEW:
+                            wk.save_outputs(all_act_outputs_NEW)
+                            
                             app.logger.info(
                                 f"finished saving outputs of block action index {{block_act_idx}} "
                                 f"in block {{block_idx}}."

@@ -4,6 +4,7 @@ Persistence model based on writing JSON documents.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from contextlib import contextmanager
 import copy
 import json
@@ -20,6 +21,12 @@ from hpcflow.sdk.core.errors import (
     MissingStoreElementError,
     MissingStoreElementIterationError,
 )
+from hpcflow.sdk.core.utils import (
+    get_in_container,
+    read_JSON_file,
+    set_in_container,
+    write_JSON_file,
+)
 from hpcflow.sdk.persistence.base import (
     PersistentStoreFeatures,
     PersistentStore,
@@ -28,12 +35,15 @@ from hpcflow.sdk.persistence.base import (
     StoreElementIter,
     StoreParameter,
     StoreTask,
+    UnsetBaseOutput,
     update_param_source_dict,
 )
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.store_resource import JSONFileStoreResource
 from hpcflow.sdk.typing import DataIndex
+from hpcflow.sdk.utils.sequences import _add_list_items
+from hpcflow.sdk.utils.arrays import resize_preserve_data
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -204,6 +214,12 @@ class JSONPersistentStore(
     _subs_res: ClassVar[str] = "submissions"
     _runs_res: ClassVar[str] = "runs"
 
+    _metadata_file_name: ClassVar[str] = "metadata_v2.json"
+    _parameters_file_name: ClassVar[str] = "parameters_v2.json"
+    _runs_file_name: ClassVar[str] = "runs_v2.json"
+
+    _base_outputs_fill_value: ClassVar[str] = None
+
     _res_file_names: ClassVar[Mapping[str, str]] = {
         _meta_res: "metadata.json",
         _params_res: "parameters.json",
@@ -275,6 +291,8 @@ class JSONPersistentStore(
         # `_use_parameters_metadata_cache` is True, and set back to None when exiting the
         # `parameters_metadata_cache` context manager.
         self._parameters_file_dat: dict[str, dict[str, Any]] | None = None
+
+        self._always_reload_params = False
 
     @contextmanager
     def cached_load(self) -> Iterator[None]:
@@ -408,6 +426,554 @@ class JSONPersistentStore(
         cls._get_store_resource(app, "parameters", wk_path, fs)._dump(parameters)
         cls._get_store_resource(app, "submissions", wk_path, fs)._dump(submissions)
         cls._get_store_resource(app, "runs", wk_path, fs)._dump(runs)
+
+        parameters_v2: dict[str, dict[None, None]] = {
+            "local_inputs": {},
+            "arrays": {},  # TODO: check where array valuesequences go.
+            "base_outputs": {},
+        }
+        metadata_v2 = {
+            "template_components": template_components_js,
+            "template": template_js,
+            "tasks": [],
+            "elements": [],
+            "iterations": [],
+            "loops": [],
+            "task_output_array_idx": {},
+        }
+        runs_v2: dict[str, list] = {
+            "runs": [],
+            "run_dirs": [],
+        }
+
+        write_JSON_file(
+            parameters_v2, Path(wk_path).joinpath(cls._parameters_file_name), indent=4
+        )
+        write_JSON_file(
+            metadata_v2, Path(wk_path).joinpath(cls._metadata_file_name), indent=4
+        )
+        write_JSON_file(runs_v2, Path(wk_path).joinpath(cls._runs_file_name), indent=4)
+
+    def load_data(self) -> None:
+
+        path = Path(self.path)
+        self.metadata_file_dat = read_JSON_file(path.joinpath(self._metadata_file_name))
+        self.runs_file_dat = read_JSON_file(path.joinpath(self._runs_file_name))
+
+        self.template = self.metadata_file_dat["template"]
+        self.task_templates = self.template["tasks"]
+        self.loop_templates = self.template["loops"]
+        self.loops = self.metadata_file_dat["loops"]
+
+        for idx, val in self.metadata_file_dat["task_output_array_idx"].items():
+            for out_name, arr_idx_dat in val.items():
+                val[out_name]["action_indices"] = {
+                    int(idx_from): idx_to
+                    for idx_from, idx_to in arr_idx_dat["action_indices"].items()
+                }
+            self.task_output_array_idx[int(idx)] = val
+
+        self.task_ID_list = []
+        self.task_element_IDs = {}
+
+        for task_dat in self.metadata_file_dat["tasks"]:
+            iID = task_dat["ID"]
+            self.task_ID_list.append(iID)
+            self.task_element_IDs[iID] = task_dat["element_IDs"]
+
+        _elem_md = []
+        _elem_iter_IDs = {}
+        _elem_seq_idx = {}
+        _elem_src_idx = {}
+        for elem_ID, elem_dat in enumerate(self.metadata_file_dat["elements"]):
+            _elem_md.append((elem_dat["index"], elem_dat["task_ID"], elem_dat["es_ID"]))
+            _elem_iter_IDs[elem_ID] = elem_dat["iteration_IDs"]
+            _elem_seq_idx[elem_ID] = elem_dat["seq_idx"]
+            _elem_src_idx[elem_ID] = elem_dat["src_idx"]
+
+        self.element_metadata = np.array(_elem_md, dtype=self.elem_metadata_dtype)
+        self.element_iter_IDs = _elem_iter_IDs
+        self.element_seq_idx = _elem_seq_idx
+        self.element_src_idx = _elem_src_idx
+
+        _iter_md = []
+        _iter_run_IDs = {}
+        _iter_loop_idx = {}
+        for iter_ID, iter_dat in enumerate(self.metadata_file_dat["iterations"]):
+            _iter_md.append(
+                (iter_dat["index"], iter_dat["element_ID"], iter_dat["runs_initialised"])
+            )
+            # a schema might not have any actions:
+            _iter_run_IDs[iter_ID] = iter_dat.get("run_IDs", [])
+            _iter_loop_idx[iter_ID] = iter_dat.get("loop_idx", {})
+
+        self.iter_metadata = np.array(_iter_md, dtype=self.iter_metadata_dtype)
+        self.iter_run_IDs = _iter_run_IDs
+        self.iter_loop_idx = _iter_loop_idx
+
+        _es_md = []
+        _es_inp_src_iter_IDs = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+        for task_idx, task_tmp in enumerate(self.template["tasks"]):
+            task_ID = self.task_ID_list[task_idx]
+            for es_idx, elem_set in enumerate(task_tmp["element_sets"]):
+                _es_md.append((es_idx, task_ID))
+                for path, sources in elem_set["input_sources"].items():
+                    for src_idx, src in enumerate(sources):
+                        if iter_IDs := src.get("element_iters"):
+                            _es_inp_src_iter_IDs[elem_set["id_"]][path][
+                                src_idx
+                            ] = iter_IDs
+
+        self.element_set_input_source_iter_IDs = _es_inp_src_iter_IDs
+        self.element_set_metadata = np.array(_es_md, dtype=self.elem_set_metadata_dtype)
+
+        _run_md = []
+        for run_dat in self.runs_file_dat["runs"]:
+            _run_md.append(
+                (
+                    run_dat["action_idx"],
+                    run_dat["submission_idx"],
+                    run_dat["iteration_ID"],
+                )
+            )
+        self.run_metadata = np.array(_run_md, dtype=self.run_metadata_dtype)
+
+        self._load_parameters_file()
+
+    def _load_parameters_file(self):
+
+        path = Path(self.path)
+        self.parameters_file_dat_NEW = read_JSON_file(
+            path.joinpath(self._parameters_file_name)
+        )
+
+        if loc_ins := self.parameters_file_dat_NEW.get("local_inputs"):
+            loc_ins_decoded = (
+                self._store_param_cls()
+                .decode(
+                    id_=None,
+                    data=copy.deepcopy(loc_ins),
+                    source=None,
+                )
+                .data
+            )
+        else:
+            loc_ins_decoded = {
+                "inputs": {},  # keyed by element set ID, then path
+                "resources": {},  # keyed by element set ID, then path
+                "workflow_resources": {},  # keyed by element set ID, then path
+                "sequences": {},  # keyed by element set ID, then path
+                "defaults": {},  # keyed by task insert ID (assuming one schema per task), then path
+            }
+
+        base_outs: dict[int, NDArray] = {
+            int(task_ID): np.array(out_i_arr)
+            for task_ID, out_i_arr in self.parameters_file_dat_NEW.get(
+                "base_outputs", {}
+            ).items()
+        }
+
+        self.local_inputs = loc_ins_decoded
+        self.base_outputs = base_outs
+        self.arrays: dict[int, NDArray] = {
+            int(idx): np.array(arr)
+            for idx, arr in self.parameters_file_dat_NEW["arrays"].items()
+        }
+
+    def persist_ctx_start(self, ctx):
+        ctx["files_to_update"] = set()
+
+    def persist_ctx_end(self, ctx):
+        """Write new JSON files if required."""
+        path = Path(self.path)
+        for file_key in ctx["files_to_update"]:
+            if file_key == "metadata_v2":
+                write_JSON_file(
+                    self.metadata_file_dat, path.joinpath(f"{file_key}.json"), indent=4
+                )
+            elif file_key == "parameters_v2":
+                write_JSON_file(
+                    self.parameters_file_dat_NEW,
+                    path.joinpath(f"{file_key}.json"),
+                    indent=4,
+                )
+            elif file_key == "runs_v2":
+                write_JSON_file(
+                    self.runs_file_dat, path.joinpath(f"{file_key}.json"), indent=4
+                )
+
+    def update_task_templates(self, task_templates, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        self.template["tasks"] = task_templates
+
+    def update_loop_templates(self, loop_templates, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        self.template["loops"] = loop_templates
+
+    def update_loops(self, loops, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        self.loops = loops
+
+    def update_task_ID_list(self, task_ID_list, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        # extend to the correct length
+        if len_diff := (len(task_ID_list) - len(self.metadata_file_dat["tasks"])):
+            assert len_diff > 0
+            self.metadata_file_dat["tasks"] += [{} for _ in range(len_diff)]
+        for idx, task_ID in enumerate(task_ID_list):
+            self.metadata_file_dat["tasks"][idx]["ID"] = task_ID
+
+    def update_task_output_array_idx(self, task_output_array_idx, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        self.task_output_array_idx.update(task_output_array_idx)
+        self.metadata_file_dat["task_output_array_idx"].update(
+            {str(k): v for k, v in task_output_array_idx.items()}
+        )
+
+    def update_local_inputs(self, local_inputs, ctx):
+        ctx["files_to_update"].add("parameters_v2")
+        local_inputs = self._store_param_cls()(
+            id_=None,
+            is_pending=None,
+            is_set=True,
+            data=local_inputs,
+            file=None,
+            source=None,
+        ).encode()  # TODO: separate functions for encoding decoding
+        self.parameters_file_dat_NEW["local_inputs"] = local_inputs
+
+    def update_base_outputs(self, base_outputs, ctx):
+        ctx["files_to_update"].add("parameters_v2")
+        base_outputs = self._store_param_cls()(
+            id_=None,
+            is_pending=None,
+            is_set=True,
+            data=base_outputs,
+            file=None,
+            source=None,
+        ).encode()  # TODO: separate functions for encoding decoding
+        self.parameters_file_dat_NEW["base_outputs"] = base_outputs
+
+    def update_element_set_metadata(self, element_set_metadata, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+
+    def update_element_metadata(self, element_metadata, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["elements"], len(element_metadata), dict)
+        for elem_ID, md in enumerate(element_metadata):
+            self.metadata_file_dat["elements"][elem_ID]["index"] = md["index"].item()
+            self.metadata_file_dat["elements"][elem_ID]["task_ID"] = md["task_ID"].item()
+            self.metadata_file_dat["elements"][elem_ID]["es_ID"] = md[
+                "element_set_ID"
+            ].item()
+
+    def update_iter_metadata(self, iter_metadata, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["iterations"], len(iter_metadata), dict)
+        for iter_ID, md in enumerate(iter_metadata):
+            self.metadata_file_dat["iterations"][iter_ID]["index"] = md["index"].item()
+            self.metadata_file_dat["iterations"][iter_ID]["element_ID"] = md[
+                "element_ID"
+            ].item()
+            self.metadata_file_dat["iterations"][iter_ID]["runs_initialised"] = md[
+                "runs_initialised"
+            ].item()
+
+    def update_run_metadata(self, run_metadata, ctx):
+        ctx["files_to_update"].add("runs_v2")
+        _add_list_items(self.runs_file_dat["runs"], len(run_metadata), dict)
+        for run_ID, md in enumerate(run_metadata):
+            self.runs_file_dat["runs"][run_ID]["action_idx"] = md["action_idx"].item()
+            self.runs_file_dat["runs"][run_ID]["submission_idx"] = md[
+                "submission_idx"
+            ].item()
+            self.runs_file_dat["runs"][run_ID]["iteration_ID"] = md["iteration_ID"].item()
+
+    def update_task_element_IDs(self, task_element_IDs, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["tasks"], len(task_element_IDs), dict)
+        for task_ID, elem_IDs in task_element_IDs.items():
+            self.metadata_file_dat["tasks"][ctx["task_ID_to_index"][task_ID]][
+                "element_IDs"
+            ] = elem_IDs
+
+    def update_element_iter_IDs(self, element_iter_IDs, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["elements"], len(element_iter_IDs), dict)
+        for elem_ID, iter_IDs in element_iter_IDs.items():
+            self.metadata_file_dat["elements"][elem_ID]["iteration_IDs"] = iter_IDs
+
+    def update_iter_run_IDs(self, iter_run_IDs, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["iterations"], len(iter_run_IDs), dict)
+        for iter_ID, run_IDs in iter_run_IDs.items():
+            self.metadata_file_dat["iterations"][iter_ID]["run_IDs"] = run_IDs
+
+    def update_element_set_input_source_iter_IDs(self, elem_set_inp_src_iter_IDs, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+
+    def update_element_src_idx(self, element_src_idx, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["elements"], len(element_src_idx), dict)
+        for elem_ID, src_idx in element_src_idx.items():
+            self.metadata_file_dat["elements"][elem_ID]["src_idx"] = src_idx
+
+    def update_element_seq_idx(self, element_seq_idx, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["elements"], len(element_seq_idx), dict)
+        for elem_ID, seq_idx in element_seq_idx.items():
+            self.metadata_file_dat["elements"][elem_ID]["seq_idx"] = seq_idx
+
+    def update_iter_loop_idx(self, iter_loop_idx, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+        _add_list_items(self.metadata_file_dat["iterations"], len(iter_loop_idx), dict)
+        for iter_ID, loop_idx in iter_loop_idx.items():
+            self.metadata_file_dat["iterations"][iter_ID]["loop_idx"] = loop_idx
+
+    def has_base_output_arr(self, task_ID: int) -> bool:
+        return task_ID in self.base_outputs
+
+    def get_base_outputs_array_shape(self, task_ID: int) -> tuple[int, ...]:
+        return self.base_outputs[task_ID].shape
+
+    def init_new_output_arrays(
+        self,
+        new_base_output_arrays: Mapping[int, int],
+        new_array_output_arrays: Mapping[int, Mapping[str, dict[str, Any]]],
+        task_arr_shapes: Mapping[int, Sequence[int, int]],
+        ctx,
+    ) -> dict[int]:
+        """
+        Initialise new base-output and array-output arrays as specified.
+
+        Note: this mutates the argument `task_array_shapes`.
+
+        Parameters
+        ----------
+        task_arr_shapes:
+            Dictionary whose keys are task IDs and whose values are the outer shapes to
+            which base-output and array-output arrays should be initialised (corresponding
+            to element and iteration dimensions).
+
+        Returns
+        -------
+        Nested dictionary keyed by task ID and then output parameter type, with values
+        "array_idx", "action_indices", and "dtype", which describe the newly created
+        array-output arrays.
+
+        """
+        ctx["files_to_update"].add("parameters_v2")
+        new_task_out_arr_idx = defaultdict(dict)
+        for task_ID, num_acts in new_base_output_arrays.items():
+
+            outer_shape = task_arr_shapes.pop(task_ID)
+
+            shape = tuple([*outer_shape, num_acts])
+            self.base_outputs[task_ID] = np.full(
+                shape,
+                fill_value=self._base_outputs_fill_value,
+                dtype=object,
+            )
+            task_ID_str = str(task_ID)
+            base_outs_data = self.parameters_file_dat_NEW["base_outputs"]
+            assert task_ID_str not in base_outs_data
+            base_outs_data[task_ID_str] = self.base_outputs[task_ID].tolist()
+
+            for out_type, arr_dat in new_array_output_arrays[task_ID].items():
+                act_indices = arr_dat["action_indices"]
+                dtype = arr_dat["dtype"]
+                inner_shape = [len(act_indices)]
+                if p_shape := arr_dat["shape"]:
+                    inner_shape.extend(p_shape)
+                shape_i = tuple([*outer_shape, *inner_shape])
+                new_idx = len(self.arrays)
+                self.arrays[new_idx] = np.empty(shape_i, dtype=dtype)
+                self.parameters_file_dat_NEW["arrays"][str(new_idx)] = self.arrays[
+                    new_idx
+                ].tolist()
+
+                new_task_out_arr_idx[task_ID][out_type] = {
+                    "array_idx": new_idx,
+                    "action_indices": act_indices,
+                    "dtype": str(dtype),
+                }
+
+        return new_task_out_arr_idx
+
+    def _resize_base_outputs(self, task_ID: int, add_outer_shape: list[int]):
+        arr = self.base_outputs[task_ID]
+        new_shape = self._increment_outer_shape(arr.shape, add_outer_shape)
+        self.base_outputs[task_ID] = resize_preserve_data(
+            arr, new_shape, fill_value=self._base_outputs_fill_value
+        )
+        self.parameters_file_dat_NEW["base_outputs"][str(task_ID)] = self.base_outputs[
+            task_ID
+        ].tolist()
+
+    def _resize_array_outputs(
+        self, arr_indices: tuple[int, ...], add_outer_shape: list[int]
+    ):
+        for arr_idx in arr_indices:
+            arr = self.arrays[arr_idx]
+            new_shape = self._increment_outer_shape(arr.shape, add_outer_shape)
+            self.arrays[arr_idx] = resize_preserve_data(arr, new_shape)
+            self.parameters_file_dat_NEW["arrays"][str(arr_idx)] = self.arrays[
+                arr_idx
+            ].tolist()
+
+    def update_output_array_shapes(
+        self,
+        task_arr_shapes: Mapping[int, Sequence[int, int]],
+        arr_indices_by_task: Mapping[int, tuple[int, ...]],
+        ctx,
+    ):
+        """Resize base-output and array-output arrays to accommodate new elements and/or
+        iterations.
+
+        Parameters
+        ----------
+        task_arr_shapes:
+            Dictionary whose keys are task IDs and whose values are the increments to the
+            outer shapes to which base-output and array-output arrays should be resized
+            (corresponding to element and iteration dimensions).
+        arr_indices_by_task:
+            Dictionary whose keys are task IDs and whose values are tuples of
+            associated output array indices.
+
+        """
+        ctx["files_to_update"].add("parameters_v2")
+        for task_ID, outer_shape in task_arr_shapes.items():
+            self._resize_base_outputs(task_ID, outer_shape)
+            if arr_idx := arr_indices_by_task.get(task_ID) is not None:
+                self._resize_array_outputs(arr_idx, outer_shape)
+
+    def get_base_outputs(
+        self, task_ID: int, indices: NDArray[np.void], paths: Sequence[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        `indices` should be a structured array with fields "element_idx", "iteration_idx", and
+        "action_idx".
+        """
+        if self.has_just_submitted:
+            # retrieve from disk again, since it might have been modified by an
+            # independent process:
+            self._load_parameters_file()
+
+        arr = self.base_outputs[task_ID]
+        all_outs = []
+        for idx in indices:
+            enc_i = get_in_container(
+                arr,
+                path=[
+                    idx["element_idx"].item(),
+                    idx["iteration_idx"].item(),
+                    idx["action_idx"].item(),
+                ],
+            )
+            if enc_i is self._base_outputs_fill_value:
+                dec_i = UnsetBaseOutput.NULL
+            else:
+                dec_i = (
+                    self._store_param_cls()
+                    .decode(id_=None, data=copy.deepcopy(enc_i), source=None)
+                    .data
+                )
+                if paths:
+                    dec_i = {k: v for k, v in dec_i.items() if k in paths}
+            all_outs.append(dec_i)
+        return all_outs
+
+    def set_base_outputs(
+        self, task_ID: int, indices: NDArray[np.void], values: Sequence[dict[str, Any]]
+    ):
+
+        existing = self.get_base_outputs(task_ID, indices=indices)
+
+        arr = self.base_outputs[task_ID]
+        for idx, (arr_idx, val) in enumerate(zip(indices, values)):
+            cont_path = [
+                arr_idx["element_idx"].item(),
+                arr_idx["iteration_idx"].item(),
+                arr_idx["action_idx"].item(),
+            ]
+
+            if existing[idx] is UnsetBaseOutput.NULL:
+                existing_i = {}
+            else:
+                existing_i = existing[idx]
+
+            updated = {**existing_i, **val}
+            enc_i = self._store_param_cls()(
+                id_=None,
+                is_pending=None,
+                is_set=True,
+                data=updated,
+                file=None,
+                source=None,
+            ).encode()  # TODO: separate functions for encoding decoding
+            set_in_container(
+                cont=arr,
+                path=cont_path,
+                value=enc_i,
+            )
+        self.parameters_file_dat_NEW["base_outputs"][str(task_ID)] = self.base_outputs[
+            task_ID
+        ].tolist()
+        path = Path(self.path)
+        write_JSON_file(
+            self.parameters_file_dat_NEW,
+            path.joinpath(self._parameters_file_name),
+            indent=4,
+        )
+
+    def get_output_array(self, arr_idx) -> list:
+        if self.has_just_submitted:
+            # retrieve from disk again, since it might have been modified by an
+            # independent process:
+            self._load_parameters_file()
+        return self.arrays[arr_idx]
+
+    def get_array_items(self, arr_idx, indices):
+        if self.has_just_submitted:
+            # retrieve from disk again, since it might have been modified by an
+            # independent process:
+            self._load_parameters_file()
+        arr = self.arrays[arr_idx]
+        out = []
+        for idx in indices:
+            out.append(
+                get_in_container(
+                    arr,
+                    path=[
+                        idx["element_idx"].item(),
+                        idx["iteration_idx"].item(),
+                        idx["action_idx"].item(),
+                    ],
+                )
+            )
+        return out
+
+    def set_array_items(self, arr_idx, indices, values):
+        arr = self.arrays[arr_idx]
+        for idx, val in zip(indices, values):
+            set_in_container(
+                arr,
+                path=[
+                    idx["element_idx"].item(),
+                    idx["iteration_idx"].item(),
+                    idx["action_idx"].item(),
+                ],
+                value=val,
+            )
+        self.parameters_file_dat_NEW["arrays"][str(arr_idx)] = self.arrays[
+            arr_idx
+        ].tolist()
+        path = Path(self.path)
+        write_JSON_file(
+            self.parameters_file_dat_NEW,
+            path.joinpath(self._parameters_file_name),
+            indent=4,
+        )
 
     def _append_tasks(self, tasks: Iterable[StoreTask]):
         with self.using_resource("metadata", action="update") as md:

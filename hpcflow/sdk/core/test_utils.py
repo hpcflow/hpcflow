@@ -230,7 +230,7 @@ def make_workflow(
 
 def make_test_data_YAML_workflow(
     workflow_name: str,
-    path: PathLike,
+    path: PathLike | None = None,
     app: BaseApp | None = None,
     pkg: str = "hpcflow.tests.data",
     **kwargs,
