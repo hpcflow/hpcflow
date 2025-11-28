@@ -813,8 +813,8 @@ class StoreParameter:
 
     _MAX_DEPTH: ClassVar[int] = 50
 
-    _all_encoders: ClassVar[dict[type, Callable]] = {}
-    _all_decoders: ClassVar[dict[str, Callable]] = {}
+    _all_encoders: ClassVar[dict[str, dict[type, Callable]]] = {}
+    _all_decoders: ClassVar[dict[str, dict[str, Callable]]] = {}
 
     def encode(
         self, encoders: dict[type, Callable] | None = None, **kwargs
@@ -837,6 +837,16 @@ class StoreParameter:
 
         return isinstance(value, PV)
 
+    @classmethod
+    def get_all_encoders(cls) -> dict[type, Callable]:
+        assert (out := cls._all_encoders.get(cls.__name__)) is not None
+        return out
+
+    @classmethod
+    def get_all_decoders(cls) -> dict[type, Callable]:
+        assert (out := cls._all_decoders.get(cls.__name__)) is not None
+        return out
+
     def _encode(
         self,
         obj: ParameterTypes,
@@ -847,6 +857,7 @@ class StoreParameter:
     ) -> EncodedStoreParameter:
         """Recursive encoder."""
 
+        encoders_ = {**self.get_all_encoders(), **(encoders or {})}
         path = path or []
         if type_lookup is None:
             type_lookup = cast("TypeLookup", defaultdict(list))
@@ -906,7 +917,7 @@ class StoreParameter:
         elif isinstance(obj, PRIMITIVES):
             data = obj
 
-        elif type(obj) in (encoders_ := (encoders or self._all_encoders)):
+        elif type(obj) in encoders_:
             assert type_lookup is not None
             data = encoders_[type(obj)](
                 obj=obj,
@@ -921,8 +932,8 @@ class StoreParameter:
 
         else:
             raise ValueError(
-                f"Parameter data with type {type(obj)} cannot be serialised into a "
-                f"{self.__class__.__name__}: {obj}."
+                f"Parameter data at path: {path!r} with type {type(obj)} cannot be "
+                f"serialised into a {self.__class__.__name__}: {obj}."
             )
 
         return {"data": data, "type_lookup": type_lookup}
@@ -970,7 +981,7 @@ class StoreParameter:
         primitives = copy.deepcopy(data_["type_lookup"])
         types_ordered = {
             dec_type: primitives.pop(dec_type)
-            for dec_type in cls._all_decoders
+            for dec_type in cls.get_all_decoders()
             if dec_type in primitives
         }
         types_ordered = {**primitives, **types_ordered}
@@ -1013,7 +1024,7 @@ class StoreParameter:
                         )
                     else:
                         obj = set(obj)
-                elif type_ in (decoders_ := (decoders or cls._all_decoders)):
+                elif type_ in (decoders_ := (decoders or cls.get_all_decoders())):
                     obj = decoders_[type_](
                         obj=obj,
                         type_lookup=data_["type_lookup"],
@@ -1206,8 +1217,8 @@ class PersistentStore(
         """Ensure app-defined encoders are included in the StoreParameter's encoders
         map."""
         param_cls = self._store_param_cls()
-        if not param_cls._all_encoders:
-            param_cls._all_encoders = {
+        if param_cls.__name__ not in param_cls._all_encoders:
+            param_cls._all_encoders[param_cls.__name__] = {
                 **param_cls._encoders,
                 **self.workflow._app.encoders().get(self._name, {}),
             }
@@ -1216,11 +1227,11 @@ class PersistentStore(
         """Ensure app-defined decoders are included in the StoreParameter's decoders
         map."""
         param_cls = self._store_param_cls()
-        if not param_cls._all_decoders:
+        if param_cls.__name__ not in param_cls._all_decoders:
             # note: the order is important, we assume types in `param_cls._decoders`
             # (e.g. arrays) have been decoded before decoding types defined in downstream
             # apps:
-            param_cls._all_decoders = {
+            param_cls._all_decoders[param_cls.__name__] = {
                 **param_cls._decoders,
                 **self.workflow._app.decoders().get(self._name, {}),
             }

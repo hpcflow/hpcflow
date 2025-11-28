@@ -399,6 +399,26 @@ def _encode_masked_array(
     return obj.fill_value.item()
 
 
+def _encode_masked_array_NEW(
+    obj: MaskedArray,
+    type_lookup: TypeLookup,
+    path: list[int],
+    root_group: Group,
+    root_encoder: Callable,
+):
+    """Encode a masked array as two normal arrays, and return the fill value."""
+    # no need to add "array" entries to the type lookup, so pass an empty `type_lookup`:
+    type_lookup_: TypeLookup = defaultdict(list)
+    data_idx = _encode_numpy_array_NEW(
+        obj.data, type_lookup_, path, root_group, root_encoder
+    )
+    mask_idx = _encode_numpy_array_NEW(
+        cast("NDArray", obj.mask), type_lookup_, path, root_group, root_encoder
+    )
+    type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
+    return obj.fill_value.item()
+
+
 def _decode_masked_arrays(
     obj: dict,
     type_lookup: TypeLookup,
@@ -1165,10 +1185,8 @@ class ZarrPersistentStore(
         self.task_ID_list[:] = task_ID_list
 
     def update_task_output_array_idx(self, task_output_array_idx, ctx):
-        print(f"Zarr.update_task_output_array_idx: {task_output_array_idx=!r}")
         ctx["files_to_update"].add("root_attributes")
         self.task_output_array_idx.update(task_output_array_idx)
-        print(f"Zarr.update_task_output_array_idx: {self.task_output_array_idx=!r}")
         self.root_attributes["task_output_array_idx"].update(
             {str(k): v for k, v in task_output_array_idx.items()}
         )
@@ -1185,7 +1203,10 @@ class ZarrPersistentStore(
             source=None,
         ).encode(
             root_group=self._get_parameter_NEW_array_group(mode="r+"),
-            encoders={np.ndarray: _encode_numpy_array_NEW},
+            encoders={
+                np.ndarray: _encode_numpy_array_NEW,
+                MaskedArray: _encode_masked_array_NEW,
+            },
         )  # TODO: encode should be something like "extract_non_primitive_types"
 
     def update_element_set_metadata(self, element_set_metadata, ctx):
@@ -1357,7 +1378,6 @@ class ZarrPersistentStore(
                     dtype=dtype,
                 )
 
-                print(f"Zarr.init_new_output_arrays: {out_type=!r}")
                 new_task_out_arr_idx[task_ID][out_type] = {
                     "array_idx": new_idx,
                     "action_indices": act_indices,
@@ -1400,8 +1420,6 @@ class ZarrPersistentStore(
             associated output array indices.
 
         """
-        print(f"Zarr.update_output_array_shapes: {task_arr_shapes=!r}")
-        print(f"Zarr.update_output_array_shapes: {arr_indices_by_task=!r}")
         ctx["files_to_update"].add("parameters_v2")
         for task_ID, outer_shape in task_arr_shapes.items():
             self._resize_base_outputs(task_ID, outer_shape)
@@ -1476,7 +1494,10 @@ class ZarrPersistentStore(
                 source=None,
             ).encode(
                 root_group=self._get_parameter_NEW_array_group(mode="r+"),
-                encoders={np.ndarray: _encode_numpy_array_NEW},
+                encoders={
+                    np.ndarray: _encode_numpy_array_NEW,
+                    MaskedArray: _encode_masked_array_NEW,
+                },
             )  # TODO: separate functions for encoding decoding
             all_enc.append(enc_i)
         arr[indices["element_idx"], indices["iteration_idx"], indices["action_idx"]] = (
