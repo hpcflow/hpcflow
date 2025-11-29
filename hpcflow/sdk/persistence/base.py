@@ -899,13 +899,14 @@ class StoreParameter:
             assert type_lookup is not None
             data = {}
             for dct_key, dct_val in obj.items():
+                new_path = [*path, dct_key]
                 if isinstance(dct_key, int):
                     # convert to string key (e.g. for JSON and Msgpack representations)
+                    type_lookup["ints"].append(new_path)
                     dct_key = str(dct_key)
-                    type_lookup["ints"].append([*path, dct_key])
                 encoded = self._encode(
                     obj=dct_val,
-                    path=[*path, dct_key],
+                    path=new_path,
                     type_lookup=type_lookup,
                     encoders=encoders,
                     **kwargs,
@@ -995,9 +996,9 @@ class StoreParameter:
                     except ValueError:
                         continue
                     if rel_path:
-                        dct_parent, str_key = rel_path[:-1], rel_path[-1]
+                        dct_parent, int_key = rel_path[:-1], rel_path[-1]
                         dct = dict(get_in_container(obj, dct_parent))
-                        dct[int(str_key)] = dct.pop(str_key)
+                        dct[int_key] = dct.pop(str(int_key))
                         if dct_parent:
                             set_in_container(obj, dct_parent, dct)
                         else:
