@@ -1134,6 +1134,7 @@ class ZarrPersistentStore(
             for iter_id, iter_i_loop_idx in loop_idx.items()
         }
 
+        self._ensure_all_decoders()
         arr = self._get_v2_local_inputs_array()
         if arr.size:
             decoded = (

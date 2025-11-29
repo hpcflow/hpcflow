@@ -546,7 +546,7 @@ class JSONPersistentStore(
         self.parameters_file_dat_NEW = read_JSON_file(
             path.joinpath(self._parameters_file_name)
         )
-
+        self._ensure_all_decoders()
         if loc_ins := self.parameters_file_dat_NEW.get("local_inputs"):
             loc_ins_decoded = (
                 self._store_param_cls()
