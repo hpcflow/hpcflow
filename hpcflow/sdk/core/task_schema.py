@@ -32,7 +32,7 @@ from hpcflow.sdk.core.utils import check_valid_py_identifier
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
-    from typing import Any, ClassVar
+    from typing import Any, ClassVar, DefaultDict
     from typing_extensions import Self, TypeIs
     from .actions import Action
     from .object_list import ParametersList, TaskSchemasList
@@ -720,7 +720,7 @@ class TaskSchema(JSONLike):
         """coerce Parameters to SchemaOutputs"""
         return [cls.__coerce_one_output(out) for out in outputs]
 
-    def get_action_parameter_flow(self) -> dict[str, list[int]]:
+    def get_action_parameter_flow(self) -> dict[str, dict[str, list[int]]]:
         """
         For each parameter that appears within the actions of this task schema, get the
         ordered source and sink action indices (where it is an output and input).
@@ -730,7 +730,9 @@ class TaskSchema(JSONLike):
         the "sinks" list indicates that parameter is an output of the schema.
 
         """
-        flow = defaultdict(lambda: {"sources": [], "sinks": []})
+        flow: DefaultDict[str, dict[str, list[int]]] = defaultdict(
+            lambda: {"sources": [], "sinks": []}
+        )
         for schema_inp_typ in self.input_types:
             flow[schema_inp_typ]["sources"].append(-1)
         for act_idx, act in enumerate(self.actions):
