@@ -7,9 +7,9 @@ from contextlib import contextmanager
 import copy
 from dataclasses import dataclass
 from importlib import import_module
-from itertools import chain
 from typing import TYPE_CHECKING, Literal
 from html import escape
+from collections import defaultdict
 
 from rich import print as rich_print
 from rich.table import Table
@@ -19,7 +19,13 @@ from rich.text import Text
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import ParameterPropagationMode
-from hpcflow.sdk.core.errors import EnvironmentPresetUnknownEnvironmentError
+from hpcflow.sdk.core.errors import (
+    EnvironmentPresetUnknownEnvironmentError,
+    ActionInputHasNoSource,
+    ActionOutputNotSchemaOutput,
+    TaskSchemaExtraInputs,
+    TaskSchemaMissingActionOutputs,
+)
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import Parameter
 from hpcflow.sdk.core.utils import check_valid_py_identifier
@@ -714,6 +720,88 @@ class TaskSchema(JSONLike):
         """coerce Parameters to SchemaOutputs"""
         return [cls.__coerce_one_output(out) for out in outputs]
 
+    def get_action_parameter_flow(self) -> dict[str, list[int]]:
+        """
+        For each parameter that appears within the actions of this task schema, get the
+        ordered source and sink action indices (where it is an output and input).
+
+        An action index of -1 within the "sources" list indicates that parameter is an input
+        from the schema (i.e. parametrised in the element set); an action index of -1 within
+        the "sinks" list indicates that parameter is an output of the schema.
+
+        """
+        flow = defaultdict(lambda: {"sources": [], "sinks": []})
+        for schema_inp_typ in self.input_types:
+            flow[schema_inp_typ]["sources"].append(-1)
+        for act_idx, act in enumerate(self.actions):
+            for inp_type in act.get_input_types():
+                flow[inp_type]["sinks"].append(act_idx)
+            for out_type in act.get_output_types():
+                flow[out_type]["sources"].append(act_idx)
+        for schema_out_typ in self.output_types:
+            flow[schema_out_typ]["sinks"].append(-1)
+
+        return dict(flow)
+
+    def _validate_action_flow(
+        self, act_param_flow: dict[str, dict[str, list[int]]] | None = None
+    ):
+        """Check the parameter flow within this task schema's actions."""
+        act_param_flow = act_param_flow or self.get_action_parameter_flow()
+        act_ins = set()
+        act_outs = set()
+        for p_type, source_sink in act_param_flow.items():
+            sources, sinks = source_sink["sources"], source_sink["sinks"]
+            sources_act = set(sources).difference({-1})
+            sinks_act = set(sinks).difference({-1})
+
+            try:
+                # replace -1 in sinks with a number larger than the latest source, so we
+                # can check a source exists for the first sink action:
+                sch_idx = sinks.index(-1)
+                sinks_schema = list(sinks)
+                # where there are no sources is handled below by `missing_outs`
+                sinks_schema[sch_idx] = max(sources, default=-1) + 1
+            except ValueError:
+                sinks_schema = sinks
+
+            if not sources and sinks == [-1]:
+                # handled below by `missing_outs`
+                pass
+            elif min(sinks_schema, default=0) <= min(sources, default=0):
+                # action input has no sources (schema nor previous action)
+                raise ActionInputHasNoSource(self, p_type, source_sink)
+            elif -1 not in sinks and -1 not in sources:
+                # parameter is an action output, but not a schema output; I think this
+                # probably should be allowed, but for now it is not, and submission doesn't
+                # work; if we allow this in future, we should replace this check with
+                # `-1 not in sources and not sinks`, i.e. not a schema output and not used by
+                # any other actions as an input
+                raise ActionOutputNotSchemaOutput(self, p_type, source_sink)
+
+            if sinks_act:
+                act_ins.add(p_type)
+            if sources_act:
+                act_outs.add(p_type)
+
+        extra_ins = set(self.input_types) - act_ins
+        missing_outs = set(self.output_types) - act_outs
+
+        # TODO: bit of a hack, need to consider script/program ins/outs later
+        # i.e. are all schema inputs "consumed" by an action?
+        has_script = any(
+            act.script and not act.input_file_generators and not act.output_file_parsers
+            for act in self.actions
+        )
+        has_program = any(act.has_program for act in self.actions)
+        has_script_or_program = has_script or has_program
+
+        if self.actions and not has_script_or_program and extra_ins:
+            raise TaskSchemaExtraInputs(self, extra_ins)
+
+        if not has_script_or_program and missing_outs:
+            raise TaskSchemaMissingActionOutputs(self, missing_outs)
+
     def _validate(self) -> None:
         if self.method:
             self.method = check_valid_py_identifier(self.method)
@@ -722,73 +810,7 @@ class TaskSchema(JSONLike):
 
         # check action input/outputs
         if self._validate_actions:
-            has_script = any(
-                act.script
-                and not act.input_file_generators
-                and not act.output_file_parsers
-                for act in self.actions
-            )
-            has_program = any(act.has_program for act in self.actions)
-
-            all_outs: set[str] = set()
-            extra_ins = set(self.input_types)
-
-            act_ins_lst = [act.get_input_types() for act in self.actions]
-            act_outs_lst = [act.get_output_types() for act in self.actions]
-
-            schema_outs = set(self.output_types)
-
-            all_act_ins = set(chain.from_iterable(act_ins_lst))
-            all_act_outs = set(chain.from_iterable(act_outs_lst))
-
-            non_schema_act_ins = all_act_ins.difference(self.input_types)
-            non_schema_act_outs = all_act_outs.difference(schema_outs)
-
-            extra_act_outs = non_schema_act_outs
-            seen_act_outs: set[str] = set()
-            for act_idx in range(len(self.actions)):
-                for act_in in act_ins_lst[act_idx]:
-                    if act_in in non_schema_act_ins and act_in not in seen_act_outs:
-                        raise ValueError(
-                            f"Action {act_idx} input {act_in!r} of schema {self.name!r} "
-                            f"is not a schema input, but nor is it an action output from "
-                            f"a preceding action."
-                        )
-                seen_act_outs.update(act_outs_lst[act_idx])
-                extra_act_outs.difference_update(act_ins_lst[act_idx])
-                extra_ins.difference_update(act_ins_lst[act_idx])
-                all_outs.update(act_outs_lst[act_idx])
-
-            if extra_act_outs:
-                raise ValueError(
-                    f"The following action outputs of schema {self.name!r} are not schema"
-                    f" outputs, but nor are they consumed by subsequent actions as "
-                    f"action inputs: {tuple(extra_act_outs)!r}."
-                )
-
-            if extra_ins and not (has_script or has_program):
-                # TODO: bit of a hack, need to consider script/program ins/outs later
-                # i.e. are all schema inputs "consumed" by an action?
-
-                # consider OFP inputs:
-                for act in self.actions:
-                    for ofp in act.output_file_parsers:
-                        extra_ins.difference_update(ofp.inputs or ())
-
-                if self.actions and extra_ins:
-                    # allow for no actions (e.g. defining inputs for downstream tasks)
-                    raise ValueError(
-                        f"Schema {self.name!r} inputs {tuple(extra_ins)!r} are not used "
-                        f"by any actions."
-                    )
-
-            missing_outs = schema_outs - all_outs
-            if missing_outs and not (has_script or has_program):
-                # TODO: bit of a hack, need to consider script/program ins/outs later
-                raise ValueError(
-                    f"Schema {self.name!r} outputs {tuple(missing_outs)!r} are not "
-                    f"generated by any actions."
-                )
+            self._validate_action_flow()
 
     def __expand_actions(self) -> list[Action]:
         """Create new actions for input file generators and output parsers in existing
