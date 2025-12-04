@@ -2140,12 +2140,6 @@ class Workflow(AppAware):
 
             else:
                 if self._store._pending:
-                    # is_diff = self._store.is_modified_on_disk()
-                    # if is_diff:
-                    #     raise WorkflowBatchUpdateFailedError(
-                    #         f"Workflow modified on disk since it was loaded!"
-                    #     )
-
                     for task in self.tasks:
                         task._accept_pending_element_IDs()
                         task.template._accept_pending_element_sets()

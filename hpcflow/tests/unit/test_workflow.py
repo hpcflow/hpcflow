@@ -10,7 +10,6 @@ import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import (
     MissingInputs,
-    WorkflowBatchUpdateFailedError,
     WorkflowNotFoundError,
 )
 from hpcflow.sdk.core.test_utils import (
@@ -51,15 +50,6 @@ def test_workflow_zip(persistent_workflow):
 
     # delete the zipped workflow:
     Path(zip_path).unlink()
-
-
-def modify_workflow_metadata_on_disk(workflow: Workflow):
-    """Make a non-sense change to the on-disk metadata."""
-    assert workflow.store_format == "zarr"
-    wk_md = workflow._store.load_metadata()  # type: ignore
-    changed_md = copy.deepcopy(wk_md)
-    changed_md["new_key"] = "new_value"
-    workflow._store._get_root_group(mode="r+").attrs.put(changed_md)  # type: ignore
 
 
 def make_workflow_w1_with_config_kwargs(
@@ -339,25 +329,6 @@ def test_store_has_pending_during_add_task(
 def test_empty_batch_update_does_nothing(workflow_w1: Workflow):
     with workflow_w1.batch_update():
         assert not workflow_w1._store.has_pending
-
-
-@pytest.mark.skip("need to re-implement `is_modified_on_disk`")
-def test_is_modified_on_disk_when_metadata_changed(workflow_w1: Workflow):
-    # this is ZarrPersistentStore-specific; might want to consider a refactor later
-    with workflow_w1._store.cached_load():
-        modify_workflow_metadata_on_disk(workflow_w1)
-        assert workflow_w1._store.is_modified_on_disk()  # type: ignore
-
-
-@pytest.mark.skip("need to re-implement `is_modified_on_disk`")
-def test_batch_update_abort_if_modified_on_disk(
-    workflow_w1: Workflow, schema_s2: TaskSchema, param_p3: Parameter
-):
-    t2 = hf.Task(schema=schema_s2, inputs=[hf.InputValue(param_p3, 301)])
-    with pytest.raises(WorkflowBatchUpdateFailedError):
-        with workflow_w1._store.cached_load(), workflow_w1.batch_update():
-            workflow_w1.add_task(t2)
-            modify_workflow_metadata_on_disk(workflow_w1)
 
 
 def test_closest_task_input_source_chosen(null_config, tmp_path: Path):

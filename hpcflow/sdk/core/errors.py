@@ -19,14 +19,6 @@ if TYPE_CHECKING:
     from .task import WorkflowTask, Task
 
 
-class InputValueDuplicateSequenceAddress(ValueError):
-    """
-    An InputValue has the same sequence address twice.
-    """
-
-    # FIXME: never used
-
-
 class TaskTemplateMultipleSchemaObjectives(ValueError):
     """
     A TaskTemplate has multiple objectives.
@@ -205,54 +197,6 @@ class TaskTemplateInvalidNesting(ValueError):
         )
 
 
-class TaskSchemaSpecValidationError(Exception):
-    """
-    A task schema failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class WorkflowSpecValidationError(Exception):
-    """
-    A workflow failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class InputSourceValidationError(Exception):
-    """
-    An input source failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class EnvironmentSpecValidationError(Exception):
-    """
-    An environment specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class ParameterSpecValidationError(Exception):
-    """
-    A parameter specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class FileSpecValidationError(Exception):
-    """
-    A file specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
 class DuplicateExecutableError(ValueError):
     """
     The same executable was present twice in an executable environment.
@@ -274,14 +218,6 @@ class MissingCompatibleActionEnvironment(Exception):
         super().__init__(f"No compatible environment is specified for the {msg}.")
 
 
-class MissingActionEnvironment(Exception):
-    """
-    Could not find an action environment.
-    """
-
-    # FIXME: never used
-
-
 class ActionEnvironmentMissingNameError(Exception):
     """
     An action environment was missing its name.
@@ -293,30 +229,6 @@ class ActionEnvironmentMissingNameError(Exception):
             "`name` key, or be specified as string that is that name. Provided "
             f"environment key was {environment!r}."
         )
-
-
-class FromSpecMissingObjectError(Exception):
-    """
-    Missing object when deserialising from specification.
-    """
-
-    # FIXME: never used
-
-
-class TaskSchemaMissingParameterError(Exception):
-    """
-    Parameter was missing from task schema.
-    """
-
-    # FIXME: never used
-
-
-class ToJSONLikeChildReferenceError(Exception):
-    """
-    Failed to generate or reference a child object when converting to JSON.
-    """
-
-    # FIXME: never thrown
 
 
 class InvalidInputSourceTaskReference(Exception):
@@ -353,14 +265,6 @@ class MalformedWorkflowError(Exception):
     # TODO: use this class
 
 
-class ValuesAlreadyPersistentError(Exception):
-    """
-    Trying to make a value persistent that already is so.
-    """
-
-    # FIXME: never used
-
-
 class MalformedParameterPathError(ValueError):
     """
     The path to a parameter was ill-formed.
@@ -390,30 +294,6 @@ class UnknownResourceSpecItemError(ValueError):
 
     def __init__(self, msg: str) -> None:
         super().__init__(msg)
-
-
-class WorkflowParameterMissingError(AttributeError):
-    """
-    A parameter to a workflow was missing.
-    """
-
-    # FIXME: never thrown
-
-
-class WorkflowBatchUpdateFailedError(Exception):
-    """
-    An update to a workflow failed.
-    """
-
-    # FIXME: only throw is commented out?
-
-
-class WorkflowLimitsError(ValueError):
-    """
-    Workflow hit limits.
-    """
-
-    # FIXME: never used
 
 
 class UnsetParameterDataErrorBase(Exception):
@@ -500,16 +380,6 @@ class LoopTaskSubsetError(ValueError):
             f"Loop {loop_name!r}: task subset must be an ascending contiguous range, "
             f"but specified task indices were: {task_indices!r}."
         )
-
-
-class SchedulerVersionsFailure(RuntimeError):
-    """We couldn't get the scheduler and or shell versions."""
-
-    # FIXME: unused
-
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
 
 
 class JobscriptSubmissionFailure(RuntimeError):
