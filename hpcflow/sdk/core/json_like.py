@@ -19,7 +19,6 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk import app, get_SDK_logger
 from hpcflow.sdk.core.utils import get_md5_hash
 from hpcflow.sdk.core.validation import get_schema
-from hpcflow.sdk.core.errors import ToJSONLikeChildReferenceError
 
 if TYPE_CHECKING:
     from typing import Any, ClassVar, Literal
@@ -196,14 +195,11 @@ def to_json_like(
         out_map: dict[str, JSONed] = {}
         for dct_key, dct_val in obj.items():
             if _is_base_json_like(dct_val):
-                try:
-                    out_map[dct_key], shared_data = dct_val.to_json_like(
-                        shared_data=shared_data,
-                        exclude={(parent_refs or {}).get(dct_key)},
-                        path=[*path, dct_key],
-                    )
-                except ToJSONLikeChildReferenceError:
-                    continue
+                out_map[dct_key], shared_data = dct_val.to_json_like(
+                    shared_data=shared_data,
+                    exclude={(parent_refs or {}).get(dct_key)},
+                    path=[*path, dct_key],
+                )
             else:
                 out_map[dct_key], shared_data = to_json_like(
                     dct_val,

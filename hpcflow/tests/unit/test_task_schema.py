@@ -5,8 +5,12 @@ import pytest
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import (
+    ActionInputHasNoSource,
+    ActionOutputNotSchemaOutput,
     EnvironmentPresetUnknownEnvironmentError,
     InvalidIdentifier,
+    TaskSchemaExtraInputs,
+    TaskSchemaMissingActionOutputs,
 )
 from hpcflow.sdk.core.test_utils import make_actions, make_parameters
 
@@ -69,52 +73,62 @@ def test_raise_on_invalid_method_non_alpha_numeric(schema_s1_kwargs) -> None:
 
 
 def test_schema_action_validate() -> None:
-    p1, p2, p3, p4 = make_parameters(4)
+    p1, p2, p3, p4, p5 = make_parameters(5)
     act_1, act_2, act_3 = make_actions([("p1", "p5"), (("p2", "p5"), "p3"), ("p3", "p4")])
-    hf.TaskSchema("t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4])
+    hf.TaskSchema(
+        "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4, p5]
+    )
+
+
+def test_schema_action_validate_raise_on_action_output_not_schema_output() -> None:
+    # assert raise ValueError
+    p1, p2, p3, p4, p5 = make_parameters(5)
+    p7 = hf.Parameter("p7")
+    act_1, act_2, act_3 = make_actions([("p1", "p5"), (("p2", "p5"), "p3"), ("p3", "p4")])
+    with pytest.raises(ActionOutputNotSchemaOutput) as exc_info:
+        hf.TaskSchema(
+            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2, p7], outputs=[p3, p4]
+        )
+    exc = exc_info.value
+    assert exc.parameter_type == "p5"
 
 
 def test_schema_action_validate_raise_on_extra_schema_input() -> None:
     # assert raise ValueError
-    p1, p2, p3, p4 = make_parameters(4)
+    p1, p2, p3, p4, p5 = make_parameters(5)
     p7 = hf.Parameter("p7")
     act_1, act_2, act_3 = make_actions([("p1", "p5"), (("p2", "p5"), "p3"), ("p3", "p4")])
-    with pytest.raises(ValueError):
+    with pytest.raises(TaskSchemaExtraInputs) as exc_info:
         hf.TaskSchema(
-            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2, p7], outputs=[p3, p4]
+            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2, p7], outputs=[p3, p4, p5]
         )
+    exc = exc_info.value
+    assert exc.extra_inputs == {"p7"}
 
 
 def test_schema_action_validate_raise_on_extra_schema_output() -> None:
     p7 = hf.Parameter("p7")
-    p1, p2, p3, p4 = make_parameters(4)
+    p1, p2, p3, p4, p5 = make_parameters(5)
     act_1, act_2, act_3 = make_actions([("p1", "p5"), (("p2", "p5"), "p3"), ("p3", "p4")])
-    with pytest.raises(ValueError):
+    with pytest.raises(TaskSchemaMissingActionOutputs) as exc_info:
         hf.TaskSchema(
-            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4, p7]
+            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4, p5, p7]
         )
+    exc = exc_info.value
+    assert exc.missing_outputs == {"p7"}
 
 
 def test_schema_action_validate_raise_on_extra_action_input() -> None:
-    p1, p2, p3, p4 = make_parameters(4)
+    p1, p2, p3, p4, p5 = make_parameters(5)
     act_1, act_2, act_3 = make_actions(
         [(("p1", "p7"), "p5"), (("p2", "p5"), "p3"), ("p3", "p4")]
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ActionInputHasNoSource) as exc_info:
         hf.TaskSchema(
-            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4]
+            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4, p5]
         )
-
-
-def test_schema_action_validate_raise_on_extra_action_output() -> None:
-    p1, p2, p3, p4 = make_parameters(4)
-    act_1, act_2, act_3 = make_actions(
-        [("p1", "p5"), (("p2", "p5"), "p3"), ("p3", "p4", "p7")]
-    )
-    with pytest.raises(ValueError):
-        hf.TaskSchema(
-            "t1", actions=[act_1, act_2, act_3], inputs=[p1, p2], outputs=[p3, p4]
-        )
+    exc = exc_info.value
+    assert exc.parameter_type == "p7"
 
 
 def test_dot_access_object_list_raise_on_bad_access_attr_name() -> None:
@@ -160,7 +174,7 @@ def test_env_preset_raise_bad_env_no_actions() -> None:
 
 def test_validate_schema_input_not_in_jinja_template() -> None:
     # raise on input not in template
-    with pytest.raises(ValueError):
+    with pytest.raises(TaskSchemaExtraInputs) as exc_info:
         hf.TaskSchema(
             objective="t1",
             inputs=[
@@ -170,13 +184,17 @@ def test_validate_schema_input_not_in_jinja_template() -> None:
             ],
             actions=[hf.Action(jinja_template="test/test_template.txt")],
         )
+    exc = exc_info.value
+    assert exc.extra_inputs == {"vegetables"}
 
 
 def test_validate_jinja_template_input_not_in_schema() -> None:
     # raise on inputs from template not in schema
-    with pytest.raises(ValueError):
+    with pytest.raises(ActionInputHasNoSource) as exc_info:
         hf.TaskSchema(
             objective="t1",
             inputs=[hf.SchemaInput(parameter=hf.Parameter("name"))],  # missing fruits
             actions=[hf.Action(jinja_template="test/test_template.txt")],
         )
+    exc = exc_info.value
+    assert exc.parameter_type == "fruits"
