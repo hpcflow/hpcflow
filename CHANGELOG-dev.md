@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a284"></a>
+## [v0.2.0a284](https://github.com/hpcflow/hpcflow/compare/v0.2.0a283...v0.2.0a284) - 2025.12.06
+
+### ♻ Code Refactoring
+
+* add `TaskSchema.get_action_parameter_flow` for reuse elsewhere, and use for validation
+* remove unused exceptions
+
+### 🐛 Bug Fixes
+
+* type check
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a283"></a>
 ## [v0.2.0a283](https://github.com/hpcflow/hpcflow/compare/v0.2.0a282...v0.2.0a283) - 2025.12.02
 
