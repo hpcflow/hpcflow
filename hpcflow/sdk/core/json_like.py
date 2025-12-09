@@ -21,8 +21,8 @@ from hpcflow.sdk.core.utils import get_md5_hash
 from hpcflow.sdk.core.validation import get_schema
 
 if TYPE_CHECKING:
-    from typing import Any, ClassVar, Literal
-    from typing_extensions import Self, TypeAlias, TypeIs
+    from typing import Any, ClassVar, Literal, TypeAlias
+    from typing_extensions import Self, TypeIs
     from ..app import BaseApp
     from .object_list import ObjectList
 

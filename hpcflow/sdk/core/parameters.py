@@ -39,8 +39,8 @@ from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
-    from typing import Any, ClassVar, Literal
-    from typing_extensions import Self, TypeAlias
+    from typing import Any, ClassVar, Literal, TypeAlias
+    from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
     from numpy.typing import NDArray
     from ..typing import ParamSource

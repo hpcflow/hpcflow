@@ -5,8 +5,8 @@ A direct job "scheduler" that just runs immediate subprocesses.
 from __future__ import annotations
 import shutil
 import signal
-from typing import overload, cast, TYPE_CHECKING
-from typing_extensions import override, TypeAlias
+from typing import TypeAlias, overload, cast, TYPE_CHECKING
+from typing_extensions import override
 import psutil
 
 from hpcflow.sdk.typing import hydrate
@@ -15,7 +15,7 @@ from hpcflow.sdk.submission.schedulers import Scheduler
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from typing import Any, ClassVar
+    from typing import Any
     from ...config.types import SchedulerConfigDescriptor
     from ..jobscript import Jobscript
     from ..shells.base import Shell

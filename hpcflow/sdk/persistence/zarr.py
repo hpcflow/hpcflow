@@ -81,8 +81,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from fsspec import AbstractFileSystem  # type: ignore
     from logging import Logger
-    from typing import ClassVar
-    from typing_extensions import Self, TypeAlias
+    from typing import ClassVar, TypeAlias
+    from typing_extensions import Self
     from numpy.typing import NDArray
     from zarr import Array, Group  # type: ignore
     from zarr.attrs import Attributes  # type: ignore
