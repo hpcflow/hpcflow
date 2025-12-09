@@ -3,8 +3,8 @@ Types to support the core SDK.
 """
 
 from __future__ import annotations
-from typing import Any, Literal, Protocol, TYPE_CHECKING
-from typing_extensions import NotRequired, TypeAlias, TypedDict
+from typing import Any, Literal, Protocol, TypeAlias, TYPE_CHECKING
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

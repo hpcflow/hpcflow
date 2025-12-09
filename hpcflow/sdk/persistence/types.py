@@ -3,8 +3,8 @@ Types used in type-checking the persistence subsystem.
 """
 
 from __future__ import annotations
-from typing import Any, Generic, TypeVar, TYPE_CHECKING, DefaultDict
-from typing_extensions import TypedDict, NotRequired, TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar, TYPE_CHECKING, DefaultDict
+from typing_extensions import TypedDict, NotRequired
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

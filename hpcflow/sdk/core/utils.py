@@ -46,8 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
     from contextlib import AbstractContextManager
     from types import ModuleType
-    from typing import Any, IO, Iterator
-    from typing_extensions import TypeAlias
+    from typing import Any, IO, Iterator, TypeAlias
     from numpy.typing import NDArray
     from ..typing import PathLike
 
@@ -1131,11 +1130,7 @@ def open_text_resource(package: ModuleType | str, resource: str) -> IO[str]:
     """
     Open a file in a package.
     """
-    try:
-        return resources.files(package).joinpath(resource).open("r")
-    except AttributeError:
-        # < python 3.9; `resource.open_text` deprecated since 3.11
-        return resources.open_text(package, resource)
+    return resources.files(package).joinpath(resource).open("r")
 
 
 def get_file_context(
@@ -1144,13 +1139,9 @@ def get_file_context(
     """
     Find a file or directory in a package.
     """
-    try:
-        files = resources.files(package)
-        return resources.as_file(files.joinpath(src) if src else files)
-        # raises ModuleNotFoundError
-    except AttributeError:
-        # < python 3.9
-        return resources.path(package, src or "")
+    files = resources.files(package)
+    return resources.as_file(files.joinpath(src) if src else files)
+    # raises ModuleNotFoundError
 
 
 @contextlib.contextmanager

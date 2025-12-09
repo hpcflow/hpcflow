@@ -12,8 +12,7 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 import statistics
 from dataclasses import dataclass
-from typing import ClassVar, TypeVar, TYPE_CHECKING
-from typing_extensions import ParamSpec
+from typing import ClassVar, ParamSpec, TypeVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .app import BaseApp

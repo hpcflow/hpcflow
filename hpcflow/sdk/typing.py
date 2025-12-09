@@ -4,8 +4,8 @@ Common type aliases.
 
 from __future__ import annotations
 from dataclasses import InitVar
-from typing import Any, ClassVar, Final, TypeVar, cast, TYPE_CHECKING
-from typing_extensions import NotRequired, TypeAlias, TypedDict
+from typing import Any, ClassVar, Final, TypeAlias, TypeVar, cast, TYPE_CHECKING
+from typing_extensions import NotRequired, TypedDict
 from pathlib import Path
 import re
 

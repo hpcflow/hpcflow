@@ -4,12 +4,12 @@ Types used in configuration.
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from typing_extensions import TypeAlias, TypedDict, TypeVar
+from typing_extensions import TypedDict, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
-    from typing import Any
+    from typing import Any, TypeAlias
     from typing_extensions import NotRequired
     from .config import Config
     from ..core.validation import Schema

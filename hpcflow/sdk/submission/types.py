@@ -3,8 +3,8 @@ Types for the submission subsystem.
 """
 
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
-from typing_extensions import NotRequired, TypeAlias, TypedDict
+from typing import Any, TypeAlias, TYPE_CHECKING
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

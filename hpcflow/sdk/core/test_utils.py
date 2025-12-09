@@ -14,8 +14,8 @@ from hpcflow.sdk.typing import hydrate
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
-    from typing_extensions import TypeAlias, Self
+    from collections.abc import Iterable, Mapping, Sequence, TypeAlias
+    from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
     from .actions import Action
     from .element import ElementGroup
