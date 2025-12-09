@@ -5,7 +5,7 @@ Utilities for making data to use in testing.
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar, TypeAlias, TYPE_CHECKING
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.utils import get_file_context
@@ -14,7 +14,7 @@ from hpcflow.sdk.typing import hydrate
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence, TypeAlias
+    from collections.abc import Iterable, Mapping, Sequence
     from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
     from .actions import Action
