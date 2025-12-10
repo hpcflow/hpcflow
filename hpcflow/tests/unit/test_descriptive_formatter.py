@@ -62,7 +62,7 @@ def run_formatter(enabled_formatter):
 
 def test_descriptive_exception_includes_solution(run_formatter):
     run_exc, _ = run_formatter
-    output = run_exc(CompactException("A problem exists!", solution="Fix it!"))
+    output = run_exc(CompactException(hf, "A problem exists!", solution="Fix it!"))
     assert "Error: CompactException" in output
     assert "A problem exists!" in output
     assert "Solution:" in output
