@@ -978,7 +978,7 @@ class TaskSchemaValidationError(CompactException):
             message=f"Task schema {task_schema.name!r}: {message}",
             solution=(
                 f"{solution} See the "
-                f"[link={get_docs_url_how_to(app, "task_schemas")}]"
+                f"[link={get_docs_url_how_to(app, 'task_schemas')}]"
                 f"task schema documentation[/link] for more details."
             ),
             docs=docs,
