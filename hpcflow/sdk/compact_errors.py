@@ -153,7 +153,8 @@ class CompactProblemFormatter(AppAware):
                     exc_value,
                     exc_tb,
                 )
-            self._show_compact_exception(exc_type, exc_value, exc_tb)
+
+            self._show_compact_exception(type(exc_value), exc_value, exc_tb)
         else:
             self.__show_traceback(exc_type, exc_value, exc_tb)
 
