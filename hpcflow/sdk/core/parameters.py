@@ -36,6 +36,7 @@ from hpcflow.sdk.core.utils import (
     timedelta_format,
 )
 from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
+from hpcflow.sdk.core.warnings import DeprecationWarning_
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -1367,9 +1368,21 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         Build a sequence from a uniform random number generator.
         """
         warnings.warn(
-            f"{cls.__name__!r}: Please use `from_uniform` instead of "
-            f"`from_random_uniform`, which will be removed in a future release.",
-            DeprecationWarning,
+            DeprecationWarning_(
+                f"The 'ValueSequence' class method 'from_random_uniform' is deprecated "
+                f"and will be removed in a future release.",
+                solution=(
+                    f"Please use 'from_uniform' instead of 'from_random_uniform'. You "
+                    f"will need to specify the number of required values with the "
+                    f"'shape' argument, instead of the 'num' argument."
+                ),
+                docs={
+                    "ValueSequence.from_random_uniform": (
+                        f"{cls._app.docs_url}/reference/_autosummary/{cls._app.module}."
+                        f"ValueSequence.html#{cls._app.module}.ValueSequence.from_uniform"
+                    )
+                },
+            ),
             stacklevel=2,
         )
         return cls.from_uniform(
@@ -2359,9 +2372,21 @@ class InputValue(AbstractInputValue, ValuesMixin):
         Generate a value from a uniform random number generator.
         """
         warnings.warn(
-            f"{cls.__name__!r}: Please use `from_uniform` instead of "
-            f"`from_random_uniform`, which will be removed in a future release.",
-            DeprecationWarning,
+            DeprecationWarning_(
+                f"The 'InputValue' class method 'from_random_uniform' is deprecated "
+                f"and will be removed in a future release.",
+                solution=(
+                    f"Please use 'from_uniform' instead of 'from_random_uniform'. If "
+                    f"required, you can specify the number of values with the "
+                    f"'shape' argument, instead of the 'num' argument."
+                ),
+                docs={
+                    "InputValue.from_random_uniform": (
+                        f"{cls._app.docs_url}/reference/_autosummary/{cls._app.module}."
+                        f"InputValue.html#{cls._app.module}.InputValue.from_uniform"
+                    )
+                },
+            ),
             stacklevel=2,
         )
         return cls.from_uniform(

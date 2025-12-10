@@ -8,7 +8,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
 from typing import Any, TYPE_CHECKING, Literal
 
+from rich.highlighter import ReprHighlighter
+from rich.console import Console
+from rich.text import Text
+from rich.style import Style
+
 from hpcflow.sdk.utils.strings import capitalise_first_letter
+from hpcflow.sdk.utils.web_docs import get_docs_url_how_to
 
 if TYPE_CHECKING:
     from logging import Logger
@@ -913,27 +919,68 @@ class YAMLError(ValueError):
     """
 
 
-class UserFriendlyException(Exception):
+def format_problem(
+    obj: Exception | Warning,
+    title: str,
+    subtitle: str,
+    colour: str,
+    filename: str,
+    lineno: int,
+    console: Console | None = None,
+) -> Tuple[Text, Text]:
+    """Default formatter for rendering a `CompactException` or `CompactWarning` using
+    Rich.
+
+    This will also render any Exception or Warning object, but we don't use it to do that.
+    To use a custom formatter, define a `format` method on the `CompactException` or
+    `CompactWarning` sub-class (where the `obj` argument is replaced by `self`).
+
+    """
+    soln_fmt = ""
+    if solution := getattr(obj, "solution", None):
+        soln_fmt = f" [b][u]Solution[/u][/b]: {solution}"
+
+    docs_fmt = ""
+    if docs := getattr(obj, "docs", None):
+        doc_items = ", ".join(f"[link={val}]{name}[/link]" for name, val in docs.items())
+        docs_fmt = f" [b][u]Docs[/u][/b]: {doc_items}."
+
+    title = f"[{colour}][bold]{title}[/bold]: {subtitle}[/{colour}]"
+    if not console:
+        console = Console()
+
+    body = console.render_str(
+        f"{str(obj)}{soln_fmt}{docs_fmt}", highlight=ReprHighlighter()
+    )
+
+    # include the source filename and line number, as a footer:
+    footer = Text(f"\n\n{filename}:{lineno}", style=Style(color="grey50"))
+
+    return console.render_str(title), body + footer
+
+
+class CompactException(Exception):
     """Base exception class that hides the traceback to be more user-friendly, if
     desired."""
 
-    # TODO: this is not implemented yet
-
-    def __init__(self, message, solution=None, docs=None, *args):
+    def __init__(self, app, message, solution=None, docs=None, *args):
+        self.app = app
         self.solution = solution
         self.docs = docs or {}
         super().__init__(message, *args)
 
 
-class TaskSchemaValidationError(UserFriendlyException):
+class TaskSchemaValidationError(CompactException):
     def __init__(self, message, task_schema, solution=None, docs=None):
-        docs_ = {
-            "Task schemas": "https://docs.matflow.io/stable/user/how_to/task_schemas.html",
-        }
-        docs = {**docs_, **(docs or {})}
+        app = task_schema._app
         super().__init__(
-            f"Task schema {task_schema.name!r}: {message}",
-            solution=solution,
+            app=app,
+            message=f"Task schema {task_schema.name!r}: {message}",
+            solution=(
+                f"{solution} See the "
+                f"[link={get_docs_url_how_to(app, "task_schemas")}]"
+                f"task schema documentation[/link] for more details."
+            ),
             docs=docs,
         )
 
@@ -956,8 +1003,7 @@ class ActionInputHasNoSource(TaskSchemaValidationError):
             solution=(
                 f"Add {parameter_type!r} as a schema input to task schema "
                 f"{task_schema.name!r}, or make sure the parameter is output from an "
-                f"action that precedes this one. See the task schema documentation for "
-                f"more details."
+                f"action that precedes this one."
             ),
             task_schema=task_schema,
         )

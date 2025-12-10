@@ -52,6 +52,7 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
+from hpcflow.sdk.core.warnings import DeprecationWarning_
 
 from jinja2 import (
     Environment as JinjaEnvironment,
@@ -2069,10 +2070,14 @@ class Action(JSONLike):
 
         if script_data_files_use_opt:
             warnings.warn(
-                f"{self.__class__.__name__!r}: Please use `data_files_use_opt` instead "
-                f"of `script_data_files_use_opt`, which will be removed in a future "
-                f"release.",
-                DeprecationWarning,
+                DeprecationWarning_(
+                    f"The action attribute 'script_data_files_use_opt' is deprecated "
+                    f"and will be removed in a future release.",
+                    solution=(
+                        f"Please use the attribute 'data_files_use_opt' instead of "
+                        f"'script_data_file_use_opt' when constructing actions."
+                    ),
+                ),
                 stacklevel=2,
             )
             data_files_use_opt = script_data_files_use_opt

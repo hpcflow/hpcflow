@@ -63,6 +63,8 @@ from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_windows,
 )
 
+from hpcflow.sdk.core.warnings import batch_warnings
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from logging import Logger
@@ -162,6 +164,7 @@ if TYPE_CHECKING:
     from .submission.schedulers.slurm import SlurmPosix
     from .submission.shells.base import VersionInfo
     from .core.json_like import JSONDocument
+    from .compact_errors import CompactProblemFormatter
 
     # Complex types for SDK functions
     class _MakeWorkflow(Protocol):
@@ -618,6 +621,11 @@ class BaseApp(metaclass=Singleton):
 
         self._data_cache_dir: Path | None = None
         self._program_cache_dir: Path | None = None
+
+        # enable compact errors by default (if set to False in config, we disable when the
+        # config is loaded):
+        self._compact_formatter = self.CompactProblemFormatter()
+        self._compact_formatter.enable()
 
     @property
     def ElementActionRun(self) -> type[ElementActionRun]:
@@ -1275,6 +1283,15 @@ class BaseApp(metaclass=Singleton):
         :meta private:
         """
         return self._get_app_core_class("QueuedScheduler")
+
+    @property
+    def CompactProblemFormatter(self) -> type[CompactProblemFormatter]:
+        """
+        The :class:`CompactProblemFormatter` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("CompactProblemFormatter")
 
     @property
     def make_workflow(self) -> _MakeWorkflow:
@@ -2287,6 +2304,11 @@ class BaseApp(metaclass=Singleton):
         self.logger.info(f"Configuration loaded from: {self.config.config_file_path}")
         self._ensure_user_data_hostname_dir()
 
+        if self._config.show_tracebacks:
+            self.enable_show_tracebacks()
+        if self._config.use_rich_tracebacks:
+            self.enable_use_rich_tracebacks()
+
     def load_config(
         self,
         config_dir: PathLike = None,
@@ -2815,6 +2837,7 @@ class BaseApp(metaclass=Singleton):
         with self.known_subs_file_path.open("wt", newline="\n"):
             pass
 
+    @batch_warnings
     def _make_workflow(
         self,
         template_file_or_str: PathLike | str,
@@ -2941,6 +2964,7 @@ class BaseApp(metaclass=Singleton):
 
         return wk
 
+    @batch_warnings
     def _make_and_submit_workflow(
         self,
         template_file_or_str: PathLike | str,
@@ -3175,6 +3199,7 @@ class BaseApp(metaclass=Singleton):
                         return wk._add_submission(status=status_)
             return wk
 
+    @batch_warnings
     def _make_and_submit_demo_workflow(
         self,
         workflow_name: str,
@@ -4692,6 +4717,22 @@ class BaseApp(metaclass=Singleton):
         repository.
         """
         return f"github://{self.gh_org}:{self.gh_repo}@{sha}/{path}"
+
+    def enable_show_tracebacks(self):
+        """Enable showing tracebacks of `CompactException` objects."""
+        self._compact_formatter.show_tracebacks = True
+
+    def disable_show_tracebacks(self):
+        """Disable showing tracebacks of `CompactException` objects."""
+        self._compact_formatter.show_tracebacks = False
+
+    def enable_use_rich_tracebacks(self):
+        """Enable using the Rich library to format exception tracebacks."""
+        self._compact_formatter.use_rich_tracebacks = True
+
+    def disable_use_rich_tracebacks(self):
+        """Disable using the Rich library to format exception tracebacks."""
+        self._compact_formatter.use_rich_tracebacks = False
 
 
 class App(BaseApp):

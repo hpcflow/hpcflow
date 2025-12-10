@@ -100,8 +100,34 @@ class SGEPosix(QueuedScheduler):
         "dT": JobscriptElementState.cancelled,
     }
 
-    def __init__(self, cwd_switch: str | None = None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        directives: dict | None = None,
+        options: dict | None = None,
+        submit_cmd: str | None = None,
+        show_cmd: Sequence[str] | None = None,
+        del_cmd: str | None = None,
+        js_cmd: str | None = None,
+        login_nodes_cmd: Sequence[str] | None = None,
+        array_switch: str | None = None,
+        array_item_var: str | None = None,
+        cwd_switch: str | None = None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            directives=directives,
+            options=options,
+            submit_cmd=submit_cmd,
+            show_cmd=show_cmd,
+            del_cmd=del_cmd,
+            js_cmd=js_cmd,
+            login_nodes_cmd=login_nodes_cmd,
+            array_switch=array_switch,
+            array_item_var=array_item_var,
+            *args,
+            **kwargs,
+        )
         self.cwd_switch = cwd_switch or self.DEFAULT_CWD_SWITCH
 
     @classmethod
