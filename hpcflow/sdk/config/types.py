@@ -97,6 +97,10 @@ class ConfigDescriptor(TypedDict):
     shells: NotRequired[dict[str, ShellConfigDescriptor]]
     #: User affiliations
     user_affiliations: NotRequired[list[str]]
+    #: For CompactExceptions, show tracebacks in addition to the formatted exception.
+    show_tracebacks: NotRequired[bool]
+    #: Use Rich to render tracebacks.
+    use_rich_tracebacks: NotRequired[bool]
 
 
 class InvocationDescriptor(TypedDict):

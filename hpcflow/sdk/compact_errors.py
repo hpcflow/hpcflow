@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 import traceback
 import warnings
-from typing import Any, TYPE_CHECKING
+from typing import Any, Type, TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
@@ -18,7 +18,9 @@ from hpcflow.sdk.core.warnings import CompactWarning
 
 
 if TYPE_CHECKING:
-    from typing import ClassVar, TracebackType
+    from typing import ClassVar, TextIO
+    from types import TracebackType
+    from rich.text import Text
 
 
 class CompactProblemFormatter(AppAware):
@@ -38,7 +40,7 @@ class CompactProblemFormatter(AppAware):
         self,
         width: int = _DEFAULT_WIDTH,
         console_kwargs: dict[str, Any] | None = None,
-        output_stream: object | None = None,
+        output_stream: TextIO | None = None,
     ):
         self.enabled = False
         self.width = width
@@ -144,7 +146,7 @@ class CompactProblemFormatter(AppAware):
         exc_tb: TracebackType | None,
     ):
         """Custom except-hook that overrides `sys.excepthook` when enabled."""
-        if self.enabled and issubclass(exc_type, CompactException):
+        if self.enabled and isinstance(exc_type, CompactException):
             if self.show_tracebacks:
                 self.__show_traceback(
                     exc_type,
@@ -230,8 +232,8 @@ class CompactProblemFormatter(AppAware):
 
     def _show_compact_exception(
         self,
-        exc_type: Type[BaseException],
-        exc_value: BaseException,
+        exc_type: Type[CompactException],
+        exc_value: CompactException,
         exc_tb: TracebackType | None,
     ):
         """Print to stderr the formatted `CompactException`."""

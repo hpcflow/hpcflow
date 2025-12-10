@@ -927,7 +927,7 @@ def format_problem(
     filename: str,
     lineno: int,
     console: Console | None = None,
-) -> Tuple[Text, Text]:
+) -> tuple[Text, Text]:
     """Default formatter for rendering a `CompactException` or `CompactWarning` using
     Rich.
 
@@ -950,7 +950,7 @@ def format_problem(
         console = Console()
 
     body = console.render_str(
-        f"{str(obj)}{soln_fmt}{docs_fmt}", highlight=ReprHighlighter()
+        f"{str(obj)}{soln_fmt}{docs_fmt}", highlighter=ReprHighlighter()
     )
 
     # include the source filename and line number, as a footer:
