@@ -146,7 +146,7 @@ class CompactProblemFormatter(AppAware):
         exc_tb: TracebackType | None,
     ):
         """Custom except-hook that overrides `sys.excepthook` when enabled."""
-        if self.enabled and isinstance(exc_type, CompactException):
+        if self.enabled and isinstance(exc_value, CompactException):
             if self.show_tracebacks:
                 self.__show_traceback(
                     exc_type,
