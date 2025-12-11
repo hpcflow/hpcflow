@@ -11,7 +11,7 @@ import warnings
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
-from hpcflow.sdk.core.warnings import warn_obj_sched_options_deprecated
+from hpcflow.sdk.core.warnings import warn_scheduler_options_deprecated
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -53,9 +53,6 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
     #     The type of a jobscript reference.
 
     def __init__(self, shebang_executable: list[str] | None = None, options=None):
-        warnings.warn(
-            warn_obj_sched_options_deprecated(self._app, self.__class__.__name__),
-        )
         self.shebang_executable = shebang_executable
 
     @property

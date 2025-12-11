@@ -75,7 +75,7 @@ class DeprecationWarning_(CompactWarning, DeprecationWarning):
 warnings.simplefilter("always", DeprecationWarning_)
 
 
-def warn_obj_sched_options_deprecated(app, cls_name: str):
+def warn_scheduler_options_deprecated(app, cls_name: str):
     link = get_docs_url_of_class(app, cls_name)
     return DeprecationWarning_(
         f"The scheduler attribute 'options' is deprecated and will be "
