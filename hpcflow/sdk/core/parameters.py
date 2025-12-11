@@ -36,7 +36,8 @@ from hpcflow.sdk.core.utils import (
     timedelta_format,
 )
 from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
-from hpcflow.sdk.core.warnings import DeprecationWarning_
+from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -1367,24 +1368,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         """
         Build a sequence from a uniform random number generator.
         """
-        warnings.warn(
-            DeprecationWarning_(
-                f"The 'ValueSequence' class method 'from_random_uniform' is deprecated "
-                f"and will be removed in a future release.",
-                solution=(
-                    f"Please use 'from_uniform' instead of 'from_random_uniform'. You "
-                    f"will need to specify the number of required values with the "
-                    f"'shape' argument, instead of the 'num' argument."
-                ),
-                docs={
-                    "ValueSequence.from_random_uniform": (
-                        f"{cls._app.docs_url}/reference/_autosummary/{cls._app.module}."
-                        f"ValueSequence.html#{cls._app.module}.ValueSequence.from_uniform"
-                    )
-                },
-            ),
-            stacklevel=2,
-        )
+        warnings.warn(warn_from_random_uniform_deprecated(cls._app, "ValueSequence"))
         return cls.from_uniform(
             path=path,
             shape=num,
@@ -2360,7 +2344,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
     def from_random_uniform(
         cls,
         parameter: Parameter | SchemaInput | str,
-        num: int,
+        num: int | None = None,
         low: float = 0.0,
         high: float = 1.0,
         seed: int | list[int] | None = None,
@@ -2371,24 +2355,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         """
         Generate a value from a uniform random number generator.
         """
-        warnings.warn(
-            DeprecationWarning_(
-                f"The 'InputValue' class method 'from_random_uniform' is deprecated "
-                f"and will be removed in a future release.",
-                solution=(
-                    f"Please use 'from_uniform' instead of 'from_random_uniform'. If "
-                    f"required, you can specify the number of values with the "
-                    f"'shape' argument, instead of the 'num' argument."
-                ),
-                docs={
-                    "InputValue.from_random_uniform": (
-                        f"{cls._app.docs_url}/reference/_autosummary/{cls._app.module}."
-                        f"InputValue.html#{cls._app.module}.InputValue.from_uniform"
-                    )
-                },
-            ),
-            stacklevel=2,
-        )
+        warnings.warn(warn_from_random_uniform_deprecated(cls._app, "InputValue"))
         return cls.from_uniform(
             parameter=parameter,
             shape=num,

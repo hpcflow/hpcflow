@@ -2,7 +2,7 @@ from __future__ import annotations
 import warnings
 from functools import wraps
 
-from ..utils.web_docs import get_docs_url_of_class
+from ..utils.web_docs import get_docs_url_of_class, get_docs_url_of_class_method
 
 
 def batch_warnings(func):
@@ -84,5 +84,37 @@ def warn_scheduler_options_deprecated(app, cls_name: str):
             f"Please use 'directives' instead of 'options' when "
             f"parametrising the scheduler. See the scheduler class documentation for "
             f"more details: [link={link}]{cls_name}[/link]."
+        ),
+    )
+
+
+def warn_script_data_files_use_opt_deprecated():
+    return DeprecationWarning_(
+        f"The action attribute 'script_data_files_use_opt' is deprecated "
+        f"and will be removed in a future release.",
+        solution=(
+            f"Please use the attribute 'data_files_use_opt' instead of "
+            f"'script_data_file_use_opt' when constructing actions."
+        ),
+    )
+
+
+def warn_from_random_uniform_deprecated(app, cls_name):
+    new_method = "from_uniform"
+    link = get_docs_url_of_class_method(app, cls_name, new_method)
+
+    if cls_name == "ValueSequence":
+        soln_info = "You will need to "
+    elif cls_name == "InputValue":
+        soln_info = "If required, you can "
+
+    return DeprecationWarning_(
+        f"The {cls_name!r} class method 'from_random_uniform' is deprecated "
+        f"and will be removed in a future release.",
+        solution=(
+            f"Please use {new_method!r} instead of 'from_random_uniform'. {soln_info}"
+            f"specify the number of required values with the 'shape' argument, instead "
+            f"of the 'num' argument. See the method documentation for details: "
+            f"[link={link}]{cls_name}.{new_method}[/link]."
         ),
     )
