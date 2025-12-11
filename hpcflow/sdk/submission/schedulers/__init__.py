@@ -212,7 +212,7 @@ class QueuedScheduler(Scheduler[str]):
         super().__init__(*args, **kwargs)
         if options:
             warnings.warn(
-                warn_obj_sched_options_deprecated(self._app, self.__class__.__name__),
+                warn_scheduler_options_deprecated(self._app, self.__class__.__name__),
             )
             directives = options
 
