@@ -4892,6 +4892,7 @@ class BaseApp(metaclass=Singleton):
         assert (path_ := Path(path)).is_dir()
         data_cache_dir = self._ensure_data_cache_dir()
         copy_dir_contents(path_, data_cache_dir, overwrite=overwrite)
+        print(f"Installed data cache from directory: {path!r}")
 
     def install_program_cache(self, path: PathLike, overwrite: bool = False):
         """Copy pre-existing cached programs to the correct location.
@@ -4915,6 +4916,7 @@ class BaseApp(metaclass=Singleton):
         assert (path_ := Path(path)).is_dir()
         program_dir = self._ensure_program_cache_dir()
         copy_dir_contents(path_, program_dir, overwrite=overwrite)
+        print(f"Installed program cache from directory: {path!r}")
 
 
 class App(BaseApp):
