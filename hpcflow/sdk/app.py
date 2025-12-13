@@ -4873,7 +4873,7 @@ class BaseApp(metaclass=Singleton):
     def __install_data_or_program_cache(
         self,
         data_type: Literal["data", "program"],
-        path: PathLike,
+        path: str | Path,
         overwrite: bool = False,
     ):
         """Copy pre-existing cached data or programs to the correct locations."""
@@ -4916,7 +4916,7 @@ class BaseApp(metaclass=Singleton):
             ow = f" (by overwriting existing item)" if overwrote else ""
             print(f"Installed {data_type} cache item {key!r}{ow} from path {path_!r}")
 
-    def install_data_cache(self, path: PathLike, overwrite: bool = False):
+    def install_data_cache(self, path: str | Path, overwrite: bool = False):
         """Copy pre-existing cached data to the correct location.
 
         This can be used in CI workflows to load the cache from a single source for all
@@ -4936,7 +4936,7 @@ class BaseApp(metaclass=Singleton):
         """
         self.__install_data_or_program_cache("data", path, overwrite)
 
-    def install_program_cache(self, path: PathLike, overwrite: bool = False):
+    def install_program_cache(self, path: str | Path, overwrite: bool = False):
         """Copy pre-existing cached programs to the correct location.
 
         This can be used in CI workflows to load the cache from a single source for all
