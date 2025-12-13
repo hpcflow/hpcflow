@@ -50,7 +50,6 @@ from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
 from hpcflow.sdk.utils.files import (
-    copy_dir_contents,
     copy_file_or_dir,
     delete_file_or_dir,
 )
@@ -4871,6 +4870,52 @@ class BaseApp(metaclass=Singleton):
         """
         return f"github://{self.gh_org}:{self.gh_repo}@{sha}/{path}"
 
+    def __install_data_or_program_cache(
+        self,
+        data_type: Literal["data", "program"],
+        path: PathLike,
+        overwrite: bool = False,
+    ):
+        """Copy pre-existing cached data or programs to the correct locations."""
+        assert (path_ := Path(path)).is_dir()
+
+        ENSURE_LOOKUP = {
+            "data": self._ensure_data_cache_dir,
+            "program": self._ensure_program_cache_dir,
+        }
+        cache_dir = ENSURE_LOOKUP[data_type]()
+        manifest = self.get_data_manifest(data_type)
+        for key in manifest:
+            spec = self.__validate_cacheable_file_spec(data_type, key, manifest[key])
+            src = path_ / key
+            dst = cache_dir / key
+            if not src.exists():
+                raise ValueError(
+                    f"{data_type.title()} cache item {key!r} does not exist within the "
+                    f"provided path: {path_!r}."
+                )
+            overwrote = False
+            if dst.exists():
+                if overwrite:
+                    # delete existing first:
+                    delete_file_or_dir(dst)
+                    overwrote = True
+                else:
+                    raise FileExistsError(
+                        f"{data_type.title()} cache item {key!r} already exists; set "
+                        f"`overwrite` to True to replace it."
+                    )
+
+            # copy into the app cache directory:
+            copy_file_or_dir(src, dst)
+
+            # set executable bits, if required:
+            if data_type == "program":
+                self.__set_executable(data_type, spec, dst)
+
+            ow = f" (by overwriting existing item)" if overwrote else ""
+            print(f"Installed {data_type} cache item {key!r}{ow} from path {path_!r}")
+
     def install_data_cache(self, path: PathLike, overwrite: bool = False):
         """Copy pre-existing cached data to the correct location.
 
@@ -4889,10 +4934,7 @@ class BaseApp(metaclass=Singleton):
             data cache directory. If False (the default), a `FileExistsError` exception
             will be raised if an item already exists.
         """
-        assert (path_ := Path(path)).is_dir()
-        data_cache_dir = self._ensure_data_cache_dir()
-        copy_dir_contents(path_, data_cache_dir, overwrite=overwrite)
-        print(f"Installed data cache from directory: {path!r}")
+        self.__install_data_or_program_cache("data", path, overwrite)
 
     def install_program_cache(self, path: PathLike, overwrite: bool = False):
         """Copy pre-existing cached programs to the correct location.
@@ -4912,11 +4954,7 @@ class BaseApp(metaclass=Singleton):
             data cache directory. If False (the default), a `FileExistsError` exception
             will be raised if an item already exists.
         """
-        # TODO: set all executable bits!
-        assert (path_ := Path(path)).is_dir()
-        program_dir = self._ensure_program_cache_dir()
-        copy_dir_contents(path_, program_dir, overwrite=overwrite)
-        print(f"Installed program cache from directory: {path!r}")
+        self.__install_data_or_program_cache("program", path, overwrite)
 
 
 class App(BaseApp):
