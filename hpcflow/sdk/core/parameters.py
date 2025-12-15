@@ -27,7 +27,6 @@ from hpcflow.sdk.core.errors import (
     InvalidIdentifier,
     MalformedParameterPathError,
     UnknownResourceSpecItemError,
-    WorkflowParameterMissingError,
 )
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import (
@@ -41,8 +40,8 @@ from hpcflow.sdk.utils.arrays import is_primitive_homogeneous
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
-    from typing import Any, ClassVar, Literal
-    from typing_extensions import Self, TypeAlias
+    from typing import Any, ClassVar, Literal, TypeAlias
+    from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
     from numpy.typing import NDArray
     from ..typing import ParamSource
@@ -1840,11 +1839,7 @@ class AbstractInputValue(JSONLike):
     _value_group_idx: int | list[int] | None = None
 
     def __repr__(self) -> str:
-        try:
-            value_str = f", value={self.value}"
-        except WorkflowParameterMissingError:
-            value_str = ""
-
+        value_str = f", value={self.value}"
         return (
             f"{self.__class__.__name__}("
             f"_value_group_idx={self._value_group_idx}"
@@ -2084,10 +2079,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         if self.label is not None:
             label_str = f", label={self.label!r}"
 
-        try:
-            value_str = f", value={self.value!r}"
-        except WorkflowParameterMissingError:
-            value_str = ""
+        value_str = f", value={self.value!r}"
 
         return (
             f"{self.__class__.__name__}("
@@ -2741,10 +2733,7 @@ class ResourceSpec(JSONLike):
     def __repr__(self):
         param_strs = ""
         for param in self.ALLOWED_PARAMETERS:
-            try:
-                i_val = getattr(self, param)
-            except WorkflowParameterMissingError:
-                continue
+            i_val = getattr(self, param)
             if i_val is not None:
                 param_strs += f", {param}={i_val!r}"
 

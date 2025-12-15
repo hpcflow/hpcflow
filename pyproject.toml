@@ -1,7 +1,7 @@
 
 [tool.poetry]
 name = "hpcflow"
-version = "0.2.0a282"
+version = "0.2.0a286"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
@@ -13,7 +13,7 @@ packages = [
 exclude = ["hpcflow/data/demo_data"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.14"
+python = ">=3.10,<3.14"
 zarr = "2.17.2"
 numpy = [
     {version = "^1.26.4", python = "<3.13"},
@@ -76,7 +76,7 @@ papermill = "^2.6.0"
 ipykernel = "^6.25.1"
 
 [tool.poetry.group.pyinstaller.dependencies]
-pyinstaller = "^6.12.0"
+pyinstaller = "^6.17.0"
 
 [tool.poetry.group.typecheck]
 optional = true
@@ -84,10 +84,10 @@ optional = true
 types-colorama = "^0.4.15.20240311"
 types-paramiko = ">=3.4.0.20240423,<5.0.0.0"
 types-psutil = ">=6.0.0.20240621,<8.0.0.0"
-types-pyinstaller = "^6.11.0.20241028"
+types-pyinstaller = "^6.17.0.20251127"
 types-requests = "^2.32.0.20240622"
 types-setuptools = ">=70.2.0.20240704,<81.0.0.0"
-mypy = "^1.10.1"
+mypy = "^1.19.0"
 types-markupsafe = "^1.1.10"
 scipy-stubs = {version = "^1.15.2.1", python = ">=3.10"}
 
@@ -102,9 +102,9 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0a282"
+version = "0.2.0a286"
 tag_format = "v$version"
-version_files = [ 
+version_files = [
     "pyproject.toml:version",
     "hpcflow/_version.py"
 ]

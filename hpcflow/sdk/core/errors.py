@@ -19,14 +19,6 @@ if TYPE_CHECKING:
     from .task import WorkflowTask, Task
 
 
-class InputValueDuplicateSequenceAddress(ValueError):
-    """
-    An InputValue has the same sequence address twice.
-    """
-
-    # FIXME: never used
-
-
 class TaskTemplateMultipleSchemaObjectives(ValueError):
     """
     A TaskTemplate has multiple objectives.
@@ -205,54 +197,6 @@ class TaskTemplateInvalidNesting(ValueError):
         )
 
 
-class TaskSchemaSpecValidationError(Exception):
-    """
-    A task schema failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class WorkflowSpecValidationError(Exception):
-    """
-    A workflow failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class InputSourceValidationError(Exception):
-    """
-    An input source failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class EnvironmentSpecValidationError(Exception):
-    """
-    An environment specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class ParameterSpecValidationError(Exception):
-    """
-    A parameter specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
-class FileSpecValidationError(Exception):
-    """
-    A file specification failed to validate.
-    """
-
-    # FIXME: never used
-
-
 class DuplicateExecutableError(ValueError):
     """
     The same executable was present twice in an executable environment.
@@ -274,14 +218,6 @@ class MissingCompatibleActionEnvironment(Exception):
         super().__init__(f"No compatible environment is specified for the {msg}.")
 
 
-class MissingActionEnvironment(Exception):
-    """
-    Could not find an action environment.
-    """
-
-    # FIXME: never used
-
-
 class ActionEnvironmentMissingNameError(Exception):
     """
     An action environment was missing its name.
@@ -293,30 +229,6 @@ class ActionEnvironmentMissingNameError(Exception):
             "`name` key, or be specified as string that is that name. Provided "
             f"environment key was {environment!r}."
         )
-
-
-class FromSpecMissingObjectError(Exception):
-    """
-    Missing object when deserialising from specification.
-    """
-
-    # FIXME: never used
-
-
-class TaskSchemaMissingParameterError(Exception):
-    """
-    Parameter was missing from task schema.
-    """
-
-    # FIXME: never used
-
-
-class ToJSONLikeChildReferenceError(Exception):
-    """
-    Failed to generate or reference a child object when converting to JSON.
-    """
-
-    # FIXME: never thrown
 
 
 class InvalidInputSourceTaskReference(Exception):
@@ -353,14 +265,6 @@ class MalformedWorkflowError(Exception):
     # TODO: use this class
 
 
-class ValuesAlreadyPersistentError(Exception):
-    """
-    Trying to make a value persistent that already is so.
-    """
-
-    # FIXME: never used
-
-
 class MalformedParameterPathError(ValueError):
     """
     The path to a parameter was ill-formed.
@@ -390,30 +294,6 @@ class UnknownResourceSpecItemError(ValueError):
 
     def __init__(self, msg: str) -> None:
         super().__init__(msg)
-
-
-class WorkflowParameterMissingError(AttributeError):
-    """
-    A parameter to a workflow was missing.
-    """
-
-    # FIXME: never thrown
-
-
-class WorkflowBatchUpdateFailedError(Exception):
-    """
-    An update to a workflow failed.
-    """
-
-    # FIXME: only throw is commented out?
-
-
-class WorkflowLimitsError(ValueError):
-    """
-    Workflow hit limits.
-    """
-
-    # FIXME: never used
 
 
 class UnsetParameterDataErrorBase(Exception):
@@ -500,16 +380,6 @@ class LoopTaskSubsetError(ValueError):
             f"Loop {loop_name!r}: task subset must be an ascending contiguous range, "
             f"but specified task indices were: {task_indices!r}."
         )
-
-
-class SchedulerVersionsFailure(RuntimeError):
-    """We couldn't get the scheduler and or shell versions."""
-
-    # FIXME: unused
-
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
 
 
 class JobscriptSubmissionFailure(RuntimeError):
@@ -1041,3 +911,115 @@ class YAMLError(ValueError):
     """
     A problem with parsing a YAML file.
     """
+
+
+class UserFriendlyException(Exception):
+    """Base exception class that hides the traceback to be more user-friendly, if
+    desired."""
+
+    # TODO: this is not implemented yet
+
+    def __init__(self, message, solution=None, docs=None, *args):
+        self.solution = solution
+        self.docs = docs or {}
+        super().__init__(message, *args)
+
+
+class TaskSchemaValidationError(UserFriendlyException):
+    def __init__(self, message, task_schema, solution=None, docs=None):
+        docs_ = {
+            "Task schemas": "https://docs.matflow.io/stable/user/how_to/task_schemas.html",
+        }
+        docs = {**docs_, **(docs or {})}
+        super().__init__(
+            f"Task schema {task_schema.name!r}: {message}",
+            solution=solution,
+            docs=docs,
+        )
+
+
+class ActionInputHasNoSource(TaskSchemaValidationError):
+
+    def __init__(self, task_schema, parameter_type, sources_and_sinks) -> None:
+        sink_acts = sources_and_sinks["sinks"]
+        sa_fmt = ", ".join(str(i) for i in sink_acts)
+        sa_fmt = (
+            f" used in action{'s' if len(sink_acts) > 1 else ''} " + sa_fmt
+            if sink_acts
+            else ""
+        )
+        super().__init__(
+            message=(
+                f"action input {parameter_type!r}{sa_fmt} has no source. It is not a "
+                f"schema input, but nor is it an action output from a preceding action."
+            ),
+            solution=(
+                f"Add {parameter_type!r} as a schema input to task schema "
+                f"{task_schema.name!r}, or make sure the parameter is output from an "
+                f"action that precedes this one. See the task schema documentation for "
+                f"more details."
+            ),
+            task_schema=task_schema,
+        )
+        self.parameter_type = parameter_type
+
+
+class ActionOutputNotSchemaOutput(TaskSchemaValidationError):
+
+    def __init__(self, task_schema, parameter_type, sources_and_sinks) -> None:
+        src_acts = sources_and_sinks["sources"]
+        sa_fmt = ", ".join(str(i) for i in src_acts)
+        super().__init__(
+            message=(
+                f"action output {parameter_type!r} generated by "
+                f"action{'s' if len(src_acts) > 1 else ''} {sa_fmt} is not a schema "
+                f"output."
+            ),
+            solution=(
+                f"Add {parameter_type!r} as a schema output to the task schema "
+                f"{task_schema.name!r}."
+            ),
+            task_schema=task_schema,
+        )
+        self.parameter_type = parameter_type
+
+
+class TaskSchemaExtraInputs(TaskSchemaValidationError):
+    def __init__(self, task_schema, extra_ins) -> None:
+        ex_ins_fmt = ", ".join(str(i) for i in extra_ins)
+        gt_1 = len(extra_ins) > 1
+        super().__init__(
+            message=(
+                f"schema input{'s' if gt_1 else ''} {ex_ins_fmt!r} "
+                f"{'are' if gt_1 else 'is'} not used by any actions of the task "
+                f"schema."
+            ),
+            solution=(
+                f"Remove the schema input{'s' if gt_1 else ''} {ex_ins_fmt!r} from the "
+                f"task schema's inputs list."
+            ),
+            task_schema=task_schema,
+        )
+        self.extra_inputs = extra_ins
+
+
+class TaskSchemaMissingActionOutputs(TaskSchemaValidationError):
+    """Task schema outputs are not generated by any actions."""
+
+    def __init__(self, task_schema, missing_outputs) -> None:
+        miss_fmt = ", ".join(str(i) for i in missing_outputs)
+        gt_1 = len(missing_outputs) > 1
+        super().__init__(
+            message=(
+                f"schema output{'s' if gt_1 else ''} {miss_fmt!r} "
+                f"{'are' if gt_1 else 'is'} not generated by any actions of the task "
+                f"schema."
+            ),
+            solution=(
+                f"Either remove the schema output{'s' if gt_1 else ''} {miss_fmt!r} from "
+                f"the task schema's outputs list, or add one or more actions that "
+                f"generate the output{'s' if gt_1 else ''} {miss_fmt!r}."
+            ),
+            task_schema=task_schema,
+        )
+        self.missing_outputs = missing_outputs

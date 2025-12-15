@@ -11,8 +11,7 @@ from dataclasses import dataclass, field, fields
 from functools import wraps
 import copy
 
-from typing import Any, Generic, TYPE_CHECKING, TypeVar
-from typing_extensions import ParamSpec
+from typing import Any, Generic, ParamSpec, TypeVar, TYPE_CHECKING
 
 import numpy as np
 

@@ -377,8 +377,7 @@ class Command(JSONLike):
         }
         types_pattern = "|".join(parse_types)
 
-        # TODO: use str.removeprefix in 3.9 onwards
-        out_name = name.replace("outputs.", "")
+        out_name = name.removeprefix("outputs.")
         pattern = (
             r"(\<\<(?:({types_pattern})(?:\[(.*)\])?\()?parameter:{name}(?:\.(\w+)"
             r"\((.*?)\))?\)?\>\>?)"

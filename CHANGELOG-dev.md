@@ -1,4 +1,48 @@
 
+<a name="v0.2.0a286"></a>
+## [v0.2.0a286](https://github.com/hpcflow/hpcflow/compare/v0.2.0a285...v0.2.0a286) - 2025.12.09
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a285"></a>
+## [v0.2.0a285](https://github.com/hpcflow/hpcflow/compare/v0.2.0a284...v0.2.0a285) - 2025.12.09
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-psutil in the pip-dependencies group
+
+
+<a name="v0.2.0a284"></a>
+## [v0.2.0a284](https://github.com/hpcflow/hpcflow/compare/v0.2.0a283...v0.2.0a284) - 2025.12.06
+
+### ♻ Code Refactoring
+
+* add `TaskSchema.get_action_parameter_flow` for reuse elsewhere, and use for validation
+* remove unused exceptions
+
+### 🐛 Bug Fixes
+
+* type check
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a283"></a>
+## [v0.2.0a283](https://github.com/hpcflow/hpcflow/compare/v0.2.0a282...v0.2.0a283) - 2025.12.02
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump actions/checkout
+* **deps-dev:** bump the pip-dependencies group across 1 directory with 4 updates
+
+
 <a name="v0.2.0a282"></a>
 ## [v0.2.0a282](https://github.com/hpcflow/hpcflow/compare/v0.2.0a281...v0.2.0a282) - 2025.11.25
 

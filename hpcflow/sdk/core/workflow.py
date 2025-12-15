@@ -17,8 +17,8 @@ import shutil
 import string
 from threading import Thread
 import time
-from typing import overload, cast, TYPE_CHECKING, TypeVar
-from typing_extensions import ParamSpec, Concatenate
+from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
+from typing_extensions import Concatenate
 
 from uuid import uuid4
 from warnings import warn
@@ -96,8 +96,8 @@ from hpcflow.sdk.core.errors import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
-    from typing import Any, ClassVar, Literal, DefaultDict
-    from typing_extensions import Self, TypeAlias
+    from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
+    from typing_extensions import Self
     from numpy.typing import NDArray
     import psutil
     from rich.status import Status
@@ -2154,12 +2154,6 @@ class Workflow(AppAware):
 
             else:
                 if self._store._pending:
-                    # is_diff = self._store.is_modified_on_disk()
-                    # if is_diff:
-                    #     raise WorkflowBatchUpdateFailedError(
-                    #         f"Workflow modified on disk since it was loaded!"
-                    #     )
-
                     for task in self.tasks:
                         task._accept_pending_element_IDs()
                         task.template._accept_pending_element_sets()
