@@ -8,6 +8,46 @@ import numpy as np
 from numpy.typing import NDArray
 
 
+def vectorized_multi_global_to_local(lengths, g, outer_dtype: str | None = None):
+    """
+    Vectorised global-to-local index mapping for multiple nested sequences.
+
+    lengths : array of shape (n_seq, n_sublists)
+        Lengths of sublists for each sequence (right-padded with zeros if needed).
+    g : array of shape (n_g,)
+        Global indices (0..N-1).
+    Returns:
+        outer, inner : arrays of shape (n_seq, n_g)
+    """
+    # TODO: rename?
+
+    lengths = np.asarray(lengths)
+    g = np.asarray(g)
+
+    if outer_dtype:
+        if lengths.shape[1] > np.iinfo(np.dtype(outer_dtype)).max:
+            raise ValueError("A larger dtype must be used.")
+
+    cumlen = np.cumsum(lengths, axis=1)
+
+    # for each sequence (row), the starting (global) index of each sublist:
+    offsets = np.cumsum(
+        np.c_[np.zeros(lengths.shape[0]), lengths[:, :-1]], axis=1
+    ).astype(int)
+
+    # for each sequence (row), find the first cumlen > g
+    mask = g[None, :] < cumlen[:, :, None]
+
+    outer = mask.argmax(axis=1)  # first True along sublist dimension
+    if outer_dtype:
+        outer = outer.astype(outer_dtype)
+
+    # Compute inner index as g - offset for that outer index
+    inner = g[None, :] - np.take_along_axis(offsets, outer, axis=1)
+
+    return outer, inner
+
+
 @dataclass
 class NestingSequence:
     """A sequence of some length that is to be nested with other sequences.
@@ -43,7 +83,7 @@ class NestingSequence:
 class ZippedNestingSequences:
 
     sequences: list[NestingSequence]
-    length: int
+    length: int  # TODO: don't specify this?
     nesting_order: int | float
 
     @property
@@ -53,6 +93,20 @@ class ZippedNestingSequences:
     @property
     def paths(self) -> tuple[str, ...]:
         return tuple(ns_i.path for ns_i in self.sequences)
+
+    @property
+    def all_lengths(self) -> tuple[list[int]]:
+        return tuple(ns_i.lengths for ns_i in self.sequences)
+
+    @property
+    def padded_lengths(self):
+        """Get an array of lengths, one row for each child `NestingSequence`, zero-padded
+        on the right hand side"""
+        all_lens = self.all_lengths
+        out = np.zeros((self.num_sequences, max(len(lens_i) for lens_i in all_lens)))
+        for seq_idx, lens_i in enumerate(self.all_lengths):
+            out[seq_idx, : len(lens_i)] = lens_i
+        return out
 
 
 class NestingView:
@@ -270,9 +324,7 @@ class NestingView:
     def get_indices(
         self,
         element_idx: Sequence[int] | NDArray | None = None,
-        as_list: bool = False,
-        ret_source_indices: bool = True,
-    ) -> NDArray | list[tuple[int, ...]]:
+    ) -> dict[str, tuple[NDArray, NDArray]]:
         """
         Parameters
         ----------
@@ -283,14 +335,30 @@ class NestingView:
             If True, return a list of tuples. If False, return a Numpy record array whose
             fields correspond to the nesting sequence paths.
         """
+
+        if element_idx is not None and (min_idx := min(element_idx)) < self.offset:
+            raise ValueError(
+                f"Minimum of specified element index ({min_idx}) cannot be less that the "
+                f"offset: {self.offset}."
+            )
+
         element_idx_ = (
-            np.arange(self.num_items) if element_idx is None else np.asarray(element_idx)
+            np.arange(self.num_items)
+            if element_idx is None
+            else np.asarray(element_idx) - self.offset
         ).reshape((-1, 1))
-        element_idx_ -= self.offset
+
+        # array of column vectors, one for each zipped path
         out = (element_idx_ // self._floor_div) % np.array(self.all_lengths)
 
-        out = out[:, self._group_expand_idx]
-        if as_list:
-            return [tuple(idx_i.item() for idx_i in row) for row in out]
-        else:
-            return np.core.records.fromarrays(out.T, dtype=self.indices_dtype)
+        # for each column in `out`, generate indices for the input source index and the
+        # index within the values for that input source:
+        dct = {}
+        for global_idx, group in zip(out.T, self.groups):
+            inp_src_idx, seq_idx = vectorized_multi_global_to_local(
+                group.padded_lengths, global_idx, outer_dtype="uint8"
+            )
+            for ns_idx, ns_i in enumerate(group.sequences):
+                dct[ns_i.path] = (inp_src_idx[ns_idx], seq_idx[ns_idx])
+
+        return dct

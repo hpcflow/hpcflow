@@ -887,6 +887,13 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         return obj
 
+    def __len__(self):
+        return (
+            len(self._values_group_idx)
+            if self._values_group_idx is not None
+            else len(self._values)
+        )
+
     @property
     def parameter(self) -> Parameter | None:
         """
