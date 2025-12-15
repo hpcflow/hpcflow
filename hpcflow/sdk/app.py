@@ -49,6 +49,10 @@ from hpcflow.sdk.core.utils import (
 from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
+from hpcflow.sdk.utils.files import (
+    copy_file_or_dir,
+    delete_file_or_dir,
+)
 from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as _Environment
 from hpcflow.sdk.log import AppLog, TimeIt
@@ -4217,8 +4221,9 @@ class BaseApp(metaclass=Singleton):
         self, data_type: Literal["data", "program"]
     ) -> dict[str, dict[str, str]]:
         """
-        Get a dict whose keys are example data file or program names and whose values are
-        the source files if the source file required unzipping or `None` otherwise.
+        Get a key-sorted dict whose keys are example data file or program names and whose
+        values are the source files if the source file required unzipping or `None`
+        otherwise.
 
         If the config items `data_manifest_file`/`program_manifest_file` is set, this is
         used as the manifest file path. Otherwise, the app attribute `data_manifest_dir`
@@ -4246,7 +4251,7 @@ class BaseApp(metaclass=Singleton):
                 self, str(config_attr), logger=self.logger
             )
             with fs.open(url_path) as fh:
-                return json.load(fh)
+                return dict(sorted(json.load(fh).items()))
         else:
             self.logger.debug(
                 f"loading {data_type} files manifest from the directory defined by the app "
@@ -4261,7 +4266,7 @@ class BaseApp(metaclass=Singleton):
             "program": "programs.json",
         }
         with open_text_resource(package, MANIFEST_LOOKUP[data_type]) as fh:
-            return json.load(fh)
+            return dict(sorted(json.load(fh).items()))
 
     def get_data_files_manifest(self) -> dict[str, dict[str, str]]:
         """
@@ -4311,9 +4316,6 @@ class BaseApp(metaclass=Singleton):
                 f"{extra!r}. Allowed keys are {allowed!r}."
             )
         return spec
-
-    def __copy_file_or_dir(self, src: Path, dst: Path):
-        shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)
 
     def __set_executable(
         self, data_type: Literal["data", "program"], spec: dict[str, str], path: Path
@@ -4455,7 +4457,7 @@ class BaseApp(metaclass=Singleton):
                         f"copying unzipped {data_type} file {ext_src.name!r} to "
                         f"cache location: {cache_file_path!r}."
                     )
-                    self.__copy_file_or_dir(ext_src, cache_file_path)
+                    copy_file_or_dir(ext_src, cache_file_path)
 
                 else:
                     # copy contents of zip file to directory under `file_key`
@@ -4466,7 +4468,7 @@ class BaseApp(metaclass=Singleton):
                             f"copying unzipped {data_type} file {ext_src_i.name!r} to "
                             f"cache location: {dst_i!r}."
                         )
-                        self.__copy_file_or_dir(ext_src_i, dst_i)
+                        copy_file_or_dir(ext_src_i, dst_i)
                     if data_type == "program":
                         # add on the executable:
                         cache_file_path = cache_file_path.joinpath(spec["executable"])
@@ -4492,37 +4494,104 @@ class BaseApp(metaclass=Singleton):
 
         return cache_file_path
 
-    def get_data_file_path(
-        self, data_type: Literal["data", "program"], file_key: str
+    def purge_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+        not_exist_ok: bool = False,
+    ):
+        """Delete a built-in data or program file from the cache."""
+        manifest = manifest or self.get_data_manifest(data_type)
+        if path := self._get_data_file_cached_path(data_type, file_key, manifest):
+            delete_file_or_dir(path)
+        elif not not_exist_ok:
+            raise ValueError(
+                f"Built-in {data_type} {file_key!r} does not exist and so cannot be "
+                f"purged, when `not_exist_ok` is set to False."
+            )
+
+    def recache_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        not_exist_ok: bool = True,
+        manifest: dict[str, dict[str, str]] | None = None,
     ) -> Path:
         """
-        Retrieve the local path to a cached data or builtin program file.
+        Delete and then re-cache a built-in data or program file, and return its path.
         """
-        manifest = self.get_data_manifest(data_type)
-        if file_key not in manifest:
-            raise ValueError(f"No such {data_type} file {file_key!r}.")
+        self.purge_file(data_type, file_key, manifest=manifest, not_exist_ok=not_exist_ok)
+        return self.cache_file(data_type, file_key, manifest=manifest, exist_ok=False)
 
+    def is_data_file_cached(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> bool:
+        """
+        Return True if the specified built-in data or program is cached.
+        """
+        return bool(self._get_data_file_cached_path(data_type, file_key, manifest))
+
+    def __get_cache_dir(self, data_type: Literal["data", "program"]):
+        """Get the cache directory for either built-in data or programs."""
         CACHE_LOOKUP = {
             "data": self.data_cache_dir,
             "program": self.program_cache_dir,
         }
         try:
-            cache_dir = CACHE_LOOKUP[data_type]
+            return CACHE_LOOKUP[data_type]
         except KeyError:
             raise ValueError(
                 f"`data_type` must be 'data' or 'program', but received {data_type}."
             )
-        cache_file_path = cache_dir.joinpath(file_key)
-        if cache_file_path.exists():
+
+    def _get_data_file_cached_path(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> Path | None:
+        """
+        Return the path to a built-in data or program, if it is cached, or None otherwise.
+
+        If the data/program is cached, this returns the cached directory joined
+        `file_key`, and so for programs, this does not return the path to the executable.
+
+        """
+        manifest = manifest or self.get_data_manifest(data_type)
+        if file_key not in manifest:
+            raise ValueError(f"No such {data_type} file {file_key!r}.")
+        cache_dir = self.__get_cache_dir(data_type)
+        if (cache_file_path := cache_dir.joinpath(file_key)).exists():
+            return cache_file_path
+        return None
+
+    def get_data_file_path(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> Path:
+        """
+        Retrieve the local path to a cached data or builtin program file.
+        """
+        manifest = manifest or self.get_data_manifest(data_type)
+        if cache_file_path := self._get_data_file_cached_path(
+            data_type, file_key, manifest
+        ):
             self.logger.info(
                 f"{data_type} file {file_key!r} is already in the cache: "
                 f"{cache_file_path!r}."
             )
             if data_type == "program":
-                cached_path = cache_file_path.joinpath(manifest[file_key]["executable"])
+                cached_path = cache_file_path / manifest[file_key]["executable"]
             else:
                 cached_path = cache_file_path
         else:
+            cache_file_path = self.__get_cache_dir(data_type) / file_key
             self.logger.info(
                 f"{data_type} file {file_key!r} is not in the cache, so copying to the "
                 f"cache: {cache_file_path!r}."
@@ -4536,13 +4605,59 @@ class BaseApp(metaclass=Singleton):
 
         return cached_path
 
-    def list_data_files(self) -> tuple[str, ...]:
-        """List available demonstration data files."""
+    def _get_data_file_key_from_ID(
+        self, data_type: Literal["data", "program"], id: int
+    ) -> str:
+        """
+        Get the file key of a built-in data or program file (as used in the
+        respective manifest) from an integer ID as displayed by `print_data_files` or
+        `print_programs`.
+        """
+        try:
+            return list(self.get_data_manifest(data_type))[id]
+        except IndexError:
+            raise ValueError(
+                f"No built-in {data_type} file exists with ID {id!r}."
+            ) from None
+
+    def get_data_files(self) -> tuple[str, ...]:
+        """Get a tuple of available demonstration data files."""
         return tuple(self.get_data_manifest("data"))
 
-    def list_programs(self) -> tuple[str, ...]:
+    def get_programs(self) -> tuple[str, ...]:
         """List available built-in program files."""
         return tuple(self.get_data_manifest("program"))
+
+    def __print_data_files_rich_table(
+        self, data_type: Literal["data", "program"]
+    ) -> None:
+        """
+        Print a table of available demonstration data files and whether they are
+        cached.
+        """
+        tab = Table("ID", data_type.title(), "Cached", box=box.SIMPLE)
+        manifest = self.get_data_manifest(data_type)
+        EMOJI_IS_CACHED = {
+            True: "✅",
+            False: "❌",
+        }
+        for idx, file_i in enumerate(manifest):
+            tab.add_row(
+                str(idx),
+                file_i,
+                EMOJI_IS_CACHED[self.is_data_file_cached(data_type, file_i, manifest)],
+            )
+        Console().print(tab)
+
+    def print_data_files(self) -> None:
+        """Print a table of available demonstration data files and whether they are
+        cached."""
+        self.__print_data_files_rich_table("data")
+
+    def print_programs(self) -> None:
+        """Print a table of available built-in program files and whether they are
+        cached."""
+        self.__print_data_files_rich_table("program")
 
     def get_demo_data_file_path(self, file_name: str) -> Path:
         """
@@ -4576,6 +4691,30 @@ class BaseApp(metaclass=Singleton):
         """
         return self.cache_file("program", file_key, exist_ok=exist_ok)
 
+    def purge_data_file(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete a built-in data file from the cache.
+        """
+        return self.purge_file("data", file_key, not_exist_ok=not_exist_ok)
+
+    def purge_program(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete a built-in program from the cache.
+        """
+        return self.purge_file("program", file_key, not_exist_ok=not_exist_ok)
+
+    def recache_data_file(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache a built-in data file.
+        """
+        return self.recache_file("data", file_key, not_exist_ok=not_exist_ok)
+
+    def recache_program(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache a built-in program.
+        """
+        return self.recache_file("program", file_key, not_exist_ok=not_exist_ok)
+
     def cache_all_data_files(self, exist_ok: bool = True) -> list[Path]:
         """
         Cache all data files, and return their paths.
@@ -4583,7 +4722,25 @@ class BaseApp(metaclass=Singleton):
         manifest = self.get_data_manifest("data")
         return [
             self.cache_file("data", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.list_data_files()
+            for key in self.get_data_files()
+        ]
+
+    def purge_all_data_files(self, not_exist_ok: bool = True):
+        """
+        Delete all built-in data files from the cache.
+        """
+        manifest = self.get_data_manifest("data")
+        for key in self.get_data_files():
+            self.purge_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
+
+    def recache_all_data_files(self, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache all built-in data files, and return their paths.
+        """
+        manifest = self.get_data_manifest("data")
+        return [
+            self.recache_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
+            for key in self.get_data_files()
         ]
 
     def cache_all_programs(self, exist_ok: bool = True) -> list[Path]:
@@ -4593,7 +4750,27 @@ class BaseApp(metaclass=Singleton):
         manifest = self.get_data_manifest("program")
         return [
             self.cache_file("program", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.list_programs()
+            for key in self.get_programs()
+        ]
+
+    def purge_all_programs(self, not_exist_ok: bool = True):
+        """
+        Delete all built-in program from the cache.
+        """
+        manifest = self.get_data_manifest("program")
+        for key in self.get_programs():
+            self.purge_file("program", key, manifest=manifest, not_exist_ok=not_exist_ok)
+
+    def recache_all_programs(self, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache all built-in programs, and return their paths.
+        """
+        manifest = self.get_data_manifest("program")
+        return [
+            self.recache_file(
+                "program", key, manifest=manifest, not_exist_ok=not_exist_ok
+            )
+            for key in self.get_programs()
         ]
 
     def copy_cacheable_file(
@@ -4733,6 +4910,92 @@ class BaseApp(metaclass=Singleton):
     def disable_use_rich_tracebacks(self):
         """Disable using the Rich library to format exception tracebacks."""
         self._compact_formatter.use_rich_tracebacks = False
+
+    def __install_data_or_program_cache(
+        self,
+        data_type: Literal["data", "program"],
+        path: str | Path,
+        overwrite: bool = False,
+    ):
+        """Copy pre-existing cached data or programs to the correct locations."""
+        assert (path_ := Path(path)).is_dir()
+
+        ENSURE_LOOKUP = {
+            "data": self._ensure_data_cache_dir,
+            "program": self._ensure_program_cache_dir,
+        }
+        cache_dir = ENSURE_LOOKUP[data_type]()
+        manifest = self.get_data_manifest(data_type)
+        for key in manifest:
+            spec = self.__validate_cacheable_file_spec(data_type, key, manifest[key])
+            src = path_ / key
+            dst = cache_dir / key
+            if not src.exists():
+                raise ValueError(
+                    f"{data_type.title()} cache item {key!r} does not exist within the "
+                    f"provided path: {path_!r}."
+                )
+            overwrote = False
+            if dst.exists():
+                if overwrite:
+                    # delete existing first:
+                    delete_file_or_dir(dst)
+                    overwrote = True
+                else:
+                    raise FileExistsError(
+                        f"{data_type.title()} cache item {key!r} already exists; set "
+                        f"`overwrite` to True to replace it."
+                    )
+
+            # copy into the app cache directory:
+            copy_file_or_dir(src, dst)
+
+            # set executable bits, if required:
+            if data_type == "program":
+                self.__set_executable(data_type, spec, dst)
+
+            ow = f" (by overwriting existing item)" if overwrote else ""
+            print(f"Installed {data_type} cache item {key!r}{ow} from path {path_!r}")
+
+    def install_data_cache(self, path: str | Path, overwrite: bool = False):
+        """Copy pre-existing cached data to the correct location.
+
+        This can be used in CI workflows to load the cache from a single source for all
+        tests, thus mitigating, for example, GitHub actions rate-limits. In principle,
+        this could also be used for "offline" installations, where built-in programs can
+        be included in a distributed installation package.
+
+        Parameters
+        ----------
+        path
+            Path to an existing directory containing files/folders to be copied to the
+            app's data cache directory.
+        overwrite
+            If True, overwrite (by first removing) any items that are already within the
+            data cache directory. If False (the default), a `FileExistsError` exception
+            will be raised if an item already exists.
+        """
+        self.__install_data_or_program_cache("data", path, overwrite)
+
+    def install_program_cache(self, path: str | Path, overwrite: bool = False):
+        """Copy pre-existing cached programs to the correct location.
+
+        This can be used in CI workflows to load the cache from a single source for all
+        tests, thus mitigating, for example, GitHub actions rate-limits. In principle,
+        this could also be used for "offline" installations, where built-in data can be
+        included in a distributed installation package.
+
+        Parameters
+        ----------
+        path
+            Path to an existing directory containing files/folders to be copied to the
+            app's program cache directory.
+        overwrite
+            If True, overwrite (by first removing) any items that are already within the
+            data cache directory. If False (the default), a `FileExistsError` exception
+            will be raised if an item already exists.
+        """
+        self.__install_data_or_program_cache("program", path, overwrite)
 
 
 class App(BaseApp):

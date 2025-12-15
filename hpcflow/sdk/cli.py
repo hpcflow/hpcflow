@@ -1232,8 +1232,8 @@ def _make_data_CLI(app: BaseApp):
     def list_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        # TODO: format with Rich with a one-line description
-        click.echo("\n".join(app.list_data_files()))
+        # TODO: add a one-line description
+        app.print_data_files()
         ctx.exit()
 
     def cache_all_callback(ctx: click.Context, param, value: bool):
@@ -1242,11 +1242,23 @@ def _make_data_CLI(app: BaseApp):
         app.cache_all_data_files()
         ctx.exit()
 
+    def purge_all_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        app.purge_all_data_files()
+        ctx.exit()
+
+    def recache_all_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        app.recache_all_data_files()
+        ctx.exit()
+
     @click.group()
     @click.option(
         "-l",
         "--list",
-        help="Print available example data files.",
+        help="Print available example data files, and whether they are cached.",
         is_flag=True,
         is_eager=True,
         expose_value=False,
@@ -1282,6 +1294,67 @@ def _make_data_CLI(app: BaseApp):
         """Ensure a demo data file is in the demo data cache."""
         app.cache_data_file(file_name, exist_ok=exist_ok)
 
+    @data.command("purge")
+    @click.option(
+        "--all",
+        help="Delete all demo data files.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=purge_all_callback,
+    )
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    @click.argument("file_name")
+    def purge_demo_data(file_name: str, exist_ok: bool):
+        """Delete the cache of a demo data file."""
+        app.purge_data_file(file_name, not_exist_ok=not exist_ok)
+
+    @data.command("recache")
+    @click.option(
+        "--all",
+        help="Recache all demo data files.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=recache_all_callback,
+    )
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    @click.argument("file_name")
+    def recache_demo_data(file_name: str, exist_ok: bool):
+        """Purge and then re-cache a demo data file."""
+        app.recache_data_file(file_name, not_exist_ok=not exist_ok)
+
+    @data.command()
+    @click.argument("source", type=click.Path(exists=True, dir_okay=True))
+    @click.option(
+        "--overwrite",
+        is_flag=True,
+        default=False,
+        help=(
+            "If True, overwrite existing items in the cache directory; otherwise raise "
+            "on items to be copied that already exist. Default is False."
+        ),
+    )
+    def install_cache(source: Path, overwrite: bool):
+        """Copy pre-existing cached data to the correct location."""
+        app.install_data_cache(path=source, overwrite=overwrite)
+
     return data
 
 
@@ -1291,8 +1364,8 @@ def _make_program_CLI(app: BaseApp):
     def list_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
-        # TODO: format with Rich with a one-line description
-        click.echo("\n".join(app.list_programs()))
+        # TODO: add a one-line description
+        app.print_programs()
         ctx.exit()
 
     def cache_all_callback(ctx: click.Context, param, value: bool):
@@ -1301,11 +1374,23 @@ def _make_program_CLI(app: BaseApp):
         app.cache_all_programs()
         ctx.exit()
 
+    def purge_all_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        app.purge_all_programs()
+        ctx.exit()
+
+    def recache_all_callback(ctx: click.Context, param, value: bool):
+        if not value or ctx.resilient_parsing:
+            return
+        app.recache_all_programs()
+        ctx.exit()
+
     @click.group()
     @click.option(
         "-l",
         "--list",
-        help="Print available built-in programs.",
+        help="Print available built-in programs, and whether they are cached.",
         is_flag=True,
         is_eager=True,
         expose_value=False,
@@ -1338,8 +1423,69 @@ def _make_program_CLI(app: BaseApp):
     )
     @click.argument("file_name")
     def cache_program(file_name: str, exist_ok: bool):
-        """Ensure a demo data file is in the demo data cache."""
+        """Ensure a program file is in the demo data cache."""
         app.cache_program(file_name, exist_ok=exist_ok)
+
+    @program.command("purge")
+    @click.option(
+        "--all",
+        help="Delete all program files.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=purge_all_callback,
+    )
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    @click.argument("file_name")
+    def purge_program(file_name: str, exist_ok: bool):
+        """Delete the cache of a program file."""
+        app.purge_program(file_name, not_exist_ok=not exist_ok)
+
+    @program.command("recache")
+    @click.option(
+        "--all",
+        help="Recache all program files.",
+        is_flag=True,
+        is_eager=True,
+        expose_value=False,
+        callback=recache_all_callback,
+    )
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    @click.argument("file_name")
+    def recache_program(file_name: str, exist_ok: bool):
+        """Purge and then re-cache a program."""
+        app.recache_program(file_name, not_exist_ok=not exist_ok)
+
+    @program.command()
+    @click.argument("source", type=click.Path(exists=True, dir_okay=True))
+    @click.option(
+        "--overwrite",
+        is_flag=True,
+        default=False,
+        help=(
+            "If True, overwrite existing items in the cache directory; otherwise raise "
+            "on items to be copied that already exist. Default is False."
+        ),
+    )
+    def install_cache(source: Path, overwrite: bool):
+        """Copy pre-existing cached programs to the correct location."""
+        app.install_program_cache(path=source, overwrite=overwrite)
 
     return program
 

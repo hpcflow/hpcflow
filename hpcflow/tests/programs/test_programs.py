@@ -5,13 +5,6 @@ import pytest
 import hpcflow.app as hf
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
 @pytest.mark.integration
 def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     # run a builtin program
@@ -51,13 +44,6 @@ def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     hf.reload_template_components()  # remove extra env
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
 @pytest.mark.integration
 def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     # run a builtin program
@@ -102,13 +88,6 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     hf.reload_template_components()  # remove extra env
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
 @pytest.mark.integration
 def test_builtin_program_no_args_param_var(new_null_config, tmp_path):
     # run a builtin program
@@ -153,13 +132,6 @@ def test_builtin_program_no_args_param_var(new_null_config, tmp_path):
     hf.reload_template_components()  # remove extra env
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
 @pytest.mark.integration
 def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_path):
     # run a builtin program that expects input and output JSON file paths as a cmdline arguments
