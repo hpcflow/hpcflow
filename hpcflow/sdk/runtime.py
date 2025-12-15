@@ -60,6 +60,8 @@ class RunTimeInfo:
 
         #: Whether this application is inside iPython.
         self.in_ipython = False
+        #: The global IPython interactive shell, if present
+        self.ipython_shell = None
         #: Whether this application is being used interactively.
         self.is_interactive = False
         #: Whether this application is being used in test mode.
@@ -75,11 +77,12 @@ class RunTimeInfo:
             self.python_executable_path = Path(sys.executable)
 
             try:
-                get_ipython  # type: ignore
+                ipython_shell = get_ipython()  # type: ignore
             except NameError:
                 pass
             else:
                 self.in_ipython = True
+                self.ipython_shell = ipython_shell
 
             if hasattr(sys, "ps1"):
                 self.is_interactive = True

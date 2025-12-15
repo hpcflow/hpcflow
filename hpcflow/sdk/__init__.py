@@ -104,6 +104,7 @@ sdk_classes: Final[Mapping[str, str]] = {
     "RunDirAppFiles": "hpcflow.sdk.core.run_dir_files",
     "Import": "hpcflow.sdk.core.imports",
     "ImportParameter": "hpcflow.sdk.core.imports",
+    "CompactProblemFormatter": "hpcflow.sdk.compact_errors",
 }
 
 # these are defined as `BaseApp` methods with an underscore prefix:

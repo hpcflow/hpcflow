@@ -87,6 +87,34 @@ class SlurmPosix(QueuedScheduler):
         "TIMEOUT": JobscriptElementState.errored,
     }
 
+    def __init__(
+        self,
+        directives=None,
+        options=None,
+        submit_cmd=None,
+        show_cmd=None,
+        del_cmd=None,
+        js_cmd=None,
+        login_nodes_cmd=None,
+        array_switch=None,
+        array_item_var=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            directives,
+            options,
+            submit_cmd,
+            show_cmd,
+            del_cmd,
+            js_cmd,
+            login_nodes_cmd,
+            array_switch,
+            array_item_var,
+            *args,
+            **kwargs,
+        )
+
     @classmethod
     @override
     @TimeIt.decorator
