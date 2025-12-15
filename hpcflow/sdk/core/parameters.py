@@ -37,6 +37,8 @@ from hpcflow.sdk.core.utils import (
 )
 from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
 from hpcflow.sdk.utils.arrays import is_primitive_homogeneous
+from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -1427,12 +1429,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         """
         Build a sequence from a uniform random number generator.
         """
-        warnings.warn(
-            f"{cls.__name__!r}: Please use `from_uniform` instead of "
-            f"`from_random_uniform`, which will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warnings.warn(warn_from_random_uniform_deprecated(cls._app, "ValueSequence"))
         return cls.from_uniform(
             path=path,
             shape=num,
@@ -2420,7 +2417,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
     def from_random_uniform(
         cls,
         parameter: Parameter | SchemaInput | str,
-        num: int,
+        num: int | None = None,
         low: float = 0.0,
         high: float = 1.0,
         seed: int | list[int] | None = None,
@@ -2431,12 +2428,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         """
         Generate a value from a uniform random number generator.
         """
-        warnings.warn(
-            f"{cls.__name__!r}: Please use `from_uniform` instead of "
-            f"`from_random_uniform`, which will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warnings.warn(warn_from_random_uniform_deprecated(cls._app, "InputValue"))
         return cls.from_uniform(
             parameter=parameter,
             shape=num,

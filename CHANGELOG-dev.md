@@ -1,4 +1,26 @@
 
+<a name="v0.2.0a287"></a>
+## [v0.2.0a287](https://github.com/hpcflow/hpcflow/compare/v0.2.0a286...v0.2.0a287) - 2025.12.15
+
+### ♻ Code Refactoring
+
+* some warnings
+
+### ✨ Features
+
+* add `CompactProblemFormatter` for more user-friendly exceptions and warnings
+
+### 🐛 Bug Fixes
+
+* renamed func
+* unrequired warning
+* type check
+* isinstance check
+* type check
+* another test
+* test
+
+
 <a name="v0.2.0a286"></a>
 ## [v0.2.0a286](https://github.com/hpcflow/hpcflow/compare/v0.2.0a285...v0.2.0a286) - 2025.12.09
 
