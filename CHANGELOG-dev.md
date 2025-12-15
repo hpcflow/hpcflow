@@ -1,4 +1,24 @@
 
+<a name="v0.2.0a288"></a>
+## [v0.2.0a288](https://github.com/hpcflow/hpcflow/compare/v0.2.0a287...v0.2.0a288) - 2025.12.15
+
+### ✨ Features
+
+* add `purge`, `recache`, `install_cache` for builtin data/programs
+
+### 🐛 Bug Fixes
+
+* revert to main branch in github-support for test workflow
+* set programs executable on mac
+* type check
+* set executable bits when installing program cache
+
+### 👷 Build changes
+
+* merge in develop
+* change branch in test workflow, for testing
+
+
 <a name="v0.2.0a287"></a>
 ## [v0.2.0a287](https://github.com/hpcflow/hpcflow/compare/v0.2.0a286...v0.2.0a287) - 2025.12.15
 
