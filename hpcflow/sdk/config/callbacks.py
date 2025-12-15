@@ -266,3 +266,17 @@ def callback_deprecation_demo_data_manifest_file(
         "and use `data_manifest_file` instead.",
     )
     return value
+
+
+def set_show_tracebacks(config: Config, value: bool) -> None:
+    if callback_bool(config, value):
+        config._app.enable_show_tracebacks()
+    else:
+        config._app.disable_show_tracebacks()
+
+
+def set_use_rich_tracebacks(config: Config, value: bool) -> None:
+    if callback_bool(config, value):
+        config._app.enable_use_rich_tracebacks()
+    else:
+        config._app.disable_use_rich_tracebacks()

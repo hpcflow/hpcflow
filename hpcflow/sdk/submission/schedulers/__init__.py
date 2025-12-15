@@ -11,6 +11,7 @@ import warnings
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
+from hpcflow.sdk.core.warnings import warn_scheduler_options_deprecated
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -51,7 +52,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
     # T
     #     The type of a jobscript reference.
 
-    def __init__(self, shebang_executable: list[str] | None = None):
+    def __init__(self, shebang_executable: list[str] | None = None, options=None):
         self.shebang_executable = shebang_executable
 
     @property
@@ -209,13 +210,9 @@ class QueuedScheduler(Scheduler[str]):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-
         if options:
             warnings.warn(
-                f"{self.__class__.__name__!r}: Please use `directives` instead of "
-                f"`options`, which will be removed in a future release.",
-                DeprecationWarning,
-                stacklevel=2,
+                warn_scheduler_options_deprecated(self._app, self.__class__.__name__),
             )
             directives = options
 

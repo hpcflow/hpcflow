@@ -53,6 +53,8 @@ from hpcflow.sdk.config.callbacks import (
     callback_log_file_path,
     callback_deprecation_demo_data_dir,
     callback_deprecation_demo_data_manifest_file,
+    set_show_tracebacks,
+    set_use_rich_tracebacks,
 )
 from hpcflow.sdk.config.config_file import ConfigFile
 from hpcflow.sdk.config.errors import (
@@ -105,6 +107,8 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "schedulers": {"direct": {"defaults": {}}},
         "shells": {_DEFAULT_SHELL: {"defaults": {}}},
         "user_affiliations": [],
+        "show_tracebacks": False,
+        "use_rich_tracebacks": False,
     },
 }
 
@@ -303,6 +307,8 @@ class Config:
             "program_dir": (set_callback_paths,),
             "data_manifest_file": (set_callback_paths,),
             "program_manifest_file": (set_callback_paths,),
+            "show_tracebacks": (set_show_tracebacks,),
+            "use_rich_tracebacks": (set_use_rich_tracebacks,),
         }
 
         self._unset_callbacks: dict[str, tuple[UnsetterCallback, ...]] = {

@@ -27,6 +27,8 @@ rules:
         - default_workflow_path
         - workflow_name_use_dir
         - workflow_name_add_timestamp
+        - show_tracebacks
+        - use_rich_tracebacks
   - path: []
     condition:
       value.required_keys:
@@ -288,5 +290,18 @@ rules:
     doc: >
       By default, whether to use a directory named according to the workflow name, and 
       a separate child directory named according to the date-timestamp if present.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [show_tracebacks]
+    doc: >
+      If True, for the subset of exceptions that have custom user-friendly formatting,
+      also show the traceback, which would otherwise be omitted.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [use_rich_tracebacks]
+    doc: >
+      If True, use the Rich library to format exception tracebacks.
     condition:
       value.is_instance: [bool]
