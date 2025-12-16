@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a290"></a>
+## [v0.2.0a290](https://github.com/hpcflow/hpcflow/compare/v0.2.0a289...v0.2.0a290) - 2025.12.16
+
+### 👷 Build changes
+
+* **deps:** bump the pip-dependencies group with 7 updates
+
+
 <a name="v0.2.0a289"></a>
 ## [v0.2.0a289](https://github.com/hpcflow/hpcflow/compare/v0.2.0a288...v0.2.0a289) - 2025.12.16
 
