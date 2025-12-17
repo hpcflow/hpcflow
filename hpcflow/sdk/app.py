@@ -3393,7 +3393,19 @@ class BaseApp(metaclass=Singleton):
                 f"{self.name} has not been built with testing dependencies."
             )
         with get_file_context(self.package_name, "tests") as test_dir:
-            return pytest.main([str(test_dir), *(self.pytest_args or ()), *args])
+            # note: the ignore is required for Pyinstaller-built "one-file" executables on
+            # Windows, where Pytest will try to collect tests from C:\ for some reason.
+            # `C:\Documents and Settings` is a hidden/protected compatibility link which
+            # we don't have permission to traverse; so without this `--ignore`, Pytest
+            # will raise a PermissionError on test collection.
+            return pytest.main(
+                [
+                    str(test_dir),
+                    "--ignore=C:\\Documents and Settings",
+                    *(self.pytest_args or ()),
+                    *args,
+                ]
+            )
 
     def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""
