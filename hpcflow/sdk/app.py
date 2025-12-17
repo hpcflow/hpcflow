@@ -49,6 +49,7 @@ from hpcflow.sdk.core.utils import (
 from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
+from hpcflow.sdk.utils.envs import get_env_py_exe, norm_env_setup
 from hpcflow.sdk.utils.files import (
     copy_file_or_dir,
     delete_file_or_dir,
@@ -4245,6 +4246,48 @@ class BaseApp(metaclass=Singleton):
         if env_source not in cur_env_source_files:
             self.config.append("environment_sources", str(env_source))
             self.config.save()
+
+    def env_configure_python(
+        self,
+        shell: Literal["bash", "powershell"],
+        setup: str | list[str] | None = None,
+        names: list[str] | None = None,
+        use_current: bool = True,
+    ) -> list[Environment]:
+        """Configure app environments that use Python.
+
+        Parameters
+        ----------
+        names:
+            If specified, also set up these named environments using the same Python
+            executable and setup, otherwise just set up the `python_env` environment. This
+            should be a list of strings without the "_env" prefix, which will be added.
+        """
+        setup = norm_env_setup(setup)
+        executables = [
+            self.Executable(
+                label="python_script",
+                instances=[
+                    self.ExecutableInstance(
+                        command=(f'{get_env_py_exe(shell)} "<<script_path>>" <<args>>'),
+                        num_cores=1,
+                        parallel_mode=None,
+                    ),
+                ],
+            ),
+        ]
+        setup = self.get_env_setup(shell) if use_current else setup
+        environments = []
+        for name in sorted(set(["python", *(names if names else [])])):
+            environments.append(
+                self.Environment(
+                    name=f"{name}_env",
+                    setup=setup,
+                    executables=executables,
+                    setup_label="python",
+                )
+            )
+        return environments
 
     def get_data_manifest(
         self, data_type: Literal["data", "program"]

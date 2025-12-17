@@ -62,7 +62,7 @@ from hpcflow.sdk.cli_common import (
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.workflow import Workflow
-from hpcflow.sdk.submission.shells import ALL_SHELLS
+from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
@@ -1559,6 +1559,105 @@ def _make_manage_CLI(app: BaseApp):
     return manage
 
 
+def _make_env_CLI(app: BaseApp):
+    """Generate the CLI for managing app environments."""
+
+    shell = DEFAULT_SHELL_NAMES[os.name]
+
+    @click.group()
+    def env():
+        """Configure execution environments."""
+        pass
+
+    @env.command("list")
+    def list_envs():
+        """List available environments."""
+        for env_i in app.envs:
+            click.echo(env_i.name)
+
+    @env.command("add")
+    @click.argument("name")
+    @click.option("--use-current", is_flag=True, default=False)
+    @click.option("--setup", type=click.STRING, multiple=True)
+    @click.option("--env-source-file", type=click.STRING)
+    def add_env(
+        name: str,
+        use_current: bool,
+        setup: list[str] | None = None,
+        env_source_file: str | None = None,
+    ):
+        """Add a simple environment definition."""
+        app.add_env(
+            name=name,
+            setup=setup,
+            use_current=use_current,
+            env_source_file=None if env_source_file is None else Path(env_source_file),
+        )
+
+    @env.command("remove")
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def remove_env(
+        name: str,
+        label: str,
+        specifier: tuple[tuple[str, str]],
+    ):
+        """Remove an environment definition."""
+        app.remove_env(
+            name=name,
+            specifiers={k: v for (k, v) in specifier},
+            label=label,
+        )
+
+    @env.group("setup")
+    @click.option("--env-source-file", type=click.STRING)
+    def setup_env(
+        env_source_file: str | None = None,
+    ):
+        """Setup one or more environments according to some sensible grouping."""
+
+    @setup_env.command()
+    @click.option(
+        "-n",
+        "--name",
+        multiple=True,
+        help=(
+            "In addition to the `python_env` set up these other named environments "
+            '(suffixed by "_env"), also with a `python_script` executable.'
+        ),
+    )
+    @click.option(
+        "--use-current/--no-use-current",
+        is_flag=True,
+        default=True,
+        help=(
+            "Use the currently active conda-like or Python virtual environment to add a "
+            "`python_script` executable to the environment."
+        ),
+    )
+    @click.option(
+        "--replace/--no-replace",
+        is_flag=True,
+        default=False,
+        help=(
+            "If True, replace an existing environment with the same name and specifiers."
+        ),
+    )
+    def python(name: list[str], use_current: bool, replace: bool):
+        """Configure environments with `python_script` executables."""
+        envs = app.env_configure_python(
+            shell,
+            names=name,
+            use_current=use_current,
+        )
+        for env in envs:
+            app.logger.debug(f"Saving 'python' environment: {env.name!r}.")
+            app.save_env(env, replace=replace)
+
+    return env, setup_env
+
+
 def make_cli(app: BaseApp):
     """Generate the root CLI for the app."""
 
@@ -1658,62 +1757,12 @@ def make_cli(app: BaseApp):
         if TimeIt.active:
             TimeIt.summarise_string()
 
-    @new_CLI.group()
-    def env():
-        """Configure execution environments."""
-        pass
-
-    @env.command("list")
-    def list_envs():
-        """List available environments."""
-        for env_i in app.envs:
-            click.echo(env_i.name)
-
-    @env.command("add")
-    @click.argument("name")
-    @click.option("--use-current", is_flag=True, default=False)
-    @click.option("--setup", type=click.STRING, multiple=True)
-    @click.option("--env-source-file", type=click.STRING)
-    def add_env(
-        name: str,
-        use_current: bool,
-        setup: list[str] | None = None,
-        env_source_file: str | None = None,
-    ):
-        """Add a simple environment definition."""
-        app.add_env(
-            name=name,
-            setup=setup,
-            use_current=use_current,
-            env_source_file=None if env_source_file is None else Path(env_source_file),
-        )
-
-    @env.command("remove")
-    @click.option("-n", "--name")
-    @click.option("-l", "--label")
-    @click.option("-s", "--specifier", nargs=2, multiple=True)
-    def remove_env(
-        name: str,
-        label: str,
-        specifier: tuple[tuple[str, str]],
-    ):
-        """Remove an environment definition."""
-        app.remove_env(
-            name=name,
-            specifiers={k: v for (k, v) in specifier},
-            label=label,
-        )
-
-    @env.group("setup")
-    @click.option("--env-source-file", type=click.STRING)
-    def setup_env(
-        env_source_file: str | None = None,
-    ):
-        """Setup one or more environments according to some sensible grouping."""
-
     new_CLI.context_class = ErrorPropagatingClickContext
 
     new_CLI.__doc__ = app.description
+
+    env_CLI, setup_env_CLI = _make_env_CLI(app)
+    new_CLI.add_command(env_CLI)
     new_CLI.add_command(get_config_CLI(app))
     new_CLI.add_command(get_demo_software_CLI(app))
     new_CLI.add_command(get_demo_workflow_CLI(app))
@@ -1731,8 +1780,9 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(_make_zip_CLI(app))
     new_CLI.add_command(_make_unzip_CLI(app))
     new_CLI.add_command(_make_rechunk_CLI(app))
+
     for cli_cmd in _make_API_CLI(app):
         new_CLI.add_command(cli_cmd)
 
-    # we return the env setup CLI so we can add to in downstream apps:
-    return new_CLI, setup_env
+    # we return the env setup CLI so we can add more commands to it in downstream apps:
+    return new_CLI, setup_env_CLI
