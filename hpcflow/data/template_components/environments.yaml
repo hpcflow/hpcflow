@@ -1,7 +1,11 @@
 - name: null_env
+  specifiers:
+    is_built_in: true
   doc: The default system environment.
 
 - name: python_env
+  specifiers:
+    is_built_in: true
   executables:
     - label: python_script
       instances:
