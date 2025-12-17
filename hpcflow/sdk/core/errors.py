@@ -1069,3 +1069,35 @@ class TaskSchemaMissingActionOutputs(TaskSchemaValidationError):
             task_schema=task_schema,
         )
         self.missing_outputs = missing_outputs
+
+
+class EnvironmentAlreadyExists(CompactException):
+    """Raised when trying to add an environment definition that already exists (with the
+    same specifiers)."""
+
+    def __init__(self, env, solution=None, docs=None):
+        app = env._app
+        solution = (
+            f"To replace the existing environment with the new one, use the "
+            f"'--replace' flag in the CLI command (or specify `replace=True` in the API)."
+        )
+        super().__init__(
+            app=app,
+            message=f"Environment {env.name!r} {env.specs_fmt} already exists.",
+            solution=solution,
+            docs=docs,
+        )
+
+
+class EnvironmentNotFound(CompactException):
+    """Raised when trying to do something to an environment that does not exist."""
+
+    def __init__(self, app, message, name, specifiers):
+        env_names_fmt = ", ".join(f"{env_name!r}" for env_name in app.envs.list_attrs())
+        solution = f"Did you mean one of these environments instead: {env_names_fmt}?"
+        specs_fmt = app.Environment.get_specs_fmt(specifiers)
+        super().__init__(
+            app=app,
+            message=f"Environment {name!r} {specs_fmt} does not exist. {message}",
+            solution=solution,
+        )

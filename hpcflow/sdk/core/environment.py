@@ -268,3 +268,16 @@ class Environment(JSONLike):
         """An ID that can be used to compare if two environments are equivalent, in the
         sense that they must not be defined together."""
         return hash((self.name, get_hash(self.specifiers)))
+
+    @staticmethod
+    def get_specs_fmt(specifiers: Mapping[str, str] | None):
+        """Formatted specifiers string for the provided specifiers."""
+        if specs := specifiers:
+            return f"with specifiers {specs!r}"
+        else:
+            return "(with no specifiers)"
+
+    @property
+    def specs_fmt(self) -> str:
+        """Formatted specifiers string."""
+        return self.get_specs_fmt(self.specifiers)

@@ -66,7 +66,7 @@ from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
 )
-
+from hpcflow.sdk.core.errors import EnvironmentAlreadyExists, EnvironmentNotFound
 from hpcflow.sdk.core.warnings import batch_warnings
 
 if TYPE_CHECKING:
@@ -4161,12 +4161,11 @@ class BaseApp(metaclass=Singleton):
         if name is not None:
             check_env = self.Environment(name=name, specifiers=specifiers)
             if check_env not in self.envs:
-                spec_fmt = " (with no specifiers)"
-                if specs := specifiers:
-                    spec_fmt = f" with specifiers {specs!r}"
-                raise ValueError(
-                    f"Environment {name!r}{spec_fmt} cannot be removed because it "
-                    f"does not exist."
+                raise EnvironmentNotFound(
+                    self,
+                    message="So the environment cannot be removed.",
+                    name=name,
+                    specifiers=specifiers,
                 )
 
         for env_file in self.config.environment_sources:
@@ -4204,15 +4203,31 @@ class BaseApp(metaclass=Singleton):
         env: _Environment,
         env_source_file: Path | None = None,
         file_name: str = "configured_envs.yaml",
+        replace: bool = False,
     ):
         """
         Save an environment to the environment definitions file.
+
+        Parameters
+        ----------
+        env:
+            The new environment to save to the app environments list.
+        env_source_file:
+            The environment source file to save the environment to, if specified.
+        file_name:
+            If `env_source_file` is not specified, the file name of the environment source
+            file to use within the app configuration directory.
+        replace
+            If True, replace an existing environment with the same name and specifiers
+            with the new one. If False and an existing environment exists, an exception
+            will be raised.
         """
         if env in self.envs:
-            spec_fmt = " (with no specifiers)"
-            if specs := env.specifiers:
-                spec_fmt = f" with specifiers {specs!r}"
-            raise ValueError(f"Environment {env.name!r}{spec_fmt} already exists.")
+            if replace:
+                print(f"Replacing existing environment: {env.name} {env.specs_fmt}.")
+                self.remove_env(name=env.name, specifiers=env.specifiers)
+            else:
+                raise EnvironmentAlreadyExists(env)
         env_source = env_source_file or self.config.get("config_directory").joinpath(
             file_name
         )
