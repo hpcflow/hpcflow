@@ -101,11 +101,12 @@ def test_get_program_manifest(null_config) -> None:
     assert hf.get_data_manifest("program")
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
+@pytest.mark.skip(
     reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
+        "In CI testing, we install the cache from an pre-existing directory for each test"
+        "job, to avoid rate-limiting. Since this test clears the data cache, it would "
+        "result in test jobs that run after it retrieving data from GitHub, thus causing "
+        "rate-limiting."
     ),
 )
 def test_get_demo_data_cache(null_config) -> None:
