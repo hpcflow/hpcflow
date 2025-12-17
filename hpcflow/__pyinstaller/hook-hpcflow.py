@@ -18,6 +18,7 @@ hiddenimports = [
     "click.testing",
     "requests",  # for GitHub fsspec file system
     "fsspec.implementations.github",  # for GitHub fsspec file system
+    "hpcflow.pytest_plugin",
 ]
 
 datas = (

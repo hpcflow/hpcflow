@@ -4,53 +4,6 @@ import pytest
 from hpcflow.app import app as hf
 
 
-def pytest_addoption(parser: pytest.Parser):
-    parser.addoption(
-        "--slurm",
-        action="store_true",
-        default=False,
-        help="run slurm tests",
-    )
-    parser.addoption(
-        "--wsl",
-        action="store_true",
-        default=False,
-        help="run Windows Subsystem for Linux tests",
-    )
-    parser.addoption(
-        "--direct-linux",
-        action="store_true",
-        default=False,
-        help="run direct-linux submission tests",
-    )
-    parser.addoption(
-        "--integration",
-        action="store_true",
-        default=False,
-        help="run integration-like workflow submission tests",
-    )
-    parser.addoption(
-        "--repeat",
-        action="store",
-        default=1,
-        type=int,
-        help="number of times to repeat each test",
-    )
-
-
-def pytest_configure(config: pytest.Config):
-    config.addinivalue_line("markers", "slurm: mark test as slurm to run")
-    config.addinivalue_line("markers", "wsl: mark test as wsl to run")
-    config.addinivalue_line(
-        "markers", "direct_linux: mark test as a direct-linux submission test to run"
-    )
-    config.addinivalue_line(
-        "markers",
-        "integration: mark test as an integration-like workflow submission test to run",
-    )
-    hf.run_time_info.in_pytest = True
-
-
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
     if config.getoption("--slurm"):
         # --slurm given in cli: only run slurm tests

@@ -3400,6 +3400,8 @@ class BaseApp(metaclass=Singleton):
             # will raise a PermissionError on test collection.
             return pytest.main(
                 [
+                    "-p",
+                    f"{self.package_name}.pytest_plugin",
                     str(test_dir),
                     "--ignore=C:\\Documents and Settings",
                     *(self.pytest_args or ()),
