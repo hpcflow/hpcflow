@@ -4416,7 +4416,7 @@ class BaseApp(metaclass=Singleton):
         tab = Table(*headers, box=box.SIMPLE)
         for env_idx, env in enumerate(sorted(self.envs)):
             for row_idx, (key, val) in enumerate((env.specifiers or {"": None}).items()):
-                spec_col = f"{key}: {val}" if key is not None else "-"
+                spec_col = f"{key}: {val}" if key is not "" else "-"
                 lab_col = (env.setup_label or "-") if row_idx == 0 else ""
                 src_col = str(env.source_file) or "-" if row_idx == 0 else ""
                 cols = [
@@ -4444,23 +4444,41 @@ class BaseApp(metaclass=Singleton):
         specifiers: dict[str, Any] | None = None,
     ):
         """
-        Print an environment definition.
+        Print one or more environment definitions.
         """
         panels = []
         for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
+            execs = env.executables
             tab = Table(show_header=False, box=None)
             tab.add_column()
             tab.add_column()
             tab.add_row("name", Pretty(env.name))
             tab.add_row("specifiers", Pretty(env.specifiers))
             tab.add_row("label", Pretty(env.setup_label))
-            tab.add_row("source", Pretty(env.source_file))
-            tab.add_row("setup", "\n".join(env.setup or []))
-            tab.add_row("executables", Pretty(env.executables))
+            tab.add_row("source", str(env.source_file))
+            tab.add_row("setup", "\n".join(env.setup or []) or "-")
+            tab.add_row("executables:", "-" if not execs else "")
+            if execs:
+                tab.add_row("", "")
+                exec_i_tab = Table(show_header=False, box=None, padding=(0, 0, 0, 1))
+                exec_i_tab.add_column()
+                for exec_i in execs:
+                    inst_tab_j = Table(show_header=False, box=None, padding=(0, 0, 0, 2))
+                    inst_tab_j.add_column()
+                    inst_tab_j.add_column()
+                    for inst in exec_i.instances:
+                        inst_tab_j.add_row("parallel_mode", Pretty(inst.parallel_mode))
+                        inst_tab_j.add_row("num_cores", Pretty(inst.num_cores.to_dict()))
+                        inst_tab_j.add_row("command", inst.command)
+                        inst_tab_j.add_row("", "")
+
+                    exec_i_tab.add_row(f"[u]{exec_i.label}[/u]")
+                    exec_i_tab.add_row(inst_tab_j)
+
             panels.append(
                 Panel(
                     title=f"Environment: {env.name!r}",
-                    renderable=Group(tab),
+                    renderable=Group(tab, exec_i_tab) if execs else tab,
                 )
             )
         Console().print(Group(*panels))
