@@ -2,6 +2,7 @@ from __future__ import annotations
 import warnings
 from functools import wraps
 
+from ..compact_errors import FormatMixin
 from ..utils.web_docs import get_docs_url_of_class, get_docs_url_of_class_method
 
 
@@ -43,7 +44,7 @@ def batch_warnings(func):
     return inner
 
 
-class CompactWarning(Warning):
+class CompactWarning(Warning, FormatMixin):
     """A base class for warnings that might include additional descriptive information
     that can be printed when the warning is issued."""
 

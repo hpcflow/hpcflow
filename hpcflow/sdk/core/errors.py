@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.text import Text
 from rich.style import Style
 
+from ..compact_errors import FormatMixin
 from hpcflow.sdk.utils.strings import capitalise_first_letter
 from hpcflow.sdk.utils.web_docs import get_docs_url_how_to
 
@@ -919,47 +920,7 @@ class YAMLError(ValueError):
     """
 
 
-def format_problem(
-    obj: Exception | Warning,
-    title: str,
-    subtitle: str,
-    colour: str,
-    filename: str,
-    lineno: int,
-    console: Console | None = None,
-) -> tuple[Text, Text]:
-    """Default formatter for rendering a `CompactException` or `CompactWarning` using
-    Rich.
-
-    This will also render any Exception or Warning object, but we don't use it to do that.
-    To use a custom formatter, define a `format` method on the `CompactException` or
-    `CompactWarning` sub-class (where the `obj` argument is replaced by `self`).
-
-    """
-    soln_fmt = ""
-    if solution := getattr(obj, "solution", None):
-        soln_fmt = f" [b][u]Solution[/u][/b]: {solution}"
-
-    docs_fmt = ""
-    if docs := getattr(obj, "docs", None):
-        doc_items = ", ".join(f"[link={val}]{name}[/link]" for name, val in docs.items())
-        docs_fmt = f" [b][u]Docs[/u][/b]: {doc_items}."
-
-    title = f"[{colour}][bold]{title}[/bold]: {subtitle}[/{colour}]"
-    if not console:
-        console = Console()
-
-    body = console.render_str(
-        f"{str(obj)}{soln_fmt}{docs_fmt}", highlighter=ReprHighlighter()
-    )
-
-    # include the source filename and line number, as a footer:
-    footer = Text(f"\n\n{filename}:{lineno}", style=Style(color="grey50"))
-
-    return console.render_str(title), body + footer
-
-
-class CompactException(Exception):
+class CompactException(Exception, FormatMixin):
     """Base exception class that hides the traceback to be more user-friendly, if
     desired."""
 

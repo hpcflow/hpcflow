@@ -8,19 +8,22 @@ import traceback
 import warnings
 from typing import Any, Type, TYPE_CHECKING
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.traceback import Traceback
+from rich.text import Text
+from rich.highlighter import ReprHighlighter
+from rich.style import Style
 
 from hpcflow.sdk.core.app_aware import AppAware
-from hpcflow.sdk.core.errors import CompactException, format_problem
-from hpcflow.sdk.core.warnings import CompactWarning
 
 
 if TYPE_CHECKING:
     from typing import ClassVar, TextIO
+    from typing_extensions import TypeIs
     from types import TracebackType
-    from rich.text import Text
+    from hpcflow.sdk.core.errors import CompactException as _CompactException
+    from hpcflow.sdk.core.warnings import CompactWarning as _CompactWarning
 
 
 class CompactProblemFormatter(AppAware):
@@ -139,6 +142,20 @@ class CompactProblemFormatter(AppAware):
         else:
             self._orig_excepthook(exc_type, exc_value, exc_tb)
 
+    @classmethod
+    def __is_CompactException(cls, value) -> TypeIs[_CompactException]:
+        # avoid circular import
+        from hpcflow.sdk.core.errors import CompactException
+
+        return isinstance(value, CompactException)
+
+    @classmethod
+    def __is_CompactWarning_subclass(cls, value) -> TypeIs[_CompactWarning]:
+        # avoid circular import
+        from hpcflow.sdk.core.warnings import CompactWarning
+
+        return issubclass(value, CompactWarning)
+
     def _excepthook(
         self,
         exc_type: Type[BaseException],
@@ -146,7 +163,7 @@ class CompactProblemFormatter(AppAware):
         exc_tb: TracebackType | None,
     ):
         """Custom except-hook that overrides `sys.excepthook` when enabled."""
-        if self.enabled and isinstance(exc_value, CompactException):
+        if self.enabled and self.__is_CompactException(exc_value):
             if self.show_tracebacks:
                 self.__show_traceback(
                     exc_type,
@@ -168,28 +185,16 @@ class CompactProblemFormatter(AppAware):
         line=None,
     ):
         """Function that overrides the standard `warnings.showwarning` function."""
-        if self.enabled and issubclass(category, CompactWarning):
+        if self.enabled and self.__is_CompactWarning_subclass(category):
             self._show_compact_warning(message, category, filename, lineno, file, line)
         else:
             self._orig_showwarning(message, category, filename, lineno, file, line)
-
-    @staticmethod
-    def __format_obj(obj, **kwargs) -> tuple[Text, Text]:
-        """Run the function for formatting the exception or warning object.
-
-        If a method `format` is defined, then use that. Otherwise use the default
-        formatter.
-        """
-        if hasattr(obj, "format"):
-            return obj.format(**kwargs)
-        else:
-            return format_problem(obj=obj, **kwargs)
 
     def __print_stderr(
         self,
         title,
         subtitle,
-        obj: CompactException | CompactWarning,
+        obj: _CompactException | _CompactWarning,
         colour,
         filename: str,
         lineno: int,
@@ -197,20 +202,25 @@ class CompactProblemFormatter(AppAware):
     ):
         """Print to stderr the compact exception or warning class."""
         console = self.get_console()
-        title, txt = self.__format_obj(
+        title, group = obj.format(
             title=title,
             subtitle=subtitle,
-            obj=obj,
             colour=colour,
             filename=filename,
             lineno=lineno,
             console=console,
         )
         if cause:
-            cause_title, cause_txt = self.__format_obj(**cause)
-            txt = txt + "\n\n" + cause_title + "\n" + cause_txt
+            cause_obj = cause.pop("obj")
+            try:
+                cause_title, cause_grp = cause_obj.format(**cause)
+            except AttributeError:
+                cause_title, cause_grp = FormatMixin.get_formatted_problem(
+                    obj=cause_obj, **cause
+                )
+            group = Group(group, Text("\n") + cause_title, cause_grp)
 
-        console.print(Panel(txt, title=title, title_align="left", border_style=colour))
+        console.print(Panel(group, title=title, title_align="left", border_style=colour))
 
     @staticmethod
     def __extract_location(
@@ -233,8 +243,8 @@ class CompactProblemFormatter(AppAware):
 
     def _show_compact_exception(
         self,
-        exc_type: Type[CompactException],
-        exc_value: CompactException,
+        exc_type: Type[_CompactException],
+        exc_value: _CompactException,
         exc_tb: TracebackType | None,
     ):
         """Print to stderr the formatted `CompactException`."""
@@ -304,8 +314,8 @@ class CompactProblemFormatter(AppAware):
                 self._ipython_orig_showtraceback(exc_tuple, *args, **kwargs)
 
         def _ip_showtraceback(*args: Any, **kwargs: Any):
-            exc_type, _, _ = exc_tuple = ip._get_exc_info()
-            if self.enabled and issubclass(exc_type, CompactException):
+            _, exc_value, _ = exc_tuple = ip._get_exc_info()
+            if self.enabled and self.__is_CompactException(exc_value):
                 if self.show_tracebacks:
                     __show_traceback(exc_tuple, *args, **kwargs)
                 self._show_compact_exception(*exc_tuple)
@@ -330,3 +340,93 @@ class CompactProblemFormatter(AppAware):
         """Unpatch, and then patch the IPython exception hook to use our custom hook."""
         self._unpatch_ipython_hook()
         self._patch_ipython_hook()
+
+
+class FormatMixin:
+    """A mixin for CompactException and CompactWarning that provides a default format
+    method."""
+
+    @classmethod
+    def _get_formatted_problem_solution(cls, solution):
+        if solution:
+            return f" [b][u]Solution[/u][/b]: {solution}"
+        else:
+            return ""
+
+    @classmethod
+    def _get_formatted_problem_docs(cls, docs):
+        if docs:
+            doc_items = ", ".join(
+                f"[link={val}]{name}[/link]" for name, val in docs.items()
+            )
+            return f" [b][u]Docs[/u][/b]: {doc_items}."
+        else:
+            return ""
+
+    @classmethod
+    def _get_formatted_title(cls, title, subtitle, colour):
+        return f"[{colour}][bold]{title}[/bold]: {subtitle}[/{colour}]"
+
+    @classmethod
+    def get_formatted_problem(
+        cls,
+        obj: _CompactException | _CompactWarning,
+        title: str,
+        subtitle: str,
+        colour: str,
+        filename: str,
+        lineno: int,
+        console: Console | None = None,
+    ) -> tuple[Text, Group]:
+        """Default formatter for rendering a `CompactException` or `CompactWarning` using
+        Rich.
+
+        This will also render any Exception or Warning object, but we don't use it to do
+        that. To use a custom formatter, define a `format` method on the
+        `CompactException` or `CompactWarning` sub-class.
+
+        """
+        console = console or Console()
+        soln_fmt = cls._get_formatted_problem_solution(getattr(obj, "solution", None))
+        docs_fmt = cls._get_formatted_problem_docs(getattr(obj, "docs", None))
+        title = cls._get_formatted_title(title, subtitle, colour)
+        body = console.render_str(
+            f"{str(obj)}{soln_fmt}{docs_fmt}", highlighter=ReprHighlighter()
+        )
+        footer = cls._get_formatted_footer(filename, lineno)
+        return console.render_str(title), Group(body, footer)
+
+    @classmethod
+    def _get_formatted_footer(cls, filename, lineno, colour="grey50"):
+        return Text(f"\n{filename}:{lineno}", style=Style(color=colour))
+
+    def _format_problem_solution(self):
+        return self._get_formatted_problem_solution(getattr(self, "solution", None))
+
+    def _format_problem_docs(self):
+        return self._get_formatted_problem_docs(getattr(self, "docs", None))
+
+    def _format_title(self, title: str, subtitle: str, colour: str):
+        return self._get_formatted_title(title, subtitle, colour)
+
+    def _format_footer(self, filename, lineno, colour="grey50"):
+        return self._get_formatted_footer(filename, lineno, colour)
+
+    def format(
+        self: Exception | Warning,
+        title: str,
+        subtitle: str,
+        colour: str,
+        filename: str,
+        lineno: int,
+        console: Console | None = None,
+    ):
+        return self.get_formatted_problem(
+            obj=self,
+            title=title,
+            subtitle=subtitle,
+            colour=colour,
+            filename=filename,
+            lineno=lineno,
+            console=console,
+        )
