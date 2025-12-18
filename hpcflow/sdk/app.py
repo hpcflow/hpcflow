@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections import Counter, namedtuple
+from collections import Counter, namedtuple, defaultdict
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
 import stat
 import enum
 import json
 import shutil
-import fnmatch
 from functools import wraps
 from importlib import resources, import_module
 import os
@@ -29,6 +28,7 @@ from rich.table import Table, box
 from rich.text import Text
 from rich.padding import Padding
 from rich.panel import Panel
+from rich.pretty import Pretty
 from rich import print as rich_print
 from fsspec.core import url_to_fs  # type: ignore
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
@@ -53,7 +53,9 @@ from hpcflow.sdk.utils.envs import get_env_py_exe, norm_env_setup
 from hpcflow.sdk.utils.files import (
     copy_file_or_dir,
     delete_file_or_dir,
+    overwrite_YAML_file,
 )
+from hpcflow.sdk.utils.errors import get_with_index
 from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as _Environment
 from hpcflow.sdk.log import AppLog, TimeIt
@@ -67,7 +69,11 @@ from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
 )
-from hpcflow.sdk.core.errors import EnvironmentAlreadyExists, EnvironmentNotFound
+from hpcflow.sdk.core.errors import (
+    EnvironmentAlreadyExists,
+    EnvironmentNotFound,
+    CannotRemoveBuiltinEnvironment,
+)
 from hpcflow.sdk.core.warnings import batch_warnings
 
 if TYPE_CHECKING:
@@ -4135,82 +4141,154 @@ class BaseApp(metaclass=Singleton):
         setup: str | Sequence[str] | None = None,
         executables: list[_Executable] | None = None,
         use_current: bool = False,
-        **kwargs,
-    ):
+        env_source_file: Path | None = None,
+        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+        replace: bool = False,
+    ) -> Path:
         """
         Generate and save a new environment.
+
+
+        Parameters
+        ----------
+        name:
+            The name of the new environment.
+        setup:
+            Setup commands to be invoked when using the environment.
+        executables:
+            Executables that the environment provides.
+        use_current:
+            Use the currently activate Python environment to provide a `python_script`
+            executable within the environment. False by default.
+        env_source_file:
+            The environment source file to save the environment to, if specified.
+        file_name:
+            If `env_source_file` is not specified, the file name of the environment source
+            file to use within the app configuration directory.
+        replace
+            If True, replace an existing environment with the same name and specifiers
+            with the new one. If False and an existing environment exists, an exception
+            will be raised.
+
+        Returns
+        -------
+        path:
+            The path to the file in which the new environment definition was saved.
+
         """
         shell = DEFAULT_SHELL_NAMES[os.name]
         setup = self.get_env_setup(shell) if use_current else setup
         env = self.Environment(name=name, setup=setup, executables=executables)
-        self.save_env(env, **kwargs)
+        return self.save_env(
+            env, env_source_file=env_source_file, file_name=file_name, replace=replace
+        )
 
-    def remove_env(
+    def __get_envs(
         self,
+        id: int | list[int] | None = None,
+        *,
         name: str | None = None,
         specifiers: dict[str, Any] | None = None,
         label: str | None = None,
+    ) -> list[Environment]:
+        """
+        Retrieve Environment objects using either a local ID (index within the app `envs`
+        list, sorted by name and then specifiers), a name, or a label (and potentially,
+        specifiers).
+
+        Multiple environments may be returned only if `label` is specified.
+        """
+        specifiers = specifiers or {}
+        if sum(arg is not None for arg in (id, name, label)) != 1:
+            raise ValueError(
+                "Specify either `id`, `label` or `name` (and optionally, `specifiers`)."
+            )
+        if id is not None and specifiers:
+            raise ValueError(
+                "Cannot use `specifiers` to filter environments if an ID was provided."
+            )
+        if id is not None:
+            if isinstance(id, int):
+                id = [id]
+            env_srt = sorted(self.envs)
+            try:
+                return [get_with_index(env_srt, id_i) for id_i in id]
+            except IndexError as exc:
+                raise EnvironmentNotFound(self, id=exc.index)
+        if name is not None:
+            try:
+                return [self.envs.get(name=name, **specifiers)]
+            except ValueError:
+                raise EnvironmentNotFound(self, name=name, specifiers=specifiers)
+        return [
+            env
+            for env in self.envs
+            if env.setup_label == label and env.specifiers == specifiers
+        ]
+
+    def _remove_envs_from_files(self, envs: list[Environment]) -> list[Path]:
+        """
+        Remove the specified environments from their source files.
+        """
+        # group by source file and store ID hashes:
+        env_IDs_by_file = defaultdict(list)
+        for env in envs:
+            if isinstance(source_file := env.source_file, Path):
+                env_IDs_by_file[source_file].append(env.id)
+                self.logger.debug(
+                    f"Will remove environment {env.name!r} with hash ID {env.id!r} from "
+                    f"file {source_file!r}."
+                )
+            elif source_file == self.Environment.BUILTIN_ENV_SOURCE:
+                raise CannotRemoveBuiltinEnvironment(env)
+
+        # rewrite source files
+        for file, remove_IDs in env_IDs_by_file.items():
+            env_data = read_YAML_file(file)
+            env_list = self.EnvironmentsList.from_json_like(
+                env_data, shared_data=self._shared_data
+            )
+            new_env_data = [
+                env_i.to_json_like(exclude={"_hash_value", "_source_file"})[0]
+                for env_i in env_list
+                if env_i.id not in remove_IDs
+            ]
+            self.__update_env_source_file(file, new_env_data)
+            self.logger.debug(
+                f"Removed environments with hash IDs {remove_IDs!r} from file "
+                f"{source_file!r}."
+            )
+
+        return list(env_IDs_by_file)
+
+    def remove_env(
+        self,
+        id: int | list[int] | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        specifiers: dict[str, Any] | None = None,
     ):
         """
         Remove an environment identified by its name and specifiers, or remove all
         environments with a particular setup label and specifiers.
 
         """
-        if all(i is None for i in (name, label)) or all(
-            i is not None for i in (name, label)
-        ):
-            raise ValueError(
-                "Specify either `label` or `name` and optionally `specifiers`"
-            )
-
-        check_env = None
-        if name is not None:
-            check_env = self.Environment(name=name, specifiers=specifiers)
-            if check_env not in self.envs:
-                raise EnvironmentNotFound(
-                    self,
-                    message="So the environment cannot be removed.",
-                    name=name,
-                    specifiers=specifiers,
-                )
-
-        for env_file in self.config.environment_sources:
-            env_dat_i = read_YAML_file(env_file)
-            env_list_i = self.EnvironmentsList.from_json_like(
-                env_dat_i, shared_data=self._shared_data
-            )
-            assert env_list_i is not None
-            if name is not None:
-                assert check_env
-                if check_env in env_list_i:
-                    # remove the specified environment:
-                    self.logger.debug(
-                        f"Removing environment {name!r} from file {env_file!r}."
-                    )
-                    all_env_dat = [
-                        env_j.to_json_like(exclude={"_hash_value"})[0]
-                        for env_j in env_list_i
-                        if env_j.id != check_env.id
-                    ]
-                    self.__update_env_source_file(env_file, all_env_dat)
-                    break
-            else:
-                # search by setup label, and look through all files:
-                if label in (env_j.setup_label for env_j in env_list_i):
-                    all_env_dat = [
-                        env_j.to_json_like(exclude={"_hash_value"})[0]
-                        for env_j in env_list_i
-                        if env_j.setup_label != label
-                    ]
-                    self.__update_env_source_file(env_file, all_env_dat)
+        envs = self.__get_envs(id=id, name=name, label=label, specifiers=specifiers)
+        updated = self._remove_envs_from_files(envs)
+        num_envs = len(envs)
+        print(
+            f"Removed {num_envs} environment definition{'s' if num_envs > 1 else ''} "
+            f"from file{'s' if len(updated) > 1 else ''}: "
+            f"{', '.join(str(path) for path in updated)}."
+        )
 
     def save_env(
         self,
         env: _Environment,
         env_source_file: Path | None = None,
-        file_name: str = "configured_envs.yaml",
+        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
         replace: bool = False,
-    ):
+    ) -> Path:
         """
         Save an environment to the environment definitions file.
 
@@ -4227,18 +4305,24 @@ class BaseApp(metaclass=Singleton):
             If True, replace an existing environment with the same name and specifiers
             with the new one. If False and an existing environment exists, an exception
             will be raised.
+
+        Returns
+        -------
+        env_source:
+            The file path the environment was added to.
+
         """
+        env_source = env_source_file or self.config.get("config_directory").joinpath(
+            file_name
+        )
         if env in self.envs:
             if replace:
                 print(f"Replacing existing environment: {env.name} {env.specs_fmt}.")
                 self.remove_env(name=env.name, specifiers=env.specifiers)
             else:
                 raise EnvironmentAlreadyExists(env)
-        env_source = env_source_file or self.config.get("config_directory").joinpath(
-            file_name
-        )
         assert isinstance(env_source, Path)
-        new_env_dat = env.to_json_like(exclude={"_hash_value"})[0]
+        new_env_dat = env.to_json_like(exclude={"_hash_value", "_source_file"})[0]
         if env_source.exists():
             existing_env_dat: list[dict] = read_YAML_file(env_source, typ="rt")
             all_env_dat = [*existing_env_dat, new_env_dat]
@@ -4252,12 +4336,19 @@ class BaseApp(metaclass=Singleton):
             self.config.append("environment_sources", str(env_source))
             self.config.save()
 
+        print(f"Saved a new environment: {env.name!r} to file: {env_source}.")
+        return env_source
+
     def env_configure_python(
         self,
         shell: Literal["bash", "powershell"],
         setup: str | list[str] | None = None,
         names: list[str] | None = None,
         use_current: bool = True,
+        save: bool = False,
+        env_source_file: Path | None = None,
+        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+        replace: bool = False,
     ) -> list[Environment]:
         """Configure app environments that use Python.
 
@@ -4267,6 +4358,22 @@ class BaseApp(metaclass=Singleton):
             If specified, also set up these named environments using the same Python
             executable and setup, otherwise just set up the `python_env` environment. This
             should be a list of strings without the "_env" prefix, which will be added.
+        use_current:
+            Use the currently activate Python environment to provide a `python_script`
+            executable within the environment. True by default.
+        save:
+            If True, save the environment to a persistent environment definitions file.
+        env_source_file:
+            Applicable only if `save` is True. The environment source file to save the
+            environment to, if specified.
+        file_name:
+            Applicable only if `save` is True. If `env_source_file` is not specified, the
+            file name of the environment source file to use within the app configuration
+            directory.
+        replace
+            Applicable only if `save` is True. If True, replace an existing environment
+            with the same name and specifiers with the new one. If False and an existing
+            environment exists, an exception will be raised.
         """
         setup = norm_env_setup(setup)
         executables = [
@@ -4292,7 +4399,74 @@ class BaseApp(metaclass=Singleton):
                     setup_label="python",
                 )
             )
+        if save:
+            for env in environments:
+                self.save_env(
+                    env,
+                    env_source_file=env_source_file,
+                    file_name=file_name,
+                    replace=replace,
+                )
         return environments
+
+    def _get_envs_table(self, include_source: bool = True) -> Table:
+        """Generate a Rich table that shows details of all environments."""
+        headers = ["ID", "Name", "Specifiers", "Label"]
+        if include_source:
+            headers.append("Source")
+        tab = Table(*headers, box=box.SIMPLE)
+        for env_idx, env in enumerate(sorted(self.envs)):
+            for row_idx, (key, val) in enumerate(
+                (env.specifiers or {None: None}).items()
+            ):
+                spec_col = f"{key}: {val}" if key is not None else "-"
+                lab_col = (env.setup_label or "-") if row_idx == 0 else ""
+                src_col = str(env.source_file) or "-" if row_idx == 0 else ""
+                cols = [
+                    str(env_idx),
+                    env.name if row_idx == 0 else "",
+                    spec_col,
+                    lab_col,
+                ]
+                if include_source:
+                    cols.append(src_col)
+                tab.add_row(*cols)
+        return tab
+
+    def print_envs(self) -> None:
+        """
+        Print a table of available app environments.
+        """
+        Console().print(self._get_envs_table(include_source=True))
+
+    def show_env(
+        self,
+        id: int | list[int] | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+    ):
+        """
+        Print an environment definition.
+        """
+        panels = []
+        for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
+            tab = Table(show_header=False, box=None)
+            tab.add_column()
+            tab.add_column()
+            tab.add_row("name", Pretty(env.name))
+            tab.add_row("specifiers", Pretty(env.specifiers))
+            tab.add_row("label", Pretty(env.setup_label))
+            tab.add_row("source", Pretty(env.source_file))
+            tab.add_row("setup", "\n".join(env.setup or []))
+            tab.add_row("executables", Pretty(env.executables))
+            panels.append(
+                Panel(
+                    title=f"Environment: {env.name!r}",
+                    renderable=Group(tab),
+                )
+            )
+        Console().print(Group(*panels))
 
     def get_data_manifest(
         self, data_type: Literal["data", "program"]

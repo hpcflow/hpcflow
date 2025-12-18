@@ -58,6 +58,9 @@ from hpcflow.sdk.cli_common import (
     list_js_width_opt,
     jobscript_std_array_idx_opt,
     _add_doc_from_help,
+    env_add_replace_opt,
+    env_add_source_file_opt,
+    env_add_source_file_name_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -1559,6 +1562,13 @@ def _make_manage_CLI(app: BaseApp):
     return manage
 
 
+def __parse_multi_int_arg(lst: str) -> int | list[int]:
+    try:
+        return int(lst)
+    except ValueError:
+        return [int(item) for item in lst.split(",")]
+
+
 def _make_env_CLI(app: BaseApp):
     """Generate the CLI for managing app environments."""
 
@@ -1572,39 +1582,67 @@ def _make_env_CLI(app: BaseApp):
     @env.command("list")
     def list_envs():
         """List available environments."""
-        for env_i in app.envs:
-            click.echo(env_i.name)
+        app.print_envs()
+
+    @env.command("show")
+    @click.argument("id", required=False)
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def show_env(
+        id: str | None,
+        name: str | None,
+        label: str | None,
+        specifier: tuple[tuple[str, str], ...],
+    ):
+        """Show an environment definition."""
+        app.show_env(
+            id=__parse_multi_int_arg(id) if id else None,
+            name=name,
+            label=label,
+            specifiers={k: v for (k, v) in specifier},
+        )
 
     @env.command("add")
     @click.argument("name")
     @click.option("--use-current", is_flag=True, default=False)
     @click.option("--setup", type=click.STRING, multiple=True)
-    @click.option("--env-source-file", type=click.STRING)
+    @env_add_source_file_opt
+    @env_add_source_file_name_opt
+    @env_add_replace_opt
     def add_env(
         name: str,
         use_current: bool,
-        setup: list[str] | None = None,
-        env_source_file: str | None = None,
+        setup: tuple[str],
+        env_source_file: Path | None,
+        file_name: str,
+        replace: bool,
     ):
         """Add a simple environment definition."""
         app.add_env(
             name=name,
             setup=setup,
             use_current=use_current,
-            env_source_file=None if env_source_file is None else Path(env_source_file),
+            env_source_file=env_source_file,
+            file_name=file_name,
+            replace=replace,
         )
 
     @env.command("remove")
+    @click.argument("id", required=False)
     @click.option("-n", "--name")
     @click.option("-l", "--label")
     @click.option("-s", "--specifier", nargs=2, multiple=True)
     def remove_env(
+        id: str | None,
         name: str,
         label: str,
         specifier: tuple[tuple[str, str]],
     ):
         """Remove an environment definition."""
+        id_ = __parse_multi_int_arg(id) if id else None
         app.remove_env(
+            id=id_,
             name=name,
             specifiers={k: v for (k, v) in specifier},
             label=label,
@@ -1636,24 +1674,26 @@ def _make_env_CLI(app: BaseApp):
             "`python_script` executable to the environment."
         ),
     )
-    @click.option(
-        "--replace/--no-replace",
-        is_flag=True,
-        default=False,
-        help=(
-            "If True, replace an existing environment with the same name and specifiers."
-        ),
-    )
-    def python(name: list[str], use_current: bool, replace: bool):
+    @env_add_source_file_opt
+    @env_add_source_file_name_opt
+    @env_add_replace_opt
+    def python(
+        name: list[str],
+        use_current: bool,
+        env_source_file: Path | None,
+        file_name: str,
+        replace: bool,
+    ):
         """Configure environments with `python_script` executables."""
-        envs = app.env_configure_python(
+        app.env_configure_python(
             shell,
             names=name,
             use_current=use_current,
+            save=True,
+            env_source_file=env_source_file,
+            file_name=file_name,
+            replace=replace,
         )
-        for env in envs:
-            app.logger.debug(f"Saving 'python' environment: {env.name!r}.")
-            app.save_env(env, replace=replace)
 
     return env, setup_env
 

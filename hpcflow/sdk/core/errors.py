@@ -8,10 +8,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
 from typing import Any, TYPE_CHECKING, Literal
 
+from rich.console import Group
 from rich.highlighter import ReprHighlighter
-from rich.console import Console
-from rich.text import Text
-from rich.style import Style
 
 from ..compact_errors import FormatMixin
 from hpcflow.sdk.utils.strings import capitalise_first_letter
@@ -1032,15 +1030,19 @@ class TaskSchemaMissingActionOutputs(TaskSchemaValidationError):
         self.missing_outputs = missing_outputs
 
 
-class EnvironmentAlreadyExists(CompactException):
+class EnvironmentAlreadyExists(CompactException, ValueError):
     """Raised when trying to add an environment definition that already exists (with the
     same specifiers)."""
 
     def __init__(self, env, solution=None, docs=None):
         app = env._app
+        if app.run_time_info.from_CLI:
+            replace_cmd = f"'--replace' flag"
+        else:
+            replace_cmd = f"'replace=True' argument"
         solution = (
             f"To replace the existing environment with the new one, use the "
-            f"'--replace' flag in the CLI command (or specify `replace=True` in the API)."
+            f"{replace_cmd}."
         )
         super().__init__(
             app=app,
@@ -1050,15 +1052,80 @@ class EnvironmentAlreadyExists(CompactException):
         )
 
 
-class EnvironmentNotFound(CompactException):
+class EnvironmentNotFound(CompactException, ValueError):
     """Raised when trying to do something to an environment that does not exist."""
 
-    def __init__(self, app, message, name, specifiers):
-        env_names_fmt = ", ".join(f"{env_name!r}" for env_name in app.envs.list_attrs())
-        solution = f"Did you mean one of these environments instead: {env_names_fmt}?"
-        specs_fmt = app.Environment.get_specs_fmt(specifiers)
+    def __init__(
+        self,
+        app,
+        *,
+        id: int | None = None,
+        name: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+    ):
+        solution = f"Did you mean one of these environments instead:"
+        if id is not None:
+            args_fmt = f"with local ID {id!r}"
+        else:
+            args_fmt = f"named {name!r} {app.Environment.get_specs_fmt(specifiers)}"
         super().__init__(
             app=app,
-            message=f"Environment {name!r} {specs_fmt} does not exist. {message}",
+            message=f"Environment {args_fmt} does not exist.",
+            solution=solution,
+        )
+        # this Rich Table will be rendered after the "solution" text:
+        self.env_list_table = app._get_envs_table(include_source=False)
+
+    def format(
+        self,
+        title: str,
+        subtitle: str,
+        colour: str,
+        filename: str,
+        lineno: int,
+        console: Console | None = None,
+    ) -> tuple[Text, Group]:
+        """Custom formatter that includes a table of available environments in the
+        rendered exception."""
+        console = console or Console()
+        title_ = console.render_str(self._format_title(title, subtitle, colour))
+        solution = self._format_problem_solution()
+        highlighter = ReprHighlighter()
+        grp_args = [
+            console.render_str(f"{str(self)}{solution}", highlighter=highlighter),
+            self.env_list_table,
+        ]
+        if docs_fmt := self._format_problem_docs():
+            grp_args.append(console.render_str(docs_fmt, highlighter=highlighter))
+
+        main = Group(*grp_args, self._format_footer(filename, lineno))
+        return title_, main
+
+
+class CannotRemoveBuiltinEnvironment(CompactException, ValueError):
+    """Raised when trying to remove a built-in environment."""
+
+    def __init__(self, builtin_env):
+        app = builtin_env._app
+        if app.run_time_info.from_CLI:
+            list_cmd = f"{app.package_name} env list"
+            cmd_type = "CLI command"
+        else:
+            list_cmd = f"{app.docs_import_conv}.print_envs()"
+            cmd_type = "method"
+        solution = (
+            f"Did you mean to remove a different environment? Use the following "
+            f"{cmd_type} to print a list of all environments (including built-ins):"
+            f"\n\n  {list_cmd}"
+            f"\n\nAlternatively, you can override a built-in environment by adding a "
+            f"new environment with the same name ({builtin_env.name!r})."
+        )
+
+        super().__init__(
+            app,
+            message=(
+                f"The environment {builtin_env.name!r} is built-in to {app.name} and cannot "
+                f"be removed."
+            ),
             solution=solution,
         )
