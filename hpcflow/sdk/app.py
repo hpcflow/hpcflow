@@ -4055,14 +4055,9 @@ class BaseApp(metaclass=Singleton):
         Update the contents of the specified environments sources file (e.g. when adding
         or removing environments).
         """
-        # write a new temporary config file
-        tmp_file = env_file.with_suffix(env_file.suffix + ".tmp")
-        self.logger.debug(f"Creating temporary env source file: {tmp_file!r}.")
-        write_YAML_file(new_contents, tmp_file, typ="rt")
-
-        # atomic rename, overwriting original:
-        self.logger.debug("Replacing original env source file with temporary file.")
-        os.replace(src=tmp_file, dst=env_file)
+        overwrite_YAML_file(
+            env_file, new_contents, description="environment sources", logger=self.logger
+        )
 
     @staticmethod
     def detect_env_manager() -> EnvInfo:

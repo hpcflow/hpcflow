@@ -17,6 +17,7 @@ from typing import cast, TYPE_CHECKING
 from ruamel.yaml import YAML
 
 from hpcflow.sdk.core.validation import Schema, get_schema
+from hpcflow.sdk.utils.files import overwrite_YAML_file
 
 from hpcflow.sdk.config.errors import (
     ConfigChangeFileUpdateError,
@@ -278,24 +279,19 @@ class ConfigFile:
         if path is None:
             path = self.path
 
-        yaml = YAML(typ="rt")
         if path.exists():
-            # write a new temporary config file
-            cfg_tmp_file = path.with_suffix(path.suffix + ".tmp")
-            self.logger.debug(f"Creating temporary config file: {cfg_tmp_file!r}.")
-            with cfg_tmp_file.open("wt", newline="\n") as fh:
-                yaml.dump(config_data, fh)
-
-            # atomic rename, overwriting original:
-            self.logger.debug("Replacing original config file with temporary file.")
-            os.replace(src=cfg_tmp_file, dst=path)
-
+            overwrite_YAML_file(
+                path=path,
+                new_contents=config_data,
+                description="config",
+                typ="rt",
+                logger=self.logger,
+            )
         else:
-            with path.open("w", newline="\n") as handle:
-                yaml.dump(config_data, handle)
+            write_YAML_file(config_data, path, typ="rt")
 
         buff = io.BytesIO()
-        yaml.dump(config_data, buff)
+        YAML(typ="rt").dump(config_data, buff)
         new_contents = str(buff.getvalue())
 
         return new_contents
