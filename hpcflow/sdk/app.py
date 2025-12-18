@@ -4416,7 +4416,7 @@ class BaseApp(metaclass=Singleton):
         tab = Table(*headers, box=box.SIMPLE)
         for env_idx, env in enumerate(sorted(self.envs)):
             for row_idx, (key, val) in enumerate((env.specifiers or {"": None}).items()):
-                spec_col = f"{key}: {val}" if key is not "" else "-"
+                spec_col = f"{key}: {val}" if key != "" else "-"
                 lab_col = (env.setup_label or "-") if row_idx == 0 else ""
                 src_col = str(env.source_file) or "-" if row_idx == 0 else ""
                 cols = [
