@@ -18,6 +18,7 @@ from ruamel.yaml import YAML
 
 from hpcflow.sdk.core.validation import Schema, get_schema
 from hpcflow.sdk.utils.files import overwrite_YAML_file
+from hpcflow.sdk.core.utils import write_YAML_file
 
 from hpcflow.sdk.config.errors import (
     ConfigChangeFileUpdateError,

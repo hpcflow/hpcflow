@@ -5,6 +5,7 @@ General model of a searchable serializable list.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 import copy
 import sys
 from types import SimpleNamespace

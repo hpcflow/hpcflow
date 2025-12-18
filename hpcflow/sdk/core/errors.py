@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
 from typing import Any, TYPE_CHECKING, Literal
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.highlighter import ReprHighlighter
 
 from ..compact_errors import FormatMixin
@@ -17,6 +17,9 @@ from hpcflow.sdk.utils.web_docs import get_docs_url_how_to
 
 if TYPE_CHECKING:
     from logging import Logger
+
+    from rich.text import Text
+
     from .enums import ParallelMode
     from .object_list import WorkflowLoopList
     from .parameters import InputSource, ValueSequence, SchemaInput
@@ -1061,7 +1064,7 @@ class EnvironmentNotFound(CompactException, ValueError):
         *,
         id: int | None = None,
         name: str | None = None,
-        specifiers: dict[str, Any] | None = None,
+        specifiers: Mapping[str, Any] | None = None,
     ):
         solution = f"Did you mean one of these environments instead:"
         if id is not None:

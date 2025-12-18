@@ -7,6 +7,7 @@ import sys
 import traceback
 import warnings
 from typing import Any, Type, TYPE_CHECKING
+from typing_extensions import Self
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -369,8 +370,8 @@ class FormatMixin:
 
     @classmethod
     def get_formatted_problem(
-        cls,
-        obj: _CompactException | _CompactWarning,
+        cls: Type[Self],
+        obj: Self,
         title: str,
         subtitle: str,
         colour: str,
@@ -413,7 +414,7 @@ class FormatMixin:
         return self._get_formatted_footer(filename, lineno, colour)
 
     def format(
-        self: Exception | Warning,
+        self,
         title: str,
         subtitle: str,
         colour: str,

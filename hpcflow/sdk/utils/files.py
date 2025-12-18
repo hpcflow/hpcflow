@@ -21,7 +21,7 @@ def delete_file_or_dir(path: Path):
 
 def overwrite_YAML_file(
     path: Path,
-    new_contents: list[JSONDocument],
+    new_contents,
     description: str = "",
     logger: Logger | None = None,
     typ: str = "safe",

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from typing_extensions import override
 from pathlib import Path
 
 from hpcflow.sdk.typing import hydrate
@@ -204,7 +205,7 @@ class Environment(JSONLike):
     )
 
     #: string used in an Environment's `source_file` if it is builtin.
-    BUILTIN_ENV_SOURCE: ClassVar[str] = "<builtin>"
+    BUILTIN_ENV_SOURCE: ClassVar[Literal["<builtin>"]] = "<builtin>"
     #: default file name within the config directory in which to store configured
     #: environment definitions.
     DEFAULT_CONFIGURED_ENVS_FILE: ClassVar[str] = "configured_envs.yaml"
@@ -225,7 +226,7 @@ class Environment(JSONLike):
         self.doc = doc
         #: Dictionary of attributes that may be used to supply additional key/value pairs
         #: to look up an environment by.
-        self.specifiers: Mapping[str, str] = specifiers or {}
+        self.specifiers: Mapping[str, Any] = specifiers or {}
         #: List of abstract executables in the environment.
         self.executables = (
             executables
@@ -247,7 +248,7 @@ class Environment(JSONLike):
         self.setup_label = setup_label
 
         #: The file in which this environment is defined, if it originated from a file.
-        self._source_file: Literal["builtin"] | Path | None = None
+        self._source_file: Literal["<builtin>"] | Path | None = None
 
         self._set_parent_refs()
         self._validate()
@@ -271,6 +272,12 @@ class Environment(JSONLike):
     def _validate(self):
         if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)
+
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        out = super()._postprocess_to_dict(d)
+        del out["_source_file"]
+        return out
 
     @property
     def documentation(self) -> str:
@@ -305,6 +312,6 @@ class Environment(JSONLike):
         return self.get_specs_fmt(self.specifiers)
 
     @property
-    def source_file(self) -> Path:
+    def source_file(self) -> Literal["<builtin>"] | Path | None:
         """If this environment was defined in a file, get the path to that file."""
         return self._source_file

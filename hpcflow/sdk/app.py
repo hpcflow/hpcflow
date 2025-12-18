@@ -14,7 +14,6 @@ from importlib import resources, import_module
 import os
 from contextlib import contextmanager
 from pathlib import Path
-import sys
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, Generic, cast, TYPE_CHECKING, Literal
 import warnings
@@ -55,9 +54,9 @@ from hpcflow.sdk.utils.files import (
     delete_file_or_dir,
     overwrite_YAML_file,
 )
-from hpcflow.sdk.utils.errors import get_with_index
+from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
-from .core.environment import Environment as _Environment
+from .core.environment import Environment as Environment_cls
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -124,7 +123,7 @@ if TYPE_CHECKING:
     from .core.enums import ActionScopeType, InputSourceType, TaskSourceType
     from .core.environment import (
         NumCores,
-        Environment,
+        Environment as _Environment,
         Executable as _Executable,
         ExecutableInstance,
     )
@@ -675,7 +674,7 @@ class BaseApp(metaclass=Singleton):
         return self._get_app_core_class("ElementGroup")
 
     @property
-    def Environment(self) -> type[Environment]:
+    def Environment(self) -> type[_Environment]:
         """
         The :class:`Environment` class.
 
@@ -4142,7 +4141,7 @@ class BaseApp(metaclass=Singleton):
         executables: list[_Executable] | None = None,
         use_current: bool = False,
         env_source_file: Path | None = None,
-        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
         replace: bool = False,
     ) -> Path:
         """
@@ -4188,9 +4187,9 @@ class BaseApp(metaclass=Singleton):
         id: int | list[int] | None = None,
         *,
         name: str | None = None,
-        specifiers: dict[str, Any] | None = None,
+        specifiers: Mapping[str, Any] | None = None,
         label: str | None = None,
-    ) -> list[Environment]:
+    ) -> list[_Environment]:
         """
         Retrieve Environment objects using either a local ID (index within the app `envs`
         list, sorted by name and then specifiers), a name, or a label (and potentially,
@@ -4213,7 +4212,7 @@ class BaseApp(metaclass=Singleton):
             env_srt = sorted(self.envs)
             try:
                 return [get_with_index(env_srt, id_i) for id_i in id]
-            except IndexError as exc:
+            except StoredIndexError as exc:
                 raise EnvironmentNotFound(self, id=exc.index)
         if name is not None:
             try:
@@ -4226,7 +4225,7 @@ class BaseApp(metaclass=Singleton):
             if env.setup_label == label and env.specifiers == specifiers
         ]
 
-    def _remove_envs_from_files(self, envs: list[Environment]) -> list[Path]:
+    def _remove_envs_from_files(self, envs: list[_Environment]) -> list[Path]:
         """
         Remove the specified environments from their source files.
         """
@@ -4249,7 +4248,7 @@ class BaseApp(metaclass=Singleton):
                 env_data, shared_data=self._shared_data
             )
             new_env_data = [
-                env_i.to_json_like(exclude={"_hash_value", "_source_file"})[0]
+                env_i.to_json_like(exclude={"_hash_value"})[0]
                 for env_i in env_list
                 if env_i.id not in remove_IDs
             ]
@@ -4266,7 +4265,7 @@ class BaseApp(metaclass=Singleton):
         id: int | list[int] | None = None,
         name: str | None = None,
         label: str | None = None,
-        specifiers: dict[str, Any] | None = None,
+        specifiers: Mapping[str, Any] | None = None,
     ):
         """
         Remove an environment identified by its name and specifiers, or remove all
@@ -4286,7 +4285,7 @@ class BaseApp(metaclass=Singleton):
         self,
         env: _Environment,
         env_source_file: Path | None = None,
-        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
         replace: bool = False,
     ) -> Path:
         """
@@ -4322,7 +4321,7 @@ class BaseApp(metaclass=Singleton):
             else:
                 raise EnvironmentAlreadyExists(env)
         assert isinstance(env_source, Path)
-        new_env_dat = env.to_json_like(exclude={"_hash_value", "_source_file"})[0]
+        new_env_dat = env.to_json_like(exclude={"_hash_value"})[0]
         if env_source.exists():
             existing_env_dat: list[dict] = read_YAML_file(env_source, typ="rt")
             all_env_dat = [*existing_env_dat, new_env_dat]
@@ -4347,9 +4346,9 @@ class BaseApp(metaclass=Singleton):
         use_current: bool = True,
         save: bool = False,
         env_source_file: Path | None = None,
-        file_name: str = _Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
         replace: bool = False,
-    ) -> list[Environment]:
+    ) -> list[_Environment]:
         """Configure app environments that use Python.
 
         Parameters
@@ -4416,9 +4415,7 @@ class BaseApp(metaclass=Singleton):
             headers.append("Source")
         tab = Table(*headers, box=box.SIMPLE)
         for env_idx, env in enumerate(sorted(self.envs)):
-            for row_idx, (key, val) in enumerate(
-                (env.specifiers or {None: None}).items()
-            ):
+            for row_idx, (key, val) in enumerate((env.specifiers or {"": None}).items()):
                 spec_col = f"{key}: {val}" if key is not None else "-"
                 lab_col = (env.setup_label or "-") if row_idx == 0 else ""
                 src_col = str(env.source_file) or "-" if row_idx == 0 else ""
