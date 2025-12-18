@@ -638,6 +638,23 @@ class EnvironmentsList(AppDataList["Environment"]):
                 return (item.name, get_hash(item.specifiers)) in uq_attrs
         return False
 
+    def _set_source_file_paths(
+        self, env_file_paths: Mapping[int, Literal["<builtin>"] | Path]
+    ):
+        """Set the `source_file` attribute for all environments in this list.
+
+        Parameters
+        ----------
+        env_file_paths:
+            A mapping whose keys are integer hashes originated from the
+            `Environment.get_id` method, and whose values are the file paths in which the
+            environments are defined (or `None` if not defined in a file, or `<builtin>`
+            if provided by the app's built-in template components).
+        """
+        for env in self._objects:
+            if source := env_file_paths.get(env.id):
+                env._source_file = source
+
 
 class ExecutablesList(AppDataList["Executable"]):
     """

@@ -1858,6 +1858,12 @@ class BaseApp(metaclass=Singleton):
             builtin_envs: list[Any] = self._builtin_template_components.get(
                 "environments", []
             )
+            env_file_paths: dict[int, Literal["<builtin>"] | Path] = {
+                self.Environment.get_id(
+                    env["name"], env.get("specifiers")
+                ): self.Environment.BUILTIN_ENV_SOURCE
+                for env in builtin_envs
+            }
             for e_path in self.config.environment_sources:
                 for env_j in read_YAML_file(e_path):
                     for b_idx, builtin_env in enumerate(list(builtin_envs)):
@@ -1865,8 +1871,12 @@ class BaseApp(metaclass=Singleton):
                         if builtin_env["name"] == env_j["name"]:
                             builtin_envs.pop(b_idx)
                     envs.append(env_j)
+                    env_file_paths[
+                        self.Environment.get_id(env_j["name"], env_j["specifiers"])
+                    ] = e_path
             envs = builtin_envs + envs
             env_list = self.EnvironmentsList.from_json_like(envs, shared_data=self_tc)
+            env_list._set_source_file_paths(env_file_paths)
             self._template_components["environments"] = env_list
             self._environments = env_list
 

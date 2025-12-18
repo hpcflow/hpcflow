@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from pathlib import Path
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
@@ -16,7 +17,7 @@ from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from typing import Any, ClassVar
+    from typing import Any, ClassVar, Literal
 
 
 @dataclass
@@ -202,6 +203,12 @@ class Environment(JSONLike):
         ),
     )
 
+    #: string used in an Environment's `source_file` if it is builtin.
+    BUILTIN_ENV_SOURCE: ClassVar[str] = "<builtin>"
+    #: default file name within the config directory in which to store configured
+    #: environment definitions.
+    DEFAULT_CONFIGURED_ENVS_FILE: ClassVar[str] = "configured_envs.yaml"
+
     def __init__(
         self,
         name: str,
@@ -235,7 +242,12 @@ class Environment(JSONLike):
         else:
             self.setup = tuple(setup)
 
+        #: A label that identifies the env setup command that was used to define the
+        #: environment.
         self.setup_label = setup_label
+
+        #: The file in which this environment is defined, if it originated from a file.
+        self._source_file: Literal["builtin"] | Path | None = None
 
         self._set_parent_refs()
         self._validate()
@@ -247,6 +259,11 @@ class Environment(JSONLike):
             and self.executables == other.executables
             and self.specifiers == other.specifiers
         )
+
+    def __lt__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (self.name, self.specifiers) < (other.name, other.specifiers)
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name!r})"
@@ -263,11 +280,10 @@ class Environment(JSONLike):
             return markupsafe.Markup(self.doc)
         return repr(self)
 
-    @property
-    def id(self) -> int:
-        """An ID that can be used to compare if two environments are equivalent, in the
-        sense that they must not be defined together."""
-        return hash((self.name, get_hash(self.specifiers)))
+    @staticmethod
+    def get_id(name: str, specifiers: Mapping[str, str] | None) -> int:
+        """Get a hash of the specified name and specifiers dict."""
+        return hash((name, get_hash(specifiers or None)))
 
     @staticmethod
     def get_specs_fmt(specifiers: Mapping[str, str] | None):
@@ -278,6 +294,17 @@ class Environment(JSONLike):
             return "(with no specifiers)"
 
     @property
+    def id(self) -> int:
+        """An ID that can be used to compare if two environments are equivalent, in the
+        sense that they must not be defined together."""
+        return self.get_id(self.name, self.specifiers)
+
+    @property
     def specs_fmt(self) -> str:
         """Formatted specifiers string."""
         return self.get_specs_fmt(self.specifiers)
+
+    @property
+    def source_file(self) -> Path:
+        """If this environment was defined in a file, get the path to that file."""
+        return self._source_file
