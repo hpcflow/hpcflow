@@ -6,6 +6,7 @@ from collections import Counter, namedtuple, defaultdict
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
 import stat
+import copy
 import enum
 import json
 import shutil
@@ -1835,6 +1836,9 @@ class BaseApp(metaclass=Singleton):
         Combine any builtin template components with user-defined template components
         and initialise list objects.
         """
+        # we mutate builtins (e.g. replace a builtin environment with a user defined one):
+        builtins = copy.deepcopy(self._builtin_template_components)
+
         if not include or "task_schemas" in include:
             # task schemas require all other template components to be loaded first
             include = (
@@ -1851,7 +1855,7 @@ class BaseApp(metaclass=Singleton):
         self_tc: Any = self._template_components
 
         if "parameters" in include:
-            params: list[Any] = self._builtin_template_components.get("parameters", [])
+            params: list[Any] = builtins.get("parameters", [])
             for path in self.config.parameter_sources:
                 params.extend(read_YAML_file(path))
             param_list = self.ParametersList.from_json_like(params, shared_data=self_tc)
@@ -1859,9 +1863,7 @@ class BaseApp(metaclass=Singleton):
             self._parameters = param_list
 
         if "command_files" in include:
-            cmd_files: list[Any] = self._builtin_template_components.get(
-                "command_files", []
-            )
+            cmd_files: list[Any] = builtins.get("command_files", [])
             for path in self.config.command_file_sources:
                 cmd_files.extend(read_YAML_file(path))
             cf_list = self.CommandFilesList.from_json_like(cmd_files, shared_data=self_tc)
@@ -1870,9 +1872,7 @@ class BaseApp(metaclass=Singleton):
 
         if "environments" in include:
             envs = []
-            builtin_envs: list[Any] = self._builtin_template_components.get(
-                "environments", []
-            )
+            builtin_envs: list[Any] = builtins.get("environments", [])
             env_file_paths: dict[int, Literal["<builtin>"] | Path] = {
                 self.Environment.get_id(
                     env["name"], env.get("specifiers")
@@ -1896,7 +1896,7 @@ class BaseApp(metaclass=Singleton):
             self._environments = env_list
 
         if "task_schemas" in include:
-            schemas: list[Any] = self._builtin_template_components.get("task_schemas", [])
+            schemas: list[Any] = builtins.get("task_schemas", [])
             for path in self.config.task_schema_sources:
                 schemas.extend(read_YAML_file(path))
             ts_list = self.TaskSchemasList.from_json_like(schemas, shared_data=self_tc)
