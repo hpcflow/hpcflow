@@ -64,6 +64,7 @@ from hpcflow.sdk.cli_common import (
     env_add_replace_opt,
     env_add_source_file_opt,
     env_add_source_file_name_opt,
+    pytest_file_or_dir_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -302,26 +303,28 @@ def _make_API_CLI(app: BaseApp):
             click.echo(out[1])
 
     @click.command(context_settings={"ignore_unknown_options": True})
-    @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
+    @pytest_file_or_dir_opt
+    @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test(ctx: click.Context, py_test_args: list[str]):
+    def test(ctx: click.Context, pytest_args: tuple[str], file: tuple[str]):
         """Run {app_name} test suite.
 
-        PY_TEST_ARGS are arguments passed on to Pytest.
+        PYTEST_ARGS are arguments passed on to Pytest.
 
         """
-        ctx.exit(app.run_tests(*py_test_args))
+        ctx.exit(app.run_tests(test_dirs=file, pytest_args=pytest_args))
 
     @click.command(context_settings={"ignore_unknown_options": True})
-    @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
+    @pytest_file_or_dir_opt
+    @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test_hpcflow(ctx: click.Context, py_test_args: list[str]):
+    def test_hpcflow(ctx: click.Context, pytest_args: tuple[str], file: tuple[str]):
         """Run hpcFlow test suite.
 
-        PY_TEST_ARGS are arguments passed on to Pytest.
+        PYTEST_ARGS are arguments passed on to Pytest.
 
         """
-        ctx.exit(app.run_hpcflow_tests(*py_test_args))
+        ctx.exit(app.run_hpcflow_tests(test_dirs=file, pytest_args=pytest_args))
 
     commands = [
         make_workflow,

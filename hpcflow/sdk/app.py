@@ -328,7 +328,10 @@ if TYPE_CHECKING:
     class _RunTests(Protocol):
         """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
 
-        def __call__(self, *args: str) -> int: ...
+        def __call__(
+            test_dirs: Sequence[str | Path] | None = None,
+            pytest_args: Sequence[str] | None = None,
+        ) -> int: ...
 
 
 SDK_logger = get_SDK_logger(__name__)
@@ -3416,13 +3419,21 @@ class BaseApp(metaclass=Singleton):
         wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
         return None
 
-    def _run_hpcflow_tests(self, *args: str) -> int:
+    def _run_hpcflow_tests(
+        self,
+        test_dirs: Sequence[str | Path] | None = None,
+        pytest_args: Sequence[str] | None = None,
+    ) -> int:
         """Run hpcflow test suite. This function is only available from derived apps."""
         from hpcflow import app as hf
 
-        return hf.app.run_tests(*args)
+        return hf.app.run_tests(test_dirs=test_dirs, pytest_args=pytest_args)
 
-    def _run_tests(self, *args: str) -> int:
+    def _run_tests(
+        self,
+        test_dirs: Sequence[str | Path] | None = None,
+        pytest_args: Sequence[str] | None = None,
+    ) -> int:
         """Run {app_name} test suite."""
         try:
             import pytest
@@ -3430,22 +3441,35 @@ class BaseApp(metaclass=Singleton):
             raise RuntimeError(
                 f"{self.name} has not been built with testing dependencies."
             )
-        with get_file_context(self.package_name, "tests") as test_dir:
-            # note: the ignore is required for Pyinstaller-built "one-file" executables on
-            # Windows, where Pytest will try to collect tests from C:\ for some reason.
-            # `C:\Documents and Settings` is a hidden/protected compatibility link which
-            # we don't have permission to traverse; so without this `--ignore`, Pytest
-            # will raise a PermissionError on test collection.
-            return pytest.main(
-                [
-                    "-p",
-                    f"{self.package_name}.pytest_plugin",
-                    str(test_dir),
-                    "--ignore=C:\\Documents and Settings",
-                    *(self.pytest_args or ()),
-                    *args,
-                ]
-            )
+        with get_file_context(self.package_name, "tests") as root_test_dir:
+            test_dirs_ = []
+            if not test_dirs:
+                test_dirs_.append(str(root_test_dir))
+            else:
+                for dir_i in test_dirs:
+                    if not (dir_i_path := Path(dir_i)).is_absolute():
+                        # assume relative to the root test dir; this makes it easier to
+                        # specify test_dirs when running the Pyinstaller-built executable:
+                        test_dirs_.append(str(root_test_dir / dir_i_path))
+                    else:
+                        test_dirs_.append(str(dir_i_path))
+
+        # note: the `--ignore` is required for Pyinstaller-built "one-file" executables on
+        # Windows, where Pytest will try to collect tests from C:\ for some reason.
+        # `C:\Documents and Settings` is a hidden/protected compatibility link which
+        # we don't have permission to traverse; so without this ignore, Pytest will raise
+        # a PermissionError on test collection.
+        cmd = [
+            "-p",
+            f"{self.package_name}.pytest_plugin",
+            "--ignore",
+            "C:\\Documents and Settings",
+            *(self.pytest_args or ()),
+            *(pytest_args or ()),
+            *test_dirs_,
+        ]
+        self.logger.info(f"running Pytest with args: {cmd!r}.")
+        return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""

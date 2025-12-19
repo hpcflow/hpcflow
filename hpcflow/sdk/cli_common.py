@@ -376,6 +376,17 @@ env_add_source_file_name_opt = click.option(
         "provided."
     ),
 )
+#: Standard option
+pytest_file_or_dir_opt = click.option(
+    "--file",
+    multiple=True,
+    help=(
+        "Paths to test files or directories to include in the Pytest run. If "
+        "relative paths are provided, they are assumed to be relative to the root "
+        "'tests' directory (so that passing `--file '.'` runs all tests). If not "
+        "provided, all tests are run. Multiple are allowed."
+    ),
+)
 
 
 def _add_doc_from_help(*args):
@@ -438,4 +449,5 @@ _add_doc_from_help(
     env_add_replace_opt,
     env_add_source_file_opt,
     env_add_source_file_name_opt,
+    pytest_file_or_dir_opt,
 )
