@@ -48,6 +48,10 @@ class DeferredFileWriter:
             self.file.close()
             self._is_open = False
 
+    def flush(self):
+        if self._is_open:
+            self.file.flush()
+
     def __enter__(self):
         return self
 
