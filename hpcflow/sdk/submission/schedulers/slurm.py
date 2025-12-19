@@ -607,6 +607,7 @@ class SlurmPosix(QueuedScheduler):
         self,
         js_refs: list[str],
         jobscripts: list[Jobscript] | None = None,
+        quiet: bool = False,
     ):
         """
         Cancel submitted jobs.

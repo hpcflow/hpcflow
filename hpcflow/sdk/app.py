@@ -329,6 +329,7 @@ if TYPE_CHECKING:
         """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
 
         def __call__(
+            self,
             test_dirs: Sequence[str | Path] | None = None,
             pytest_args: Sequence[str] | None = None,
         ) -> int: ...
