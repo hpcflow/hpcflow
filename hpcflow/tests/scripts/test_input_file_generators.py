@@ -6,7 +6,6 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_input_file_generator_creates_file(null_config, tmp_path):
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -55,7 +54,6 @@ def test_input_file_generator_creates_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
@@ -125,7 +123,6 @@ def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
     """Test that standard error and output streams from an IFG script are written to the jobscript
     standard error and output files."""
@@ -155,7 +152,7 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
         template_name="input_file_generator_test",
         path=tmp_path,
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, status=False)
 
     if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
@@ -168,7 +165,6 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_IFG_pass_env_spec(null_config, tmp_path):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
@@ -210,7 +206,6 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_path):
 
     py_env = hf.Environment(

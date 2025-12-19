@@ -14,7 +14,6 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_direct_out(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
@@ -47,7 +46,6 @@ def test_script_direct_in_direct_out(null_config, tmp_path: Path, combine_script
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_sub_param_in_direct_out(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -82,7 +80,6 @@ def test_script_direct_sub_param_in_direct_out(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_direct_out_single_label(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -120,7 +117,6 @@ def test_script_direct_in_direct_out_single_label(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_direct_out_labels(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -170,7 +166,6 @@ def test_script_direct_in_direct_out_labels(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_in_json_out(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
@@ -204,7 +199,6 @@ def test_script_json_in_json_out(null_config, tmp_path: Path, combine_scripts: b
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_in_json_out_labels(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -255,7 +249,6 @@ def test_script_json_in_json_out_labels(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_sub_param_in_json_out_labels(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -306,7 +299,6 @@ def test_script_json_sub_param_in_json_out_labels(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_and_direct_in_json_out(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -346,7 +338,6 @@ def test_script_json_and_direct_in_json_out(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_in_json_and_direct_out(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -388,7 +379,6 @@ def test_script_json_in_json_and_direct_out(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON dumper defined in the P1 class."""
@@ -424,7 +414,6 @@ def test_script_json_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_hdf5_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 dumper defined in the P1 class."""
@@ -460,7 +449,6 @@ def test_script_hdf5_in_obj(null_config, tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_hdf5_in_obj_group(null_config, tmp_path: Path, combine_scripts: bool):
     s0 = hf.TaskSchema(
@@ -504,7 +492,6 @@ def test_script_hdf5_in_obj_group(null_config, tmp_path: Path, combine_scripts: 
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_json_out_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON saver defined in the P1 class."""
@@ -540,7 +527,6 @@ def test_script_json_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 saver defined in the P1 class."""
@@ -576,7 +562,6 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_pass_env_spec(
     new_null_config, tmp_path: Path, combine_scripts: bool
@@ -641,7 +626,6 @@ def test_script_direct_in_pass_env_spec(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_std_stream_redirect_on_exception(
     new_null_config, tmp_path: Path, combine_scripts: bool
@@ -715,7 +699,6 @@ def test_script_std_stream_redirect_on_exception(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_std_out_std_err_not_redirected(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -760,7 +743,6 @@ def test_script_std_out_std_err_not_redirected(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
@@ -796,7 +778,6 @@ def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_env_specifier_in_main_script_path(
     new_null_config, tmp_path: Path, combine_scripts: bool
@@ -856,7 +837,6 @@ def test_env_specifier_in_main_script_path(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_env_specifier_in_main_script_path_multiple_scripts(
     new_null_config, tmp_path: Path, combine_scripts: bool
@@ -944,7 +924,6 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_direct_out_multi_element(
     null_config, tmp_path: Path, combine_scripts: bool
@@ -995,7 +974,6 @@ def test_script_direct_in_direct_out_multi_element(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_repeated_action_in_schema(null_config, tmp_path: Path):
     # TODO: cannot currently use same Action object multiple times in a schema
     s1 = hf.TaskSchema(
@@ -1057,7 +1035,6 @@ def test_repeated_action_in_schema(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_main_script_two_schemas_same_action(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1131,7 +1108,6 @@ def test_main_script_two_schemas_same_action(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_main_script_two_actions_same_schema(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1177,7 +1153,6 @@ def test_main_script_two_actions_same_schema(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_shell_env_vars(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1278,7 +1253,6 @@ def test_shell_env_vars(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_combine_scripts_script_data_multiple_input_file_formats(
     null_config, tmp_path: Path
 ):
@@ -1336,7 +1310,6 @@ def test_combine_scripts_script_data_multiple_input_file_formats(
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_combine_scripts_from_future_import(null_config, tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",

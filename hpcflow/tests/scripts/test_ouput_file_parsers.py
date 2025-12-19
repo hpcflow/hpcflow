@@ -6,7 +6,6 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_output_file_parser_parses_file(null_config, tmp_path):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
@@ -57,7 +56,6 @@ def test_output_file_parser_parses_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
     """Test exceptions raised by the app during execution of an OFP script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
@@ -138,7 +136,6 @@ def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_OFP_std_out_std_err_not_redirected(null_config, tmp_path):
     """Test that standard error and output streams from an OFP script are written to the jobscript
     standard error and output files."""
@@ -191,7 +188,6 @@ def test_OFP_std_out_std_err_not_redirected(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_output_file_parser_pass_env_spec(null_config, tmp_path):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
@@ -234,7 +230,6 @@ def test_output_file_parser_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
 def test_env_specifier_in_output_file_parser_script_path(new_null_config, tmp_path):
 
     py_env = hf.Environment(
