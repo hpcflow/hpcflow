@@ -37,6 +37,9 @@ from hpcflow.sdk.cli_common import (
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    submit_quiet_opt,
+    wait_quiet_opt,
+    cancel_quiet_opt,
     force_arr_opt,
     make_status_opt,
     add_sub_opt,
@@ -242,6 +245,7 @@ def _make_API_CLI(app: BaseApp):
     @tasks_opt
     @cancel_opt
     @submit_status_opt
+    @submit_quiet_opt
     def make_and_submit_workflow(
         template_file_or_str: str,
         string: bool,
@@ -262,6 +266,7 @@ def _make_API_CLI(app: BaseApp):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -290,6 +295,7 @@ def _make_API_CLI(app: BaseApp):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if print_idx:
             assert isinstance(out, tuple)
@@ -508,6 +514,7 @@ def _make_workflow_CLI(app: BaseApp):
     @tasks_opt
     @cancel_opt
     @submit_status_opt
+    @submit_quiet_opt
     @_pass_workflow
     def submit_workflow(
         wf: Workflow,
@@ -518,6 +525,7 @@ def _make_workflow_CLI(app: BaseApp):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
@@ -528,6 +536,7 @@ def _make_workflow_CLI(app: BaseApp):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if print_idx:
             click.echo(out)
@@ -565,10 +574,11 @@ def _make_workflow_CLI(app: BaseApp):
             "separate patterns like these."
         ),
     )
+    @wait_quiet_opt
     @_pass_workflow
-    def wait(wf: Workflow, jobscripts: str | None):
+    def wait(wf: Workflow, jobscripts: str | None, quiet: bool):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
-        wf.wait(sub_js=js_spec)
+        wf.wait(sub_js=js_spec, quiet=quiet)
 
     @workflow.command(name="abort-run")
     @click.option("--submission", type=click.INT, default=-1)
@@ -1048,14 +1058,17 @@ def _make_cancel_CLI(app: BaseApp):
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
     @cancel_status_opt
-    def cancel(workflow_ref: str, ref_type: str | None, status: bool):
+    @cancel_quiet_opt
+    def cancel(workflow_ref: str, ref_type: str | None, status: bool, quiet: bool):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
         workflow path.
 
         """
-        app.cancel(workflow_ref=workflow_ref, ref_is_path=ref_type, status=status)
+        app.cancel(
+            workflow_ref=workflow_ref, ref_is_path=ref_type, status=status, quiet=quiet
+        )
 
     return cancel
 

@@ -215,6 +215,24 @@ submit_status_opt = click.option(
     default=True,
 )
 #: Standard option
+submit_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything about workflow submission.",
+    default=False,
+)
+#: Standard option
+wait_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything (e.g. when jobscripts have completed).",
+    default=False,
+)
+#: Standard option
+cancel_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything (e.g. which jobscripts where cancelled).",
+    default=False,
+)
+#: Standard option
 force_arr_opt = click.option(
     "--force-array",
     help=(
@@ -395,6 +413,10 @@ _add_doc_from_help(
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    submit_quiet_opt,
+    wait_quiet_opt,
+    cancel_quiet_opt,
+    force_arr_opt,
     make_status_opt,
     zip_path_opt,
     zip_overwrite_opt,
@@ -413,4 +435,7 @@ _add_doc_from_help(
     list_task_js_task_names_opt,
     list_js_width_opt,
     jobscript_std_array_idx_opt,
+    env_add_replace_opt,
+    env_add_source_file_opt,
+    env_add_source_file_name_opt,
 )

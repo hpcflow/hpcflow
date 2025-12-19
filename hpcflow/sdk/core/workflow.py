@@ -3415,6 +3415,7 @@ class Workflow(AppAware):
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
+        quiet: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution."""
 
@@ -3455,6 +3456,7 @@ class Workflow(AppAware):
                     ignore_errors=ignore_errors,
                     print_stdout=print_stdout,
                     add_to_known=add_to_known,
+                    quiet=quiet,
                 )
                 submitted_js[sub.index] = sub_js_idx
             except SubmissionFailure as exc:
@@ -3475,6 +3477,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -3490,6 +3493,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> None: ...
 
     def submit(
@@ -3504,6 +3508,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -3537,6 +3542,8 @@ class Workflow(AppAware):
             Immediately cancel the submission. Useful for testing and benchmarking.
         status
             If True, display a live status to track submission progress.
+        quiet
+            If True, do not print messages about the workflow submission.
         """
 
         # Type hint for mypy
@@ -3561,16 +3568,17 @@ class Workflow(AppAware):
                     status=status_,
                     add_to_known=add_to_known,
                     tasks=tasks,
+                    quiet=quiet,
                 )
 
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
 
         if cancel:
-            self.cancel(status=status)
+            self.cancel(status=status, quiet=quiet)
 
         elif wait:
-            self.wait(submitted_js)
+            self.wait(submitted_js, quiet=quiet)
 
         if return_idx:
             return submitted_js
@@ -3620,7 +3628,9 @@ class Workflow(AppAware):
         for thr in threads:
             thr.join()
 
-    def wait(self, sub_js: Mapping[int, Sequence[int]] | None = None):
+    def wait(
+        self, sub_js: Mapping[int, Sequence[int]] | None = None, quiet: bool = False
+    ):
         """Wait for the completion of specified/all submitted jobscripts."""
 
         # TODO: think about how this might work with remote workflow submission (via SSH)
@@ -3657,9 +3667,11 @@ class Workflow(AppAware):
 
         if js_direct or js_sched:
             # TODO: use a rich console status? how would that appear in stdout though?
-            print("Waiting for workflow submissions to finish...")
+            if not quiet:
+                print("Waiting for workflow submissions to finish...")
         else:
-            print("No running jobscripts.")
+            if not quiet:
+                print("No running jobscripts.")
             return
 
         try:
@@ -3678,9 +3690,11 @@ class Workflow(AppAware):
                 t_sched.join(timeout=1)
 
         except KeyboardInterrupt:
-            print("No longer waiting (workflow execution will continue).")
+            if not quiet:
+                print("No longer waiting (workflow execution will continue).")
         else:
-            print("Specified submissions have finished.")
+            if not quiet:
+                print("Specified submissions have finished.")
 
     def get_running_elements(
         self,
@@ -3799,7 +3813,7 @@ class Workflow(AppAware):
         self._abort_run(run)
 
     @TimeIt.decorator
-    def cancel(self, status: bool = True):
+    def cancel(self, status: bool = True, quiet: bool = False):
         """Cancel any running jobscripts."""
         status_msg = f"Cancelling jobscripts of workflow {self.path!r}"
         # Type hint for mypy
@@ -3808,7 +3822,7 @@ class Workflow(AppAware):
         )
         with status_context as status_, self._store.cached_load():
             for sub in self.submissions:
-                sub.cancel()
+                sub.cancel(quiet=quiet)
 
     def add_submission(
         self,

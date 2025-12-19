@@ -1202,6 +1202,7 @@ class Submission(JSONLike):
         ignore_errors: bool = False,
         print_stdout: bool = False,
         add_to_known: bool = True,
+        quiet: bool = False,
     ) -> list[int]:
         """Generate and submit the jobscripts of this submission."""
 
@@ -1312,12 +1313,13 @@ class Submission(JSONLike):
             raise SubmissionFailure(self.index, submitted_js_idx, errs)
 
         len_js = len(submitted_js_idx)
-        print(f"Submitted {len_js} jobscript{'s' if len_js > 1 else ''}.")
+        if not quiet:
+            print(f"Submitted {len_js} jobscript{'s' if len_js > 1 else ''}.")
 
         return submitted_js_idx
 
     @TimeIt.decorator
-    def cancel(self) -> None:
+    def cancel(self, quiet: bool = False) -> None:
         """
         Cancel the active jobs for this submission's jobscripts.
         """
@@ -1327,15 +1329,17 @@ class Submission(JSONLike):
         for js_indices, sched in self._unique_schedulers:
             # filter by active jobscripts:
             if js_idx := [i[1] for i in js_indices if i[1] in act_js]:
-                print(
-                    f"Cancelling jobscripts {shorten_list_str(js_idx, items=5)} of "
-                    f"submission {self.index} of workflow {self.workflow.name!r}."
-                )
+                if not quiet:
+                    print(
+                        f"Cancelling jobscripts {shorten_list_str(js_idx, items=5)} of "
+                        f"submission {self.index} of workflow {self.workflow.name!r}."
+                    )
                 jobscripts = [self.jobscripts[i] for i in js_idx]
                 sched_refs = [js.scheduler_js_ref for js in jobscripts]
-                sched.cancel_jobs(js_refs=sched_refs, jobscripts=jobscripts)
+                sched.cancel_jobs(js_refs=sched_refs, jobscripts=jobscripts, quiet=quiet)
             else:
-                print("No active jobscripts to cancel.")
+                if not quiet:
+                    print("No active jobscripts to cancel.")
 
     @TimeIt.decorator
     def get_scheduler_job_IDs(self) -> tuple[str, ...]:

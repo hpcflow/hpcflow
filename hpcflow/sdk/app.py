@@ -246,6 +246,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
+            quiet: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
@@ -273,6 +274,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
+            quiet: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
@@ -286,6 +288,7 @@ if TYPE_CHECKING:
             wait: bool = False,
             return_idx: bool = False,
             tasks: list[int] | None = None,
+            quiet: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
@@ -318,6 +321,7 @@ if TYPE_CHECKING:
             workflow_ref: int | str | Path,
             ref_is_path: str | None = None,
             status: bool = False,
+            quiet: bool = False,
         ) -> None: ...
 
     class _RunTests(Protocol):
@@ -1490,6 +1494,8 @@ class BaseApp(metaclass=Singleton):
         status: bool
             If True, display a live status to track workflow creation and submission
             progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -1564,6 +1570,8 @@ class BaseApp(metaclass=Singleton):
             Immediately cancel the submission. Useful for testing and benchmarking.
         status: bool
             If True, display a live status to track submission progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -1590,6 +1598,8 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int]
             List of task indices to include in this submission. By default all tasks are
             included.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3007,6 +3017,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3077,6 +3088,8 @@ class BaseApp(metaclass=Singleton):
         status
             If True, display a live status to track workflow creation and submission
             progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3112,6 +3125,7 @@ class BaseApp(metaclass=Singleton):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3241,6 +3255,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3307,6 +3322,8 @@ class BaseApp(metaclass=Singleton):
             Immediately cancel the submission. Useful for testing and benchmarking.
         status
             If True, display a live status to track submission progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3340,6 +3357,7 @@ class BaseApp(metaclass=Singleton):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3353,6 +3371,7 @@ class BaseApp(metaclass=Singleton):
         wait: bool = False,
         return_idx: bool = False,
         tasks: list[int] | None = None,
+        quiet: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
@@ -3375,6 +3394,8 @@ class BaseApp(metaclass=Singleton):
         tasks:
             List of task indices to include in this submission. By default all tasks are
             included.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3390,6 +3411,7 @@ class BaseApp(metaclass=Singleton):
                 wait=wait,
                 return_idx=True,
                 tasks=tasks,
+                quiet=quiet,
             )
         wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
         return None
