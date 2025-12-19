@@ -3585,7 +3585,7 @@ class Workflow(AppAware):
         return None
 
     @staticmethod
-    def __wait_for_direct_jobscripts(jobscripts: list[Jobscript]):
+    def __wait_for_direct_jobscripts(jobscripts: list[Jobscript], quiet: bool = False):
         """Wait for the passed direct (i.e. non-scheduled) jobscripts to finish."""
 
         def callback(proc: psutil.Process) -> None:
@@ -3593,10 +3593,11 @@ class Workflow(AppAware):
             assert hasattr(proc, "returncode")
             # TODO sometimes proc.returncode is None; maybe because multiple wait
             # calls?
-            print(
-                f"Jobscript {js.index} from submission {js.submission.index} "
-                f"finished with exit code {proc.returncode}."
-            )
+            if not quiet:
+                print(
+                    f"Jobscript {js.index} from submission {js.submission.index} "
+                    f"finished with exit code {proc.returncode}."
+                )
 
         js_pids = {js.process_ID: js for js in jobscripts}
         process_refs = [
@@ -3675,7 +3676,9 @@ class Workflow(AppAware):
             return
 
         try:
-            t_direct = Thread(target=self.__wait_for_direct_jobscripts, args=(js_direct,))
+            t_direct = Thread(
+                target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
+            )
             t_sched = Thread(
                 target=self.__wait_for_scheduled_jobscripts, args=(js_sched,)
             )
