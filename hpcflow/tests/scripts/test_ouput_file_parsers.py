@@ -69,22 +69,9 @@ def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
     else:
         env_cmd = f'export {app_caps}_WK_PATH="nonsense_path"'
 
-    env_cmd += "; python <<script_path>> <<args>>"
-    bad_env = hf.Environment(
-        name="bad_python_env",
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command=env_cmd,
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    bad_env = hf.envs.python_env.copy(name="bad_python_env")
+    inst = bad_env.executables[0].instances[0]
+    inst.command = env_cmd + "; " + inst.command
     hf.envs.add_object(bad_env, skip_duplicates=True)
 
     out_file_name = "my_output_file.txt"

@@ -54,35 +54,21 @@ def test_input_file_generator_creates_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
+def test_IFG_std_stream_redirect_on_exception(null_config, tmp_path):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
 
     # define a custom python environment which redefines the `WK_PATH` shell variable to
     # a nonsense value so the app cannot load the workflow and thus raises an exception
-
     app_caps = hf.package_name.upper()
     if os.name == "nt":
         env_cmd = f'$env:{app_caps}_WK_PATH = "nonsense_path"'
     else:
         env_cmd = f'export {app_caps}_WK_PATH="nonsense_path"'
 
-    env_cmd += "; python <<script_path>> <<args>>"
-    bad_env = hf.Environment(
-        name="bad_python_env",
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command=env_cmd,
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    bad_env = hf.envs.python_env.copy(name="bad_python_env")
+    inst = bad_env.executables[0].instances[0]
+    inst.command = env_cmd + "; " + inst.command
     hf.envs.add_object(bad_env, skip_duplicates=True)
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -206,7 +192,7 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_path):
+def test_env_specifier_in_input_file_generator_script_path(null_config, tmp_path):
 
     py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
