@@ -276,9 +276,11 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         self._update_index()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> Self:
-        obj = self.__class__(copy.deepcopy(self._objects, memo))
-        obj._access_attribute = self._access_attribute
-        obj._descriptor = self._descriptor
+        obj = self.__class__(
+            copy.deepcopy(self._objects, memo),
+            self._access_attribute,
+            self._descriptor,
+        )
         obj._object_is_dict = self._object_is_dict
         return obj
 
@@ -410,6 +412,17 @@ class AppDataList(DotAccessObjectList[T], Generic[T]):
     T
         The type of elements of the list.
     """
+
+    def _clone_with_objects(self, objects):
+        return type(self)(objects)
+
+    @override
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        obj = self._clone_with_objects(copy.deepcopy(self._objects, memo))
+        obj._access_attribute = self._access_attribute
+        obj._descriptor = self._descriptor
+        obj._object_is_dict = self._object_is_dict
+        return obj
 
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
