@@ -583,22 +583,7 @@ def test_script_direct_in_pass_env_spec(
     hf.show_env(label="python")
 
     vers_spec = {"version": "1.2"}
-    env = hf.Environment(
-        name="python_env_with_specifiers",
-        specifiers=vers_spec,
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    env = hf.envs.python_env.copy(name="python_env_with_specifiers", specifiers=vers_spec)
     hf.envs.add_object(env, skip_duplicates=True)
 
     print(f"envs B:")
