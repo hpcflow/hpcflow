@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from typing_extensions import override
 from pathlib import Path
+import copy
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
@@ -19,6 +20,7 @@ from hpcflow.sdk.utils.hashing import get_hash
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from typing import Any, ClassVar, Literal
+    from typing_extensions import Self
 
 
 @dataclass
@@ -278,6 +280,33 @@ class Environment(JSONLike):
         out = super()._postprocess_to_dict(d)
         del out["_source_file"]
         return out
+
+    def copy(
+        self,
+        name: str | None = None,
+        setup: Sequence[str] | None = None,
+        specifiers: Mapping[str, str] | None = None,
+        executables: ExecutablesList | Sequence[Executable] | None = None,
+        doc: str | None = "",
+    ) -> Self:
+        """Return a copy of this environment, optionally with some modified attributes.
+
+        In the special case of copying a built-in environment, the `is_built_in` specifier
+        will be removed.
+        """
+        if specifiers:
+            specs = specifiers
+        else:
+            # remove the `is_built_in: True` specifier, since a copy cannot be built in:
+            if (specs := copy.deepcopy(self.specifiers)).get("is_built_in") == True:
+                specs = {key: val for key, val in specs.items() if key != "is_built_in"}
+        return self.__class__(
+            name=name or self.name,
+            setup=setup or copy.deepcopy(self.setup),
+            specifiers=specs,
+            executables=executables or copy.deepcopy(self.executables),
+            doc=doc or self.doc,
+        )
 
     @property
     def documentation(self) -> str:
