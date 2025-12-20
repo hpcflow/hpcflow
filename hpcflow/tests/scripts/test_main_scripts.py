@@ -564,7 +564,7 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_pass_env_spec(
-    new_null_config, tmp_path: Path, combine_scripts: bool
+    null_config, tmp_path: Path, combine_scripts: bool
 ):
 
     vers_spec = {"version": "1.2"}
@@ -628,7 +628,7 @@ def test_script_direct_in_pass_env_spec(
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_std_stream_redirect_on_exception(
-    new_null_config, tmp_path: Path, combine_scripts: bool
+    null_config, tmp_path: Path, combine_scripts: bool
 ):
     """Test exceptions raised by the app during execution of a script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
@@ -780,7 +780,7 @@ def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_env_specifier_in_main_script_path(
-    new_null_config, tmp_path: Path, combine_scripts: bool
+    null_config, tmp_path: Path, combine_scripts: bool
 ):
     py_env = hf.Environment(
         name="python_env",
@@ -839,7 +839,7 @@ def test_env_specifier_in_main_script_path(
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_env_specifier_in_main_script_path_multiple_scripts(
-    new_null_config, tmp_path: Path, combine_scripts: bool
+    null_config, tmp_path: Path, combine_scripts: bool
 ):
     """Test two elements with different environment specifiers use two distinct scripts"""
     py_env_v1 = hf.Environment(
