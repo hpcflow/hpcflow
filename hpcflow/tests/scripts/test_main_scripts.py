@@ -579,6 +579,9 @@ def test_script_direct_in_pass_env_spec(
     print(f"envs A:")
     hf.print_envs()
 
+    print(f"show env python A")
+    hf.show_env(label="python")
+
     vers_spec = {"version": "1.2"}
     env = hf.Environment(
         name="python_env_with_specifiers",
@@ -600,6 +603,9 @@ def test_script_direct_in_pass_env_spec(
 
     print(f"envs B:")
     hf.print_envs()
+
+    print(f"show env python A")
+    hf.show_env(label="python")
 
     s1 = hf.TaskSchema(
         objective="t1",
