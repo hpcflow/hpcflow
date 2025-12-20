@@ -276,7 +276,8 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         self._update_index()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> Self:
-        obj = self.__class__(copy.deepcopy(self._objects, memo), self._access_attribute)
+        obj = self.__class__(copy.deepcopy(self._objects, memo))
+        obj._access_attribute = self._access_attribute
         obj._descriptor = self._descriptor
         obj._object_is_dict = self._object_is_dict
         return obj
