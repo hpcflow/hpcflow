@@ -208,22 +208,7 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
 @pytest.mark.integration
 def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_path):
 
-    py_env = hf.Environment(
-        name="python_env",
-        specifiers={"version": "v1"},
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")

@@ -572,26 +572,9 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
 def test_script_direct_in_pass_env_spec(
     null_config, tmp_path: Path, combine_scripts: bool
 ):
-
-    print(f"config")
-    hf.config._show(config=True, metadata=True)
-
-    print(f"envs A:")
-    hf.print_envs()
-
-    print(f"show env python A")
-    hf.show_env(label="python")
-
     vers_spec = {"version": "1.2"}
     env = hf.envs.python_env.copy(name="python_env_with_specifiers", specifiers=vers_spec)
     hf.envs.add_object(env, skip_duplicates=True)
-
-    print(f"envs B:")
-    hf.print_envs()
-
-    print(f"show env python A")
-    hf.show_env(label="python")
-
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -630,9 +613,6 @@ def test_script_direct_in_pass_env_spec(
     }
     hf.reload_template_components()  # remove extra envs
 
-    print(f"envs C:")
-    hf.print_envs()
-
 
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
@@ -650,22 +630,10 @@ def test_script_std_stream_redirect_on_exception(
     else:
         env_cmd = f'export {app_caps}_WK_PATH="nonsense_path"'
 
-    env_cmd += "; python <<script_path>> <<args>>"
-    bad_env = hf.Environment(
-        name="bad_python_env",
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command=env_cmd,
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    bad_env = hf.envs.python_env.copy(name="bad_python_env")
+    inst = bad_env.executables[0].instances[0]
+    inst.command = env_cmd + "; " + inst.command
+
     hf.envs.add_object(bad_env, skip_duplicates=True)
 
     s1 = hf.TaskSchema(
@@ -791,22 +759,7 @@ def test_script_pass_env_spec(null_config, tmp_path: Path, combine_scripts: bool
 def test_env_specifier_in_main_script_path(
     null_config, tmp_path: Path, combine_scripts: bool
 ):
-    py_env = hf.Environment(
-        name="python_env",
-        specifiers={"version": "v1"},
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
 
     s1 = hf.TaskSchema(
@@ -851,38 +804,8 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
     null_config, tmp_path: Path, combine_scripts: bool
 ):
     """Test two elements with different environment specifiers use two distinct scripts"""
-    py_env_v1 = hf.Environment(
-        name="python_env",
-        specifiers={"version": "v1"},
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
-    py_env_v2 = hf.Environment(
-        name="python_env",
-        specifiers={"version": "v2"},
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    py_env_v1 = hf.envs.python_env.copy(specifiers={"version": "v1"})
+    py_env_v2 = hf.envs.python_env.copy(specifiers={"version": "v2"})
     hf.envs.add_objects([py_env_v1, py_env_v2], skip_duplicates=True)
 
     s1 = hf.TaskSchema(
