@@ -3443,6 +3443,7 @@ class BaseApp(metaclass=Singleton):
                 f"{self.name} has not been built with testing dependencies."
             )
         with get_file_context(self.package_name, "tests") as root_test_dir:
+            root_dir = str(root_test_dir)
             test_dirs_ = []
             if not test_dirs:
                 test_dirs_.append(str(root_test_dir))
@@ -3461,6 +3462,8 @@ class BaseApp(metaclass=Singleton):
         # we don't have permission to traverse; so without this ignore, Pytest will raise
         # a PermissionError on test collection.
         cmd = [
+            "--rootdir",
+            root_dir,
             "-p",
             f"{self.package_name}.pytest_plugin",
             "--ignore",
