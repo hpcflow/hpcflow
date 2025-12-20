@@ -560,12 +560,18 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
     assert isinstance(p1c, hf.ElementParameter)
     assert p1c.value == P1(a=p1_val + 100)
 
+    print(f"envs prior:")
+    hf.print_envs()
+
 
 @pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_in_pass_env_spec(
     null_config, tmp_path: Path, combine_scripts: bool
 ):
+
+    print(f"envs A:")
+    hf.print_envs()
 
     vers_spec = {"version": "1.2"}
     env = hf.Environment(
@@ -585,6 +591,9 @@ def test_script_direct_in_pass_env_spec(
         ],
     )
     hf.envs.add_object(env, skip_duplicates=True)
+
+    print(f"envs B:")
+    hf.print_envs()
 
     s1 = hf.TaskSchema(
         objective="t1",
@@ -623,6 +632,9 @@ def test_script_direct_in_pass_env_spec(
         **vers_spec,
     }
     hf.reload_template_components()  # remove extra envs
+
+    print(f"envs C:")
+    hf.print_envs()
 
 
 @pytest.mark.integration
