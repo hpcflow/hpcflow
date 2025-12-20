@@ -560,6 +560,9 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
     assert isinstance(p1c, hf.ElementParameter)
     assert p1c.value == P1(a=p1_val + 100)
 
+    print(f"config prior")
+    hf.config._show(config=True, metadata=True)
+
     print(f"envs prior:")
     hf.print_envs()
 
@@ -569,6 +572,9 @@ def test_script_hdf5_out_obj(null_config, tmp_path: Path, combine_scripts: bool)
 def test_script_direct_in_pass_env_spec(
     null_config, tmp_path: Path, combine_scripts: bool
 ):
+
+    print(f"config")
+    hf.config._show(config=True, metadata=True)
 
     print(f"envs A:")
     hf.print_envs()
