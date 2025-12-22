@@ -6,7 +6,7 @@ import pytest
 
 
 @pytest.mark.integration
-def test_basic_jinja_template(null_config, tmp_path):
+def test_basic_jinja_template(tmp_path):
     jinja_template_name = "test_template.txt"
     s1 = hf.TaskSchema(
         objective="t1",
@@ -41,7 +41,7 @@ def test_basic_jinja_template(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_jinja_template_path_with_resource_var(null_config, tmp_path):
+def test_jinja_template_path_with_resource_var(tmp_path):
     jinja_template_name = "test_template.txt"
     s1 = hf.TaskSchema(
         objective="t1",
@@ -79,7 +79,7 @@ def test_jinja_template_path_with_resource_var(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_builtin_jinja_template_path_with_env_var(new_null_config, tmp_path):
+def test_builtin_jinja_template_path_with_env_var(tmp_path, reload_template_components):
     env = hf.Environment(
         name="null_env",
         specifiers={"key": "test"},  # reference this specifier in the jinja template path
@@ -120,11 +120,9 @@ def test_builtin_jinja_template_path_with_env_var(new_null_config, tmp_path):
     assert rendered.is_file()
     assert rendered.read_text() == expected
 
-    hf.reload_template_components()  # remove extra env
-
 
 @pytest.mark.integration
-def test_builtin_jinja_template_path_with_param_var(new_null_config, tmp_path):
+def test_builtin_jinja_template_path_with_param_var(tmp_path):
     jinja_template_name = "test_template.txt"
     s1 = hf.TaskSchema(
         objective="t1",

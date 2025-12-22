@@ -6,7 +6,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_output_file_parser_parses_file(null_config, tmp_path):
+def test_output_file_parser_parses_file(tmp_path):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -56,7 +56,7 @@ def test_output_file_parser_parses_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
+def test_OFP_std_stream_redirect_on_exception(tmp_path, reload_template_components):
     """Test exceptions raised by the app during execution of an OFP script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
 
@@ -119,11 +119,9 @@ def test_OFP_std_stream_redirect_on_exception(new_null_config, tmp_path):
     assert std_stream_path.is_file()
     assert "WorkflowNotFoundError" in std_stream_path.read_text()
 
-    hf.reload_template_components()  # remove extra envs
-
 
 @pytest.mark.integration
-def test_OFP_std_out_std_err_not_redirected(null_config, tmp_path):
+def test_OFP_std_out_std_err_not_redirected(tmp_path):
     """Test that standard error and output streams from an OFP script are written to the jobscript
     standard error and output files."""
     out_file_name = "my_output_file.txt"
@@ -175,7 +173,7 @@ def test_OFP_std_out_std_err_not_redirected(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_output_file_parser_pass_env_spec(null_config, tmp_path):
+def test_output_file_parser_pass_env_spec(tmp_path):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -217,7 +215,9 @@ def test_output_file_parser_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_env_specifier_in_output_file_parser_script_path(new_null_config, tmp_path):
+def test_env_specifier_in_output_file_parser_script_path(
+    tmp_path, reload_template_components
+):
 
     py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
@@ -273,11 +273,9 @@ def test_env_specifier_in_output_file_parser_script_path(new_null_config, tmp_pa
     # check the output is parsed correctly:
     assert wk.tasks[0].elements[0].outputs.p2.value == p2_val_expected
 
-    hf.reload_template_components()  # remove extra envs
-
 
 @pytest.mark.integration
-def test_no_script_no_output_saves_files(null_config, tmp_path):
+def test_no_script_no_output_saves_files(tmp_path):
     """Check we can use an output file parser with no script or output to save files."""
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)

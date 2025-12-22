@@ -5,7 +5,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_zarr_metadata_file_modification_times_many_jobscripts(null_config, tmp_path):
+def test_zarr_metadata_file_modification_times_many_jobscripts(tmp_path):
     """Test that root group attributes are modified first, then individual jobscript
     at-submit-metadata chunk files, then the submission at-submit-metadata group
     attributes."""
@@ -45,7 +45,7 @@ def test_zarr_metadata_file_modification_times_many_jobscripts(null_config, tmp_
 
 
 @pytest.mark.integration
-def test_json_metadata_file_modification_times_many_jobscripts(null_config, tmp_path):
+def test_json_metadata_file_modification_times_many_jobscripts(tmp_path):
     """Test that the metadata.json file is modified first, then the submissions.json
     file."""
 
@@ -74,7 +74,7 @@ def test_json_metadata_file_modification_times_many_jobscripts(null_config, tmp_
 
 @pytest.mark.integration
 def test_subission_start_end_times_equal_to_first_and_last_jobscript_start_end_times(
-    null_config, tmp_path
+    tmp_path,
 ):
     num_js = 2
     t1 = hf.Task(
@@ -106,7 +106,7 @@ def test_subission_start_end_times_equal_to_first_and_last_jobscript_start_end_t
 
 
 @pytest.mark.integration
-def test_multiple_jobscript_functions_files(null_config, tmp_path):
+def test_multiple_jobscript_functions_files(tmp_path):
     if os.name == "nt":
         shell_exes = ["powershell.exe", "pwsh.exe", "pwsh.exe"]
     else:

@@ -93,11 +93,11 @@ def test_shared_data_from_json_like_with_shared_data_dependency(act_1: Action):
     ] == hf.TaskSchemasList([ts1])
 
 
-def test_get_data_manifest(null_config) -> None:
+def test_get_data_manifest() -> None:
     assert hf.get_data_manifest("data")
 
 
-def test_get_program_manifest(null_config) -> None:
+def test_get_program_manifest() -> None:
     assert hf.get_data_manifest("program")
 
 
@@ -109,7 +109,7 @@ def test_get_program_manifest(null_config) -> None:
         "rate-limiting."
     ),
 )
-def test_get_demo_data_cache(null_config) -> None:
+def test_get_demo_data_cache() -> None:
     hf.clear_data_cache_dir()
     hf.cache_data_file("text_file_1.txt")
     with hf.data_cache_dir.joinpath("text_file_1.txt").open("rt") as fh:

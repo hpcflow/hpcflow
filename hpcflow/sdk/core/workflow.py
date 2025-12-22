@@ -529,6 +529,11 @@ class WorkflowTemplate(JSONLike):
         # extract out any template components:
         # TODO: TypedDict for data
         tcs: dict[str, list] = data.pop("template_components", {})
+
+        # we almost certainly need task schemas loaded (which will ensure all other
+        # template components are also loaded):
+        cls._app._ensure_template_component("task_schemas")
+
         if params_dat := tcs.pop("parameters", []):
             parameters = cls._app.ParametersList.from_json_like(
                 params_dat, shared_data=cls._app._shared_data

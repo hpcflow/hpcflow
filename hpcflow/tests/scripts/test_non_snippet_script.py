@@ -7,7 +7,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_non_snippet_script_execution(null_config, tmp_path):
+def test_non_snippet_script_execution(tmp_path):
     test_str = "non-snippet script!"
     script_name = "my_script.py"
     script_contents = f'print("{test_str}")'

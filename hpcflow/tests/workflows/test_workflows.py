@@ -14,7 +14,7 @@ from hpcflow.sdk.core.test_utils import (
 
 
 @pytest.mark.integration
-def test_workflow_1(tmp_path: Path, new_null_config):
+def test_workflow_1(tmp_path: Path):
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False)
     p2 = wk.tasks[0].elements[0].outputs.p2
@@ -23,7 +23,7 @@ def test_workflow_1(tmp_path: Path, new_null_config):
 
 
 @pytest.mark.integration
-def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path, new_null_config):
+def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path):
     workflow_dir = tmp_path / "sub path with spaces"
     workflow_dir.mkdir()
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=workflow_dir)
@@ -37,7 +37,7 @@ def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path, new_null_config
 @pytest.mark.skipif(
     sys.platform == "darwin", reason="fails/too slow; need to investigate"
 )
-def test_run_abort(tmp_path: Path, new_null_config):
+def test_run_abort(tmp_path: Path):
     wk = make_test_data_YAML_workflow("workflow_test_run_abort.yaml", path=tmp_path)
     wk.submit(add_to_known=False)
 
@@ -63,7 +63,7 @@ def test_run_abort(tmp_path: Path, new_null_config):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_multi_command_action_stdout_parsing(null_config, tmp_path: Path, store: str):
+def test_multi_command_action_stdout_parsing(tmp_path: Path, store: str):
     if os.name == "nt":
         cmds = [
             "Write-Output (<<parameter:p1>> + 100)",
@@ -105,7 +105,7 @@ def test_multi_command_action_stdout_parsing(null_config, tmp_path: Path, store:
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_element_get_group(null_config, tmp_path: Path, store: str):
+def test_element_get_group(tmp_path: Path, store: str):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -153,7 +153,7 @@ def test_element_get_group(null_config, tmp_path: Path, store: str):
 
 
 @pytest.mark.integration
-def test_element_get_sub_object_group(null_config, tmp_path: Path):
+def test_element_get_sub_object_group(tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -203,7 +203,7 @@ def test_element_get_sub_object_group(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_element_get_sub_data_group(null_config, tmp_path: Path):
+def test_element_get_sub_data_group(tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1c>> + 100)"
     else:
@@ -250,7 +250,7 @@ def test_element_get_sub_data_group(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_input_source_labels_and_groups(null_config, tmp_path: Path):
+def test_input_source_labels_and_groups(tmp_path: Path):
     """This is structurally the same as the `fit_yield_functions` MatFlow workflow."""
     if os.name == "nt":
         cmds = [
@@ -345,7 +345,7 @@ def test_input_source_labels_and_groups(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_loop_simple(null_config, tmp_path: Path):
+def test_loop_simple(tmp_path: Path):
     if os.name == "nt":
         cmd = "Write-Output (<<parameter:p1>> + 100)"
     else:
@@ -370,7 +370,7 @@ def test_loop_simple(null_config, tmp_path: Path):
 
 @pytest.mark.integration
 @pytest.mark.skip(reason="need to fix loop termination for multiple elements")
-def test_loop_termination_multi_element(null_config, tmp_path: Path):
+def test_loop_termination_multi_element(tmp_path: Path):
     if os.name == "nt":
         cmds = [
             "Write-Output (<<parameter:p1>> + 100)",
@@ -428,7 +428,7 @@ def test_loop_termination_multi_element(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_input_file_generator_no_errors_on_skip(null_config, tmp_path):
+def test_input_file_generator_no_errors_on_skip(tmp_path):
     """i.e. we don't try to save a file that hasn't been created because the run was
     skipped"""
 
@@ -507,7 +507,7 @@ def test_input_file_generator_no_errors_on_skip(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["zarr", "json"])
-def test_get_text_file(null_config, tmp_path, store):
+def test_get_text_file(tmp_path, store):
 
     s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
     wk = hf.Workflow.from_template_data(
@@ -525,7 +525,7 @@ def test_get_text_file(null_config, tmp_path, store):
 
 
 @pytest.mark.integration
-def test_get_text_file_zarr_zip(null_config, tmp_path):
+def test_get_text_file_zarr_zip(tmp_path):
 
     s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
     wk = hf.Workflow.from_template_data(
@@ -545,7 +545,7 @@ def test_get_text_file_zarr_zip(null_config, tmp_path):
 
 
 @pytest.mark.parametrize("store", ["zarr", "json"])
-def test_get_text_file_file_not_found(null_config, tmp_path, store):
+def test_get_text_file_file_not_found(tmp_path, store):
     s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
     wk = hf.Workflow.from_template_data(
         tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store=store
@@ -554,7 +554,7 @@ def test_get_text_file_file_not_found(null_config, tmp_path, store):
         wk.get_text_file("non_existent_file.txt")
 
 
-def test_get_text_file_file_not_found_zarr_zip(null_config, tmp_path):
+def test_get_text_file_file_not_found_zarr_zip(tmp_path):
     s1 = hf.TaskSchema("t1", actions=[hf.Action(commands=[hf.Command("echo 'hi!'")])])
     wk = hf.Workflow.from_template_data(
         tasks=[hf.Task(s1)], template_name="print_stdout", path=tmp_path, store="zarr"

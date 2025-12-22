@@ -1,6 +1,8 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
+from click.testing import CliRunner
+
 from hpcflow.app import app as hf
 
 
@@ -46,27 +48,69 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 )
 
 
-def pytest_unconfigure(config: pytest.Config):
+@pytest.fixture(scope="session", autouse=True)
+def isolated_app_config(tmp_path_factory):
+    """Pytest session-scoped fixture to apply a new default config for tests, and then
+    restore the original config after testing has completed."""
+    hf.run_time_info.in_pytest = True
+    original_config_dir = hf.config.config_directory
+    original_config_key = hf.config.config_key
+    hf.unload_config()
+    new_config_dir = tmp_path_factory.mktemp("app_config")
+    hf.load_config(config_dir=new_config_dir)
+    yield
+    hf.unload_config()
+    hf.load_config(config_dir=original_config_dir, config_key=original_config_key)
     hf.run_time_info.in_pytest = False
 
 
-@pytest.fixture
-def null_config(tmp_path: Path):
-    if not hf.is_config_loaded:
-        hf.load_config(config_dir=tmp_path)
-    hf.run_time_info.in_pytest = True
+@pytest.fixture()
+def modifiable_config(tmp_path: Path):
+    """Pytest fixture to provide a fresh config which can be safely modified within the
+    test without affecting other tests."""
+    config_dir = hf.config.config_directory
+    config_key = hf.config.config_key
+    hf.unload_config()
+    hf.load_config(config_dir=tmp_path)
+    yield
+    hf.unload_config()
+    hf.load_config(config_dir=config_dir, config_key=config_key)
 
 
-@pytest.fixture
-def new_null_config(tmp_path: Path):
-    hf.load_config(config_dir=tmp_path, warn=False)
-    hf.load_template_components(warn=False)
-    hf.run_time_info.in_pytest = True
+@pytest.fixture()
+def reload_template_components():
+    """Pytest fixture to reload the template components at the end of the test."""
+    yield
+    hf.reload_template_components()
 
 
 @pytest.fixture
 def unload_config():
     hf.unload_config()
+
+
+@pytest.fixture
+def cli_runner():
+    """Pytest fixture to ensure the current config directory and key are used when
+    invoking the CLI."""
+    runner = CliRunner()
+    common_args = [
+        "--config-dir",
+        str(hf.config.config_directory),
+        "--config-key",
+        hf.config.config_key,
+    ]
+
+    # to avoid warnings about config already loaded, we unload first (the CLI command
+    # will immediately reload it):
+    hf.unload_config()
+
+    def invoke(args=None, cli=None, **kwargs):
+        all_args = common_args + (args or [])
+        cli = cli or hf.cli
+        return runner.invoke(cli, args=all_args, **kwargs)
+
+    return invoke
 
 
 def pytest_generate_tests(metafunc):

@@ -6,7 +6,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_input_file_generator_creates_file(null_config, tmp_path):
+def test_input_file_generator_creates_file(tmp_path):
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
@@ -54,7 +54,7 @@ def test_input_file_generator_creates_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_IFG_std_stream_redirect_on_exception(null_config, tmp_path):
+def test_IFG_std_stream_redirect_on_exception(tmp_path, reload_template_components):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
 
@@ -105,11 +105,9 @@ def test_IFG_std_stream_redirect_on_exception(null_config, tmp_path):
     assert std_stream_path.is_file()
     assert "WorkflowNotFoundError" in std_stream_path.read_text()
 
-    hf.reload_template_components()  # remove extra envs
-
 
 @pytest.mark.integration
-def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
+def test_IFG_std_out_std_err_not_redirected(tmp_path):
     """Test that standard error and output streams from an IFG script are written to the jobscript
     standard error and output files."""
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -151,7 +149,7 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_IFG_pass_env_spec(null_config, tmp_path):
+def test_IFG_pass_env_spec(tmp_path):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
@@ -192,7 +190,9 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_env_specifier_in_input_file_generator_script_path(null_config, tmp_path):
+def test_env_specifier_in_input_file_generator_script_path(
+    tmp_path, reload_template_components
+):
 
     py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
@@ -244,5 +244,3 @@ def test_env_specifier_in_input_file_generator_script_path(null_config, tmp_path
     # check the command successfully printed the file contents to stdout:
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
     assert std_out.strip() == str(p1_val)
-
-    hf.reload_template_components()  # remove extra envs

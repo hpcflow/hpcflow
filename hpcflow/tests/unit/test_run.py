@@ -10,7 +10,7 @@ from hpcflow.sdk.core.actions import SkipReason
 from hpcflow.sdk.core.test_utils import make_workflow_to_run_command
 
 
-def test_compose_commands_no_shell_var(null_config, tmp_path: Path):
+def test_compose_commands_no_shell_var(tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test_compose_commands",
         actions=[hf.Action(commands=[hf.Command(command="Start-Sleep 10")])],
@@ -28,7 +28,7 @@ def test_compose_commands_no_shell_var(null_config, tmp_path: Path):
     assert shell_vars == {0: []}
 
 
-def test_compose_commands_single_shell_var(null_config, tmp_path: Path):
+def test_compose_commands_single_shell_var(tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test_compose_commands",
         inputs=[hf.SchemaInput("p1")],
@@ -57,7 +57,7 @@ def test_compose_commands_single_shell_var(null_config, tmp_path: Path):
     assert shell_vars == {0: [("outputs.p1", "parameter_p1", "stdout")]}
 
 
-def test_compose_commands_multi_single_shell_var(null_config, tmp_path: Path):
+def test_compose_commands_multi_single_shell_var(tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test_compose_commands",
         inputs=[hf.SchemaInput("p1")],
@@ -88,7 +88,7 @@ def test_compose_commands_multi_single_shell_var(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_run_dir_diff_new_file(null_config, tmp_path):
+def test_run_dir_diff_new_file(tmp_path):
     if os.name == "nt":
         command = "New-Item -Path 'new_file.txt' -ItemType File"
     else:
@@ -105,7 +105,7 @@ def test_run_dir_diff_new_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_run_skip_reason_upstream_failure(null_config, tmp_path):
+def test_run_skip_reason_upstream_failure(tmp_path):
     ts = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -144,7 +144,7 @@ def test_run_skip_reason_upstream_failure(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_run_skip_reason_loop_termination(null_config, tmp_path):
+def test_run_skip_reason_loop_termination(tmp_path):
     ts = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -186,7 +186,7 @@ def test_run_skip_reason_loop_termination(null_config, tmp_path):
     assert runs[2].skip_reason is SkipReason.LOOP_TERMINATION
 
 
-def test_get_data_in_values_input_files(null_config, tmp_path: Path):
+def test_get_data_in_values_input_files(tmp_path: Path):
     with (file_name := Path("my_file.txt")).open("wt") as fh:
         fh.write("hello!\n")
     file_spec = hf.FileSpec("my_file", str(file_name))
@@ -218,7 +218,7 @@ def test_get_data_in_values_input_files(null_config, tmp_path: Path):
     }
 
 
-def test_get_data_in_values_user_provided_input_file(null_config, tmp_path: Path):
+def test_get_data_in_values_user_provided_input_file(tmp_path: Path):
 
     # pass an input file so the IFG doesn't need to run
     with (file_name := Path("my_file.txt")).open("wt") as fh:
@@ -253,7 +253,7 @@ def test_get_data_in_values_user_provided_input_file(null_config, tmp_path: Path
     }
 
 
-def test_get_data_in_values_input_file_to_script(null_config, tmp_path: Path):
+def test_get_data_in_values_input_file_to_script(tmp_path: Path):
     # pass an input file so the IFG doesn't need to run
     with (file_name := Path("my_file.txt")).open("wt") as fh:
         fh.write("hello!\n")

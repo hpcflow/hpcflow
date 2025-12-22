@@ -11,7 +11,7 @@ from hpcflow.sdk.core.test_utils import (
 )
 
 
-def test_get_command_line(null_config, tmp_path: Path):
+def test_get_command_line(tmp_path: Path):
     p1_value = 1
     cmd_str = "Write-Output (<<parameter:p1>> + 100)"
     expected = f"Write-Output ({p1_value} + 100)"
@@ -19,9 +19,7 @@ def test_get_command_line(null_config, tmp_path: Path):
 
 
 @pytest.mark.parametrize("shell_args", [("powershell", "nt"), ("bash", "posix")])
-def test_get_command_line_with_stdout(
-    null_config, tmp_path: Path, shell_args: tuple[str, str]
-):
+def test_get_command_line_with_stdout(tmp_path: Path, shell_args: tuple[str, str]):
     p1_value = 1
     expected = {
         ("powershell", "nt"): f"$parameter_p2 = Write-Output ({p1_value} + 100)",
@@ -38,7 +36,7 @@ def test_get_command_line_with_stdout(
     )
 
 
-def test_get_command_line_single_labelled_input(null_config, tmp_path: Path):
+def test_get_command_line_single_labelled_input(tmp_path: Path):
     p1_value = 1
     command_line_test(
         cmd_str="Write-Output (<<parameter:p1[one]>> + 100)",
@@ -49,7 +47,7 @@ def test_get_command_line_single_labelled_input(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_multiple_labelled_input(null_config, tmp_path: Path):
+def test_get_command_line_multiple_labelled_input(tmp_path: Path):
     p1_one_value = 1
     p1_two_value = 2
     command_line_test(
@@ -68,7 +66,7 @@ def test_get_command_line_multiple_labelled_input(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_sub_parameter(null_config, tmp_path: Path):
+def test_get_command_line_sub_parameter(tmp_path: Path):
     p1_value = {"a": 1}
     command_line_test(
         cmd_str="Write-Output (<<parameter:p1.a>> + 100)",
@@ -78,7 +76,7 @@ def test_get_command_line_sub_parameter(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_sum(null_config, tmp_path: Path):
+def test_get_command_line_sum(tmp_path: Path):
     p1_value = [1, 2, 3]
     command_line_test(
         cmd_str="Write-Output (<<sum(parameter:p1)>> + 100)",
@@ -88,7 +86,7 @@ def test_get_command_line_sum(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_join(null_config, tmp_path: Path):
+def test_get_command_line_join(tmp_path: Path):
     p1_value = [1, 2, 3]
     delim = ","
     command_line_test(
@@ -99,7 +97,7 @@ def test_get_command_line_join(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_sum_sub_data(null_config, tmp_path: Path):
+def test_get_command_line_sum_sub_data(tmp_path: Path):
     p1_value = {"a": [1, 2, 3]}
     command_line_test(
         cmd_str="Write-Output (<<sum(parameter:p1.a)>> + 100)",
@@ -109,7 +107,7 @@ def test_get_command_line_sum_sub_data(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_join_sub_data(null_config, tmp_path):
+def test_get_command_line_join_sub_data(tmp_path):
     delim = ","
     p1_value = {"a": [1, 2, 3]}
     command_line_test(
@@ -120,7 +118,7 @@ def test_get_command_line_join_sub_data(null_config, tmp_path):
     )
 
 
-def test_get_command_line_parameter_value(null_config, tmp_path: Path):
+def test_get_command_line_parameter_value(tmp_path: Path):
     p1_value = P1(a=1)  # has a `CLI_format` method defined which returns `str(a)`
     command_line_test(
         cmd_str="Write-Output (<<parameter:p1c>> + 100)",
@@ -130,7 +128,7 @@ def test_get_command_line_parameter_value(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_parameter_value_join(null_config, tmp_path: Path):
+def test_get_command_line_parameter_value_join(tmp_path: Path):
     delim = ","
     p1_value = P1(a=4)
     command_line_test(
@@ -144,7 +142,7 @@ def test_get_command_line_parameter_value_join(null_config, tmp_path: Path):
     )
 
 
-def test_get_command_line_parameter_value_custom_method(null_config, tmp_path: Path):
+def test_get_command_line_parameter_value_custom_method(tmp_path: Path):
     p1_value = P1(a=1)
     command_line_test(
         cmd_str="Write-Output (<<parameter:p1c.custom_CLI_format()>> + 100)",
@@ -154,9 +152,7 @@ def test_get_command_line_parameter_value_custom_method(null_config, tmp_path: P
     )
 
 
-def test_get_command_line_parameter_value_custom_method_with_args(
-    null_config, tmp_path: Path
-):
+def test_get_command_line_parameter_value_custom_method_with_args(tmp_path: Path):
     p1_value = P1(a=1)
     add_val = 35
     command_line_test(
@@ -167,9 +163,7 @@ def test_get_command_line_parameter_value_custom_method_with_args(
     )
 
 
-def test_get_command_line_parameter_value_custom_method_with_two_args(
-    null_config, tmp_path: Path
-):
+def test_get_command_line_parameter_value_custom_method_with_two_args(tmp_path: Path):
     add_val = 35
     sub_val = 10
     p1_value = P1(a=1)
@@ -184,7 +178,7 @@ def test_get_command_line_parameter_value_custom_method_with_two_args(
     )
 
 
-def test_get_command_line_parameter_value_sub_object(null_config, tmp_path: Path):
+def test_get_command_line_parameter_value_sub_object(tmp_path: Path):
     p1_value = P1(a=1, sub_param=P1_sub(e=5))
     assert p1_value.sub_param
     command_line_test(
@@ -195,7 +189,7 @@ def test_get_command_line_parameter_value_sub_object(null_config, tmp_path: Path
     )
 
 
-def test_get_command_line_parameter_value_sub_object_attr(null_config, tmp_path: Path):
+def test_get_command_line_parameter_value_sub_object_attr(tmp_path: Path):
     p1_value = P1(a=1, sub_param=P1_sub(e=5))
     assert p1_value.sub_param
     command_line_test(
@@ -206,41 +200,41 @@ def test_get_command_line_parameter_value_sub_object_attr(null_config, tmp_path:
     )
 
 
-def test_process_std_stream_int(null_config) -> None:
+def test_process_std_stream_int() -> None:
     cmd = hf.Command(command="", stdout="<<int(parameter:p2)>>")
     assert cmd.process_std_stream(name="p2", value="101", stderr=False) == 101
 
 
-def test_process_std_stream_stderr_int(null_config) -> None:
+def test_process_std_stream_stderr_int() -> None:
     cmd = hf.Command(command="", stderr="<<int(parameter:p2)>>")
     assert cmd.process_std_stream(name="p2", value="101", stderr=True) == 101
 
 
-def test_process_std_stream_float(null_config) -> None:
+def test_process_std_stream_float() -> None:
     cmd = hf.Command(command="", stdout="<<float(parameter:p2)>>")
     assert cmd.process_std_stream(name="p2", value="3.1415", stderr=False) == 3.1415
 
 
-def test_process_std_stream_bool_true(null_config) -> None:
+def test_process_std_stream_bool_true() -> None:
     cmd = hf.Command(command="", stdout="<<bool(parameter:p2)>>")
     for value in ("true", "True", "1"):
         assert cmd.process_std_stream(name="p2", value=value, stderr=False) == True
 
 
-def test_process_std_stream_bool_false(null_config) -> None:
+def test_process_std_stream_bool_false() -> None:
     cmd = hf.Command(command="", stdout="<<bool(parameter:p2)>>")
     for value in ("false", "False", "0"):
         assert cmd.process_std_stream(name="p2", value=value, stderr=False) == False
 
 
-def test_process_std_stream_bool_raise(null_config) -> None:
+def test_process_std_stream_bool_raise() -> None:
     cmd = hf.Command(command="", stdout="<<bool(parameter:p2)>>")
     for value in ("hi", "120", "-1"):
         with pytest.raises(ValueError):
             cmd.process_std_stream(name="p2", value=value, stderr=False)
 
 
-def test_process_std_stream_list(null_config) -> None:
+def test_process_std_stream_list() -> None:
     cmd = hf.Command(command="", stdout="<<list(parameter:p2)>>")
     assert cmd.process_std_stream(name="p2", value="1 2 3", stderr=False) == [
         "1",
@@ -249,12 +243,12 @@ def test_process_std_stream_list(null_config) -> None:
     ]
 
 
-def test_process_std_stream_list_int(null_config) -> None:
+def test_process_std_stream_list_int() -> None:
     cmd = hf.Command(command="", stdout="<<list[item_type=int](parameter:p2)>>")
     assert cmd.process_std_stream(name="p2", value="1 2 3", stderr=False) == [1, 2, 3]
 
 
-def test_process_std_stream_list_delim(null_config) -> None:
+def test_process_std_stream_list_delim() -> None:
     cmd = hf.Command(command="", stdout='<<list[delim=","](parameter:p2)>>')
     assert cmd.process_std_stream(name="p2", value="1,2,3", stderr=False) == [
         "1",
@@ -263,14 +257,14 @@ def test_process_std_stream_list_delim(null_config) -> None:
     ]
 
 
-def test_process_std_stream_list_int_delim(null_config) -> None:
+def test_process_std_stream_list_int_delim() -> None:
     cmd = hf.Command(
         command="", stdout='<<list[item_type=int, delim=","](parameter:p2)>>'
     )
     assert cmd.process_std_stream(name="p2", value="1,2,3", stderr=False) == [1, 2, 3]
 
 
-def test_process_std_stream_list_float_delim_colon(null_config) -> None:
+def test_process_std_stream_list_float_delim_colon() -> None:
     cmd = hf.Command(
         command="", stdout='<<list[item_type=float, delim=":"](parameter:p2)>>'
     )
@@ -281,7 +275,7 @@ def test_process_std_stream_list_float_delim_colon(null_config) -> None:
     ]
 
 
-def test_process_std_stream_array(null_config) -> None:
+def test_process_std_stream_array() -> None:
     cmd = hf.Command(command="", stdout="<<array(parameter:p2)>>")
     assert np.allclose(
         cmd.process_std_stream(name="p2", value="1 2 3", stderr=False),
@@ -289,7 +283,7 @@ def test_process_std_stream_array(null_config) -> None:
     )
 
 
-def test_process_std_stream_array_delim(null_config) -> None:
+def test_process_std_stream_array_delim() -> None:
     cmd = hf.Command(command="", stdout='<<array[delim=","](parameter:p2)>>')
     assert np.allclose(
         cmd.process_std_stream(name="p2", value="1,2,3", stderr=False),
@@ -297,19 +291,19 @@ def test_process_std_stream_array_delim(null_config) -> None:
     )
 
 
-def test_process_std_stream_array_dtype_int(null_config) -> None:
+def test_process_std_stream_array_dtype_int() -> None:
     cmd = hf.Command(command="", stdout="<<array[item_type=int](parameter:p2)>>")
     arr = cmd.process_std_stream(name="p2", value="1 2 3", stderr=False)
     assert arr.dtype == np.dtype("int")
 
 
-def test_process_std_stream_array_dtype_float(null_config) -> None:
+def test_process_std_stream_array_dtype_float() -> None:
     cmd = hf.Command(command="", stdout="<<array[item_type=float](parameter:p2)>>")
     arr = cmd.process_std_stream(name="p2", value="1 2 3", stderr=False)
     assert arr.dtype == np.dtype("float")
 
 
-def test_process_std_stream_object(null_config) -> None:
+def test_process_std_stream_object() -> None:
     cmd = hf.Command(command="", stdout="<<parameter:p1c>>")
     a_val = 12
     assert cmd.process_std_stream(name="p1c", value=str(a_val), stderr=False) == P1(
@@ -317,7 +311,7 @@ def test_process_std_stream_object(null_config) -> None:
     )
 
 
-def test_process_std_stream_object_kwargs(null_config) -> None:
+def test_process_std_stream_object_kwargs() -> None:
     cmd = hf.Command(command="", stdout="<<parameter:p1c.CLI_parse(double=true)>>")
     a_val = 12
     expected = 2 * a_val
@@ -326,48 +320,48 @@ def test_process_std_stream_object_kwargs(null_config) -> None:
     )
 
 
-def test_get_output_types(null_config) -> None:
+def test_get_output_types() -> None:
     cmd = hf.Command(command="", stdout="<<parameter:p1_test_123>>")
     assert cmd.get_output_types() == {"stdout": "p1_test_123", "stderr": None}
 
 
-def test_get_output_types_int(null_config) -> None:
+def test_get_output_types_int() -> None:
     cmd = hf.Command(command="", stdout="<<int(parameter:p1_test_123)>>")
     assert cmd.get_output_types() == {"stdout": "p1_test_123", "stderr": None}
 
 
-def test_get_output_types_object_with_args(null_config) -> None:
+def test_get_output_types_object_with_args() -> None:
     cmd = hf.Command(
         command="", stdout="<<parameter:p1_test_123.CLI_parse(double=true)>>"
     )
     assert cmd.get_output_types() == {"stdout": "p1_test_123", "stderr": None}
 
 
-def test_get_output_types_list(null_config) -> None:
+def test_get_output_types_list() -> None:
     cmd = hf.Command(
         command="", stdout="<<list[item_type=int, delim=" "](parameter:p1_test_123)>>"
     )
     assert cmd.get_output_types() == {"stdout": "p1_test_123", "stderr": None}
 
 
-def test_get_output_types_no_match(null_config) -> None:
+def test_get_output_types_no_match() -> None:
     cmd = hf.Command(command="", stdout="parameter:p1_test_123")
     assert cmd.get_output_types() == {"stdout": None, "stderr": None}
 
 
-def test_get_output_types_raise_with_extra_substring_start(null_config) -> None:
+def test_get_output_types_raise_with_extra_substring_start() -> None:
     cmd = hf.Command(command="", stdout="hello: <<parameter:p1_test_123>>")
     with pytest.raises(ValueError):
         cmd.get_output_types()
 
 
-def test_get_output_types_raise_with_extra_substring_end(null_config) -> None:
+def test_get_output_types_raise_with_extra_substring_end() -> None:
     cmd = hf.Command(command="", stdout="<<parameter:p1_test_123>> hello")
     with pytest.raises(ValueError):
         cmd.get_output_types()
 
 
-def test_extract_executable_labels(null_config) -> None:
+def test_extract_executable_labels() -> None:
     tests = {
         "<<executable:m1>> and <<executable:12>>": ["m1", "12"],
         "<<executable:m1>> hi": ["m1"],

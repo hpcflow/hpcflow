@@ -5,7 +5,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_decode(null_config, tmp_path: Path, store: str):
+def test_decode(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -42,7 +42,7 @@ def test_decode(null_config, tmp_path: Path, store: str):
 
 
 @pytest.mark.integration
-def test_loop_skipped_true_single_action_elements(null_config, tmp_path):
+def test_loop_skipped_true_single_action_elements(tmp_path):
     ts = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],

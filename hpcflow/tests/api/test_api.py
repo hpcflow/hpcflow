@@ -4,7 +4,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_api_make_and_submit_workflow(null_config, tmp_path):
+def test_api_make_and_submit_workflow(tmp_path):
     with get_file_context("hpcflow.tests.data", "workflow_1.yaml") as file_path:
         wk = hf.make_and_submit_workflow(
             file_path,
@@ -19,7 +19,7 @@ def test_api_make_and_submit_workflow(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_api_make_and_submit_demo_workflow(null_config, tmp_path):
+def test_api_make_and_submit_demo_workflow(tmp_path):
     wk = hf.make_and_submit_demo_workflow(
         "workflow_1",
         path=tmp_path,

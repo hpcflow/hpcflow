@@ -7,12 +7,6 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.core.object_list import ObjectList, DotAccessObjectList
 
 
-@pytest.fixture
-def null_config(tmp_path):
-    if not hf.is_config_loaded:
-        hf.load_config(config_dir=tmp_path)
-
-
 @dataclass
 class MyObj:
     name: str
@@ -25,7 +19,7 @@ class SimpleObjectList(TypedDict):
 
 
 @pytest.fixture
-def simple_object_list(null_config) -> SimpleObjectList:
+def simple_object_list() -> SimpleObjectList:
     my_objs = [MyObj(name="A", data=1), MyObj(name="B", data=2)]
     obj_list = DotAccessObjectList(my_objs, access_attribute="name")
     return {"objects": my_objs, "object_list": obj_list}
@@ -66,7 +60,7 @@ def test_add_obj_to_middle(simple_object_list: SimpleObjectList):
     assert obj_list[1] == new_obj
 
 
-def test_get_obj_attr_custom_callable(null_config):
+def test_get_obj_attr_custom_callable():
     def my_get_obj_attr(self, obj, attr):
         if attr == "a":
             return getattr(obj, attr)
@@ -85,12 +79,12 @@ def test_get_obj_attr_custom_callable(null_config):
     assert o1.get(c1=2) == o1[0]
 
 
-def test_get_with_missing_key(null_config) -> None:
+def test_get_with_missing_key() -> None:
     o1 = ObjectList([{"a": 1}, {"b": 2}])
     assert o1.get(a=1) == {"a": 1}
 
 
-def test_parameters_list_get_equivalence(null_config) -> None:
+def test_parameters_list_get_equivalence(reload_template_components) -> None:
     p_name = "p12334567898765432101"
     hf.parameters.add_object(hf.Parameter(p_name))
     assert p_name in hf.parameters.list_attrs()
@@ -102,10 +96,9 @@ def test_parameters_list_get_equivalence(null_config) -> None:
     )
 
 
-def test_parameters_list_get_equivalence_non_existent(new_null_config) -> None:
+def test_parameters_list_get_equivalence_non_existent() -> None:
     # non-existent parameters should be created, unlike other ObjectList sub-classes,
     # which raise
-    hf.reload_template_components()
     p_name = "p12334567898765432101"
     assert p_name not in hf.parameters.list_attrs()
     assert (
