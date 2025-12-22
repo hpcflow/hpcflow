@@ -81,7 +81,10 @@ class DirectScheduler(Scheduler[DirectRef]):
         all_procs: list[psutil.Process] = []
         for process in procs:
             all_procs.append(process)
-            all_procs.extend(process.children(recursive=True))
+            try:
+                all_procs.extend(process.children(recursive=True))
+            except psutil.NoSuchProcess:
+                continue
 
         for process in all_procs:
             try:
