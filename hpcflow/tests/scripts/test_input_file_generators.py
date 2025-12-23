@@ -8,6 +8,9 @@ from hpcflow.app import app as hf
 @pytest.mark.integration
 def test_input_file_generator_creates_file(tmp_path):
 
+    hf.config._show(metadata=True)
+    hf.print_envs()
+
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
