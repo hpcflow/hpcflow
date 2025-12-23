@@ -49,7 +49,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(scope="session", autouse=True)
-def isolated_app_config(tmp_path_factory):
+def isolated_app_config(tmp_path_factory, pytestconfig):
     """Pytest session-scoped fixture to apply a new default config for tests, and then
     restore the original config after testing has completed."""
     hf.run_time_info.in_pytest = True
@@ -58,6 +58,20 @@ def isolated_app_config(tmp_path_factory):
     hf.unload_config()
     new_config_dir = tmp_path_factory.mktemp("app_config")
     hf.load_config(config_dir=new_config_dir)
+
+    if pytestconfig.getoption("--configure-python-env"):
+        # for setting up a Python env using the currently active virtual/conda env:
+        hf.env_configure_python(use_current=True, save=True)
+        hf.print_envs()
+        hf.show_env(label="python")
+
+    if env_src_file := pytestconfig.getoption("--with-env-source"):
+        # for including envs (e.g. Python) from an existing env source file:
+        hf.config.append("environment_sources", env_src_file)
+        hf.config.save()
+        hf.print_envs()
+        hf.show_env(label="python")
+
     yield
     hf.unload_config()
     hf.load_config(config_dir=original_config_dir, config_key=original_config_key)

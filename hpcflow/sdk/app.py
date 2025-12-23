@@ -4390,7 +4390,7 @@ class BaseApp(metaclass=Singleton):
 
     def env_configure_python(
         self,
-        shell: Literal["bash", "powershell"],
+        shell: Literal["bash", "powershell"] | None = None,
         setup: str | list[str] | None = None,
         names: list[str] | None = None,
         use_current: bool = True,
@@ -4424,6 +4424,7 @@ class BaseApp(metaclass=Singleton):
             with the same name and specifiers with the new one. If False and an existing
             environment exists, an exception will be raised.
         """
+        shell = shell or DEFAULT_SHELL_NAMES[os.name]
         setup = norm_env_setup(setup)
         executables = [
             self.Executable(
@@ -4532,6 +4533,22 @@ class BaseApp(metaclass=Singleton):
                 )
             )
         Console().print(Group(*panels))
+
+    def get_env_info(
+        self,
+        attribute: str,
+        id: int | list[int] | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+    ) -> tuple[Any]:
+        """
+        Retrieve the value of a particular attribute for one or more environments.
+        """
+        out = []
+        for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
+            out.append(getattr(env, attribute))
+        return tuple(out)
 
     def get_data_manifest(
         self, data_type: Literal["data", "program"]

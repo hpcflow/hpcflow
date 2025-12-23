@@ -1588,8 +1588,6 @@ def __parse_multi_int_arg(lst: str) -> int | list[int]:
 def _make_env_CLI(app: BaseApp):
     """Generate the CLI for managing app environments."""
 
-    shell = DEFAULT_SHELL_NAMES[os.name]
-
     @click.group()
     def env():
         """Configure execution environments."""
@@ -1618,6 +1616,30 @@ def _make_env_CLI(app: BaseApp):
             label=label,
             specifiers={k: v for (k, v) in specifier},
         )
+
+    @env.command("info")
+    @click.argument("attribute")
+    @click.argument("id", required=False)
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def env_info(
+        attribute: str,
+        id: str | None,
+        name: str | None,
+        label: str | None,
+        specifier: tuple[tuple[str, str], ...],
+    ):
+        """Retrieve the value of an environment attribute. If multiple environments match,
+        then the attribute values will appear on newlines."""
+        info = app.get_env_info(
+            id=__parse_multi_int_arg(id) if id else None,
+            name=name,
+            label=label,
+            specifiers={k: v for (k, v) in specifier},
+            attribute=attribute,
+        )
+        click.echo("\n".join(str(i) for i in info))
 
     @env.command("add")
     @click.argument("name")
@@ -1702,7 +1724,6 @@ def _make_env_CLI(app: BaseApp):
     ):
         """Configure environments with `python_script` executables."""
         app.env_configure_python(
-            shell,
             names=name,
             use_current=use_current,
             save=True,
