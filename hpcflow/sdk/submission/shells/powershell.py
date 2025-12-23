@@ -222,9 +222,10 @@ class WindowsPowerShell(Shell):
 
         """
 
-        # note: `stdin=subprocess.DEVNULL` is required for Pyinstaller-built executables
-        # on Windows; otherwise we get `OSError: [WinError 50] The request is not
-        # supported` (e.g. when running integration tests from the built executable).
+        # note: it seems all of `stdin`, `stderr` and `stdout` must be explicitly provided
+        # for Pyinstaller-built executables on Windows to function; otherwise we get
+        # both `OSError: [WinError 50] The request is not supported` and `OSError:
+        # [WinError 6] Invalid handle`:
         proc = subprocess.run(
             args=self.executable + ["-Command", "$PSVersionTable.PSVersion.ToString()"],
             stdout=subprocess.PIPE,
