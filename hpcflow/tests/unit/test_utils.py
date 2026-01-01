@@ -351,7 +351,7 @@ def test_JSONLikeDirSnapShot_round_trip(tmpdir):
     assert snap_0._stat_info == snap_0_rl._stat_info
 
 
-def test_split_param_label(null_config):
+def test_split_param_label():
     assert split_param_label("inputs.p1") == ("inputs.p1", None)
     assert split_param_label("inputs.p1[one]") == ("inputs.p1", "one")
     assert split_param_label("p1") == ("p1", None)
@@ -360,7 +360,7 @@ def test_split_param_label(null_config):
     assert split_param_label("p1[one].sub.data") == ("p1.sub.data", "one")
 
 
-def test_process_string_nodes(null_config):
+def test_process_string_nodes():
     str_processor = str.upper
     data = {
         "a": [1, 2, 3],

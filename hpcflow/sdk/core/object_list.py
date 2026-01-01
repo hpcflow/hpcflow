@@ -5,6 +5,7 @@ General model of a searchable serializable list.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 import copy
 import sys
 from types import SimpleNamespace
@@ -275,8 +276,11 @@ class DotAccessObjectList(ObjectList[T], Generic[T]):
         self._update_index()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> Self:
-        obj = self.__class__(copy.deepcopy(self._objects, memo), self._access_attribute)
-        obj._descriptor = self._descriptor
+        obj = self.__class__(
+            copy.deepcopy(self._objects, memo),
+            self._access_attribute,
+            self._descriptor,
+        )
         obj._object_is_dict = self._object_is_dict
         return obj
 
@@ -408,6 +412,17 @@ class AppDataList(DotAccessObjectList[T], Generic[T]):
     T
         The type of elements of the list.
     """
+
+    def _clone_with_objects(self, objects):
+        return type(self)(objects)
+
+    @override
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        obj = self._clone_with_objects(copy.deepcopy(self._objects, memo))
+        obj._access_attribute = self._access_attribute
+        obj._descriptor = self._descriptor
+        obj._object_is_dict = self._object_is_dict
+        return obj
 
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
@@ -637,6 +652,23 @@ class EnvironmentsList(AppDataList["Environment"]):
                 uq_attrs = ((obj.name, get_hash(obj.specifiers)) for obj in self._objects)
                 return (item.name, get_hash(item.specifiers)) in uq_attrs
         return False
+
+    def _set_source_file_paths(
+        self, env_file_paths: Mapping[int, Literal["<builtin>"] | Path]
+    ):
+        """Set the `source_file` attribute for all environments in this list.
+
+        Parameters
+        ----------
+        env_file_paths:
+            A mapping whose keys are integer hashes originated from the
+            `Environment.get_id` method, and whose values are the file paths in which the
+            environments are defined (or `None` if not defined in a file, or `<builtin>`
+            if provided by the app's built-in template components).
+        """
+        for env in self._objects:
+            if source := env_file_paths.get(env.id):
+                env._source_file = source
 
 
 class ExecutablesList(AppDataList["Executable"]):

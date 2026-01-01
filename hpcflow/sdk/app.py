@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from collections import Counter, namedtuple
+from collections import Counter, namedtuple, defaultdict
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
 import stat
+import copy
 import enum
 import json
 import shutil
-import fnmatch
 from functools import wraps
 from importlib import resources, import_module
 import os
 from contextlib import contextmanager
 from pathlib import Path
-import sys
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, Generic, cast, TYPE_CHECKING, Literal
 import warnings
@@ -29,6 +28,7 @@ from rich.table import Table, box
 from rich.text import Text
 from rich.padding import Padding
 from rich.panel import Panel
+from rich.pretty import Pretty
 from rich import print as rich_print
 from fsspec.core import url_to_fs  # type: ignore
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
@@ -49,8 +49,15 @@ from hpcflow.sdk.core.utils import (
 from hpcflow.sdk import sdk_classes, sdk_funcs, get_SDK_logger
 from hpcflow.sdk.config import Config, ConfigFile
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
+from hpcflow.sdk.utils.envs import get_env_py_exe, norm_env_setup
+from hpcflow.sdk.utils.files import (
+    copy_file_or_dir,
+    delete_file_or_dir,
+    overwrite_YAML_file,
+)
+from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
-from .core.environment import Environment as _Environment
+from .core.environment import Environment as Environment_cls
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -62,7 +69,11 @@ from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
     get_OS_info_windows,
 )
-
+from hpcflow.sdk.core.errors import (
+    EnvironmentAlreadyExists,
+    EnvironmentNotFound,
+    CannotRemoveBuiltinEnvironment,
+)
 from hpcflow.sdk.core.warnings import batch_warnings
 
 if TYPE_CHECKING:
@@ -113,7 +124,7 @@ if TYPE_CHECKING:
     from .core.enums import ActionScopeType, InputSourceType, TaskSourceType
     from .core.environment import (
         NumCores,
-        Environment,
+        Environment as _Environment,
         Executable as _Executable,
         ExecutableInstance,
     )
@@ -236,6 +247,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
+            quiet: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
@@ -263,6 +275,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             cancel: bool = False,
             status: bool = True,
+            quiet: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
@@ -276,6 +289,7 @@ if TYPE_CHECKING:
             wait: bool = False,
             return_idx: bool = False,
             tasks: list[int] | None = None,
+            quiet: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
@@ -308,12 +322,17 @@ if TYPE_CHECKING:
             workflow_ref: int | str | Path,
             ref_is_path: str | None = None,
             status: bool = False,
+            quiet: bool = False,
         ) -> None: ...
 
     class _RunTests(Protocol):
         """Type of :py:meth:`BaseApp.run_tests and run_hpcflow_tests`"""
 
-        def __call__(self, *args: str) -> int: ...
+        def __call__(
+            self,
+            test_dirs: Sequence[str | Path] | None = None,
+            pytest_args: Sequence[str] | None = None,
+        ) -> int: ...
 
 
 SDK_logger = get_SDK_logger(__name__)
@@ -664,7 +683,7 @@ class BaseApp(metaclass=Singleton):
         return self._get_app_core_class("ElementGroup")
 
     @property
-    def Environment(self) -> type[Environment]:
+    def Environment(self) -> type[_Environment]:
         """
         The :class:`Environment` class.
 
@@ -1480,6 +1499,8 @@ class BaseApp(metaclass=Singleton):
         status: bool
             If True, display a live status to track workflow creation and submission
             progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -1554,6 +1575,8 @@ class BaseApp(metaclass=Singleton):
             Immediately cancel the submission. Useful for testing and benchmarking.
         status: bool
             If True, display a live status to track submission progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -1580,6 +1603,8 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int]
             List of task indices to include in this submission. By default all tasks are
             included.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -1815,6 +1840,9 @@ class BaseApp(metaclass=Singleton):
         Combine any builtin template components with user-defined template components
         and initialise list objects.
         """
+        # we mutate builtins (e.g. replace a builtin environment with a user defined one):
+        builtins = copy.deepcopy(self._builtin_template_components)
+
         if not include or "task_schemas" in include:
             # task schemas require all other template components to be loaded first
             include = (
@@ -1831,7 +1859,7 @@ class BaseApp(metaclass=Singleton):
         self_tc: Any = self._template_components
 
         if "parameters" in include:
-            params: list[Any] = self._builtin_template_components.get("parameters", [])
+            params: list[Any] = builtins.get("parameters", [])
             for path in self.config.parameter_sources:
                 params.extend(read_YAML_file(path))
             param_list = self.ParametersList.from_json_like(params, shared_data=self_tc)
@@ -1839,9 +1867,7 @@ class BaseApp(metaclass=Singleton):
             self._parameters = param_list
 
         if "command_files" in include:
-            cmd_files: list[Any] = self._builtin_template_components.get(
-                "command_files", []
-            )
+            cmd_files: list[Any] = builtins.get("command_files", [])
             for path in self.config.command_file_sources:
                 cmd_files.extend(read_YAML_file(path))
             cf_list = self.CommandFilesList.from_json_like(cmd_files, shared_data=self_tc)
@@ -1850,9 +1876,13 @@ class BaseApp(metaclass=Singleton):
 
         if "environments" in include:
             envs = []
-            builtin_envs: list[Any] = self._builtin_template_components.get(
-                "environments", []
-            )
+            builtin_envs: list[Any] = builtins.get("environments", [])
+            env_file_paths: dict[int, Literal["<builtin>"] | Path] = {
+                self.Environment.get_id(
+                    env["name"], env.get("specifiers")
+                ): self.Environment.BUILTIN_ENV_SOURCE
+                for env in builtin_envs
+            }
             for e_path in self.config.environment_sources:
                 for env_j in read_YAML_file(e_path):
                     for b_idx, builtin_env in enumerate(list(builtin_envs)):
@@ -1860,13 +1890,17 @@ class BaseApp(metaclass=Singleton):
                         if builtin_env["name"] == env_j["name"]:
                             builtin_envs.pop(b_idx)
                     envs.append(env_j)
+                    env_file_paths[
+                        self.Environment.get_id(env_j["name"], env_j["specifiers"])
+                    ] = e_path
             envs = builtin_envs + envs
             env_list = self.EnvironmentsList.from_json_like(envs, shared_data=self_tc)
+            env_list._set_source_file_paths(env_file_paths)
             self._template_components["environments"] = env_list
             self._environments = env_list
 
         if "task_schemas" in include:
-            schemas: list[Any] = self._builtin_template_components.get("task_schemas", [])
+            schemas: list[Any] = builtins.get("task_schemas", [])
             for path in self.config.task_schema_sources:
                 schemas.extend(read_YAML_file(path))
             ts_list = self.TaskSchemasList.from_json_like(schemas, shared_data=self_tc)
@@ -2987,6 +3021,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3057,6 +3092,8 @@ class BaseApp(metaclass=Singleton):
         status
             If True, display a live status to track workflow creation and submission
             progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3092,6 +3129,7 @@ class BaseApp(metaclass=Singleton):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3221,6 +3259,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3287,6 +3326,8 @@ class BaseApp(metaclass=Singleton):
             Immediately cancel the submission. Useful for testing and benchmarking.
         status
             If True, display a live status to track submission progress.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3320,6 +3361,7 @@ class BaseApp(metaclass=Singleton):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3333,6 +3375,7 @@ class BaseApp(metaclass=Singleton):
         wait: bool = False,
         return_idx: bool = False,
         tasks: list[int] | None = None,
+        quiet: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
@@ -3355,6 +3398,8 @@ class BaseApp(metaclass=Singleton):
         tasks:
             List of task indices to include in this submission. By default all tasks are
             included.
+        quiet: bool
+            If True, do not print anything about submission.
 
         Returns
         -------
@@ -3370,17 +3415,26 @@ class BaseApp(metaclass=Singleton):
                 wait=wait,
                 return_idx=True,
                 tasks=tasks,
+                quiet=quiet,
             )
         wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
         return None
 
-    def _run_hpcflow_tests(self, *args: str) -> int:
+    def _run_hpcflow_tests(
+        self,
+        test_dirs: Sequence[str | Path] | None = None,
+        pytest_args: Sequence[str] | None = None,
+    ) -> int:
         """Run hpcflow test suite. This function is only available from derived apps."""
         from hpcflow import app as hf
 
-        return hf.app.run_tests(*args)
+        return hf.app.run_tests(test_dirs=test_dirs, pytest_args=pytest_args)
 
-    def _run_tests(self, *args: str) -> int:
+    def _run_tests(
+        self,
+        test_dirs: Sequence[str | Path] | None = None,
+        pytest_args: Sequence[str] | None = None,
+    ) -> int:
         """Run {app_name} test suite."""
         try:
             import pytest
@@ -3388,8 +3442,38 @@ class BaseApp(metaclass=Singleton):
             raise RuntimeError(
                 f"{self.name} has not been built with testing dependencies."
             )
-        with get_file_context(self.package_name, "tests") as test_dir:
-            return pytest.main([str(test_dir), *(self.pytest_args or ()), *args])
+        with get_file_context(self.package_name, "tests") as root_test_dir:
+            root_dir = str(root_test_dir)
+            test_dirs_ = []
+            if not test_dirs:
+                test_dirs_.append(str(root_test_dir))
+            else:
+                for dir_i in test_dirs:
+                    if not (dir_i_path := Path(dir_i)).is_absolute():
+                        # assume relative to the root test dir; this makes it easier to
+                        # specify test_dirs when running the Pyinstaller-built executable:
+                        test_dirs_.append(str(root_test_dir / dir_i_path))
+                    else:
+                        test_dirs_.append(str(dir_i_path))
+
+        # note: the `--ignore` is required for Pyinstaller-built "one-file" executables on
+        # Windows, where Pytest will try to collect tests from C:\ for some reason.
+        # `C:\Documents and Settings` is a hidden/protected compatibility link which
+        # we don't have permission to traverse; so without this ignore, Pytest will raise
+        # a PermissionError on test collection.
+        cmd = [
+            "--rootdir",
+            root_dir,
+            "-p",
+            f"{self.package_name}.pytest_plugin",
+            "--ignore",
+            "C:\\Documents and Settings",
+            *(self.pytest_args or ()),
+            *(pytest_args or ()),
+            *test_dirs_,
+        ]
+        self.logger.info(f"running Pytest with args: {cmd!r}.")
+        return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""
@@ -4026,14 +4110,9 @@ class BaseApp(metaclass=Singleton):
         Update the contents of the specified environments sources file (e.g. when adding
         or removing environments).
         """
-        # write a new temporary config file
-        tmp_file = env_file.with_suffix(env_file.suffix + ".tmp")
-        self.logger.debug(f"Creating temporary env source file: {tmp_file!r}.")
-        write_YAML_file(new_contents, tmp_file, typ="rt")
-
-        # atomic rename, overwriting original:
-        self.logger.debug("Replacing original env source file with temporary file.")
-        os.replace(src=tmp_file, dst=env_file)
+        overwrite_YAML_file(
+            env_file, new_contents, description="environment sources", logger=self.logger
+        )
 
     @staticmethod
     def detect_env_manager() -> EnvInfo:
@@ -4111,93 +4190,186 @@ class BaseApp(metaclass=Singleton):
         setup: str | Sequence[str] | None = None,
         executables: list[_Executable] | None = None,
         use_current: bool = False,
-        **kwargs,
-    ):
+        env_source_file: Path | None = None,
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
+        replace: bool = False,
+    ) -> Path:
         """
         Generate and save a new environment.
+
+
+        Parameters
+        ----------
+        name:
+            The name of the new environment.
+        setup:
+            Setup commands to be invoked when using the environment.
+        executables:
+            Executables that the environment provides.
+        use_current:
+            Use the currently activate Python environment to provide a `python_script`
+            executable within the environment. False by default.
+        env_source_file:
+            The environment source file to save the environment to, if specified.
+        file_name:
+            If `env_source_file` is not specified, the file name of the environment source
+            file to use within the app configuration directory.
+        replace
+            If True, replace an existing environment with the same name and specifiers
+            with the new one. If False and an existing environment exists, an exception
+            will be raised.
+
+        Returns
+        -------
+        path:
+            The path to the file in which the new environment definition was saved.
+
         """
         shell = DEFAULT_SHELL_NAMES[os.name]
         setup = self.get_env_setup(shell) if use_current else setup
         env = self.Environment(name=name, setup=setup, executables=executables)
-        self.save_env(env, **kwargs)
+        return self.save_env(
+            env, env_source_file=env_source_file, file_name=file_name, replace=replace
+        )
+
+    def __get_envs(
+        self,
+        id: int | list[int] | None = None,
+        *,
+        name: str | None = None,
+        specifiers: Mapping[str, Any] | None = None,
+        label: str | None = None,
+    ) -> list[_Environment]:
+        """
+        Retrieve Environment objects using either a local ID (index within the app `envs`
+        list, sorted by name and then specifiers), a name, or a label (and potentially,
+        specifiers).
+
+        Multiple environments may be returned only if `label` is specified.
+        """
+        specifiers = specifiers or {}
+        if sum(arg is not None for arg in (id, name, label)) != 1:
+            raise ValueError(
+                "Specify either `id`, `label` or `name` (and optionally, `specifiers`)."
+            )
+        if id is not None and specifiers:
+            raise ValueError(
+                "Cannot use `specifiers` to filter environments if an ID was provided."
+            )
+        if id is not None:
+            if isinstance(id, int):
+                id = [id]
+            env_srt = sorted(self.envs)
+            try:
+                return [get_with_index(env_srt, id_i) for id_i in id]
+            except StoredIndexError as exc:
+                raise EnvironmentNotFound(self, id=exc.index)
+        if name is not None:
+            try:
+                return [self.envs.get(name=name, **specifiers)]
+            except ValueError:
+                raise EnvironmentNotFound(self, name=name, specifiers=specifiers)
+        return [
+            env
+            for env in self.envs
+            if env.setup_label == label and env.specifiers == specifiers
+        ]
+
+    def _remove_envs_from_files(self, envs: list[_Environment]) -> list[Path]:
+        """
+        Remove the specified environments from their source files.
+        """
+        # group by source file and store ID hashes:
+        env_IDs_by_file = defaultdict(list)
+        for env in envs:
+            if isinstance(source_file := env.source_file, Path):
+                env_IDs_by_file[source_file].append(env.id)
+                self.logger.debug(
+                    f"Will remove environment {env.name!r} with hash ID {env.id!r} from "
+                    f"file {source_file!r}."
+                )
+            elif source_file == self.Environment.BUILTIN_ENV_SOURCE:
+                raise CannotRemoveBuiltinEnvironment(env)
+
+        # rewrite source files
+        for file, remove_IDs in env_IDs_by_file.items():
+            env_data = read_YAML_file(file)
+            env_list = self.EnvironmentsList.from_json_like(
+                env_data, shared_data=self._shared_data
+            )
+            new_env_data = [
+                env_i.to_json_like(exclude={"_hash_value"})[0]
+                for env_i in env_list
+                if env_i.id not in remove_IDs
+            ]
+            self.__update_env_source_file(file, new_env_data)
+            self.logger.debug(
+                f"Removed environments with hash IDs {remove_IDs!r} from file "
+                f"{source_file!r}."
+            )
+
+        return list(env_IDs_by_file)
 
     def remove_env(
         self,
+        id: int | list[int] | None = None,
         name: str | None = None,
-        specifiers: dict[str, Any] | None = None,
         label: str | None = None,
+        specifiers: Mapping[str, Any] | None = None,
     ):
         """
         Remove an environment identified by its name and specifiers, or remove all
         environments with a particular setup label and specifiers.
 
         """
-        if all(i is None for i in (name, label)) or all(
-            i is not None for i in (name, label)
-        ):
-            raise ValueError(
-                "Specify either `label` or `name` and optionally `specifiers`"
-            )
-
-        check_env = None
-        if name is not None:
-            check_env = self.Environment(name=name, specifiers=specifiers)
-            if check_env not in self.envs:
-                spec_fmt = " (with no specifiers)"
-                if specs := specifiers:
-                    spec_fmt = f" with specifiers {specs!r}"
-                raise ValueError(
-                    f"Environment {name!r}{spec_fmt} cannot be removed because it "
-                    f"does not exist."
-                )
-
-        for env_file in self.config.environment_sources:
-            env_dat_i = read_YAML_file(env_file)
-            env_list_i = self.EnvironmentsList.from_json_like(
-                env_dat_i, shared_data=self._shared_data
-            )
-            assert env_list_i is not None
-            if name is not None:
-                assert check_env
-                if check_env in env_list_i:
-                    # remove the specified environment:
-                    self.logger.debug(
-                        f"Removing environment {name!r} from file {env_file!r}."
-                    )
-                    all_env_dat = [
-                        env_j.to_json_like(exclude={"_hash_value"})[0]
-                        for env_j in env_list_i
-                        if env_j.id != check_env.id
-                    ]
-                    self.__update_env_source_file(env_file, all_env_dat)
-                    break
-            else:
-                # search by setup label, and look through all files:
-                if label in (env_j.setup_label for env_j in env_list_i):
-                    all_env_dat = [
-                        env_j.to_json_like(exclude={"_hash_value"})[0]
-                        for env_j in env_list_i
-                        if env_j.setup_label != label
-                    ]
-                    self.__update_env_source_file(env_file, all_env_dat)
+        envs = self.__get_envs(id=id, name=name, label=label, specifiers=specifiers)
+        updated = self._remove_envs_from_files(envs)
+        num_envs = len(envs)
+        print(
+            f"Removed {num_envs} environment definition{'s' if num_envs > 1 else ''} "
+            f"from file{'s' if len(updated) > 1 else ''}: "
+            f"{', '.join(str(path) for path in updated)}."
+        )
 
     def save_env(
         self,
         env: _Environment,
         env_source_file: Path | None = None,
-        file_name: str = "configured_envs.yaml",
-    ):
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
+        replace: bool = False,
+    ) -> Path:
         """
         Save an environment to the environment definitions file.
+
+        Parameters
+        ----------
+        env:
+            The new environment to save to the app environments list.
+        env_source_file:
+            The environment source file to save the environment to, if specified.
+        file_name:
+            If `env_source_file` is not specified, the file name of the environment source
+            file to use within the app configuration directory.
+        replace
+            If True, replace an existing environment with the same name and specifiers
+            with the new one. If False and an existing environment exists, an exception
+            will be raised.
+
+        Returns
+        -------
+        env_source:
+            The file path the environment was added to.
+
         """
-        if env in self.envs:
-            spec_fmt = " (with no specifiers)"
-            if specs := env.specifiers:
-                spec_fmt = f" with specifiers {specs!r}"
-            raise ValueError(f"Environment {env.name!r}{spec_fmt} already exists.")
         env_source = env_source_file or self.config.get("config_directory").joinpath(
             file_name
         )
+        if env in self.envs:
+            if replace:
+                print(f"Replacing existing environment: {env.name} {env.specs_fmt}.")
+                self.remove_env(name=env.name, specifiers=env.specifiers)
+            else:
+                raise EnvironmentAlreadyExists(env)
         assert isinstance(env_source, Path)
         new_env_dat = env.to_json_like(exclude={"_hash_value"})[0]
         if env_source.exists():
@@ -4213,12 +4385,178 @@ class BaseApp(metaclass=Singleton):
             self.config.append("environment_sources", str(env_source))
             self.config.save()
 
+        print(f"Saved a new environment: {env.name!r} to file: {env_source}.")
+        return env_source
+
+    def env_configure_python(
+        self,
+        shell: Literal["bash", "powershell"] | None = None,
+        setup: str | list[str] | None = None,
+        names: list[str] | None = None,
+        use_current: bool = True,
+        save: bool = False,
+        env_source_file: Path | None = None,
+        file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
+        replace: bool = False,
+    ) -> list[_Environment]:
+        """Configure app environments that use Python.
+
+        Parameters
+        ----------
+        names:
+            If specified, also set up these named environments using the same Python
+            executable and setup, otherwise just set up the `python_env` environment. This
+            should be a list of strings without the "_env" prefix, which will be added.
+        use_current:
+            Use the currently activate Python environment to provide a `python_script`
+            executable within the environment. True by default.
+        save:
+            If True, save the environment to a persistent environment definitions file.
+        env_source_file:
+            Applicable only if `save` is True. The environment source file to save the
+            environment to, if specified.
+        file_name:
+            Applicable only if `save` is True. If `env_source_file` is not specified, the
+            file name of the environment source file to use within the app configuration
+            directory.
+        replace
+            Applicable only if `save` is True. If True, replace an existing environment
+            with the same name and specifiers with the new one. If False and an existing
+            environment exists, an exception will be raised.
+        """
+        shell = shell or DEFAULT_SHELL_NAMES[os.name]
+        setup = norm_env_setup(setup)
+        executables = [
+            self.Executable(
+                label="python_script",
+                instances=[
+                    self.ExecutableInstance(
+                        command=(f'{get_env_py_exe(shell)} "<<script_path>>" <<args>>'),
+                        num_cores=1,
+                        parallel_mode=None,
+                    ),
+                ],
+            ),
+        ]
+        setup = self.get_env_setup(shell) if use_current else setup
+        environments = []
+        for name in sorted(set(["python", *(names if names else [])])):
+            environments.append(
+                self.Environment(
+                    name=f"{name}_env",
+                    setup=setup,
+                    executables=executables,
+                    setup_label="python",
+                )
+            )
+        if save:
+            for env in environments:
+                self.save_env(
+                    env,
+                    env_source_file=env_source_file,
+                    file_name=file_name,
+                    replace=replace,
+                )
+        return environments
+
+    def _get_envs_table(self, include_source: bool = True) -> Table:
+        """Generate a Rich table that shows details of all environments."""
+        headers = ["ID", "Name", "Specifiers", "Label"]
+        if include_source:
+            headers.append("Source")
+        tab = Table(*headers, box=box.SIMPLE)
+        for env_idx, env in enumerate(sorted(self.envs)):
+            for row_idx, (key, val) in enumerate((env.specifiers or {"": None}).items()):
+                spec_col = f"{key}: {val}" if key != "" else "-"
+                lab_col = (env.setup_label or "-") if row_idx == 0 else ""
+                src_col = str(env.source_file) or "-" if row_idx == 0 else ""
+                cols = [
+                    str(env_idx),
+                    env.name if row_idx == 0 else "",
+                    spec_col,
+                    lab_col,
+                ]
+                if include_source:
+                    cols.append(src_col)
+                tab.add_row(*cols)
+        return tab
+
+    def print_envs(self) -> None:
+        """
+        Print a table of available app environments.
+        """
+        Console().print(self._get_envs_table(include_source=True))
+
+    def show_env(
+        self,
+        id: int | list[int] | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+    ):
+        """
+        Print one or more environment definitions.
+        """
+        panels = []
+        for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
+            execs = env.executables
+            tab = Table(show_header=False, box=None)
+            tab.add_column()
+            tab.add_column()
+            tab.add_row("name", Pretty(env.name))
+            tab.add_row("specifiers", Pretty(env.specifiers))
+            tab.add_row("label", Pretty(env.setup_label))
+            tab.add_row("source", str(env.source_file))
+            tab.add_row("setup", "\n".join(env.setup or []) or "-")
+            tab.add_row("executables:", "-" if not execs else "")
+            if execs:
+                tab.add_row("", "")
+                exec_i_tab = Table(show_header=False, box=None, padding=(0, 0, 0, 1))
+                exec_i_tab.add_column()
+                for exec_i in execs:
+                    inst_tab_j = Table(show_header=False, box=None, padding=(0, 0, 0, 2))
+                    inst_tab_j.add_column()
+                    inst_tab_j.add_column()
+                    for inst in exec_i.instances:
+                        inst_tab_j.add_row("parallel_mode", Pretty(inst.parallel_mode))
+                        inst_tab_j.add_row("num_cores", Pretty(inst.num_cores.to_dict()))
+                        inst_tab_j.add_row("command", inst.command)
+                        inst_tab_j.add_row("", "")
+
+                    exec_i_tab.add_row(f"[u]{exec_i.label}[/u]")
+                    exec_i_tab.add_row(inst_tab_j)
+
+            panels.append(
+                Panel(
+                    title=f"Environment: {env.name!r}",
+                    renderable=Group(tab, exec_i_tab) if execs else tab,
+                )
+            )
+        Console().print(Group(*panels))
+
+    def get_env_info(
+        self,
+        attribute: str,
+        id: int | list[int] | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        specifiers: dict[str, Any] | None = None,
+    ) -> tuple[Any]:
+        """
+        Retrieve the value of a particular attribute for one or more environments.
+        """
+        out = []
+        for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
+            out.append(getattr(env, attribute))
+        return tuple(out)
+
     def get_data_manifest(
         self, data_type: Literal["data", "program"]
     ) -> dict[str, dict[str, str]]:
         """
-        Get a dict whose keys are example data file or program names and whose values are
-        the source files if the source file required unzipping or `None` otherwise.
+        Get a key-sorted dict whose keys are example data file or program names and whose
+        values are the source files if the source file required unzipping or `None`
+        otherwise.
 
         If the config items `data_manifest_file`/`program_manifest_file` is set, this is
         used as the manifest file path. Otherwise, the app attribute `data_manifest_dir`
@@ -4246,7 +4584,7 @@ class BaseApp(metaclass=Singleton):
                 self, str(config_attr), logger=self.logger
             )
             with fs.open(url_path) as fh:
-                return json.load(fh)
+                return dict(sorted(json.load(fh).items()))
         else:
             self.logger.debug(
                 f"loading {data_type} files manifest from the directory defined by the app "
@@ -4261,7 +4599,7 @@ class BaseApp(metaclass=Singleton):
             "program": "programs.json",
         }
         with open_text_resource(package, MANIFEST_LOOKUP[data_type]) as fh:
-            return json.load(fh)
+            return dict(sorted(json.load(fh).items()))
 
     def get_data_files_manifest(self) -> dict[str, dict[str, str]]:
         """
@@ -4311,9 +4649,6 @@ class BaseApp(metaclass=Singleton):
                 f"{extra!r}. Allowed keys are {allowed!r}."
             )
         return spec
-
-    def __copy_file_or_dir(self, src: Path, dst: Path):
-        shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)
 
     def __set_executable(
         self, data_type: Literal["data", "program"], spec: dict[str, str], path: Path
@@ -4455,7 +4790,7 @@ class BaseApp(metaclass=Singleton):
                         f"copying unzipped {data_type} file {ext_src.name!r} to "
                         f"cache location: {cache_file_path!r}."
                     )
-                    self.__copy_file_or_dir(ext_src, cache_file_path)
+                    copy_file_or_dir(ext_src, cache_file_path)
 
                 else:
                     # copy contents of zip file to directory under `file_key`
@@ -4466,7 +4801,7 @@ class BaseApp(metaclass=Singleton):
                             f"copying unzipped {data_type} file {ext_src_i.name!r} to "
                             f"cache location: {dst_i!r}."
                         )
-                        self.__copy_file_or_dir(ext_src_i, dst_i)
+                        copy_file_or_dir(ext_src_i, dst_i)
                     if data_type == "program":
                         # add on the executable:
                         cache_file_path = cache_file_path.joinpath(spec["executable"])
@@ -4492,37 +4827,104 @@ class BaseApp(metaclass=Singleton):
 
         return cache_file_path
 
-    def get_data_file_path(
-        self, data_type: Literal["data", "program"], file_key: str
+    def purge_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+        not_exist_ok: bool = False,
+    ):
+        """Delete a built-in data or program file from the cache."""
+        manifest = manifest or self.get_data_manifest(data_type)
+        if path := self._get_data_file_cached_path(data_type, file_key, manifest):
+            delete_file_or_dir(path)
+        elif not not_exist_ok:
+            raise ValueError(
+                f"Built-in {data_type} {file_key!r} does not exist and so cannot be "
+                f"purged, when `not_exist_ok` is set to False."
+            )
+
+    def recache_file(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        not_exist_ok: bool = True,
+        manifest: dict[str, dict[str, str]] | None = None,
     ) -> Path:
         """
-        Retrieve the local path to a cached data or builtin program file.
+        Delete and then re-cache a built-in data or program file, and return its path.
         """
-        manifest = self.get_data_manifest(data_type)
-        if file_key not in manifest:
-            raise ValueError(f"No such {data_type} file {file_key!r}.")
+        self.purge_file(data_type, file_key, manifest=manifest, not_exist_ok=not_exist_ok)
+        return self.cache_file(data_type, file_key, manifest=manifest, exist_ok=False)
 
+    def is_data_file_cached(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> bool:
+        """
+        Return True if the specified built-in data or program is cached.
+        """
+        return bool(self._get_data_file_cached_path(data_type, file_key, manifest))
+
+    def __get_cache_dir(self, data_type: Literal["data", "program"]):
+        """Get the cache directory for either built-in data or programs."""
         CACHE_LOOKUP = {
             "data": self.data_cache_dir,
             "program": self.program_cache_dir,
         }
         try:
-            cache_dir = CACHE_LOOKUP[data_type]
+            return CACHE_LOOKUP[data_type]
         except KeyError:
             raise ValueError(
                 f"`data_type` must be 'data' or 'program', but received {data_type}."
             )
-        cache_file_path = cache_dir.joinpath(file_key)
-        if cache_file_path.exists():
+
+    def _get_data_file_cached_path(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> Path | None:
+        """
+        Return the path to a built-in data or program, if it is cached, or None otherwise.
+
+        If the data/program is cached, this returns the cached directory joined
+        `file_key`, and so for programs, this does not return the path to the executable.
+
+        """
+        manifest = manifest or self.get_data_manifest(data_type)
+        if file_key not in manifest:
+            raise ValueError(f"No such {data_type} file {file_key!r}.")
+        cache_dir = self.__get_cache_dir(data_type)
+        if (cache_file_path := cache_dir.joinpath(file_key)).exists():
+            return cache_file_path
+        return None
+
+    def get_data_file_path(
+        self,
+        data_type: Literal["data", "program"],
+        file_key: str,
+        manifest: dict[str, dict[str, str]] | None = None,
+    ) -> Path:
+        """
+        Retrieve the local path to a cached data or builtin program file.
+        """
+        manifest = manifest or self.get_data_manifest(data_type)
+        if cache_file_path := self._get_data_file_cached_path(
+            data_type, file_key, manifest
+        ):
             self.logger.info(
                 f"{data_type} file {file_key!r} is already in the cache: "
                 f"{cache_file_path!r}."
             )
             if data_type == "program":
-                cached_path = cache_file_path.joinpath(manifest[file_key]["executable"])
+                cached_path = cache_file_path / manifest[file_key]["executable"]
             else:
                 cached_path = cache_file_path
         else:
+            cache_file_path = self.__get_cache_dir(data_type) / file_key
             self.logger.info(
                 f"{data_type} file {file_key!r} is not in the cache, so copying to the "
                 f"cache: {cache_file_path!r}."
@@ -4536,13 +4938,59 @@ class BaseApp(metaclass=Singleton):
 
         return cached_path
 
-    def list_data_files(self) -> tuple[str, ...]:
-        """List available demonstration data files."""
+    def _get_data_file_key_from_ID(
+        self, data_type: Literal["data", "program"], id: int
+    ) -> str:
+        """
+        Get the file key of a built-in data or program file (as used in the
+        respective manifest) from an integer ID as displayed by `print_data_files` or
+        `print_programs`.
+        """
+        try:
+            return list(self.get_data_manifest(data_type))[id]
+        except IndexError:
+            raise ValueError(
+                f"No built-in {data_type} file exists with ID {id!r}."
+            ) from None
+
+    def get_data_files(self) -> tuple[str, ...]:
+        """Get a tuple of available demonstration data files."""
         return tuple(self.get_data_manifest("data"))
 
-    def list_programs(self) -> tuple[str, ...]:
+    def get_programs(self) -> tuple[str, ...]:
         """List available built-in program files."""
         return tuple(self.get_data_manifest("program"))
+
+    def __print_data_files_rich_table(
+        self, data_type: Literal["data", "program"]
+    ) -> None:
+        """
+        Print a table of available demonstration data files and whether they are
+        cached.
+        """
+        tab = Table("ID", data_type.title(), "Cached", box=box.SIMPLE)
+        manifest = self.get_data_manifest(data_type)
+        EMOJI_IS_CACHED = {
+            True: "✅",
+            False: "❌",
+        }
+        for idx, file_i in enumerate(manifest):
+            tab.add_row(
+                str(idx),
+                file_i,
+                EMOJI_IS_CACHED[self.is_data_file_cached(data_type, file_i, manifest)],
+            )
+        Console().print(tab)
+
+    def print_data_files(self) -> None:
+        """Print a table of available demonstration data files and whether they are
+        cached."""
+        self.__print_data_files_rich_table("data")
+
+    def print_programs(self) -> None:
+        """Print a table of available built-in program files and whether they are
+        cached."""
+        self.__print_data_files_rich_table("program")
 
     def get_demo_data_file_path(self, file_name: str) -> Path:
         """
@@ -4576,6 +5024,30 @@ class BaseApp(metaclass=Singleton):
         """
         return self.cache_file("program", file_key, exist_ok=exist_ok)
 
+    def purge_data_file(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete a built-in data file from the cache.
+        """
+        return self.purge_file("data", file_key, not_exist_ok=not_exist_ok)
+
+    def purge_program(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete a built-in program from the cache.
+        """
+        return self.purge_file("program", file_key, not_exist_ok=not_exist_ok)
+
+    def recache_data_file(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache a built-in data file.
+        """
+        return self.recache_file("data", file_key, not_exist_ok=not_exist_ok)
+
+    def recache_program(self, file_key: str, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache a built-in program.
+        """
+        return self.recache_file("program", file_key, not_exist_ok=not_exist_ok)
+
     def cache_all_data_files(self, exist_ok: bool = True) -> list[Path]:
         """
         Cache all data files, and return their paths.
@@ -4583,7 +5055,25 @@ class BaseApp(metaclass=Singleton):
         manifest = self.get_data_manifest("data")
         return [
             self.cache_file("data", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.list_data_files()
+            for key in self.get_data_files()
+        ]
+
+    def purge_all_data_files(self, not_exist_ok: bool = True):
+        """
+        Delete all built-in data files from the cache.
+        """
+        manifest = self.get_data_manifest("data")
+        for key in self.get_data_files():
+            self.purge_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
+
+    def recache_all_data_files(self, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache all built-in data files, and return their paths.
+        """
+        manifest = self.get_data_manifest("data")
+        return [
+            self.recache_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
+            for key in self.get_data_files()
         ]
 
     def cache_all_programs(self, exist_ok: bool = True) -> list[Path]:
@@ -4593,7 +5083,27 @@ class BaseApp(metaclass=Singleton):
         manifest = self.get_data_manifest("program")
         return [
             self.cache_file("program", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.list_programs()
+            for key in self.get_programs()
+        ]
+
+    def purge_all_programs(self, not_exist_ok: bool = True):
+        """
+        Delete all built-in program from the cache.
+        """
+        manifest = self.get_data_manifest("program")
+        for key in self.get_programs():
+            self.purge_file("program", key, manifest=manifest, not_exist_ok=not_exist_ok)
+
+    def recache_all_programs(self, not_exist_ok: bool = True):
+        """
+        Delete and then re-cache all built-in programs, and return their paths.
+        """
+        manifest = self.get_data_manifest("program")
+        return [
+            self.recache_file(
+                "program", key, manifest=manifest, not_exist_ok=not_exist_ok
+            )
+            for key in self.get_programs()
         ]
 
     def copy_cacheable_file(
@@ -4733,6 +5243,92 @@ class BaseApp(metaclass=Singleton):
     def disable_use_rich_tracebacks(self):
         """Disable using the Rich library to format exception tracebacks."""
         self._compact_formatter.use_rich_tracebacks = False
+
+    def __install_data_or_program_cache(
+        self,
+        data_type: Literal["data", "program"],
+        path: str | Path,
+        overwrite: bool = False,
+    ):
+        """Copy pre-existing cached data or programs to the correct locations."""
+        assert (path_ := Path(path)).is_dir()
+
+        ENSURE_LOOKUP = {
+            "data": self._ensure_data_cache_dir,
+            "program": self._ensure_program_cache_dir,
+        }
+        cache_dir = ENSURE_LOOKUP[data_type]()
+        manifest = self.get_data_manifest(data_type)
+        for key in manifest:
+            spec = self.__validate_cacheable_file_spec(data_type, key, manifest[key])
+            src = path_ / key
+            dst = cache_dir / key
+            if not src.exists():
+                raise ValueError(
+                    f"{data_type.title()} cache item {key!r} does not exist within the "
+                    f"provided path: {path_!r}."
+                )
+            overwrote = False
+            if dst.exists():
+                if overwrite:
+                    # delete existing first:
+                    delete_file_or_dir(dst)
+                    overwrote = True
+                else:
+                    raise FileExistsError(
+                        f"{data_type.title()} cache item {key!r} already exists; set "
+                        f"`overwrite` to True to replace it."
+                    )
+
+            # copy into the app cache directory:
+            copy_file_or_dir(src, dst)
+
+            # set executable bits, if required:
+            if data_type == "program":
+                self.__set_executable(data_type, spec, dst)
+
+            ow = f" (by overwriting existing item)" if overwrote else ""
+            print(f"Installed {data_type} cache item {key!r}{ow} from path {path_!r}")
+
+    def install_data_cache(self, path: str | Path, overwrite: bool = False):
+        """Copy pre-existing cached data to the correct location.
+
+        This can be used in CI workflows to load the cache from a single source for all
+        tests, thus mitigating, for example, GitHub actions rate-limits. In principle,
+        this could also be used for "offline" installations, where built-in programs can
+        be included in a distributed installation package.
+
+        Parameters
+        ----------
+        path
+            Path to an existing directory containing files/folders to be copied to the
+            app's data cache directory.
+        overwrite
+            If True, overwrite (by first removing) any items that are already within the
+            data cache directory. If False (the default), a `FileExistsError` exception
+            will be raised if an item already exists.
+        """
+        self.__install_data_or_program_cache("data", path, overwrite)
+
+    def install_program_cache(self, path: str | Path, overwrite: bool = False):
+        """Copy pre-existing cached programs to the correct location.
+
+        This can be used in CI workflows to load the cache from a single source for all
+        tests, thus mitigating, for example, GitHub actions rate-limits. In principle,
+        this could also be used for "offline" installations, where built-in data can be
+        included in a distributed installation package.
+
+        Parameters
+        ----------
+        path
+            Path to an existing directory containing files/folders to be copied to the
+            app's program cache directory.
+        overwrite
+            If True, overwrite (by first removing) any items that are already within the
+            data cache directory. If False (the default), a `FileExistsError` exception
+            will be raised if an item already exists.
+        """
+        self.__install_data_or_program_cache("program", path, overwrite)
 
 
 class App(BaseApp):

@@ -464,7 +464,7 @@ def read_YAML_file(
 def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
     """Write a basic object to a YAML file."""
     yaml = YAML(typ=typ)
-    with Path(path).open("wt") as fp:
+    with Path(path).open("wt", newline="\n") as fp:
         yaml.dump(obj, fp)
 
 
@@ -504,10 +504,10 @@ def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = Non
     return read_JSON_string(json_str, variables=variables)
 
 
-def write_JSON_file(obj, path: str | Path, **kwargs) -> None:
+def write_JSON_file(obj, path: str | Path) -> None:
     """Write a basic object to a JSON file."""
-    with Path(path).open("wt") as fp:
-        json.dump(obj, fp, **kwargs)
+    with Path(path).open("wt", newline="\n") as fp:
+        json.dump(obj, fp)
 
 
 def get_item_repeat_index(

@@ -28,6 +28,7 @@ from hpcflow.sdk.cli_common import (
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    submit_quiet_opt,
     make_status_opt,
     add_sub_opt,
 )
@@ -181,6 +182,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @tasks_opt
     @cancel_opt
     @submit_status_opt
+    @submit_quiet_opt
     def make_and_submit_demo_workflow(
         workflow_name: str,
         format: Literal["json", "yaml"] | None,
@@ -200,6 +202,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ):
         out = app.make_and_submit_demo_workflow(
             workflow_name=workflow_name,
@@ -220,6 +223,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if print_idx:
             assert isinstance(out, tuple)

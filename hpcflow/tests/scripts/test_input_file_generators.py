@@ -6,8 +6,10 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_input_file_generator_creates_file(null_config, tmp_path):
+def test_input_file_generator_creates_file(tmp_path):
+
+    hf.config._show(metadata=True)
+    hf.print_envs()
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
@@ -55,36 +57,21 @@ def test_input_file_generator_creates_file(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
+def test_IFG_std_stream_redirect_on_exception(tmp_path, reload_template_components):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
 
     # define a custom python environment which redefines the `WK_PATH` shell variable to
     # a nonsense value so the app cannot load the workflow and thus raises an exception
-
     app_caps = hf.package_name.upper()
     if os.name == "nt":
         env_cmd = f'$env:{app_caps}_WK_PATH = "nonsense_path"'
     else:
         env_cmd = f'export {app_caps}_WK_PATH="nonsense_path"'
 
-    env_cmd += "; python <<script_path>> <<args>>"
-    bad_env = hf.Environment(
-        name="bad_python_env",
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command=env_cmd,
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    bad_env = hf.envs.python_env.copy(name="bad_python_env")
+    inst = bad_env.executables[0].instances[0]
+    inst.command = env_cmd + "; " + inst.command
     hf.envs.add_object(bad_env, skip_duplicates=True)
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -121,12 +108,9 @@ def test_IFG_std_stream_redirect_on_exception(new_null_config, tmp_path):
     assert std_stream_path.is_file()
     assert "WorkflowNotFoundError" in std_stream_path.read_text()
 
-    hf.reload_template_components()  # remove extra envs
-
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
+def test_IFG_std_out_std_err_not_redirected(tmp_path):
     """Test that standard error and output streams from an IFG script are written to the jobscript
     standard error and output files."""
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -155,7 +139,7 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
         template_name="input_file_generator_test",
         path=tmp_path,
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, status=False)
 
     if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
@@ -168,8 +152,7 @@ def test_IFG_std_out_std_err_not_redirected(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_IFG_pass_env_spec(null_config, tmp_path):
+def test_IFG_pass_env_spec(tmp_path):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
@@ -210,25 +193,11 @@ def test_IFG_pass_env_spec(null_config, tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif("hf.run_time_info.is_frozen")
-def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_path):
+def test_env_specifier_in_input_file_generator_script_path(
+    tmp_path, reload_template_components
+):
 
-    py_env = hf.Environment(
-        name="python_env",
-        specifiers={"version": "v1"},
-        executables=[
-            hf.Executable(
-                label="python_script",
-                instances=[
-                    hf.ExecutableInstance(
-                        command="python <<script_path>> <<args>>",
-                        num_cores=1,
-                        parallel_mode=None,
-                    )
-                ],
-            )
-        ],
-    )
+    py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -278,5 +247,3 @@ def test_env_specifier_in_input_file_generator_script_path(new_null_config, tmp_
     # check the command successfully printed the file contents to stdout:
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
     assert std_out.strip() == str(p1_val)
-
-    hf.reload_template_components()  # remove extra envs

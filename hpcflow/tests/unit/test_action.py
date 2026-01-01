@@ -27,7 +27,7 @@ def dummy_action_kwargs_pre_proc():
     return act_kwargs
 
 
-def test_action_equality(null_config) -> None:
+def test_action_equality() -> None:
     a1 = hf.Action(commands=[hf.Command("ls")], environments=[])
     a2 = hf.Action(commands=[hf.Command("ls")], environments=[])
     assert a1 == a2
@@ -227,7 +227,7 @@ def test_get_command_input_types_label_sub_parameters_false_with_sub_parameter()
     assert act.get_command_input_types(sub_parameters=False) == ("p1[one]",)
 
 
-def test_get_script_name(null_config) -> None:
+def test_get_script_name() -> None:
     expected = {
         "<<script:/software/hello.py>>": "hello.py",
         "<<script:software/hello.py>>": "hello.py",
@@ -238,7 +238,7 @@ def test_get_script_name(null_config) -> None:
         assert hf.Action.get_script_name(k) == v
 
 
-def test_is_snippet_script(null_config) -> None:
+def test_is_snippet_script() -> None:
     expected = {
         "<<script:/software/hello.py>>": True,
         "<<script:software/hello.py>>": True,
@@ -249,7 +249,7 @@ def test_is_snippet_script(null_config) -> None:
         assert hf.Action.is_snippet_script(k) == v
 
 
-def test_get_snippet_script_path(null_config) -> None:
+def test_get_snippet_script_path() -> None:
     expected = {
         "<<script:/software/hello.py>>": Path("/software/hello.py"),
         "<<script:software/hello.py>>": Path("software/hello.py"),
@@ -259,17 +259,17 @@ def test_get_snippet_script_path(null_config) -> None:
         assert hf.Action.get_snippet_script_path(k) == v
 
 
-def test_get_snippet_script_path_False(null_config) -> None:
+def test_get_snippet_script_path_False() -> None:
     assert not hf.Action.get_snippet_script_path("/path/to/script.py")
 
 
-def test_process_script_data_in_str(null_config) -> None:
+def test_process_script_data_in_str() -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(objective="ts1", inputs=[hf.SchemaInput("p1")], actions=[act])
     assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
-def test_process_script_data_in_str_dict_equivalence(null_config) -> None:
+def test_process_script_data_in_str_dict_equivalence() -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"inputs.p1": "json"}
@@ -281,7 +281,7 @@ def test_process_script_data_in_str_dict_equivalence(null_config) -> None:
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_str_multi(null_config) -> None:
+def test_process_script_data_in_str_multi() -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -294,7 +294,7 @@ def test_process_script_data_in_str_multi(null_config) -> None:
     }
 
 
-def test_process_script_data_in_str_labelled_single(null_config) -> None:
+def test_process_script_data_in_str_labelled_single() -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -304,7 +304,7 @@ def test_process_script_data_in_str_labelled_single(null_config) -> None:
     assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
-def test_process_script_data_in_str_labelled_multiple(null_config) -> None:
+def test_process_script_data_in_str_labelled_multiple() -> None:
     act = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     ts = hf.TaskSchema(
         objective="ts1",
@@ -314,7 +314,7 @@ def test_process_script_data_in_str_labelled_multiple(null_config) -> None:
     assert ts.actions[0].script_data_in == {"inputs.p1[one]": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_all_str_equivalence(null_config) -> None:
+def test_process_script_data_in_dict_all_str_equivalence() -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"*": "json"}
@@ -326,7 +326,7 @@ def test_process_script_data_in_dict_all_str_equivalence(null_config) -> None:
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_dict_all_str_equivalence_multi(null_config) -> None:
+def test_process_script_data_in_dict_all_str_equivalence_multi() -> None:
     act_1 = hf.Action(script="<<script:path/to/some/script>>", script_data_in="json")
     act_2 = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in={"*": "json"}
@@ -346,7 +346,7 @@ def test_process_script_data_in_dict_all_str_equivalence_multi(null_config) -> N
     assert ts_1.actions[0].script_data_in == ts_2.actions[0].script_data_in
 
 
-def test_process_script_data_in_dict_mixed(null_config) -> None:
+def test_process_script_data_in_dict_mixed() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "p2": "hdf5"},
@@ -362,7 +362,7 @@ def test_process_script_data_in_dict_mixed(null_config) -> None:
     }
 
 
-def test_process_script_data_in_dict_mixed_all(null_config) -> None:
+def test_process_script_data_in_dict_mixed_all() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "*": "hdf5"},
@@ -383,7 +383,7 @@ def test_process_script_data_in_dict_mixed_all(null_config) -> None:
     }
 
 
-def test_process_script_data_in_dict_labels_multiple(null_config) -> None:
+def test_process_script_data_in_dict_labels_multiple() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json"},
@@ -398,7 +398,7 @@ def test_process_script_data_in_dict_labels_multiple(null_config) -> None:
     assert ts.actions[0].script_data_in == {"inputs.p1[one]": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_labels_multiple_two(null_config) -> None:
+def test_process_script_data_in_dict_labels_multiple_two() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "p1[two]": "hdf5"},
@@ -416,7 +416,7 @@ def test_process_script_data_in_dict_labels_multiple_two(null_config) -> None:
     }
 
 
-def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config) -> None:
+def test_process_script_data_in_dict_labels_multiple_two_catch_all() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "*": "hdf5"},
@@ -434,7 +434,7 @@ def test_process_script_data_in_dict_labels_multiple_two_catch_all(null_config) 
     }
 
 
-def test_process_script_data_in_dict_excluded(null_config) -> None:
+def test_process_script_data_in_dict_excluded() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json"},
@@ -450,7 +450,7 @@ def test_process_script_data_in_dict_excluded(null_config) -> None:
     assert ts.actions[0].script_data_in == {"inputs.p1": {"format": "json"}}
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled(null_config) -> None:
+def test_process_script_data_in_dict_unlabelled_to_labelled() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json"},
@@ -468,9 +468,7 @@ def test_process_script_data_in_dict_unlabelled_to_labelled(null_config) -> None
     }
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(
-    null_config,
-) -> None:
+def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "p1[two]": "hdf5"},
@@ -488,7 +486,7 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_with_mixed_label(
     }
 
 
-def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config) -> None:
+def test_process_script_data_in_dict_labelled_mixed_catch_all() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[one]": "json", "*": "hdf5"},
@@ -506,9 +504,7 @@ def test_process_script_data_in_dict_labelled_mixed_catch_all(null_config) -> No
     }
 
 
-def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(
-    null_config,
-) -> None:
+def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": "json", "*": "hdf5"},
@@ -528,7 +524,7 @@ def test_process_script_data_in_dict_unlabelled_to_labelled_mixed_catch_all(
     }
 
 
-def test_process_script_data_in_str_raise_invalid_format(null_config) -> None:
+def test_process_script_data_in_str_raise_invalid_format() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>", script_data_in="some_weird_format"
     )
@@ -540,7 +536,7 @@ def test_process_script_data_in_str_raise_invalid_format(null_config) -> None:
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_parameter(null_config) -> None:
+def test_process_script_data_in_dict_raise_invalid_parameter() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p2": "json"},
@@ -553,9 +549,7 @@ def test_process_script_data_in_dict_raise_invalid_parameter(null_config) -> Non
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(
-    null_config,
-) -> None:
+def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1[two]": "json"},
@@ -568,7 +562,7 @@ def test_process_script_data_in_dict_raise_invalid_parameter_unknown_label(
         )
 
 
-def test_process_script_data_in_dict_raise_invalid_script_key(null_config) -> None:
+def test_process_script_data_in_dict_raise_invalid_script_key() -> None:
     bad_script_data: Any = {"p1": {"format": "json", "BAD_KEY": 1}}
     act = hf.Action(
         script="<<script:path/to/some/script>>",
@@ -582,7 +576,7 @@ def test_process_script_data_in_dict_raise_invalid_script_key(null_config) -> No
         )
 
 
-def test_process_script_data_out_mixed(null_config) -> None:
+def test_process_script_data_out_mixed() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in="json",
@@ -600,7 +594,7 @@ def test_process_script_data_out_mixed(null_config) -> None:
     }
 
 
-def test_process_script_data_in_fmt_dict_mixed(null_config) -> None:
+def test_process_script_data_in_fmt_dict_mixed() -> None:
     act = hf.Action(
         script="<<script:path/to/some/script>>",
         script_data_in={"p1": {"format": "json"}, "p2": "hdf5"},
@@ -616,7 +610,7 @@ def test_process_script_data_in_fmt_dict_mixed(null_config) -> None:
     }
 
 
-def test_process_script_data_in_input_files(null_config) -> None:
+def test_process_script_data_in_input_files() -> None:
     act = hf.Action(
         input_file_generators=[
             hf.InputFileGenerator(
@@ -635,22 +629,22 @@ def test_process_script_data_in_input_files(null_config) -> None:
     assert ts.actions[1].script_data_in == {"input_files.my_file": {"format": "direct"}}
 
 
-def test_ActionEnvironment_env_str(null_config) -> None:
+def test_ActionEnvironment_env_str() -> None:
     act_env = hf.ActionEnvironment(environment="my_env")
     assert act_env.environment == {"name": "my_env"}
 
 
-def test_ActionEnvironment_env_dict(null_config) -> None:
+def test_ActionEnvironment_env_dict() -> None:
     act_env = hf.ActionEnvironment(environment={"name": "my_env", "key": "value"})
     assert act_env.environment == {"name": "my_env", "key": "value"}
 
 
-def test_ActionEnvironment_raises_on_missing_name(null_config) -> None:
+def test_ActionEnvironment_raises_on_missing_name() -> None:
     with pytest.raises(ActionEnvironmentMissingNameError):
         hf.ActionEnvironment(environment={"key": "value"})
 
 
-def test_rules_allow_runs_initialised(null_config, tmp_path: Path):
+def test_rules_allow_runs_initialised(tmp_path: Path):
     """Test rules that do not depend on execution allow for runs to be initialised."""
     act = hf.Action(
         script="<<script:path/to/some/script>>",
@@ -675,7 +669,7 @@ def test_rules_allow_runs_initialised(null_config, tmp_path: Path):
     assert len(wk.tasks[0].elements[1].actions) == 0
 
 
-def test_rules_prevent_runs_initialised(null_config, tmp_path: Path):
+def test_rules_prevent_runs_initialised(tmp_path: Path):
     """Test rules that depend on execution prevent initialising runs."""
     act1 = hf.Action(script="<<script:path/to/some/script>>")
     act2 = hf.Action(
@@ -704,7 +698,7 @@ def test_rules_prevent_runs_initialised(null_config, tmp_path: Path):
     assert not wk.tasks[1].elements[0].iterations[0].EARs_initialised
 
 
-def test_command_rules_allow_runs_initialised(null_config, tmp_path: Path):
+def test_command_rules_allow_runs_initialised(tmp_path: Path):
     """Test command rules that do not depend on execution allow for runs to be
     initialised."""
     act = hf.Action(
@@ -736,7 +730,7 @@ def test_command_rules_allow_runs_initialised(null_config, tmp_path: Path):
     assert len(wk.tasks[0].elements[1].action_runs[0].commands_idx) == 0
 
 
-def test_command_rules_prevent_runs_initialised(null_config, tmp_path: Path):
+def test_command_rules_prevent_runs_initialised(tmp_path: Path):
     """Test command rules that do depend on execution prevent runs being initialised."""
     act1 = hf.Action(
         commands=[
@@ -774,9 +768,7 @@ def test_command_rules_prevent_runs_initialised(null_config, tmp_path: Path):
     assert not wk.tasks[1].elements[0].iterations[0].EARs_initialised
 
 
-def test_command_rules_prevent_runs_initialised_with_valid_action_rules(
-    null_config, tmp_path: Path
-):
+def test_command_rules_prevent_runs_initialised_with_valid_action_rules(tmp_path: Path):
     """Test command rules that do depend on execution prevent runs being initialised, even
     when the parent action rules can be tested and are valid."""
     act1 = hf.Action(
@@ -820,7 +812,7 @@ def test_command_rules_prevent_runs_initialised_with_valid_action_rules(
     assert not wk.tasks[1].elements[0].iterations[0].EARs_initialised
 
 
-def test_get_commands_file_hash_distinct_act_idx(null_config):
+def test_get_commands_file_hash_distinct_act_idx():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     data_idx = {"inputs.p1": 0}
     h1 = act.get_commands_file_hash(data_idx=data_idx, action_idx=0)
@@ -828,14 +820,14 @@ def test_get_commands_file_hash_distinct_act_idx(null_config):
     assert h1 != h2
 
 
-def test_get_commands_file_hash_distinct_data_idx_vals(null_config):
+def test_get_commands_file_hash_distinct_data_idx_vals():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     h1 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
     h2 = act.get_commands_file_hash(data_idx={"inputs.p1": 1}, action_idx=0)
     assert h1 != h2
 
 
-def test_get_commands_file_hash_distinct_data_idx_sub_vals(null_config):
+def test_get_commands_file_hash_distinct_data_idx_sub_vals():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     di_1 = {"inputs.p1": 0, "inputs.p1.a": 1}
     di_2 = {"inputs.p1": 0, "inputs.p1.a": 2}
@@ -844,7 +836,7 @@ def test_get_commands_file_hash_distinct_data_idx_sub_vals(null_config):
     assert h1 != h2
 
 
-def test_get_commands_file_hash_equivalent_data_idx_outputs(null_config):
+def test_get_commands_file_hash_equivalent_data_idx_outputs():
     """Different output data indices should not generate distinct hashes."""
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     di_1 = {"inputs.p1": 0, "outputs.p2": 1}
@@ -854,13 +846,13 @@ def test_get_commands_file_hash_equivalent_data_idx_outputs(null_config):
     assert h1 == h2
 
 
-def test_get_commands_file_hash_return_int(null_config):
+def test_get_commands_file_hash_return_int():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     h1 = act.get_commands_file_hash(data_idx={"inputs.p1": 0}, action_idx=0)
     assert type(h1) == int
 
 
-def test_get_commands_file_hash_distinct_schema(null_config):
+def test_get_commands_file_hash_distinct_schema():
     act_1 = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     act_2 = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1")], actions=[act_1])
@@ -872,7 +864,7 @@ def test_get_commands_file_hash_distinct_schema(null_config):
     assert h1 != h2
 
 
-def test_get_commands_file_hash_equivalent_cmd_rule_inputs_path(null_config):
+def test_get_commands_file_hash_equivalent_cmd_rule_inputs_path():
     """Input-path rule does not affect hash, given equivalent data indices."""
     act = hf.Action(
         commands=[
@@ -887,7 +879,7 @@ def test_get_commands_file_hash_equivalent_cmd_rule_inputs_path(null_config):
     assert h1 == h2
 
 
-def test_get_commands_file_hash_distinct_cmd_rule_resources_path(null_config):
+def test_get_commands_file_hash_distinct_cmd_rule_resources_path():
     """Resource-path rule affects hash given distinct resource data indices."""
     act = hf.Action(
         commands=[
@@ -908,7 +900,7 @@ def test_get_commands_file_hash_distinct_cmd_rule_resources_path(null_config):
     assert h1 != h2
 
 
-def test_get_commands_file_hash_distinct_env_spec(null_config):
+def test_get_commands_file_hash_distinct_env_spec():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     data_idx = {"inputs.p1": 0}
     h1 = act.get_commands_file_hash(
@@ -924,7 +916,7 @@ def test_get_commands_file_hash_distinct_env_spec(null_config):
     assert h1 != h2
 
 
-def test_get_commands_file_hash_equivalent_env_spec(null_config):
+def test_get_commands_file_hash_equivalent_env_spec():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     data_idx = {"inputs.p1": 0}
     env_spec_hashable = (("version", "name"), ("3.12", "python_env"))
@@ -941,7 +933,7 @@ def test_get_commands_file_hash_equivalent_env_spec(null_config):
     assert h1 == h2
 
 
-def test_get_script_input_output_file_paths_json_in_json_out(null_config):
+def test_get_script_input_output_file_paths_json_in_json_out():
     act = hf.Action(
         script="<<script:main_script_test_json_in_json_out.py>>",
         script_data_in="json",
@@ -962,7 +954,7 @@ def test_get_script_input_output_file_paths_json_in_json_out(null_config):
     }
 
 
-def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
+def test_get_script_input_output_file_paths_hdf5_in_direct_out():
     act = hf.Action(
         script="<<script:main_script_test_hdf5_in_obj_2.py>>",
         script_data_in="hdf5",
@@ -983,7 +975,7 @@ def test_get_script_input_output_file_paths_hdf5_in_direct_out(null_config):
     }
 
 
-def test_get_script_input_output_file_command_args_json_in_json_out(null_config):
+def test_get_script_input_output_file_command_args_json_in_json_out():
     act = hf.Action(
         script="<<script:main_script_test_json_in_json_out.py>>",
         script_data_in="json",
@@ -1007,7 +999,7 @@ def test_get_script_input_output_file_command_args_json_in_json_out(null_config)
     ]
 
 
-def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_config):
+def test_get_script_input_output_file_command_args_hdf5_in_direct_out():
     act = hf.Action(
         script="<<script:main_script_test_hdf5_in_obj_2.py>>",
         script_data_in="hdf5",
@@ -1029,7 +1021,7 @@ def test_get_script_input_output_file_command_args_hdf5_in_direct_out(null_confi
     ]
 
 
-def test_from_json_like_envs_as_dict_equivalence(null_config):
+def test_from_json_like_envs_as_dict_equivalence():
     json_like_1 = {
         "commands": [{"command": "hello"}],
         "environments": [
@@ -1044,7 +1036,7 @@ def test_from_json_like_envs_as_dict_equivalence(null_config):
     assert hf.Action.from_json_like(json_like_1) == hf.Action.from_json_like(json_like_2)
 
 
-def test_get_input_types_jinja_template(null_config):
+def test_get_input_types_jinja_template():
     act = hf.Action(jinja_template="test/test_template.txt")
     hf.TaskSchema(
         objective="obj",
@@ -1054,7 +1046,7 @@ def test_get_input_types_jinja_template(null_config):
     assert sorted(act.get_input_types()) == sorted(("fruits", "name"))
 
 
-def test_is_input_type_required_jinja_template(null_config):
+def test_is_input_type_required_jinja_template():
     act = hf.Action(jinja_template="test/test_template.txt")
     hf.TaskSchema(
         objective="obj",

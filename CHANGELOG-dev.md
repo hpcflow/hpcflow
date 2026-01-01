@@ -1,4 +1,40 @@
 
+<a name="v0.2.0a290"></a>
+## [v0.2.0a290](https://github.com/hpcflow/hpcflow/compare/v0.2.0a289...v0.2.0a290) - 2025.12.16
+
+### 👷 Build changes
+
+* **deps:** bump the pip-dependencies group with 7 updates
+
+
+<a name="v0.2.0a289"></a>
+## [v0.2.0a289](https://github.com/hpcflow/hpcflow/compare/v0.2.0a288...v0.2.0a289) - 2025.12.16
+
+### 👷 Build changes
+
+* **deps:** bump the github-actions-dependencies group with 3 updates
+
+
+<a name="v0.2.0a288"></a>
+## [v0.2.0a288](https://github.com/hpcflow/hpcflow/compare/v0.2.0a287...v0.2.0a288) - 2025.12.15
+
+### ✨ Features
+
+* add `purge`, `recache`, `install_cache` for builtin data/programs
+
+### 🐛 Bug Fixes
+
+* revert to main branch in github-support for test workflow
+* set programs executable on mac
+* type check
+* set executable bits when installing program cache
+
+### 👷 Build changes
+
+* merge in develop
+* change branch in test workflow, for testing
+
+
 <a name="v0.2.0a287"></a>
 ## [v0.2.0a287](https://github.com/hpcflow/hpcflow/compare/v0.2.0a286...v0.2.0a287) - 2025.12.15
 

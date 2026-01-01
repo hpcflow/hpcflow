@@ -4,7 +4,7 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.direct_linux
-def test_workflow_1(tmp_path, null_config):
+def test_workflow_1(tmp_path):
     act = hf.Action(commands=[hf.Command("echo 'Buenas!'")])
     ts = hf.TaskSchema(objective="hello", actions=[act])
     wkt = hf.WorkflowTemplate(name="greetings", tasks=[hf.Task(schema=ts)])

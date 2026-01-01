@@ -6,7 +6,7 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.config.errors import UnknownMetaTaskConstitutiveSchema
 
 
-def test_basic_meta_task_workflow(new_null_config, tmp_path):
+def test_basic_meta_task_workflow(tmp_path, reload_template_components):
     wk_yaml = dedent(
         """\
         name: test_meta_task
@@ -88,7 +88,7 @@ def test_basic_meta_task_workflow(new_null_config, tmp_path):
     assert s2_di["outputs.p4"] == s3_di["inputs.p4"]
 
 
-def test_basic_meta_task_workflow_API(new_null_config, tmp_path):
+def test_basic_meta_task_workflow_API(tmp_path):
     """as above but using Python API."""
     # normal task schemas:
     s0 = hf.TaskSchema(
@@ -192,7 +192,7 @@ def test_basic_meta_task_workflow_API(new_null_config, tmp_path):
     assert s2_di["outputs.p4"] == s3_di["inputs.p4"]
 
 
-def test_meta_task_custom_parametrisation(new_null_config, tmp_path):
+def test_meta_task_custom_parametrisation(tmp_path, reload_template_components):
     """test customising the parametrisation of inputs, sequences, and resources within the
     `tasks` list."""
     wk_yaml = dedent(
@@ -275,7 +275,7 @@ def test_meta_task_custom_parametrisation(new_null_config, tmp_path):
 
 
 def test_meta_task_custom_parametrisation_raises_on_bad_schema_name(
-    new_null_config, tmp_path
+    tmp_path, reload_template_components
 ):
     wk_yaml = dedent(
         """\

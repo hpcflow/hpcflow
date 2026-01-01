@@ -28,15 +28,9 @@ class MyParameterP1(ParameterValue):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_submission_with_specified_parameter_class_module(
-    null_config, tmp_path: Path, store: str
-):
+def test_submission_with_specified_parameter_class_module(tmp_path: Path, store: str):
     """Test we can use a ParameterValue subclass that is defined separately from the main
     code (i.e. not automatically imported on app init)."""
-
-    # not sure why this is necessary; without this we end up with two `p1_test`
-    # parameters, despite `skip_duplicates=True`:
-    hf.reload_template_components()
 
     hf.parameters.add_object(hf.Parameter("p1_test"), skip_duplicates=True)
     s1 = hf.TaskSchema(
@@ -92,7 +86,7 @@ def test_submission_with_specified_parameter_class_module(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_unseen_parameter(null_config, tmp_path: Path, store: str):
+def test_unseen_parameter(tmp_path: Path, store: str):
     """Test we can generate a workflow that uses an unseen parameter type."""
 
     random_str = "".join(random.choice(string.ascii_letters) for _ in range(10))
@@ -124,7 +118,7 @@ def test_unseen_parameter(null_config, tmp_path: Path, store: str):
     assert wk.tasks[0].elements[0].get(f"inputs.{p_type}") == 5
 
 
-def test_iter(new_null_config, tmp_path: Path):
+def test_iter(tmp_path: Path):
     values = [1, 2, 3]
     wkt = hf.WorkflowTemplate(
         name="test",
@@ -140,7 +134,7 @@ def test_iter(new_null_config, tmp_path: Path):
         assert param_p1_i.value == values[idx]
 
 
-def test_slice(new_null_config, tmp_path: Path):
+def test_slice(tmp_path: Path):
     values = [1, 2, 3]
     wkt = hf.WorkflowTemplate(
         name="test",
@@ -158,14 +152,9 @@ def test_slice(new_null_config, tmp_path: Path):
     assert p1_params[1].value == values[2]
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
-def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_path: Path):
+def test_demo_data_substitution_param_value_class_method(
+    tmp_path: Path, reload_template_components
+):
     yaml_str = dedent(
         """\
         name: temp
@@ -188,15 +177,8 @@ def test_demo_data_substitution_param_value_class_method(new_null_config, tmp_pa
     }
 
 
-@pytest.mark.skipif(
-    condition=sys.platform == "darwin",
-    reason=(
-        "GHA MacOS runners use the same IP address, so we get rate limited when "
-        "retrieving demo data from GitHub."
-    ),
-)
 def test_demo_data_substitution_value_sequence_class_method(
-    new_null_config, tmp_path: Path
+    tmp_path: Path, reload_template_components
 ):
     yaml_str = dedent(
         """\
@@ -229,9 +211,7 @@ def test_demo_data_substitution_value_sequence_class_method(
     ]
 
 
-def test_json_store_parameters_metadata_cache_raises_on_modify(
-    null_config, tmp_path: Path
-):
+def test_json_store_parameters_metadata_cache_raises_on_modify(tmp_path: Path):
     wk = hf.make_demo_workflow("workflow_1", path=tmp_path, store="json")
     assert isinstance(wk, hf.Workflow)
     num_params = len(wk.get_all_parameters())

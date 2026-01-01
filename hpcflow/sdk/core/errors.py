@@ -8,16 +8,18 @@ from collections.abc import Iterable, Mapping, Sequence
 from textwrap import indent
 from typing import Any, TYPE_CHECKING, Literal
 
+from rich.console import Console, Group
 from rich.highlighter import ReprHighlighter
-from rich.console import Console
-from rich.text import Text
-from rich.style import Style
 
+from ..compact_errors import FormatMixin
 from hpcflow.sdk.utils.strings import capitalise_first_letter
 from hpcflow.sdk.utils.web_docs import get_docs_url_how_to
 
 if TYPE_CHECKING:
     from logging import Logger
+
+    from rich.text import Text
+
     from .enums import ParallelMode
     from .object_list import WorkflowLoopList
     from .parameters import InputSource, ValueSequence, SchemaInput
@@ -919,47 +921,7 @@ class YAMLError(ValueError):
     """
 
 
-def format_problem(
-    obj: Exception | Warning,
-    title: str,
-    subtitle: str,
-    colour: str,
-    filename: str,
-    lineno: int,
-    console: Console | None = None,
-) -> tuple[Text, Text]:
-    """Default formatter for rendering a `CompactException` or `CompactWarning` using
-    Rich.
-
-    This will also render any Exception or Warning object, but we don't use it to do that.
-    To use a custom formatter, define a `format` method on the `CompactException` or
-    `CompactWarning` sub-class (where the `obj` argument is replaced by `self`).
-
-    """
-    soln_fmt = ""
-    if solution := getattr(obj, "solution", None):
-        soln_fmt = f" [b][u]Solution[/u][/b]: {solution}"
-
-    docs_fmt = ""
-    if docs := getattr(obj, "docs", None):
-        doc_items = ", ".join(f"[link={val}]{name}[/link]" for name, val in docs.items())
-        docs_fmt = f" [b][u]Docs[/u][/b]: {doc_items}."
-
-    title = f"[{colour}][bold]{title}[/bold]: {subtitle}[/{colour}]"
-    if not console:
-        console = Console()
-
-    body = console.render_str(
-        f"{str(obj)}{soln_fmt}{docs_fmt}", highlighter=ReprHighlighter()
-    )
-
-    # include the source filename and line number, as a footer:
-    footer = Text(f"\n\n{filename}:{lineno}", style=Style(color="grey50"))
-
-    return console.render_str(title), body + footer
-
-
-class CompactException(Exception):
+class CompactException(Exception, FormatMixin):
     """Base exception class that hides the traceback to be more user-friendly, if
     desired."""
 
@@ -1069,3 +1031,104 @@ class TaskSchemaMissingActionOutputs(TaskSchemaValidationError):
             task_schema=task_schema,
         )
         self.missing_outputs = missing_outputs
+
+
+class EnvironmentAlreadyExists(CompactException, ValueError):
+    """Raised when trying to add an environment definition that already exists (with the
+    same specifiers)."""
+
+    def __init__(self, env, solution=None, docs=None):
+        app = env._app
+        if app.run_time_info.from_CLI:
+            replace_cmd = f"'--replace' flag"
+        else:
+            replace_cmd = f"'replace=True' argument"
+        solution = (
+            f"To replace the existing environment with the new one, use the "
+            f"{replace_cmd}."
+        )
+        super().__init__(
+            app=app,
+            message=f"Environment {env.name!r} {env.specs_fmt} already exists.",
+            solution=solution,
+            docs=docs,
+        )
+
+
+class EnvironmentNotFound(CompactException, ValueError):
+    """Raised when trying to do something to an environment that does not exist."""
+
+    def __init__(
+        self,
+        app,
+        *,
+        id: int | None = None,
+        name: str | None = None,
+        specifiers: Mapping[str, Any] | None = None,
+    ):
+        solution = f"Did you mean one of these environments instead:"
+        if id is not None:
+            args_fmt = f"with local ID {id!r}"
+        else:
+            args_fmt = f"named {name!r} {app.Environment.get_specs_fmt(specifiers)}"
+        super().__init__(
+            app=app,
+            message=f"Environment {args_fmt} does not exist.",
+            solution=solution,
+        )
+        # this Rich Table will be rendered after the "solution" text:
+        self.env_list_table = app._get_envs_table(include_source=False)
+
+    def format(
+        self,
+        title: str,
+        subtitle: str,
+        colour: str,
+        filename: str,
+        lineno: int,
+        console: Console | None = None,
+    ) -> tuple[Text, Group]:
+        """Custom formatter that includes a table of available environments in the
+        rendered exception."""
+        console = console or Console()
+        title_ = console.render_str(self._format_title(title, subtitle, colour))
+        solution = self._format_problem_solution()
+        highlighter = ReprHighlighter()
+        grp_args = [
+            console.render_str(f"{str(self)}{solution}", highlighter=highlighter),
+            self.env_list_table,
+        ]
+        if docs_fmt := self._format_problem_docs():
+            grp_args.append(console.render_str(docs_fmt, highlighter=highlighter))
+
+        main = Group(*grp_args, self._format_footer(filename, lineno))
+        return title_, main
+
+
+class CannotRemoveBuiltinEnvironment(CompactException, ValueError):
+    """Raised when trying to remove a built-in environment."""
+
+    def __init__(self, builtin_env):
+        app = builtin_env._app
+        if app.run_time_info.from_CLI:
+            list_cmd = f"{app.package_name} env list"
+            cmd_type = "CLI command"
+        else:
+            list_cmd = f"{app.docs_import_conv}.print_envs()"
+            cmd_type = "method"
+        solution = (
+            f"Did you mean to remove a different environment? Use the following "
+            f"{cmd_type} to print a list of all environments (including built-ins):"
+            f"\n\n  {list_cmd}"
+            f"\n\nAlternatively, you can override a built-in environment by adding a "
+            f"new environment with the same name ({builtin_env.name!r})."
+        )
+
+        super().__init__(
+            app,
+            message=(
+                f"The environment {builtin_env.name!r} is built-in to {app.name} and cannot "
+                f"be removed."
+            ),
+            solution=solution,
+        )

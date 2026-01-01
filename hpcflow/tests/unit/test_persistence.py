@@ -248,7 +248,7 @@ def test_get_task_elements_single_element_iter_EAR_pending(tmp_path: Path):
     ]
 
 
-def test_make_zarr_store_zstd_compressor(null_config, tmp_path: Path):
+def test_make_zarr_store_zstd_compressor(tmp_path: Path):
     wk = make_test_data_YAML_workflow(
         workflow_name="workflow_1.yaml",
         path=tmp_path,
@@ -257,7 +257,7 @@ def test_make_zarr_store_zstd_compressor(null_config, tmp_path: Path):
     )
 
 
-def test_make_zarr_store_no_compressor(null_config, tmp_path: Path):
+def test_make_zarr_store_no_compressor(tmp_path: Path):
     wk = make_test_data_YAML_workflow(
         workflow_name="workflow_1.yaml",
         path=tmp_path,
@@ -270,7 +270,7 @@ def test_make_zarr_store_no_compressor(null_config, tmp_path: Path):
 @pytest.mark.skipif(
     sys.version_info < (3, 9), reason="Python 3.8 support is being removed anyway."
 )
-def test_zarr_rechunk_data_equivalent(null_config, tmp_path: Path):
+def test_zarr_rechunk_data_equivalent(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 101},
@@ -304,7 +304,7 @@ def test_zarr_rechunk_data_equivalent(null_config, tmp_path: Path):
 @pytest.mark.skipif(
     sys.version_info < (3, 9), reason="Python 3.8 support is being removed anyway."
 )
-def test_zarr_rechunk_data_equivalent_custom_chunk_size(null_config, tmp_path: Path):
+def test_zarr_rechunk_data_equivalent_custom_chunk_size(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 101},
@@ -332,7 +332,7 @@ def test_zarr_rechunk_data_equivalent_custom_chunk_size(null_config, tmp_path: P
 
 
 @pytest.mark.integration
-def test_zarr_rechunk_data_no_backup_load_runs(null_config, tmp_path: Path):
+def test_zarr_rechunk_data_no_backup_load_runs(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 101},
@@ -360,7 +360,7 @@ def test_zarr_rechunk_data_no_backup_load_runs(null_config, tmp_path: Path):
 
 
 @pytest.mark.integration
-def test_zarr_rechunk_data_no_backup_load_parameter_base(null_config, tmp_path: Path):
+def test_zarr_rechunk_data_no_backup_load_parameter_base(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 101},
@@ -392,7 +392,7 @@ def test_zarr_rechunk_data_no_backup_load_parameter_base(null_config, tmp_path: 
         param_IDs.append(i.id_)
 
 
-def test_get_parameter_sources_duplicate_ids(null_config, tmp_path):
+def test_get_parameter_sources_duplicate_ids(tmp_path):
     wk = make_workflow(
         schemas_spec=[[{"p1": None}, ("p1",), "t1"]],
         local_inputs={0: ("p1",)},
@@ -568,7 +568,7 @@ def test_zarr_encode_decode_jobscript_block_dependencies_large_one_to_one():
         np.array([[1, 2, 3], [4, 5, 6]]),
     ),
 )
-def test_zarr_save_persistent_array_shape(null_config, tmp_path, array):
+def test_zarr_save_persistent_array_shape(tmp_path, array):
     s1 = make_schemas(({"p1": None}, ()))
     t1 = hf.Task(schema=s1, inputs={"p1": array})
     wk = hf.Workflow.from_template_data(
@@ -579,7 +579,7 @@ def test_zarr_save_persistent_array_shape(null_config, tmp_path, array):
     assert array.shape == wk.tasks[0].elements[0].get("inputs.p1")[:].shape
 
 
-def test_zarr_single_chunk_threshold(null_config, tmp_path):
+def test_zarr_single_chunk_threshold(tmp_path):
     # test very large arrays (> ~1 GB) are saved using multiple chunks
     array = np.zeros(
         268_435_456
@@ -594,7 +594,7 @@ def test_zarr_single_chunk_threshold(null_config, tmp_path):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_store_parameter_encode_decode_types(null_config, tmp_path, store):
+def test_store_parameter_encode_decode_types(tmp_path, store):
 
     (s1,) = make_schemas(
         (

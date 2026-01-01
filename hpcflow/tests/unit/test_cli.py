@@ -10,9 +10,8 @@ from hpcflow.sdk.cli import ErrorPropagatingClickContext
 from hpcflow.sdk.cli_common import BoolOrString
 
 
-def test_version() -> None:
-    runner = CliRunner()
-    result = runner.invoke(hf.cli, args="--version")
+def test_version(cli_runner) -> None:
+    result = cli_runner(["--version"])
     assert result.output.strip() == f"hpcFlow, version {__version__}"
 
 
@@ -95,13 +94,10 @@ def test_error_not_propagated_without_custom_context_class():
     assert not MyContextManager.raised
 
 
-def test_std_stream_file_created(tmp_path):
+def test_std_stream_file_created(tmp_path, cli_runner):
     """Test exception is intercepted and printed to the specified --std-stream file."""
     error_file = tmp_path / "std_stream.txt"
-    runner = CliRunner()
-    result = runner.invoke(
-        hf.cli, args=f'--std-stream "{str(error_file)}" internal noop --raise'
-    )
+    result = cli_runner(["--std-stream", str(error_file), "internal", "noop", "--raise"])
     assert error_file.is_file()
     std_stream_contents = error_file.read_text()
     assert "ValueError: internal noop raised!" in std_stream_contents
@@ -109,61 +105,59 @@ def test_std_stream_file_created(tmp_path):
     assert result.exc_info[0] == SystemExit
 
 
-def test_std_stream_file_not_created(null_config, tmp_path):
+def test_std_stream_file_not_created(tmp_path, cli_runner):
     """Test std stream file is not created when no ouput/errors/exceptions"""
     error_file = tmp_path / "std_stream.txt"
-    runner = CliRunner()
-    result = runner.invoke(hf.cli, args=f'--std-stream "{str(error_file)}" internal noop')
+    result = cli_runner(["--std-stream", str(error_file), "internal", "noop"])
     assert not error_file.is_file()
     assert result.exit_code == 0
 
 
-def test_cli_exception():
+def test_cli_exception(cli_runner):
     """Test exception is passed to click"""
-    runner = CliRunner()
-    result = runner.invoke(hf.cli, args="internal noop --raise")
+    result = cli_runner(["internal", "noop", "--raise"])
     assert result.exit_code == 1
     assert result.exc_info[0] == ValueError
 
 
-def test_cli_click_exit_code_zero(tmp_path):
+def test_cli_click_exit_code_zero(tmp_path, cli_runner):
     """Test Click's `Exit` exception is ignored by the `redirect_std_to_file` context manager when the exit code is zero."""
     error_file = tmp_path / "std_stream.txt"
-    runner = CliRunner()
-    result = runner.invoke(
-        hf.cli, args=f'--std-stream "{str(error_file)}" internal noop --click-exit-code 0'
+    result = cli_runner(
+        ["--std-stream", str(error_file), "internal", "noop", "--click-exit-code", "0"]
     )
     assert result.exit_code == 0
     assert not error_file.is_file()
 
 
-def test_cli_click_exit_code_non_zero(tmp_path):
+def test_cli_click_exit_code_non_zero(tmp_path, cli_runner):
     """Test Click's `Exit` exception is not ignored by the `redirect_std_to_file` context manager when the exit code is non-zero."""
     error_file = tmp_path / "std_stream.txt"
-    runner = CliRunner()
-    result = runner.invoke(
-        hf.cli, args=f'--std-stream "{str(error_file)}" internal noop --click-exit-code 2'
+    result = cli_runner(
+        ["--std-stream", str(error_file), "internal", "noop", "--click-exit-code", "2"]
     )
     assert result.exit_code == 2
     assert error_file.is_file()
 
 
-def test_cli_make_demo_workflow(new_null_config, tmp_path):
+def test_cli_make_demo_workflow(tmp_path, cli_runner):
     """Check the demo workflow directory is generated."""
-    runner = CliRunner()
-    result = runner.invoke(
-        hf.cli, args=f'demo-workflow make workflow_1 --path "{str(tmp_path)}"'
-    )
+    result = cli_runner(["demo-workflow", "make", "workflow_1", "--path", str(tmp_path)])
     assert result.exit_code == 0
     assert Path(result.stdout_bytes.decode().strip()).is_dir()
 
 
-def test_cli_make_demo_workflow_add_sub(new_null_config, tmp_path):
+def test_cli_make_demo_workflow_add_sub(tmp_path, cli_runner):
     """Check the demo workflow directory is generated, and a submission is added."""
-    runner = CliRunner()
-    result = runner.invoke(
-        hf.cli,
-        args=f'demo-workflow make workflow_1 --path "{str(tmp_path)}" --add-submission',
+    result = cli_runner(
+        [
+            "demo-workflow",
+            "make",
+            "workflow_1",
+            "--path",
+            str(tmp_path),
+            "--add-submission",
+        ]
     )
     assert result.exit_code == 0
     wk_path = Path(result.stdout_bytes.decode().strip())

@@ -107,7 +107,7 @@ def test_format_array_get_item_bash():
 
 @pytest.mark.integration
 @pytest.mark.skipif(condition=sys.platform == "win32", reason="This is a bash-only test.")
-def test_executable_args_bash_login(null_config, tmp_path: Path):
+def test_executable_args_bash_login(tmp_path: Path):
     """Check if we provide a `--login` argument to the shell `executable_args`, we end up
     in a login shell on bash."""
 
@@ -116,9 +116,17 @@ def test_executable_args_bash_login(null_config, tmp_path: Path):
         objective="t1",
         actions=[hf.Action(commands=[hf.Command(command=cmd)])],
     )
+    # note: we split stdout and stderr from the jobscript, because when running on docker
+    # we can get some error messages in stderr about the invoking user ID which are not
+    # relevant to this test:
     t1 = hf.Task(
         schema=s1,
-        resources={"any": {"shell_args": {"executable_args": ["--login"]}}},
+        resources={
+            "any": {
+                "shell_args": {"executable_args": ["--login"]},
+                "combine_jobscript_std": False,
+            }
+        },
     )
     wkt = hf.WorkflowTemplate(name="test_bash_login", tasks=[t1])
     wk = hf.Workflow.from_template(

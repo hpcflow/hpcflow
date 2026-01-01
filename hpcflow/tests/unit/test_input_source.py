@@ -207,15 +207,8 @@ def param_p3() -> Parameter:
     return hf.Parameter("p3")
 
 
-@pytest.fixture
-def null_config(tmp_path: Path):
-    if not hf.is_config_loaded:
-        hf.load_config(config_dir=tmp_path)
-
-
 @pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
 def test_specified_sourceable_elements_subset(
-    null_config,
     param_p1: Parameter,
     param_p2: Parameter,
     param_p3: Parameter,
@@ -252,7 +245,6 @@ def test_specified_sourceable_elements_subset(
 
 @pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
 def test_specified_sourceable_elements_all_available(
-    null_config,
     param_p1: Parameter,
     param_p2: Parameter,
     param_p3: Parameter,
@@ -290,7 +282,6 @@ def test_specified_sourceable_elements_all_available(
 
 @pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
 def test_no_sourceable_elements_so_raise_missing(
-    null_config,
     param_p1: Parameter,
     param_p2: Parameter,
     param_p3: Parameter,
@@ -318,7 +309,6 @@ def test_no_sourceable_elements_so_raise_missing(
 
 @pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
 def test_no_sourceable_elements_so_default_used(
-    null_config,
     param_p1: Parameter,
     param_p2: Parameter,
     param_p3: Parameter,
@@ -355,7 +345,7 @@ def test_equivalent_where_args() -> None:
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_input_source_where(null_config, tmp_path: Path, store: str):
+def test_input_source_where(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -411,7 +401,7 @@ def test_input_source_where(null_config, tmp_path: Path, store: str):
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_input_source_where_parameter_value_class_sub_parameter(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -472,7 +462,7 @@ def test_input_source_where_parameter_value_class_sub_parameter(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_input_source_where_parameter_value_class_sub_parameter_property(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -532,7 +522,7 @@ def test_input_source_where_parameter_value_class_sub_parameter_property(
 
 
 def test_sub_parameter_task_input_source_excluded_when_root_parameter_is_task_output_source(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -584,7 +574,7 @@ def test_sub_parameter_task_input_source_excluded_when_root_parameter_is_task_ou
 
 
 def test_sub_parameter_task_input_source_included_when_root_parameter_is_task_input_source(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -635,7 +625,7 @@ def test_sub_parameter_task_input_source_included_when_root_parameter_is_task_in
 
 
 def test_sub_parameter_task_input_source_allowed_when_root_parameter_is_task_output_source(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     """Check we can override the default behaviour and specify that the sub-parameter
     task-input source should be used despite the root-parameter being a task-output
@@ -693,7 +683,7 @@ def test_sub_parameter_task_input_source_allowed_when_root_parameter_is_task_out
     }
 
 
-def test_raise_unavailable_input_source(null_config, tmp_path: Path):
+def test_raise_unavailable_input_source(tmp_path: Path):
     t1 = hf.Task(schema=hf.task_schemas.test_t1_ps, inputs={"p1": 1})
     t2 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -704,7 +694,7 @@ def test_raise_unavailable_input_source(null_config, tmp_path: Path):
         hf.Workflow.from_template(wkt, path=tmp_path)
 
 
-def test_input_source_specify_element_iters(null_config, tmp_path: Path):
+def test_input_source_specify_element_iters(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
         sequences=[
@@ -730,9 +720,7 @@ def test_input_source_specify_element_iters(null_config, tmp_path: Path):
     assert [i.value["a"] for i in wk.tasks[1].inputs.p1] == [1, 3]
 
 
-def test_input_source_raise_on_inapplicable_specified_element_iters(
-    null_config, tmp_path: Path
-):
+def test_input_source_raise_on_inapplicable_specified_element_iters(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
         sequences=[
@@ -757,7 +745,7 @@ def test_input_source_raise_on_inapplicable_specified_element_iters(
         hf.Workflow.from_template(wkt, path=tmp_path)
 
 
-def test_input_source_specify_element_iters_and_where(null_config, tmp_path: Path):
+def test_input_source_specify_element_iters_and_where(tmp_path: Path):
     """Test the where argument further filters the element_iters argument."""
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -787,9 +775,7 @@ def test_input_source_specify_element_iters_and_where(null_config, tmp_path: Pat
     assert [i.value["a"] for i in wk.tasks[1].inputs.p1] == [3]
 
 
-def test_element_iters_order_with_allow_non_coincident_task_sources_False(
-    null_config, tmp_path: Path
-):
+def test_element_iters_order_with_allow_non_coincident_task_sources_False(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
         sequences=[
@@ -817,9 +803,7 @@ def test_element_iters_order_with_allow_non_coincident_task_sources_False(
     assert [i.value for i in wk.tasks[1].inputs.p1] == [13, 11, 12]
 
 
-def test_element_iters_order_with_allow_non_coincident_task_sources_True(
-    null_config, tmp_path: Path
-):
+def test_element_iters_order_with_allow_non_coincident_task_sources_True(tmp_path: Path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
         sequences=[
@@ -848,7 +832,7 @@ def test_element_iters_order_with_allow_non_coincident_task_sources_True(
 
 
 def test_element_iters_order_with_allow_non_coincident_task_sources_True_multiple_sources(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     """Test no-reordering of specified element iterations of sources from the same task."""
     (s1,) = make_schemas(({"p1": None, "p2": None}, ("p3",), "t1"))
@@ -891,7 +875,7 @@ def test_element_iters_order_with_allow_non_coincident_task_sources_True_multipl
 
 
 def test_element_iters_order_with_allow_non_coincident_task_sources_False_multiple_sources(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     """Test reordering of specified element iterations of sources from the same task."""
     (s1,) = make_schemas(({"p1": None, "p2": None}, ("p3",), "t1"))
@@ -933,7 +917,7 @@ def test_element_iters_order_with_allow_non_coincident_task_sources_False_multip
     assert [i.value for i in wk.tasks[1].inputs.p2] == [21, 22]
 
 
-def test_not_allow_non_coincident_task_sources(null_config, tmp_path: Path):
+def test_not_allow_non_coincident_task_sources(tmp_path: Path):
     """Test only one coincident element from the two input sources"""
     (s1,) = make_schemas(({"p1": None, "p2": None}, ("p3",), "t1"))
     t1 = hf.Task(
@@ -966,7 +950,7 @@ def test_not_allow_non_coincident_task_sources(null_config, tmp_path: Path):
     assert [i.value for i in wk.tasks[1].inputs.p2] == [22]
 
 
-def test_allow_non_coincident_task_sources(null_config, tmp_path: Path):
+def test_allow_non_coincident_task_sources(tmp_path: Path):
     """Test can combine inputs from non-coincident element iterations of the same task."""
     (s1,) = make_schemas(({"p1": None, "p2": None}, ("p3",), "t1"))
     t1 = hf.Task(
@@ -1007,7 +991,7 @@ def test_allow_non_coincident_task_sources(null_config, tmp_path: Path):
 
 
 def test_input_source_task_input_from_multiple_element_sets_with_param_sequence(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -1030,7 +1014,7 @@ def test_input_source_task_input_from_multiple_element_sets_with_param_sequence(
     assert [i.value["a"] for i in wk.tasks[1].inputs.p1] == [1, 2, 3]
 
 
-def test_raise_no_coincident_input_sources(null_config, tmp_path: Path):
+def test_raise_no_coincident_input_sources(tmp_path: Path):
     (s1,) = make_schemas(({"p1": None, "p2": None}, ("p3",), "t1"))
     t1 = hf.Task(
         schema=s1,
@@ -1061,7 +1045,7 @@ def test_raise_no_coincident_input_sources(null_config, tmp_path: Path):
 
 
 def test_input_source_task_input_from_multiple_element_sets_with_sub_param_sequence(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -1086,7 +1070,7 @@ def test_input_source_task_input_from_multiple_element_sets_with_sub_param_seque
 
 
 def test_input_source_task_input_from_multiple_element_sets_with_sub_param_sequence_manual_sources_root_param(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -1120,7 +1104,7 @@ def test_input_source_task_input_from_multiple_element_sets_with_sub_param_seque
 
 
 def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_sequences_complex(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -1173,7 +1157,7 @@ def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_seque
 
 
 def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_sequences_complex_reordered_iters(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_ps,
@@ -1237,7 +1221,7 @@ def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_seque
 
 
 def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_sequences_mixed_padding(
-    null_config, tmp_path: Path
+    tmp_path: Path,
 ):
 
     t1 = hf.Task(
@@ -1287,7 +1271,7 @@ def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_seque
     ]
 
 
-def test_input_source_task_ref_equivalence(null_config, tmp_path):
+def test_input_source_task_ref_equivalence(tmp_path):
     yml = dedent(
         """\
     name: test
@@ -1356,7 +1340,7 @@ def test_input_source_task_ref_equivalence(null_config, tmp_path):
     assert all(task_ref == 0 for task_ref in all_task_refs)
 
 
-def test_inp_src_task_output_precedence(null_config, tmp_path):
+def test_inp_src_task_output_precedence(tmp_path):
     # test a task output source takes precedence over a task input source, even if the
     # task input source is from a closer task.
 
@@ -1413,9 +1397,7 @@ def test_inp_src_task_output_precedence(null_config, tmp_path):
     # multiple elements, so interferes with grouping on the other parameter, p3)
 
 
-def test_task_type_sources_output_input_swapped_on_local_inputs_defined(
-    null_config, tmp_path
-):
+def test_task_type_sources_output_input_swapped_on_local_inputs_defined(tmp_path):
 
     s1, s2, s3 = make_schemas(
         ({"p1": None}, ("p2",), "t1"),
@@ -1452,9 +1434,7 @@ def test_task_type_sources_output_input_swapped_on_local_inputs_defined(
     ]
 
 
-def test_task_type_sources_output_input_not_swapped_on_no_local_inputs_defined(
-    null_config, tmp_path
-):
+def test_task_type_sources_output_input_not_swapped_on_no_local_inputs_defined(tmp_path):
     s1, s2, s3 = make_schemas(
         ({"p1": None}, ("p2",), "t1"),
         ({"p2": None}, ("p3",), "t2"),

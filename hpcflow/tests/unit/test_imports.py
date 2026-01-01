@@ -4,7 +4,7 @@ from hpcflow.sdk.core.parameters import NullDefault
 from hpcflow.sdk.core.test_utils import make_schemas
 
 
-def test_import_from_json_like(null_config, tmp_path):
+def test_import_from_json_like(tmp_path):
 
     (s1,) = make_schemas(({"p1": NullDefault.NULL}, ("p2",), "t1a"))
     wfA = hf.Workflow.from_template_data(
@@ -84,7 +84,7 @@ def test_import_from_json_like(null_config, tmp_path):
     assert imp_1 == imp_2 == imp_3 == imp_4 == imp_5 == imp_6 == imp_7 == imp_8
 
 
-def test_imports_defined_on_workflow_template(null_config, tmp_path):
+def test_imports_defined_on_workflow_template(tmp_path):
     (s1, s2) = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
@@ -109,7 +109,7 @@ def test_imports_defined_on_workflow_template(null_config, tmp_path):
     ]
 
 
-def test_import_source_selected_by_default(null_config, tmp_path):
+def test_import_source_selected_by_default(tmp_path):
     (s1, s2) = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
@@ -130,7 +130,7 @@ def test_import_source_selected_by_default(null_config, tmp_path):
     ]
 
 
-def test_import_source_selected_explicit(null_config, tmp_path):
+def test_import_source_selected_explicit(tmp_path):
     (s1, s2) = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
@@ -152,7 +152,7 @@ def test_import_source_selected_explicit(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_import_simple(null_config, tmp_path):
+def test_import_simple(tmp_path):
 
     s1, s2 = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
