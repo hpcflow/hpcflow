@@ -504,10 +504,10 @@ def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = Non
     return read_JSON_string(json_str, variables=variables)
 
 
-def write_JSON_file(obj, path: str | Path) -> None:
+def write_JSON_file(obj, path: str | Path, **kwargs) -> None:
     """Write a basic object to a JSON file."""
     with Path(path).open("wt", newline="\n") as fp:
-        json.dump(obj, fp)
+        json.dump(obj, fp, **kwargs)
 
 
 def get_item_repeat_index(
