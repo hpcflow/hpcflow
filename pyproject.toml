@@ -23,7 +23,7 @@ scipy = [
     {version = "^1.13.1", python = "<3.10"},
     {version = "^1.15.2", python = ">=3.10"},
 ]
-ruamel-yaml = "^0.18.6"
+ruamel-yaml = "^0.18.17"
 colorama = "^0.4.6"
 termcolor = ">=1.1,<4.0"
 fsspec = "^2025.3.2"
