@@ -2,7 +2,7 @@ import pytest
 from hpcflow.app import app as hf
 
 
-def test_SGE_process_resources_multi_core_with_parallel_env(null_config):
+def test_SGE_process_resources_multi_core_with_parallel_env():
 
     scheduler_config = {
         "parallel_environments": {
@@ -20,7 +20,7 @@ def test_SGE_process_resources_multi_core_with_parallel_env(null_config):
     assert resources.SGE_parallel_env == "my_parallel_env"
 
 
-def test_SGE_process_resources_raises_on_single_core_with_parallel_env(null_config):
+def test_SGE_process_resources_raises_on_single_core_with_parallel_env():
 
     scheduler_config = {
         "parallel_environments": {

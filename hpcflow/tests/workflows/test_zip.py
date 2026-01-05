@@ -9,7 +9,7 @@ from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow
 @pytest.mark.skipif(
     sys.version_info < (3, 9), reason="Python 3.8 support is being removed anyway."
 )
-def test_workflow_1_zip(tmp_path, new_null_config):
+def test_workflow_1_zip(tmp_path):
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False, status=False)
 

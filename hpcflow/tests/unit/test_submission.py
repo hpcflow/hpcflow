@@ -14,18 +14,12 @@ from hpcflow.sdk.core.utils import timedelta_format, timedelta_parse
 from hpcflow.sdk.submission.jobscript import group_resource_map_into_jobscripts
 
 
-@pytest.fixture
-def null_config(tmp_path):
-    if not hf.is_config_loaded:
-        hf.load_config(config_dir=tmp_path)
-
-
 class _Example(TypedDict):
     resources: list[list[int]]
     expected: list[dict[str, Any]]
 
 
-def test_group_resource_map_into_jobscripts(null_config) -> None:
+def test_group_resource_map_into_jobscripts() -> None:
     # x-axis corresponds to elements; y-axis corresponds to actions:
     examples: tuple[_Example, ...] = (
         {
@@ -185,13 +179,13 @@ def test_group_resource_map_into_jobscripts(null_config) -> None:
         assert jobscripts_i == i["expected"]
 
 
-def test_timedelta_parse_format_round_trip(null_config) -> None:
+def test_timedelta_parse_format_round_trip() -> None:
     td = timedelta(days=2, hours=25, minutes=92, seconds=77)
     td_str = timedelta_format(td)
     assert td_str == timedelta_format(timedelta_parse(td_str))
 
 
-def test_raise_missing_env_executable(new_null_config, tmp_path) -> None:
+def test_raise_missing_env_executable(tmp_path) -> None:
     exec_name = (
         "my_executable"  # null_env (the default) has no executable "my_executable"
     )
@@ -209,7 +203,9 @@ def test_raise_missing_env_executable(new_null_config, tmp_path) -> None:
         wk.add_submission()
 
 
-def test_raise_missing_matching_env_executable(new_null_config, tmp_path) -> None:
+def test_raise_missing_matching_env_executable(
+    tmp_path, reload_template_components
+) -> None:
     """The executable label exists, but no a matching instance."""
     env_name = "my_hpcflow_env"
     exec_label = "my_exec_name"
@@ -247,10 +243,8 @@ def test_raise_missing_matching_env_executable(new_null_config, tmp_path) -> Non
     with pytest.raises(MissingEnvironmentExecutableInstanceError):
         wk.add_submission()
 
-    hf.reload_template_components()  # remove extra envs
 
-
-def test_no_raise_matching_env_executable(new_null_config, tmp_path) -> None:
+def test_no_raise_matching_env_executable(tmp_path, reload_template_components) -> None:
     env_name = "my_hpcflow_env"
     exec_label = "my_exec_name"
     env = hf.Environment(
@@ -286,10 +280,8 @@ def test_no_raise_matching_env_executable(new_null_config, tmp_path) -> None:
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     wk.add_submission()
 
-    hf.reload_template_components()  # remove extra envs
 
-
-def test_raise_missing_env(new_null_config, tmp_path) -> None:
+def test_raise_missing_env(tmp_path) -> None:
     env_name = "my_hpcflow_env"
     ts = hf.TaskSchema(
         objective="test_sub",
@@ -305,7 +297,7 @@ def test_raise_missing_env(new_null_config, tmp_path) -> None:
         wk.add_submission()
 
 
-def test_custom_env_and_executable(new_null_config, tmp_path) -> None:
+def test_custom_env_and_executable(tmp_path, reload_template_components) -> None:
     env_name = "my_hpcflow_env"
     exec_label = "my_exec_name"
     env = hf.Environment(
@@ -340,10 +332,8 @@ def test_custom_env_and_executable(new_null_config, tmp_path) -> None:
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     wk.add_submission()
 
-    hf.reload_template_components()  # remove extra envs
 
-
-def test_unique_schedulers_one_direct(new_null_config, tmp_path) -> None:
+def test_unique_schedulers_one_direct(tmp_path) -> None:
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 1},
@@ -364,9 +354,7 @@ def test_unique_schedulers_one_direct(new_null_config, tmp_path) -> None:
     assert len(scheds) == 1
 
 
-def test_unique_schedulers_one_direct_distinct_resources(
-    new_null_config, tmp_path
-) -> None:
+def test_unique_schedulers_one_direct_distinct_resources(tmp_path) -> None:
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 1},
@@ -390,7 +378,7 @@ def test_unique_schedulers_one_direct_distinct_resources(
 
 
 @pytest.mark.slurm
-def test_unique_schedulers_one_SLURM(new_null_config, tmp_path) -> None:
+def test_unique_schedulers_one_SLURM(modifiable_config, tmp_path) -> None:
     hf.config.add_scheduler("slurm")
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
@@ -416,7 +404,7 @@ def test_unique_schedulers_one_SLURM(new_null_config, tmp_path) -> None:
 
 @pytest.mark.slurm
 def test_unique_schedulers_one_SLURM_distinct_resources(
-    new_null_config, tmp_path
+    modifiable_config, tmp_path
 ) -> None:
     hf.config.add_scheduler("slurm")
     t1 = hf.Task(
@@ -442,7 +430,7 @@ def test_unique_schedulers_one_SLURM_distinct_resources(
 
 
 @pytest.mark.slurm
-def test_unique_schedulers_two_direct_and_SLURM(new_null_config, tmp_path) -> None:
+def test_unique_schedulers_two_direct_and_SLURM(modifiable_config, tmp_path) -> None:
     hf.config.add_scheduler("slurm")
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
@@ -466,7 +454,7 @@ def test_unique_schedulers_two_direct_and_SLURM(new_null_config, tmp_path) -> No
     assert len(scheds) == 2
 
 
-def test_scheduler_config_defaults(new_null_config, tmp_path) -> None:
+def test_scheduler_config_defaults(modifiable_config, tmp_path) -> None:
     """Check default options defined in the config are merged into jobscript resources."""
 
     # note we use the `shebang_executable` for this test. On Windows, this will not be

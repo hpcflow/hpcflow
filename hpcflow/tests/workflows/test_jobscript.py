@@ -10,7 +10,7 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 
 @pytest.mark.integration
 @pytest.mark.parametrize("exit_code", [0, 1, 98, -1, -123124])
-def test_action_exit_code_parsing(null_config, tmp_path: Path, exit_code: int):
+def test_action_exit_code_parsing(tmp_path: Path, exit_code: int):
     act = hf.Action(commands=[hf.Command(command=f"exit {exit_code}")])
     s1 = hf.TaskSchema(
         objective="t1",
@@ -27,7 +27,7 @@ def test_action_exit_code_parsing(null_config, tmp_path: Path, exit_code: int):
 
 
 @pytest.mark.integration
-def test_bad_action_py_script_exit_code(null_config, tmp_path):
+def test_bad_action_py_script_exit_code(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         actions=[
@@ -49,7 +49,7 @@ def test_bad_action_py_script_exit_code(null_config, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("exit_code", [0, 1, 98, -1, -123124])
-def test_action_py_script_specified_exit_code(null_config, tmp_path, exit_code):
+def test_action_py_script_specified_exit_code(tmp_path, exit_code):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("exit_code")],
@@ -75,7 +75,7 @@ def test_action_py_script_specified_exit_code(null_config, tmp_path, exit_code):
 
 
 @pytest.mark.integration
-def test_skipped_action_same_element(null_config, tmp_path):
+def test_skipped_action_same_element(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -114,7 +114,7 @@ def test_skipped_action_same_element(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_two_skipped_actions_same_element(null_config, tmp_path):
+def test_two_skipped_actions_same_element(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -169,7 +169,7 @@ def test_two_skipped_actions_same_element(null_config, tmp_path):
     condition=sys.platform == "win32",
     reason="`combine_jobscript_std` not implemented on Windows.",
 )
-def test_combine_jobscript_std_true(null_config, tmp_path):
+def test_combine_jobscript_std_true(tmp_path):
     out_msg = "hello stdout!"
     err_msg = "hello stderr!"
     s1 = hf.TaskSchema(
@@ -208,7 +208,7 @@ def test_combine_jobscript_std_true(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_combine_jobscript_std_false(null_config, tmp_path):
+def test_combine_jobscript_std_false(tmp_path):
     out_msg = "hello stdout!"
     err_msg = "hello stderr!"
     s1 = hf.TaskSchema(
@@ -270,7 +270,7 @@ def test_combine_jobscript_std_false(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_write_app_logs_true(null_config, tmp_path):
+def test_write_app_logs_true(tmp_path):
 
     p1_vals = [101, 102]
     t1 = hf.Task(
@@ -299,7 +299,7 @@ def test_write_app_logs_true(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_write_app_logs_false(null_config, tmp_path):
+def test_write_app_logs_false(tmp_path):
 
     p1_vals = [101, 102]
     t1 = hf.Task(
@@ -329,9 +329,7 @@ def test_write_app_logs_false(null_config, tmp_path):
 
 
 @pytest.mark.integration
-def test_jobscript_start_end_times_equal_to_first_and_last_run_start_end_times(
-    null_config, tmp_path
-):
+def test_jobscript_start_end_times_equal_to_first_and_last_run_start_end_times(tmp_path):
 
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,

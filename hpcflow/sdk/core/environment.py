@@ -6,6 +6,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from typing_extensions import override
+from pathlib import Path
+import copy
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
@@ -16,7 +19,8 @@ from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from typing import Any, ClassVar
+    from typing import Any, ClassVar, Literal
+    from typing_extensions import Self
 
 
 @dataclass
@@ -202,6 +206,12 @@ class Environment(JSONLike):
         ),
     )
 
+    #: string used in an Environment's `source_file` if it is builtin.
+    BUILTIN_ENV_SOURCE: ClassVar[Literal["<builtin>"]] = "<builtin>"
+    #: default file name within the config directory in which to store configured
+    #: environment definitions.
+    DEFAULT_CONFIGURED_ENVS_FILE: ClassVar[str] = "configured_envs.yaml"
+
     def __init__(
         self,
         name: str,
@@ -218,7 +228,7 @@ class Environment(JSONLike):
         self.doc = doc
         #: Dictionary of attributes that may be used to supply additional key/value pairs
         #: to look up an environment by.
-        self.specifiers: Mapping[str, str] = specifiers or {}
+        self.specifiers: Mapping[str, Any] = specifiers or {}
         #: List of abstract executables in the environment.
         self.executables = (
             executables
@@ -235,7 +245,12 @@ class Environment(JSONLike):
         else:
             self.setup = tuple(setup)
 
+        #: A label that identifies the env setup command that was used to define the
+        #: environment.
         self.setup_label = setup_label
+
+        #: The file in which this environment is defined, if it originated from a file.
+        self._source_file: Literal["<builtin>"] | Path | None = None
 
         self._set_parent_refs()
         self._validate()
@@ -248,12 +263,50 @@ class Environment(JSONLike):
             and self.specifiers == other.specifiers
         )
 
+    def __lt__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (self.name, self.specifiers) < (other.name, other.specifiers)
+
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name!r})"
 
     def _validate(self):
         if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)
+
+    @override
+    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
+        out = super()._postprocess_to_dict(d)
+        del out["_source_file"]
+        return out
+
+    def copy(
+        self,
+        name: str | None = None,
+        setup: Sequence[str] | None = None,
+        specifiers: Mapping[str, str] | None = None,
+        executables: ExecutablesList | Sequence[Executable] | None = None,
+        doc: str | None = "",
+    ) -> Self:
+        """Return a copy of this environment, optionally with some modified attributes.
+
+        In the special case of copying a built-in environment, the `is_built_in` specifier
+        will be removed.
+        """
+        if specifiers:
+            specs = specifiers
+        else:
+            # remove the `is_built_in: True` specifier, since a copy cannot be built in:
+            if (specs := copy.deepcopy(self.specifiers)).get("is_built_in") == True:
+                specs = {key: val for key, val in specs.items() if key != "is_built_in"}
+        return self.__class__(
+            name=name or self.name,
+            setup=setup or copy.deepcopy(self.setup),
+            specifiers=specs,
+            executables=executables or copy.deepcopy(self.executables),
+            doc=doc or self.doc,
+        )
 
     @property
     def documentation(self) -> str:
@@ -263,8 +316,31 @@ class Environment(JSONLike):
             return markupsafe.Markup(self.doc)
         return repr(self)
 
+    @staticmethod
+    def get_id(name: str, specifiers: Mapping[str, str] | None) -> int:
+        """Get a hash of the specified name and specifiers dict."""
+        return hash((name, get_hash(specifiers or None)))
+
+    @staticmethod
+    def get_specs_fmt(specifiers: Mapping[str, str] | None):
+        """Formatted specifiers string for the provided specifiers."""
+        if specs := specifiers:
+            return f"with specifiers {specs!r}"
+        else:
+            return "(with no specifiers)"
+
     @property
     def id(self) -> int:
         """An ID that can be used to compare if two environments are equivalent, in the
         sense that they must not be defined together."""
-        return hash((self.name, get_hash(self.specifiers)))
+        return self.get_id(self.name, self.specifiers)
+
+    @property
+    def specs_fmt(self) -> str:
+        """Formatted specifiers string."""
+        return self.get_specs_fmt(self.specifiers)
+
+    @property
+    def source_file(self) -> Literal["<builtin>"] | Path | None:
+        """If this environment was defined in a file, get the path to that file."""
+        return self._source_file

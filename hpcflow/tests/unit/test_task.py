@@ -36,12 +36,6 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def null_config(tmp_path: Path):
-    if not hf.is_config_loaded:
-        hf.load_config(config_dir=tmp_path)
-
-
-@pytest.fixture
 def param_p1() -> Parameter:
     return hf.Parameter("p1")
 
@@ -57,7 +51,7 @@ def param_p3() -> Parameter:
 
 
 @pytest.fixture
-def workflow_w0(null_config, tmp_path: Path) -> Workflow:
+def workflow_w0(tmp_path: Path) -> Workflow:
     t1 = hf.Task(schema=[hf.TaskSchema(objective="t1", actions=[])])
     t2 = hf.Task(schema=[hf.TaskSchema(objective="t2", actions=[])])
 
@@ -66,9 +60,7 @@ def workflow_w0(null_config, tmp_path: Path) -> Workflow:
 
 
 @pytest.fixture
-def workflow_w1(
-    null_config, tmp_path: Path, param_p1: Parameter, param_p2: Parameter
-) -> Workflow:
+def workflow_w1(tmp_path: Path, param_p1: Parameter, param_p2: Parameter) -> Workflow:
     s1 = hf.TaskSchema("t1", actions=[], inputs=[param_p1], outputs=[param_p2])
     s2 = hf.TaskSchema("t2", actions=[], inputs=[param_p2])
 
@@ -84,7 +76,6 @@ def workflow_w1(
 
 @pytest.fixture
 def workflow_w2(
-    null_config,
     tmp_path: Path,
     param_p1: Parameter,
     param_p2: Parameter,
@@ -111,7 +102,6 @@ def workflow_w2(
 
 @pytest.fixture
 def workflow_w3(
-    null_config,
     tmp_path: Path,
     param_p1: Parameter,
     param_p2: Parameter,
@@ -162,9 +152,7 @@ def schema_s3(param_p1: Parameter, param_p2: Parameter, act_3) -> TaskSchema:
 
 
 @pytest.fixture
-def workflow_w4(
-    null_config, tmp_path: Path, schema_s3: TaskSchema, param_p1: Parameter
-) -> Workflow:
+def workflow_w4(tmp_path: Path, schema_s3: TaskSchema, param_p1: Parameter) -> Workflow:
     t1 = hf.Task(schema=schema_s3, inputs=[hf.InputValue(param_p1, 101)])
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1])
     return hf.Workflow.from_template(wkt, path=tmp_path)
@@ -483,7 +471,7 @@ def test_task_get_available_task_input_sources_one_parameter_extravaganza(
     assert available == available_exp
 
 
-def test_task_input_sources_output_label(null_config, tmp_path: Path):
+def test_task_input_sources_output_label(tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         outputs=[hf.SchemaOutput("p1")],
@@ -514,7 +502,7 @@ def test_task_input_sources_output_label(null_config, tmp_path: Path):
     }
 
 
-def test_task_input_sources_output_label_filtered(null_config, tmp_path: Path):
+def test_task_input_sources_output_label_filtered(tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -1795,9 +1783,7 @@ def test_parameter_two_modifying_actions_expected_data_indices(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_conditional_shell_schema_single_initialised_action(
-    null_config, tmp_path: Path, store: str
-):
+def test_conditional_shell_schema_single_initialised_action(tmp_path: Path, store: str):
     rules = {
         "posix": hf.ActionRule(
             rule=hf.Rule(path="resources.os_name", condition=Value.equal_to("posix"))
@@ -1848,9 +1834,7 @@ def test_conditional_shell_schema_single_initialised_action(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_element_iteration_EARs_initialised_on_make_workflow(
-    null_config, tmp_path: Path, store: str
-):
+def test_element_iteration_EARs_initialised_on_make_workflow(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -1881,7 +1865,7 @@ def test_element_iteration_EARs_initialised_on_make_workflow(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_initialised_on_make_workflow_with_no_actions(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1902,7 +1886,7 @@ def test_element_iteration_EARs_initialised_on_make_workflow_with_no_actions(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_not_initialised_on_make_workflow_due_to_unset(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1953,7 +1937,7 @@ def test_element_iteration_EARs_not_initialised_on_make_workflow_due_to_unset(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_element_iteration_EARs_initialised_on_make_workflow_with_no_valid_actions(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     rules = {
         "posix": hf.ActionRule(
@@ -1994,9 +1978,7 @@ def test_element_iteration_EARs_initialised_on_make_workflow_with_no_valid_actio
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_unset_data_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_unset_data_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2030,9 +2012,7 @@ def test_get_merged_parameter_data_unset_data_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_unset_data_no_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_unset_data_no_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2065,9 +2045,7 @@ def test_get_merged_parameter_data_unset_data_no_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_missing_data_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_missing_data_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2101,9 +2079,7 @@ def test_get_merged_parameter_data_missing_data_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_missing_data_no_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_missing_data_no_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2136,9 +2112,7 @@ def test_get_merged_parameter_data_missing_data_no_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_group_unset_data_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_group_unset_data_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2188,9 +2162,7 @@ def test_get_merged_parameter_data_group_unset_data_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_group_unset_data_no_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_group_unset_data_no_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2238,9 +2210,7 @@ def test_get_merged_parameter_data_group_unset_data_no_raise(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_get_merged_parameter_data_group_missing_data_raise(
-    null_config, tmp_path: Path, store: str
-):
+def test_get_merged_parameter_data_group_missing_data_raise(tmp_path: Path, store: str):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -2291,7 +2261,7 @@ def test_get_merged_parameter_data_group_missing_data_raise(
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_get_merged_parameter_data_group_missing_data_no_raise(
-    null_config, tmp_path: Path, store: str
+    tmp_path: Path, store: str
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -2340,7 +2310,7 @@ def test_get_merged_parameter_data_group_missing_data_no_raise(
 
 
 @pytest.fixture
-def path_to_PV_classes_workflow(null_config, tmp_path: Path) -> Workflow:
+def path_to_PV_classes_workflow(tmp_path: Path) -> Workflow:
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1c"))],
@@ -2419,14 +2389,14 @@ def test_path_to_PV_classes_resources_path_ignored(path_to_PV_classes_workflow: 
     ) == path_to_PV_classes_workflow.tasks.t1._paths_to_PV_classes(*paths_2)
 
 
-def test_input_values_specified_by_dict(null_config):
+def test_input_values_specified_by_dict():
     ts = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1")])
     t1 = hf.Task(schema=ts, inputs=[hf.InputValue(parameter="p1", value=101)])
     t2 = hf.Task(schema=ts, inputs={"p1": 101})
     assert t1 == t2
 
 
-def test_labelled_input_values_specified_by_dict(null_config):
+def test_labelled_input_values_specified_by_dict():
     ts = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1", labels={"one": {}})])
     t1 = hf.Task(
         schema=ts, inputs=[hf.InputValue(parameter="p1", label="one", value=101)]
@@ -2435,20 +2405,20 @@ def test_labelled_input_values_specified_by_dict(null_config):
     assert t1 == t2
 
 
-def test_raise_UnknownEnvironmentPresetError(null_config):
+def test_raise_UnknownEnvironmentPresetError():
     ts = hf.TaskSchema(objective="t1")
     with pytest.raises(UnknownEnvironmentPresetError):
         hf.Task(schema=ts, env_preset="my_env_preset")
 
 
-def test_raise_UnknownEnvironmentPresetError_sequence(null_config):
+def test_raise_UnknownEnvironmentPresetError_sequence():
     ts = hf.TaskSchema(objective="t1")
     seq = hf.ValueSequence(path="env_preset", values=["my_env_preset"])
     with pytest.raises(UnknownEnvironmentPresetError):
         hf.Task(schema=ts, sequences=[seq])
 
 
-def test_group_values_input_and_output_source_from_upstream(null_config, tmp_path: Path):
+def test_group_values_input_and_output_source_from_upstream(tmp_path: Path):
     """
     | task | inputs | outputs | group    | num_elements               |
     | ---- | ------ | ------- | -------- | ---------------------------|
@@ -2512,7 +2482,7 @@ def test_group_values_input_and_output_source_from_upstream(null_config, tmp_pat
     assert [i.value for i in wk.tasks[2].inputs.p2] == [[None, None, None]]
 
 
-def test_is_input_type_required_True(null_config):
+def test_is_input_type_required_True():
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
     s1 = hf.TaskSchema(
         objective="t1",
@@ -2535,7 +2505,7 @@ def test_is_input_type_required_True(null_config):
     assert t1.is_input_type_required(typ="p1", element_set=t1.element_sets[0])
 
 
-def test_is_input_type_required_False(null_config):
+def test_is_input_type_required_False():
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
     s1 = hf.TaskSchema(
         objective="t1",

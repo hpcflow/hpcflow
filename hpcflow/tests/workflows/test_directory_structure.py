@@ -11,7 +11,7 @@ from hpcflow.sdk.core.test_utils import (
 
 
 @pytest.mark.integration
-def test_std_stream_file_not_created(tmp_path, new_null_config):
+def test_std_stream_file_not_created(tmp_path):
     """Normally, the app standard stream file should not be written."""
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False)
@@ -21,7 +21,7 @@ def test_std_stream_file_not_created(tmp_path, new_null_config):
 
 
 @pytest.mark.integration
-def test_std_stream_file_created_on_exception_raised(tmp_path, new_null_config):
+def test_std_stream_file_created_on_exception_raised(tmp_path):
     command = 'wkflow_app --std-stream "$HPCFLOW_RUN_STD_PATH" internal noop --raise'
     wk = make_workflow_to_run_command(command=command, path=tmp_path)
     wk.submit(wait=True, add_to_known=False)

@@ -6,7 +6,7 @@ import hpcflow.app as hf
 
 
 @pytest.mark.integration
-def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
+def test_builtin_program_no_args_resource_var(tmp_path, reload_template_components):
     # run a builtin program
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
@@ -41,11 +41,9 @@ def test_builtin_program_no_args_resource_var(new_null_config, tmp_path):
     wk.submit(wait=True, status=False)
     assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
 
-    hf.reload_template_components()  # remove extra env
-
 
 @pytest.mark.integration
-def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
+def test_builtin_program_no_args_env_var(tmp_path, reload_template_components):
     # run a builtin program
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     default_platform = hf.ElementResources.get_default_platform()
@@ -85,11 +83,9 @@ def test_builtin_program_no_args_env_var(new_null_config, tmp_path):
     wk.submit(wait=True, status=False)
     assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
 
-    hf.reload_template_components()  # remove extra env
-
 
 @pytest.mark.integration
-def test_builtin_program_no_args_param_var(new_null_config, tmp_path):
+def test_builtin_program_no_args_param_var(tmp_path, reload_template_components):
     # run a builtin program
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     default_platform = hf.ElementResources.get_default_platform()
@@ -129,11 +125,11 @@ def test_builtin_program_no_args_param_var(new_null_config, tmp_path):
     wk.submit(wait=True, status=False)
     assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
 
-    hf.reload_template_components()  # remove extra env
-
 
 @pytest.mark.integration
-def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_path):
+def test_builtin_program_input_output_JSON_resource_var(
+    tmp_path, reload_template_components
+):
     # run a builtin program that expects input and output JSON file paths as a cmdline arguments
     env_cmd = ("& " if os.name == "nt" else "") + "<<program_path>> <<args>>"
     env = hf.Environment(
@@ -177,5 +173,3 @@ def test_builtin_program_input_output_JSON_resource_var(new_null_config, tmp_pat
     wk.submit(wait=True, status=False)
     assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "hello, world"
     assert wk.tasks[0].elements[0].get("outputs.p4") == p1 + p2 + p3
-
-    hf.reload_template_components()  # remove extra env

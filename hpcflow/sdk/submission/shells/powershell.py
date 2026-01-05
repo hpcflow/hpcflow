@@ -222,9 +222,15 @@ class WindowsPowerShell(Shell):
 
         """
 
+        # note: it seems all of `stdin`, `stderr` and `stdout` must be explicitly provided
+        # for Pyinstaller-built executables on Windows to function; otherwise we get
+        # both `OSError: [WinError 50] The request is not supported` and `OSError:
+        # [WinError 6] Invalid handle`:
         proc = subprocess.run(
             args=self.executable + ["-Command", "$PSVersionTable.PSVersion.ToString()"],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             text=True,
         )
         if proc.returncode == 0:

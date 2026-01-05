@@ -130,6 +130,7 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
         self,
         js_refs: list[JSRefType],
         jobscripts: list[Jobscript] | None = None,
+        quiet: bool = False,
     ) -> None:
         """
         Cancel one or more jobscripts.

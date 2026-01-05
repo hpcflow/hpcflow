@@ -268,7 +268,7 @@ def test_is_job_array_raises_on_bad_scheduler():
         is_jobscript_array(resources=resources, num_elements=2, store=None)
 
 
-def test_force_array(null_config, tmp_path):
+def test_force_array(tmp_path):
     wk = make_workflow(
         [[{"p1": None}, ("p2",), "t1"]],
         path=tmp_path,
@@ -281,7 +281,7 @@ def test_force_array(null_config, tmp_path):
     assert sub.jobscripts[0].is_array
 
 
-def test_merge_jobscript_multi_dependence(null_config, tmp_path):
+def test_merge_jobscript_multi_dependence(tmp_path):
     s1, s2, s3 = make_schemas(
         ({}, ("p1", "p2"), "t1"),
         (
@@ -309,7 +309,7 @@ def test_merge_jobscript_multi_dependence(null_config, tmp_path):
     assert len(sub.jobscripts[0].blocks) == 1
 
 
-def test_merge_jobscript_multi_dependence_non_array_source(null_config, tmp_path):
+def test_merge_jobscript_multi_dependence_non_array_source(tmp_path):
     # the second two jobscripts should merge
     s1, s2, s3 = make_schemas(
         ({}, ("p1", "p2"), "t1"),
@@ -338,7 +338,7 @@ def test_merge_jobscript_multi_dependence_non_array_source(null_config, tmp_path
     assert len(sub.jobscripts[1].blocks) == 1
 
 
-def test_multi_block_jobscript_multi_dependence(null_config, tmp_path):
+def test_multi_block_jobscript_multi_dependence(tmp_path):
 
     s1, s2, s3, s4 = make_schemas(
         ({"p1": None}, ("p2", "p3"), "t1"),
@@ -363,7 +363,7 @@ def test_multi_block_jobscript_multi_dependence(null_config, tmp_path):
     assert len(sub.jobscripts[0].blocks) == 1
 
 
-def test_multi_block_jobscript_multi_dependence_distinct_resources(null_config, tmp_path):
+def test_multi_block_jobscript_multi_dependence_distinct_resources(tmp_path):
 
     s1, s2, s3, s4 = make_schemas(
         ({"p1": None}, ("p2", "p3"), "t1"),
@@ -391,7 +391,7 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources(null_config, 
 
 
 def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_group(
-    null_config, tmp_path
+    tmp_path,
 ):
 
     s1, s2, s3 = make_schemas(
@@ -434,7 +434,7 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_
     assert len(sub.jobscripts[2].blocks) == 2
 
 
-def test_combine_scripts_unset_False_jobscript_hash_equivalence(null_config, tmp_path):
+def test_combine_scripts_unset_False_jobscript_hash_equivalence(tmp_path):
 
     s1 = hf.TaskSchema(
         objective="t1",
@@ -485,7 +485,7 @@ def test_combine_scripts_unset_False_jobscript_hash_equivalence(null_config, tmp
     assert len(sub.jobscripts) == 1
 
 
-def test_JS_parallelism_default_zarr(null_config, tmp_path):
+def test_JS_parallelism_default_zarr(tmp_path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 100},
@@ -503,7 +503,7 @@ def test_JS_parallelism_default_zarr(null_config, tmp_path):
     assert wk.submissions[0].JS_parallelism == "scheduled"
 
 
-def test_JS_parallelism_default_json(null_config, tmp_path):
+def test_JS_parallelism_default_json(tmp_path):
     t1 = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 100},
@@ -521,7 +521,7 @@ def test_JS_parallelism_default_json(null_config, tmp_path):
     assert wk.submissions[0].JS_parallelism is False
 
 
-def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(null_config, tmp_path):
+def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(tmp_path):
     """The zarr store keeps jobscript-block run IDs in separate arrays, so test
     equivalence."""
 
@@ -577,7 +577,7 @@ def test_jobscript_block_run_IDs_equivalence_JSON_Zarr(null_config, tmp_path):
         assert np.array_equal(js_zarr.all_EAR_IDs, js_json.all_EAR_IDs)
 
 
-def test_jobscript_task_element_maps_equivalence_JSON_Zarr(null_config, tmp_path):
+def test_jobscript_task_element_maps_equivalence_JSON_Zarr(tmp_path):
     """The zarr store keeps jobscript-block task-element maps in separate arrays, so test
     equivalence."""
 
@@ -637,7 +637,7 @@ def test_jobscript_task_element_maps_equivalence_JSON_Zarr(null_config, tmp_path
             assert js_blk_zarr.task_elements == js_blk_json.task_elements
 
 
-def test_jobscript_task_actions_equivalence_JSON_Zarr(null_config, tmp_path):
+def test_jobscript_task_actions_equivalence_JSON_Zarr(tmp_path):
     """The zarr store keeps jobscript-block task-actions in separate arrays, so test
     equivalence."""
 
@@ -697,7 +697,7 @@ def test_jobscript_task_actions_equivalence_JSON_Zarr(null_config, tmp_path):
             assert np.array_equal(js_blk_zarr.task_actions, js_blk_json.task_actions)
 
 
-def test_jobscript_dependencies_equivalence_JSON_Zarr(null_config, tmp_path):
+def test_jobscript_dependencies_equivalence_JSON_Zarr(tmp_path):
     """The zarr store keeps jobscript-block dependencies in separate arrays, so test
     equivalence."""
 

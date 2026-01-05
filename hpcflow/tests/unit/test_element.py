@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def workflow_w1(null_config, tmp_path: Path) -> Workflow:
+def workflow_w1(tmp_path: Path) -> Workflow:
     s1, s2 = make_schemas(
         ({"p1": None}, ("p2",), "t1"),
         ({"p2": None}, (), "t2"),
@@ -55,7 +55,7 @@ def test_element_dependent_elements(workflow_w1: Workflow):
 
 
 def test_equivalence_single_labelled_schema_input_element_get_label_and_non_label(
-    new_null_config, tmp_path: Path
+    tmp_path: Path,
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -79,7 +79,7 @@ def test_equivalence_single_labelled_schema_input_element_get_label_and_non_labe
     )
 
 
-def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path: Path):
+def test_element_dependencies_inputs_only_schema(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -116,7 +116,7 @@ def test_element_dependencies_inputs_only_schema(new_null_config, tmp_path: Path
     assert wk.tasks.t2.elements[0].get_EAR_dependencies() == {0}
 
 
-def test_element_get_empty_path_single_labelled_input(null_config, tmp_path: Path):
+def test_element_get_empty_path_single_labelled_input(tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -134,7 +134,7 @@ def test_element_get_empty_path_single_labelled_input(null_config, tmp_path: Pat
     }
 
 
-def test_element_get_labelled_non_labelled_equivalence(null_config, tmp_path: Path):
+def test_element_get_labelled_non_labelled_equivalence(tmp_path: Path):
     p1_val = 101
     label = "my_label"
     s1 = hf.TaskSchema(
@@ -152,7 +152,7 @@ def test_element_get_labelled_non_labelled_equivalence(null_config, tmp_path: Pa
 
 
 @pytest.fixture
-def element_get_wk(null_config, tmp_path: Path) -> Workflow:
+def element_get_wk(tmp_path: Path) -> Workflow:
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1"), hf.SchemaInput(parameter="p1c")],
@@ -242,7 +242,7 @@ def test_element_get_expected_default(element_get_wk: Workflow):
     assert element_get_wk.tasks.t1.elements[0].get("blah", default={}) == {}
 
 
-def test_element_get_part_unset(null_config, tmp_path: Path):
+def test_element_get_part_unset(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -295,7 +295,7 @@ def test_element_get_part_unset(null_config, tmp_path: Path):
         wk.tasks.t2.elements[0].get("inputs.p2", raise_on_unset=True)
 
 
-def test_element_get_unset_object(null_config, tmp_path: Path):
+def test_element_get_unset_object(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -324,7 +324,7 @@ def test_element_get_unset_object(null_config, tmp_path: Path):
     assert wk.tasks.t1.elements[0].get("outputs.p1c") == None
 
 
-def test_element_get_unset_sub_object(null_config, tmp_path: Path):
+def test_element_get_unset_sub_object(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1")],
@@ -353,7 +353,7 @@ def test_element_get_unset_sub_object(null_config, tmp_path: Path):
     assert wk.tasks.t1.elements[0].get("outputs.p1c.sub_param") == None
 
 
-def test_element_get_unset_object_group(null_config, tmp_path: Path):
+def test_element_get_unset_object_group(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1c")],
@@ -393,7 +393,7 @@ def test_element_get_unset_object_group(null_config, tmp_path: Path):
     assert wk.tasks.t2.elements[0].get("inputs.p1c") == [None, None]
 
 
-def test_element_get_unset_sub_object_group(null_config, tmp_path: Path):
+def test_element_get_unset_sub_object_group(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter="p1c")],
@@ -433,7 +433,7 @@ def test_element_get_unset_sub_object_group(null_config, tmp_path: Path):
     assert wk.tasks.t2.elements[0].get("inputs.p1c.sub_param") == [None, None]
 
 
-def test_iter(new_null_config, tmp_path: Path):
+def test_iter(tmp_path: Path):
     wkt = hf.WorkflowTemplate(
         name="test",
         tasks=[
@@ -448,7 +448,7 @@ def test_iter(new_null_config, tmp_path: Path):
         assert elem_i.index == idx
 
 
-def test_slice(new_null_config, tmp_path: Path):
+def test_slice(tmp_path: Path):
     wkt = hf.WorkflowTemplate(
         name="test",
         tasks=[
@@ -465,7 +465,7 @@ def test_slice(new_null_config, tmp_path: Path):
     assert elems[1].index == 2
 
 
-def test_element_get_with_list_index_sequence(null_config, tmp_path: Path):
+def test_element_get_with_list_index_sequence(tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -483,7 +483,7 @@ def test_element_get_with_list_index_sequence(null_config, tmp_path: Path):
     assert wk.tasks[0].elements[0].get("inputs.p1") == [9, 1]
 
 
-def test_element_get_with_list_index_sequence_two_parts(null_config, tmp_path: Path):
+def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -511,7 +511,7 @@ def test_element_get_with_list_index_sequence_two_parts(null_config, tmp_path: P
     ]
 
 
-def test_element_get_group_sequence(null_config, tmp_path: Path):
+def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence
@@ -549,7 +549,7 @@ def test_element_get_group_sequence(null_config, tmp_path: Path):
     ]
 
 
-def test_element_get_group_sequence_obj(new_null_config, tmp_path: Path):
+def test_element_get_group_sequence_obj(tmp_path: Path, reload_template_components):
     wkt_yaml = dedent(
         """\
         name: test_list_idx_sequence

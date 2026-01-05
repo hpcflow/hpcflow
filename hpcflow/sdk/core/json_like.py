@@ -418,7 +418,8 @@ class BaseJSONLike:
         -------
             The deserialised object.
         """
-        shared_data = shared_data or cls._get_default_shared_data()
+        if shared_data is None:
+            shared_data = cls._get_default_shared_data()
         if isinstance(json_like, str):
             json_like = cls._parse_from_string(json_like)
         if json_like is None:

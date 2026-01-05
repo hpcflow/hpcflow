@@ -12,7 +12,7 @@ from hpcflow.sdk.config.errors import (
 )
 
 
-def test_reset_config(new_null_config) -> None:
+def test_reset_config(modifiable_config) -> None:
     cfg_dir = hf.config.config_directory
     machine_name = hf.config.machine
     new_machine_name = machine_name + "123"
@@ -22,7 +22,7 @@ def test_reset_config(new_null_config) -> None:
     assert hf.config.machine == machine_name
 
 
-def test_raise_on_invalid_config_file(new_null_config) -> None:
+def test_raise_on_invalid_config_file(modifiable_config) -> None:
     # make an invalid config file:
     cfg_path = hf.config.config_file_path
     with cfg_path.open("at+") as f:
@@ -36,7 +36,7 @@ def test_raise_on_invalid_config_file(new_null_config) -> None:
     hf.unload_config()
 
 
-def test_reset_invalid_config(new_null_config) -> None:
+def test_reset_invalid_config(modifiable_config) -> None:
     # make an invalid config file:
     cfg_path = hf.config.config_file_path
     with cfg_path.open("at+") as f:
@@ -45,11 +45,10 @@ def test_reset_invalid_config(new_null_config) -> None:
     # check we can reset the invalid file:
     cfg_dir = hf.config.config_directory
     hf.reset_config(config_dir=cfg_dir, warn=False)
-    hf.unload_config()
 
 
 def test_raise_on_set_default_scheduler_not_in_schedulers_list_invalid_name(
-    null_config,
+    modifiable_config,
 ) -> None:
     new_default = "invalid-scheduler"
     with pytest.raises(ConfigItemCallbackError):
@@ -57,14 +56,14 @@ def test_raise_on_set_default_scheduler_not_in_schedulers_list_invalid_name(
 
 
 def test_raise_on_set_default_scheduler_not_in_schedulers_list_valid_name(
-    null_config,
+    modifiable_config,
 ) -> None:
     new_default = "slurm"  # valid but unsupported (by default) scheduler
     with pytest.raises(ConfigItemCallbackError):
         hf.config.default_scheduler = new_default
 
 
-def test_without_callbacks_ctx_manager(null_config) -> None:
+def test_without_callbacks_ctx_manager(modifiable_config) -> None:
     # set a new shell that would raise an error in the `callback_supported_shells`:
     new_default = "bash" if os.name == "nt" else "powershell"
 
@@ -81,7 +80,7 @@ def test_without_callbacks_ctx_manager(null_config) -> None:
 
 
 @pytest.mark.xfail(reason="Might occasionally fail.")
-def test_cache_faster_than_no_cache(null_config):
+def test_cache_faster_than_no_cache(modifiable_config):
     n = 10_000
     tic = time.perf_counter()
     for _ in range(n):
@@ -99,7 +98,7 @@ def test_cache_faster_than_no_cache(null_config):
     assert elapsed_cache < elapsed_no_cache
 
 
-def test_cache_read_only(new_null_config):
+def test_cache_read_only(modifiable_config):
     """Check we cannot modify the config when using the cache"""
 
     # check we can set an item first:
@@ -115,7 +114,7 @@ def test_cache_read_only(new_null_config):
             hf.config.machine = "456"
 
 
-def test_workflow_template_config_validation(new_null_config, tmp_path):
+def test_workflow_template_config_validation(modifiable_config, tmp_path):
     wkt = hf.WorkflowTemplate(
         tasks=[],
         config={"log_file_level": "debug"},
@@ -136,17 +135,16 @@ def test_workflow_template_config_validation_raises(unload_config, tmp_path):
     assert not hf.is_config_loaded
 
 
-def test_config_with_updates(new_null_config):
+def test_config_with_updates(modifiable_config):
     level_1 = hf.config.get("log_console_level")
     with hf.config._with_updates({"log_console_level": "debug"}):
         level_2 = hf.config.get("log_console_level")
     level_3 = hf.config.get("log_console_level")
     assert level_1 == level_3 != level_2
-    hf.reload_config()
 
 
 @pytest.mark.integration
-def test_workflow_template_config_set(new_null_config, tmp_path):
+def test_workflow_template_config_set(modifiable_config, tmp_path):
     """Test we can set a workflow-level config item and that it is correctly applied
     during execution."""
 
@@ -191,5 +189,3 @@ def test_workflow_template_config_set(new_null_config, tmp_path):
 
     # log file level should not have changed:
     assert hf.config.get("log_file_level") == "warning"
-
-    hf.reload_config()

@@ -78,7 +78,7 @@ def test_MPS_sequences_moved_to_task_element_set_with_existing_sequences():
     assert es.sequences == [seq, *expected_mps_seqs]
 
 
-def test_MPS_sequence_element_inputs(null_config, tmp_path):
+def test_MPS_sequence_element_inputs(tmp_path):
     mps = hf.MultiPathSequence(paths=("inputs.p1", "inputs.p2"), values=[[0, 1], [2, 3]])
     s1 = make_schemas(({"p1": None, "p2": None}, ()))
     t1 = hf.Task(s1, multi_path_sequences=[mps])
@@ -93,7 +93,7 @@ def test_MPS_sequence_element_inputs(null_config, tmp_path):
     assert wf.tasks[0].elements[1].get("inputs") == {"p1": 1, "p2": 3}
 
 
-def test_MPS_sequence_element_inputs_with_existing_sequence(null_config, tmp_path):
+def test_MPS_sequence_element_inputs_with_existing_sequence(tmp_path):
     mps = hf.MultiPathSequence(paths=("inputs.p1", "inputs.p2"), values=[[0, 1], [2, 3]])
     seq = hf.ValueSequence(path="inputs.p0", values=[0, 1])
     s1 = make_schemas(({"p0": None, "p1": None, "p2": None}, ()))
@@ -117,7 +117,7 @@ def test_MPS_sequence_element_inputs_with_existing_sequence(null_config, tmp_pat
 
 
 @pytest.mark.integration
-def test_MPS_element_outputs(null_config, tmp_path):
+def test_MPS_element_outputs(tmp_path):
     with get_file_context("hpcflow.tests.data", "multi_path_sequences.yaml") as file_path:
         wf = hf.make_and_submit_workflow(
             file_path,

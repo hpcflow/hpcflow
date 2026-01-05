@@ -37,6 +37,9 @@ from hpcflow.sdk.cli_common import (
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    submit_quiet_opt,
+    wait_quiet_opt,
+    cancel_quiet_opt,
     force_arr_opt,
     make_status_opt,
     add_sub_opt,
@@ -58,11 +61,15 @@ from hpcflow.sdk.cli_common import (
     list_js_width_opt,
     jobscript_std_array_idx_opt,
     _add_doc_from_help,
+    env_add_replace_opt,
+    env_add_source_file_opt,
+    env_add_source_file_name_opt,
+    pytest_file_or_dir_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.workflow import Workflow
-from hpcflow.sdk.submission.shells import ALL_SHELLS
+from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
@@ -239,6 +246,7 @@ def _make_API_CLI(app: BaseApp):
     @tasks_opt
     @cancel_opt
     @submit_status_opt
+    @submit_quiet_opt
     def make_and_submit_workflow(
         template_file_or_str: str,
         string: bool,
@@ -259,6 +267,7 @@ def _make_API_CLI(app: BaseApp):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -287,32 +296,35 @@ def _make_API_CLI(app: BaseApp):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
 
     @click.command(context_settings={"ignore_unknown_options": True})
-    @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
+    @pytest_file_or_dir_opt
+    @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test(ctx: click.Context, py_test_args: list[str]):
+    def test(ctx: click.Context, pytest_args: tuple[str], file: tuple[str]):
         """Run {app_name} test suite.
 
-        PY_TEST_ARGS are arguments passed on to Pytest.
+        PYTEST_ARGS are arguments passed on to Pytest.
 
         """
-        ctx.exit(app.run_tests(*py_test_args))
+        ctx.exit(app.run_tests(test_dirs=file, pytest_args=pytest_args))
 
     @click.command(context_settings={"ignore_unknown_options": True})
-    @click.argument("py_test_args", nargs=-1, type=click.UNPROCESSED)
+    @pytest_file_or_dir_opt
+    @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
     @click.pass_context
-    def test_hpcflow(ctx: click.Context, py_test_args: list[str]):
+    def test_hpcflow(ctx: click.Context, pytest_args: tuple[str], file: tuple[str]):
         """Run hpcFlow test suite.
 
-        PY_TEST_ARGS are arguments passed on to Pytest.
+        PYTEST_ARGS are arguments passed on to Pytest.
 
         """
-        ctx.exit(app.run_hpcflow_tests(*py_test_args))
+        ctx.exit(app.run_hpcflow_tests(test_dirs=file, pytest_args=pytest_args))
 
     commands = [
         make_workflow,
@@ -505,6 +517,7 @@ def _make_workflow_CLI(app: BaseApp):
     @tasks_opt
     @cancel_opt
     @submit_status_opt
+    @submit_quiet_opt
     @_pass_workflow
     def submit_workflow(
         wf: Workflow,
@@ -515,6 +528,7 @@ def _make_workflow_CLI(app: BaseApp):
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
+        quiet: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
@@ -525,6 +539,7 @@ def _make_workflow_CLI(app: BaseApp):
             tasks=tasks,
             cancel=cancel,
             status=status,
+            quiet=quiet,
         )
         if print_idx:
             click.echo(out)
@@ -562,10 +577,11 @@ def _make_workflow_CLI(app: BaseApp):
             "separate patterns like these."
         ),
     )
+    @wait_quiet_opt
     @_pass_workflow
-    def wait(wf: Workflow, jobscripts: str | None):
+    def wait(wf: Workflow, jobscripts: str | None, quiet: bool):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
-        wf.wait(sub_js=js_spec)
+        wf.wait(sub_js=js_spec, quiet=quiet)
 
     @workflow.command(name="abort-run")
     @click.option("--submission", type=click.INT, default=-1)
@@ -1045,14 +1061,17 @@ def _make_cancel_CLI(app: BaseApp):
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
     @cancel_status_opt
-    def cancel(workflow_ref: str, ref_type: str | None, status: bool):
+    @cancel_quiet_opt
+    def cancel(workflow_ref: str, ref_type: str | None, status: bool, quiet: bool):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
         workflow path.
 
         """
-        app.cancel(workflow_ref=workflow_ref, ref_is_path=ref_type, status=status)
+        app.cancel(
+            workflow_ref=workflow_ref, ref_is_path=ref_type, status=status, quiet=quiet
+        )
 
     return cancel
 
@@ -1559,6 +1578,163 @@ def _make_manage_CLI(app: BaseApp):
     return manage
 
 
+def __parse_multi_int_arg(lst: str) -> int | list[int]:
+    try:
+        return int(lst)
+    except ValueError:
+        return [int(item) for item in lst.split(",")]
+
+
+def _make_env_CLI(app: BaseApp):
+    """Generate the CLI for managing app environments."""
+
+    @click.group()
+    def env():
+        """Configure execution environments."""
+        pass
+
+    @env.command("list")
+    def list_envs():
+        """List available environments."""
+        app.print_envs()
+
+    @env.command("show")
+    @click.argument("id", required=False)
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def show_env(
+        id: str | None,
+        name: str | None,
+        label: str | None,
+        specifier: tuple[tuple[str, str], ...],
+    ):
+        """Show an environment definition."""
+        app.show_env(
+            id=__parse_multi_int_arg(id) if id else None,
+            name=name,
+            label=label,
+            specifiers={k: v for (k, v) in specifier},
+        )
+
+    @env.command("info")
+    @click.argument("attribute")
+    @click.argument("id", required=False)
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def env_info(
+        attribute: str,
+        id: str | None,
+        name: str | None,
+        label: str | None,
+        specifier: tuple[tuple[str, str], ...],
+    ):
+        """Retrieve the value of an environment attribute. If multiple environments match,
+        then the attribute values will appear on newlines."""
+        info = app.get_env_info(
+            id=__parse_multi_int_arg(id) if id else None,
+            name=name,
+            label=label,
+            specifiers={k: v for (k, v) in specifier},
+            attribute=attribute,
+        )
+        click.echo("\n".join(str(i) for i in info))
+
+    @env.command("add")
+    @click.argument("name")
+    @click.option("--use-current", is_flag=True, default=False)
+    @click.option("--setup", type=click.STRING, multiple=True)
+    @env_add_source_file_opt
+    @env_add_source_file_name_opt
+    @env_add_replace_opt
+    def add_env(
+        name: str,
+        use_current: bool,
+        setup: tuple[str],
+        env_source_file: Path | None,
+        file_name: str,
+        replace: bool,
+    ):
+        """Add a simple environment definition."""
+        app.add_env(
+            name=name,
+            setup=setup,
+            use_current=use_current,
+            env_source_file=env_source_file,
+            file_name=file_name,
+            replace=replace,
+        )
+
+    @env.command("remove")
+    @click.argument("id", required=False)
+    @click.option("-n", "--name")
+    @click.option("-l", "--label")
+    @click.option("-s", "--specifier", nargs=2, multiple=True)
+    def remove_env(
+        id: str | None,
+        name: str,
+        label: str,
+        specifier: tuple[tuple[str, str]],
+    ):
+        """Remove an environment definition."""
+        id_ = __parse_multi_int_arg(id) if id else None
+        app.remove_env(
+            id=id_,
+            name=name,
+            specifiers={k: v for (k, v) in specifier},
+            label=label,
+        )
+
+    @env.group("setup")
+    @click.option("--env-source-file", type=click.STRING)
+    def setup_env(
+        env_source_file: str | None = None,
+    ):
+        """Setup one or more environments according to some sensible grouping."""
+
+    @setup_env.command()
+    @click.option(
+        "-n",
+        "--name",
+        multiple=True,
+        help=(
+            "In addition to the `python_env` set up these other named environments "
+            '(suffixed by "_env"), also with a `python_script` executable.'
+        ),
+    )
+    @click.option(
+        "--use-current/--no-use-current",
+        is_flag=True,
+        default=True,
+        help=(
+            "Use the currently active conda-like or Python virtual environment to add a "
+            "`python_script` executable to the environment."
+        ),
+    )
+    @env_add_source_file_opt
+    @env_add_source_file_name_opt
+    @env_add_replace_opt
+    def python(
+        name: list[str],
+        use_current: bool,
+        env_source_file: Path | None,
+        file_name: str,
+        replace: bool,
+    ):
+        """Configure environments with `python_script` executables."""
+        app.env_configure_python(
+            names=name,
+            use_current=use_current,
+            save=True,
+            env_source_file=env_source_file,
+            file_name=file_name,
+            replace=replace,
+        )
+
+    return env, setup_env
+
+
 def make_cli(app: BaseApp):
     """Generate the root CLI for the app."""
 
@@ -1658,62 +1834,12 @@ def make_cli(app: BaseApp):
         if TimeIt.active:
             TimeIt.summarise_string()
 
-    @new_CLI.group()
-    def env():
-        """Configure execution environments."""
-        pass
-
-    @env.command("list")
-    def list_envs():
-        """List available environments."""
-        for env_i in app.envs:
-            click.echo(env_i.name)
-
-    @env.command("add")
-    @click.argument("name")
-    @click.option("--use-current", is_flag=True, default=False)
-    @click.option("--setup", type=click.STRING, multiple=True)
-    @click.option("--env-source-file", type=click.STRING)
-    def add_env(
-        name: str,
-        use_current: bool,
-        setup: list[str] | None = None,
-        env_source_file: str | None = None,
-    ):
-        """Add a simple environment definition."""
-        app.add_env(
-            name=name,
-            setup=setup,
-            use_current=use_current,
-            env_source_file=None if env_source_file is None else Path(env_source_file),
-        )
-
-    @env.command("remove")
-    @click.option("-n", "--name")
-    @click.option("-l", "--label")
-    @click.option("-s", "--specifier", nargs=2, multiple=True)
-    def remove_env(
-        name: str,
-        label: str,
-        specifier: tuple[tuple[str, str]],
-    ):
-        """Remove an environment definition."""
-        app.remove_env(
-            name=name,
-            specifiers={k: v for (k, v) in specifier},
-            label=label,
-        )
-
-    @env.group("setup")
-    @click.option("--env-source-file", type=click.STRING)
-    def setup_env(
-        env_source_file: str | None = None,
-    ):
-        """Setup one or more environments according to some sensible grouping."""
-
     new_CLI.context_class = ErrorPropagatingClickContext
 
     new_CLI.__doc__ = app.description
+
+    env_CLI, setup_env_CLI = _make_env_CLI(app)
+    new_CLI.add_command(env_CLI)
     new_CLI.add_command(get_config_CLI(app))
     new_CLI.add_command(get_demo_software_CLI(app))
     new_CLI.add_command(get_demo_workflow_CLI(app))
@@ -1731,8 +1857,9 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(_make_zip_CLI(app))
     new_CLI.add_command(_make_unzip_CLI(app))
     new_CLI.add_command(_make_rechunk_CLI(app))
+
     for cli_cmd in _make_API_CLI(app):
         new_CLI.add_command(cli_cmd)
 
-    # we return the env setup CLI so we can add to in downstream apps:
-    return new_CLI, setup_env
+    # we return the env setup CLI so we can add more commands to it in downstream apps:
+    return new_CLI, setup_env_CLI

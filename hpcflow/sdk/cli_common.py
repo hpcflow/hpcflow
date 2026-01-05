@@ -4,6 +4,7 @@ from __future__ import annotations
 import click
 
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
+from hpcflow.sdk.core.environment import Environment
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.discovery import ALL_STORE_FORMATS
 
@@ -214,6 +215,24 @@ submit_status_opt = click.option(
     default=True,
 )
 #: Standard option
+submit_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything about workflow submission.",
+    default=False,
+)
+#: Standard option
+wait_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything (e.g. when jobscripts have completed).",
+    default=False,
+)
+#: Standard option
+cancel_quiet_opt = click.option(
+    "--quiet",
+    help="If True, do not print anything (e.g. which jobscripts where cancelled).",
+    default=False,
+)
+#: Standard option
 force_arr_opt = click.option(
     "--force-array",
     help=(
@@ -299,32 +318,73 @@ rechunk_status_opt = click.option(
     default=True,
     help="If True, display a live status to track rechunking progress.",
 )
+#: Standard option
 cancel_status_opt = click.option(
     "--status/--no-status",
     default=True,
     help="If True, display a live status to track cancel progress.",
 )
-
+#: Standard option
 list_js_max_js_opt = click.option(
     "--max-js", type=click.INT, help="Display up to this jobscript only."
 )
+#: Standard option
 list_js_jobscripts_opt = click.option(
     "--jobscripts", help="Comma-separated list of jobscript indices to show."
 )
+#: Standard option
 list_task_js_max_js_opt = click.option(
     "--max-js", type=click.INT, help="Include jobscripts up to this jobscript only."
 )
+#: Standard option
 list_task_js_task_names_opt = click.option(
     "--task-names", help="Comma-separated list of task name sub-strings to show."
 )
+#: Standard option
 list_js_width_opt = click.option(
     "--width", type=click.INT, help="Width in characters of the table to print."
 )
+#: Standard option
 jobscript_std_array_idx_opt = click.option(
     "--array-idx",
     type=click.INT,
     help=(
         "For array jobs only, the job array index whose standard stream is to be printed."
+    ),
+)
+#: Standard option
+env_add_replace_opt = click.option(
+    "--replace/--no-replace",
+    is_flag=True,
+    default=False,
+    help="If True, replace an existing environment with the same name and specifiers.",
+)
+#: Standard option
+env_add_source_file_opt = click.option(
+    "--env-source-file",
+    type=click.Path(),
+    help="The environment source file to save the environment to, if specified.",
+)
+#: Standard option
+env_add_source_file_name_opt = click.option(
+    "--file-name",
+    type=click.STRING,
+    default=Environment.DEFAULT_CONFIGURED_ENVS_FILE,
+    help=(
+        "The file name of the environment source file within the app config "
+        "directory to save the environment to, if `--env-source-file` is not "
+        "provided."
+    ),
+)
+#: Standard option
+pytest_file_or_dir_opt = click.option(
+    "--file",
+    multiple=True,
+    help=(
+        "Paths to test files or directories to include in the Pytest run. If "
+        "relative paths are provided, they are assumed to be relative to the root "
+        "'tests' directory (so that passing `--file '.'` runs all tests). If not "
+        "provided, all tests are run. Multiple are allowed."
     ),
 )
 
@@ -364,6 +424,10 @@ _add_doc_from_help(
     tasks_opt,
     cancel_opt,
     submit_status_opt,
+    submit_quiet_opt,
+    wait_quiet_opt,
+    cancel_quiet_opt,
+    force_arr_opt,
     make_status_opt,
     zip_path_opt,
     zip_overwrite_opt,
@@ -382,4 +446,8 @@ _add_doc_from_help(
     list_task_js_task_names_opt,
     list_js_width_opt,
     jobscript_std_array_idx_opt,
+    env_add_replace_opt,
+    env_add_source_file_opt,
+    env_add_source_file_name_opt,
+    pytest_file_or_dir_opt,
 )

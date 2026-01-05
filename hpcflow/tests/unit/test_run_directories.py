@@ -5,7 +5,7 @@ from hpcflow.sdk.core.test_utils import make_workflow
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_run_directories(null_config, tmp_path, store):
+def test_run_directories(tmp_path, store):
     wk = make_workflow(
         schemas_spec=[
             [{"p1": None}, ("p1",), "t1"],

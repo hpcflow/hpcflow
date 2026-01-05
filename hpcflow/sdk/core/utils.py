@@ -464,7 +464,7 @@ def read_YAML_file(
 def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
     """Write a basic object to a YAML file."""
     yaml = YAML(typ=typ)
-    with Path(path).open("wt") as fp:
+    with Path(path).open("wt", newline="\n") as fp:
         yaml.dump(obj, fp)
 
 
@@ -506,7 +506,7 @@ def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = Non
 
 def write_JSON_file(obj, path: str | Path) -> None:
     """Write a basic object to a JSON file."""
-    with Path(path).open("wt") as fp:
+    with Path(path).open("wt", newline="\n") as fp:
         json.dump(obj, fp)
 
 

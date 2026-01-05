@@ -6,7 +6,7 @@ from hpcflow.sdk.core.test_utils import make_test_data_YAML_workflow
 
 
 @pytest.mark.wsl
-def test_workflow_1(tmp_path: Path, null_config):
+def test_workflow_1(tmp_path: Path):
     wk = make_test_data_YAML_workflow("workflow_1_wsl.yaml", path=tmp_path)
     wk.submit(wait=True, add_to_known=False)
     p2 = wk.tasks[0].elements[0].outputs.p2

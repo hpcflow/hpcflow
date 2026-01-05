@@ -4,6 +4,7 @@ Adapters for various shells.
 
 from __future__ import annotations
 import os
+from typing import Literal
 
 from hpcflow.sdk.core.errors import UnsupportedShellError
 
@@ -20,7 +21,7 @@ ALL_SHELLS: dict[str, dict[str, type[Shell]]] = {
 }
 
 #: The default shell in the default config.
-DEFAULT_SHELL_NAMES = {
+DEFAULT_SHELL_NAMES: dict[str, Literal["bash", "powershell"]] = {
     "posix": "bash",
     "nt": "powershell",
 }

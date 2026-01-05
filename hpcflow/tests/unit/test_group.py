@@ -5,7 +5,7 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import MissingElementGroup
 
 
-def test_group_simple(null_config, tmp_path: Path):
+def test_group_simple(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -50,7 +50,7 @@ def test_group_simple(null_config, tmp_path: Path):
     assert len(wk.tasks.t2.elements[0].get_data_idx("inputs.p2")["inputs.p2"]) == 3
 
 
-def test_group_raise_no_elements(null_config, tmp_path: Path):
+def test_group_raise_no_elements(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p1")],
@@ -93,7 +93,7 @@ def test_group_raise_no_elements(null_config, tmp_path: Path):
         )
 
 
-def test_group_on_input_only_task(null_config, tmp_path: Path):
+def test_group_on_input_only_task(tmp_path: Path):
 
     s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput("p1")])
     s2 = hf.TaskSchema(objective="t2", inputs=[hf.SchemaInput("p1", group="all")])

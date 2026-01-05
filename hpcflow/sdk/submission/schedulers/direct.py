@@ -81,7 +81,10 @@ class DirectScheduler(Scheduler[DirectRef]):
         all_procs: list[psutil.Process] = []
         for process in procs:
             all_procs.append(process)
-            all_procs.extend(process.children(recursive=True))
+            try:
+                all_procs.extend(process.children(recursive=True))
+            except psutil.NoSuchProcess:
+                continue
 
         for process in all_procs:
             try:
@@ -154,6 +157,7 @@ class DirectScheduler(Scheduler[DirectRef]):
         self,
         js_refs: list[DirectRef],
         jobscripts: list[Jobscript] | None = None,
+        quiet: bool = False,
     ):
         """
         Cancel some jobs.
@@ -177,7 +181,8 @@ class DirectScheduler(Scheduler[DirectRef]):
         )
         js_proc_id = {i.pid: jobscripts[idx] for idx, i in enumerate(procs) if jobscripts}
         self.__kill_processes(procs, timeout=3, on_terminate=callback)
-        print(f"Cancelled {len(procs)} jobscript{'s' if len(procs) > 1 else ''}.")
+        if not quiet:
+            print(f"Cancelled {len(procs)} jobscript{'s' if len(procs) > 1 else ''}.")
         self._app.submission_logger.info("jobscripts cancel command executed.")
 
     def is_jobscript_active(self, process_ID: int, process_cmdline: list[str]):
