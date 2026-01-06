@@ -70,7 +70,7 @@ on:
 
 jobs:
   build-exes:
-    uses: hpcflow/github-support/.github/workflows/build-exes-impl.yml@fix/tests
+    uses: hpcflow/github-support/.github/workflows/build-exes-impl.yml@main
     with:
       build_linux: ${{ github.event.inputs.build_linux }}
       build_macos: ${{ github.event.inputs.build_macos }}

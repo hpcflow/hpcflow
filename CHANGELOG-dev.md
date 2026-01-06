@@ -1,4 +1,86 @@
 
+<a name="v0.2.0a294"></a>
+## [v0.2.0a294](https://github.com/hpcflow/hpcflow/compare/v0.2.0a293...v0.2.0a294) - 2026.01.06
+
+### 🐛 Bug Fixes
+
+* docstring typo (to test release workflow)
+
+
+<a name="v0.2.0a293"></a>
+## [v0.2.0a293](https://github.com/hpcflow/hpcflow/compare/v0.2.0a292...v0.2.0a293) - 2026.01.06
+
+### 👷 Build changes
+
+* **deps:** bump the pip-dependencies group with 2 updates
+
+
+<a name="v0.2.0a292"></a>
+## [v0.2.0a292](https://github.com/hpcflow/hpcflow/compare/v0.2.0a291...v0.2.0a292) - 2026.01.05
+
+### ♻ Code Refactoring
+
+* pytest fixtures
+* add `FormatMixin` class to make defining custom `CompactException` formatters easier
+* function for atomic overwrite of a YAML file
+* move `env_configure_python` from matflow
+
+### ✨ Features
+
+* add `get_env_info`
+* add `Environment.copy` method
+* add `quiet` option to workflow submission/wait/cancel to prevent some printing
+* flesh out environment management a bit
+* store source files in which environments are defined
+* option to replace existing environment
+* move env utility functions from matflow
+
+### 🐛 Bug Fixes
+
+* referenced github-support branch in build-exes
+* unintentionally committed test file
+* add stderr to WindowsPowershell.get_version_info subprocess call
+* try debug on linux docker
+* catch `psutil.NoSuchProcess` in `DirectScheduler.__kill_processes`
+* tests some more
+* tests
+* env spec test
+* object list deepcopy
+* method `DotAccessObjectList.__deepcopy__`
+* explicit test root dir
+* RunTests protocol call method
+* default value of `shared_data` in from_json_like
+* copy builtin template components; they might be mutated!
+* missing `quiet`
+* add missing `flush` method to `DeferredFileWriter`, which caused problems with understanding unrelated AttributeErrors
+* syntax
+* better formatting in `show_env`
+* type check
+* use consistent newlines in `write_YAML_file` and `write_JSON_file`
+* add `is_built_in` specifiers to built-in envs
+* some integration tests on Windows from Pyinstaller built executable
+* skip test of data caching that can cause rate-limiting
+* pytest duplicated addoptions on Windows Pyinstaller one-file build
+* pytest test collection for Pyinstaller onefile builds; fix [#854](https://github.com/hpcflow/hpcflow/issues/854)
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* try debugging more more
+* try debugging more
+* try debugging
+* add inputs to build-exes
+* use temporary branch in build-exes to test changes
+
+
+<a name="v0.2.0a291"></a>
+## [v0.2.0a291](https://github.com/hpcflow/hpcflow/compare/v0.2.0a290...v0.2.0a291) - 2026.01.04
+
+### 👷 Build changes
+
+* **deps:** bump the pip-dependencies group across 1 directory with 7 updates
+
+
 <a name="v0.2.0a290"></a>
 ## [v0.2.0a290](https://github.com/hpcflow/hpcflow/compare/v0.2.0a289...v0.2.0a290) - 2025.12.16
 
