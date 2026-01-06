@@ -54,6 +54,7 @@ from hpcflow.sdk.utils.files import (
     copy_file_or_dir,
     delete_file_or_dir,
     overwrite_YAML_file,
+    download_github_repo,
 )
 from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
@@ -4664,12 +4665,41 @@ class BaseApp(metaclass=Singleton):
                         self.logger.debug(f"setting the executable bit on: {match!r}.")
                         match.chmod(match.stat().st_mode | stat.S_IEXEC)
 
+    def __get_fsspec_filesystem_and_url_path(
+        self, data_type: Literal["data", "program"]
+    ) -> tuple[Any, Any]:
+        """Retrieve the fsspec filesystem object and URL path from an fsspec-compatible
+        URL."""
+
+        DIR_ATTR_LOOKUP = {
+            "data": "data_dir",
+            "program": "program_dir",
+        }
+        try:
+            dir_key = DIR_ATTR_LOOKUP[data_type]
+        except KeyError:
+            raise ValueError(
+                f"`data_type` must be 'data' or 'program', but received {data_type}."
+            )
+        # first try the config attribute; if not set, use the app defined attribute:
+        msg_attr = "config"
+        if not (url := self.config.get(dir_key)):
+            url = getattr(self, dir_key)
+            msg_attr = "app"
+
+        self.logger.debug(
+            f"using {msg_attr} attribute {dir_key!r} to locate file(s) to cache."
+        )
+        self.logger.debug(f"retrieving fsspec filesystem instance from URL: {url!r} ")
+        return rate_limit_safe_url_to_fs(self, url, logger=self.logger)
+
     def cache_file(
         self,
         data_type: Literal["data", "program"],
         file_key: str,
         manifest: dict[str, dict[str, str]] | None = None,
         exist_ok: bool = True,
+        fs_and_url_path: tuple[Any, Any] | None = None,
     ) -> Path:
         """
         Cache and retrieve the path to a data file (demo data or built-in program),
@@ -4683,22 +4713,10 @@ class BaseApp(metaclass=Singleton):
         directory.
         """
 
-        DIR_ATTR_LOOKUP = {
-            "data": "data_dir",
-            "program": "program_dir",
-        }
         ENSURE_LOOKUP = {
             "data": self._ensure_data_cache_dir,
             "program": self._ensure_program_cache_dir,
         }
-
-        try:
-            dir_key = DIR_ATTR_LOOKUP[data_type]
-        except KeyError:
-            raise ValueError(
-                f"`data_type` must be 'data' or 'program', but received {data_type}."
-            )
-
         manifest = manifest or self.get_data_manifest(data_type)
         if file_key not in manifest:
             raise ValueError(f"No such {data_type} file {file_key!r}.")
@@ -4708,17 +4726,6 @@ class BaseApp(metaclass=Singleton):
         )
         req_unpack = bool(zip_path := (spec.get("zip_file") or spec.get("zip_contents")))
         src_fn = zip_path or file_key
-
-        # first try the config; if not set use the app defined attribute:
-        msg_attr = "config"
-        if not (url := self.config.get(dir_key)):
-            url = getattr(self, dir_key)
-            msg_attr = "app"
-
-        self.logger.debug(
-            f"using {msg_attr} attribute {dir_key!r} with value {url!r} to locate file "
-            f"to cache."
-        )
 
         cache_base = ENSURE_LOOKUP[data_type]()
         cache_file_path = cache_base.joinpath(file_key)
@@ -4731,7 +4738,11 @@ class BaseApp(metaclass=Singleton):
             self.logger.debug(f"Cache of {file_key!r} already exists.")
             return cache_file_path
 
-        fs, url_path = rate_limit_safe_url_to_fs(self, url, logger=self.logger)
+        # get the fsspec `FileSystem` object and URL path, if not provided:
+        if fs_and_url_path is None:
+            fs, url_path = self.__get_fsspec_filesystem_and_url_path(data_type)
+        else:
+            fs, url_path = fs_and_url_path
 
         if isinstance(fs, LocalFileSystem):
             src_path = Path(f"{url_path}/{src_fn}")
@@ -4850,12 +4861,19 @@ class BaseApp(metaclass=Singleton):
         file_key: str,
         not_exist_ok: bool = True,
         manifest: dict[str, dict[str, str]] | None = None,
+        fs_and_url_path: tuple[Any, Any] | None = None,
     ) -> Path:
         """
         Delete and then re-cache a built-in data or program file, and return its path.
         """
         self.purge_file(data_type, file_key, manifest=manifest, not_exist_ok=not_exist_ok)
-        return self.cache_file(data_type, file_key, manifest=manifest, exist_ok=False)
+        return self.cache_file(
+            data_type,
+            file_key,
+            manifest=manifest,
+            exist_ok=False,
+            fs_and_url_path=fs_and_url_path,
+        )
 
     def is_data_file_cached(
         self,
@@ -5048,15 +5066,141 @@ class BaseApp(metaclass=Singleton):
         """
         return self.recache_file("program", file_key, not_exist_ok=not_exist_ok)
 
-    def cache_all_data_files(self, exist_ok: bool = True) -> list[Path]:
+    @contextmanager
+    def __check_cache_all_via_github(
+        self,
+        fs_and_url_path: tuple[Any, Any],
+        data_type: Literal["data", "program"],
+        tmp_dir: Path | None = None,
+    ):
+        """For the special case where the data/program directory points to a GitHub
+        repository, download the whole repository as an archive, instead of making many
+        individual API requests, which can cause rate-limit errors.
+
+        Parameters
+        ----------
+        fs_and_url_path
+            A tuple of the fsspec FileSystem and the URL path within that file system, as
+            returned by the fsspec `url_to_fs` function when provided with an
+            fsspec-compatible URL.
+        tmp_dir
+            If provided, and the file system is a GithubFileSystem, the directory into
+            which an archive of that repository will be downloaded. It will be created if
+            it does not exists, and it is required. If not provided, a temporary directory
+            will created, used, and then deleted.
+        """
+        from fsspec.implementations.github import GithubFileSystem
+
+        DIR_ATTR_LOOKUP = {
+            "data": "data_dir",
+            "program": "program_dir",
+        }
+        fs, url_path = fs_and_url_path
+        if isinstance(fs, GithubFileSystem):
+            self.logger.debug(
+                "file system is `GitHubFileSystem`; downloading the repo archive to "
+                "cache all."
+            )
+            org = fs.org
+            repo = fs.repo
+            sha = fs.storage_options["sha"]
+            repo_dir_name = f"{repo}-{sha}"
+            tmp_provided = bool(tmp_dir)
+            tmp_dir = tmp_dir if tmp_provided else self._ensure_user_runtime_dir()
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_repo = tmp_dir / repo_dir_name
+
+            if tmp_repo.exists():
+                self.logger.debug(f"GitHub repo already downloaded: {tmp_repo}.")
+            else:
+                self.logger.debug(f"need to download GitHub repo to: {tmp_repo}.")
+                download_github_repo(org=org, repo=repo, sha=sha, local_path=tmp_dir)
+
+            updates = {DIR_ATTR_LOOKUP[data_type]: tmp_repo / url_path}
+            with self.config._with_updates(updates):
+                yield self.__get_fsspec_filesystem_and_url_path(data_type)
+
+            if not tmp_provided:
+                self.logger.debug(f"deleting GitHub repo at: {tmp_repo}.")
+                shutil.rmtree(tmp_repo)
+        else:
+            self.logger.debug("file system is not `GitHubFileSystem`.")
+            yield fs_and_url_path
+
+    def __get_github_repo_tmp_dir():
+        """Get a directory for downloading GitHub repo archives, so that if both data
+        and programs point to the same repo, we don't need to download it twice.
+        """
+        return self._ensure_user_runtime_dir() / "github_repos"
+
+    def cache_all(self, exist_ok: bool = True) -> tuple[list[Path], list[Path]]:
+        """
+        Cache all cacheable files: data files and programs, and return their paths.
+        """
+        tmp_repos_dir = self.__get_github_repo_tmp_dir()
+        data_paths = self.cache_all_data_files(exist_ok, tmp_repos_dir)
+        program_paths = self.cache_all_programs(exist_ok, tmp_repos_dir)
+        if tmp_repos_dir.exists():
+            self.logger.debug(
+                f"deleting temp directory for GitHub repos at: {tmp_repos_dir}."
+            )
+            shutil.rmtree(tmp_repos_dir)
+
+        return (data_paths, program_paths)
+
+    def recache_all(self, not_exist_ok: bool = True) -> tuple[list[Path], list[Path]]:
+        """
+        Purge and then re-cache all cacheable files: data files and programs, and return
+        their paths.
+        """
+        tmp_repos_dir = self.__get_github_repo_tmp_dir()
+        data_paths = self.recache_all_data_files(not_exist_ok, tmp_repos_dir)
+        program_paths = self.recache_all_programs(not_exist_ok, tmp_repos_dir)
+        if tmp_repos_dir.exists():
+            self.logger.debug(
+                f"deleting temp directory for GitHub repos at: {tmp_repos_dir}."
+            )
+            shutil.rmtree(tmp_repos_dir)
+
+        return (data_paths, program_paths)
+
+    def purge_all(self, not_exist_ok: bool = True):
+        """
+        Delete all cacheable files from the cache: data files and programs.
+        """
+        self.purge_all_data_files(not_exist_ok)
+        self.purge_all_programs(not_exist_ok)
+
+    def cache_all_data_files(
+        self, exist_ok: bool = True, tmp_dir: Path | None = None
+    ) -> list[Path]:
         """
         Cache all data files, and return their paths.
+
+        Parameters
+        ----------
+        tmp_dir
+            If provided, and the `data_dir` file system is a GithubFileSystem, the
+            directory into which an archive of that repository will be downloaded. It will
+            be created if it does not exists, and it is required. If not provided, a
+            temporary directory will created, used, and then deleted.
         """
         manifest = self.get_data_manifest("data")
-        return [
-            self.cache_file("data", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.get_data_files()
-        ]
+        with self.__check_cache_all_via_github(
+            fs_and_url_path=self.__get_fsspec_filesystem_and_url_path("data"),
+            data_type="data",
+            tmp_dir=tmp_dir,
+        ) as data_fs_url:
+            return [
+                self.cache_file(
+                    "data",
+                    key,
+                    manifest=manifest,
+                    exist_ok=exist_ok,
+                    fs_and_url_path=data_fs_url,
+                )
+                for key in self.get_data_files()
+            ]
 
     def purge_all_data_files(self, not_exist_ok: bool = True):
         """
@@ -5066,25 +5210,67 @@ class BaseApp(metaclass=Singleton):
         for key in self.get_data_files():
             self.purge_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
 
-    def recache_all_data_files(self, not_exist_ok: bool = True):
+    def recache_all_data_files(
+        self, not_exist_ok: bool = True, tmp_dir: Path | None = None
+    ):
         """
         Delete and then re-cache all built-in data files, and return their paths.
+
+        Parameters
+        ----------
+        tmp_dir
+            If provided, and the `data_dir` file system is a GithubFileSystem, the
+            directory into which an archive of that repository will be downloaded. It will
+            be created if it does not exists, and it is required. If not provided, a
+            temporary directory will created, used, and then deleted.
         """
         manifest = self.get_data_manifest("data")
-        return [
-            self.recache_file("data", key, manifest=manifest, not_exist_ok=not_exist_ok)
-            for key in self.get_data_files()
-        ]
+        with self.__check_cache_all_via_github(
+            fs_and_url_path=self.__get_fsspec_filesystem_and_url_path("data"),
+            data_type="data",
+            tmp_dir=tmp_dir,
+        ) as data_fs_url:
+            return [
+                self.recache_file(
+                    "data",
+                    key,
+                    manifest=manifest,
+                    not_exist_ok=not_exist_ok,
+                    fs_and_url_path=data_fs_url,
+                )
+                for key in self.get_data_files()
+            ]
 
-    def cache_all_programs(self, exist_ok: bool = True) -> list[Path]:
+    def cache_all_programs(
+        self, exist_ok: bool = True, tmp_dir: Path | None = None
+    ) -> list[Path]:
         """
         Cache all built-in programs, and return their paths.
+
+        Parameters
+        ----------
+        tmp_dir
+            If provided, and the `program_dir` file system is a GithubFileSystem, the
+            directory into which an archive of that repository will be downloaded. It will
+            be created if it does not exists, and it is required. If not provided, a
+            temporary directory will created, used, and then deleted.
         """
         manifest = self.get_data_manifest("program")
-        return [
-            self.cache_file("program", key, manifest=manifest, exist_ok=exist_ok)
-            for key in self.get_programs()
-        ]
+        with self.__check_cache_all_via_github(
+            fs_and_url_path=self.__get_fsspec_filesystem_and_url_path("program"),
+            data_type="program",
+            tmp_dir=tmp_dir,
+        ) as program_fs_url:
+            return [
+                self.cache_file(
+                    "program",
+                    key,
+                    manifest=manifest,
+                    exist_ok=exist_ok,
+                    fs_and_url_path=program_fs_url,
+                )
+                for key in self.get_programs()
+            ]
 
     def purge_all_programs(self, not_exist_ok: bool = True):
         """
@@ -5094,17 +5280,36 @@ class BaseApp(metaclass=Singleton):
         for key in self.get_programs():
             self.purge_file("program", key, manifest=manifest, not_exist_ok=not_exist_ok)
 
-    def recache_all_programs(self, not_exist_ok: bool = True):
+    def recache_all_programs(
+        self, not_exist_ok: bool = True, tmp_dir: Path | None = None
+    ):
         """
         Delete and then re-cache all built-in programs, and return their paths.
+
+        Parameters
+        ----------
+        tmp_dir
+            If provided, and the `program_dir` file system is a GithubFileSystem, the
+            directory into which an archive of that repository will be downloaded. It will
+            be created if it does not exists, and it is required. If not provided, a
+            temporary directory will created, used, and then deleted.
         """
         manifest = self.get_data_manifest("program")
-        return [
-            self.recache_file(
-                "program", key, manifest=manifest, not_exist_ok=not_exist_ok
-            )
-            for key in self.get_programs()
-        ]
+        with self.__check_cache_all_via_github(
+            fs_and_url_path=self.__get_fsspec_filesystem_and_url_path("program"),
+            data_type="program",
+            tmp_dir=tmp_dir,
+        ) as program_fs_url:
+            return [
+                self.recache_file(
+                    "program",
+                    key,
+                    manifest=manifest,
+                    not_exist_ok=not_exist_ok,
+                    fs_and_url_path=program_fs_url,
+                )
+                for key in self.get_programs()
+            ]
 
     def copy_cacheable_file(
         self,
@@ -5250,7 +5455,11 @@ class BaseApp(metaclass=Singleton):
         path: str | Path,
         overwrite: bool = False,
     ):
-        """Copy pre-existing cached data or programs to the correct locations."""
+        """Copy pre-existing cached data or programs to the correct locations.
+
+        Note: this does not unzip data or programs that are compressed; it expects data or
+        programs files in their final, uncompressed form.
+        """
         assert (path_ := Path(path)).is_dir()
 
         ENSURE_LOOKUP = {

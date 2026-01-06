@@ -1575,6 +1575,45 @@ def _make_manage_CLI(app: BaseApp):
         """Delete the app program cache directory."""
         app.clear_program_cache_dir()
 
+    @manage.command()
+    @click.option(
+        "--exist-ok/--exist-not-ok",
+        help="Whether to raise an exception if the file is already cached.",
+        is_flag=True,
+        default=True,
+    )
+    def cache_all(exist_ok: bool):
+        """Cache all cacheable files: data files and programs."""
+        app.cache_all(exist_ok=exist_ok)
+
+    @manage.command()
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    def recache_all(exist_ok: bool):
+        """Cache all cacheable files: data files and programs."""
+        app.recache_all(not_exist_ok=not exist_ok)
+
+    @manage.command()
+    @click.option(
+        "--exist-ok/--not-exist-ok",
+        help=(
+            "Whether to raise an exception if the file does not exist. False by default "
+            "(i.e. do not raise if the file does not exist)."
+        ),
+        is_flag=True,
+        default=False,
+    )
+    def purge_all(exist_ok: bool):
+        """Delete all cacheable files from the cache: data files and programs."""
+        app.purge_all(not_exist_ok=not exist_ok)
+
     return manage
 
 
