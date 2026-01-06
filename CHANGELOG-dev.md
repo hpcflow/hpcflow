@@ -1,4 +1,12 @@
 
+<a name="v0.2.0a294"></a>
+## [v0.2.0a294](https://github.com/hpcflow/hpcflow/compare/v0.2.0a293...v0.2.0a294) - 2026.01.06
+
+### 🐛 Bug Fixes
+
+* docstring typo (to test release workflow)
+
+
 <a name="v0.2.0a293"></a>
 ## [v0.2.0a293](https://github.com/hpcflow/hpcflow/compare/v0.2.0a292...v0.2.0a293) - 2026.01.06
 
