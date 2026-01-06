@@ -329,7 +329,7 @@ class Command(JSONLike):
 
     def process_std_stream(self, name: str, value: str, stderr: bool) -> Any:
         """
-        Process a description of a standard stread from a command to get how it becomes
+        Process a description of a standard stream from a command to get how it becomes
         a workflow parameter for later actions.
 
         Parameters
