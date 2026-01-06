@@ -5089,7 +5089,7 @@ class BaseApp(metaclass=Singleton):
             it does not exists, and it is required. If not provided, a temporary directory
             will created, used, and then deleted.
         """
-        from fsspec.implementations.github import GithubFileSystem
+        from fsspec.implementations.github import GithubFileSystem  # type: ignore
 
         DIR_ATTR_LOOKUP = {
             "data": "data_dir",
@@ -5107,6 +5107,7 @@ class BaseApp(metaclass=Singleton):
             repo_dir_name = f"{repo}-{sha}"
             tmp_provided = bool(tmp_dir)
             tmp_dir = tmp_dir if tmp_provided else self._ensure_user_runtime_dir()
+            assert tmp_dir
             tmp_dir.mkdir(parents=True, exist_ok=True)
             tmp_repo = tmp_dir / repo_dir_name
 
@@ -5127,7 +5128,7 @@ class BaseApp(metaclass=Singleton):
             self.logger.debug("file system is not `GitHubFileSystem`.")
             yield fs_and_url_path
 
-    def __get_github_repo_tmp_dir():
+    def __get_github_repo_tmp_dir(self):
         """Get a directory for downloading GitHub repo archives, so that if both data
         and programs point to the same repo, we don't need to download it twice.
         """
