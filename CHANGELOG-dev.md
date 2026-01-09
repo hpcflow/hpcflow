@@ -1,4 +1,18 @@
 
+<a name="v0.2.0a295"></a>
+## [v0.2.0a295](https://github.com/hpcflow/hpcflow/compare/v0.2.0a294...v0.2.0a295) - 2026.01.09
+
+### 🐛 Bug Fixes
+
+* type check
+* more efficient caching when via a GitHub repo
+
+### 👷 Build changes
+
+* temporarily use non-main github-support branch to test
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a294"></a>
 ## [v0.2.0a294](https://github.com/hpcflow/hpcflow/compare/v0.2.0a293...v0.2.0a294) - 2026.01.06
 
