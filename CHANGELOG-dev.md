@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a296"></a>
+## [v0.2.0a296](https://github.com/hpcflow/hpcflow/compare/v0.2.0a295...v0.2.0a296) - 2026.01.10
+
+### 🐛 Bug Fixes
+
+* status bool in `make_and_submit_demo_workflow`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a295"></a>
 ## [v0.2.0a295](https://github.com/hpcflow/hpcflow/compare/v0.2.0a294...v0.2.0a295) - 2026.01.09
 
