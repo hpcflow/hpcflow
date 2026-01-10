@@ -1083,6 +1083,7 @@ class PersistentStore(
         overwrite=False,
         include_execute=False,
         include_rechunk_backups=False,
+        status: bool = True,
     ) -> str:
         """
         Convert this store into archival form.

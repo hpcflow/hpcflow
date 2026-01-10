@@ -3352,6 +3352,7 @@ class BaseApp(metaclass=Singleton):
             ts_name_fmt=ts_name_fmt,
             store_kwargs=store_kwargs,
             variables=variables,
+            status=status,
         )
         assert isinstance(wk, _Workflow)
         submitted_js = wk.submit(
