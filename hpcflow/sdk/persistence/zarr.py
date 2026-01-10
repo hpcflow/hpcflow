@@ -5,7 +5,7 @@ Persistence model based on writing Zarr arrays.
 from __future__ import annotations
 
 import copy
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,6 +92,7 @@ if TYPE_CHECKING:
     from ..app import BaseApp
     from ..core.json_like import JSONed, JSONDocument
     from ..typing import ParamSource, PathLike, DataIndex
+    from rich.status import Status
 
 #: List of any (Zarr-serializable) value.
 ListAny: TypeAlias = "list[Any]"
@@ -2126,6 +2127,7 @@ class ZarrPersistentStore(
         overwrite: bool = False,
         include_execute: bool = False,
         include_rechunk_backups: bool = False,
+        status: bool = True,
     ):
         """
         Convert the persistent store to zipped form.
@@ -2137,7 +2139,12 @@ class ZarrPersistentStore(
             directory, the zip file will be created within this directory. Otherwise,
             this path is assumed to be the full file path to the new zip file.
         """
-        with Console().status(f"Zipping workflow {self.workflow.name!r}..."):
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            Console().status(f"Zipping workflow {self.workflow.name!r}...")
+            if status
+            else nullcontext()
+        )
+        with status_context:
             # TODO: this won't work for remote file systems
             dst_path = Path(path).resolve()
             if dst_path.is_dir():
@@ -2323,10 +2330,11 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
         overwrite: bool = False,
         include_execute: bool = False,
         include_rechunk_backups: bool = False,
+        status: bool = True,
     ):
         raise ValueError("Already a zip store!")
 
-    def unzip(self, path: str = ".", log: str | None = None) -> str:
+    def unzip(self, path: str = ".", log: str | None = None, status: bool = True) -> str:
         """
         Expand the persistent store.
 
@@ -2338,8 +2346,13 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
             Otherwise, this path will represent the new workflow directory path.
 
         """
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            Console().status(f"Unzipping workflow {self.workflow.name!r}...")
+            if status
+            else nullcontext()
+        )
 
-        with Console().status(f"Unzipping workflow {self.workflow.name!r}..."):
+        with status_context:
             # TODO: this won't work for remote file systems
             dst_path = Path(path).resolve()
             if dst_path.is_dir():
