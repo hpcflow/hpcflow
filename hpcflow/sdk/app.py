@@ -1892,7 +1892,7 @@ class BaseApp(metaclass=Singleton):
                             builtin_envs.pop(b_idx)
                     envs.append(env_j)
                     env_file_paths[
-                        self.Environment.get_id(env_j["name"], env_j["specifiers"])
+                        self.Environment.get_id(env_j["name"], env_j.get("specifiers"))
                     ] = e_path
             envs = builtin_envs + envs
             env_list = self.EnvironmentsList.from_json_like(envs, shared_data=self_tc)
