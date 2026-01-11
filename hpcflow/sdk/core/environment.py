@@ -266,7 +266,10 @@ class Environment(JSONLike):
     def __lt__(self, other):
         if not isinstance(other, self.__class__):
             return NotImplemented
-        return (self.name, self.specifiers) < (other.name, other.specifiers)
+        return (self.name, sorted(self.specifiers.items())) < (
+            other.name,
+            sorted(other.specifiers.items()),
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name!r})"

@@ -1892,7 +1892,7 @@ class BaseApp(metaclass=Singleton):
                             builtin_envs.pop(b_idx)
                     envs.append(env_j)
                     env_file_paths[
-                        self.Environment.get_id(env_j["name"], env_j["specifiers"])
+                        self.Environment.get_id(env_j["name"], env_j.get("specifiers"))
                     ] = e_path
             envs = builtin_envs + envs
             env_list = self.EnvironmentsList.from_json_like(envs, shared_data=self_tc)
@@ -4107,13 +4107,19 @@ class BaseApp(metaclass=Singleton):
     def redirect_std_to_file(*args, **kwargs):
         return redirect_std_to_file_hpcflow(*args, **kwargs)
 
-    def __update_env_source_file(self, env_file: Path, new_contents: list[JSONDocument]):
+    def __update_env_source_file(
+        self, env_file: Path, new_contents: list[JSONDocument], typ: str = "safe"
+    ):
         """
         Update the contents of the specified environments sources file (e.g. when adding
         or removing environments).
         """
         overwrite_YAML_file(
-            env_file, new_contents, description="environment sources", logger=self.logger
+            env_file,
+            new_contents,
+            description="environment sources",
+            logger=self.logger,
+            typ=typ,
         )
 
     @staticmethod
@@ -4295,7 +4301,7 @@ class BaseApp(metaclass=Singleton):
 
         # rewrite source files
         for file, remove_IDs in env_IDs_by_file.items():
-            env_data = read_YAML_file(file)
+            env_data = read_YAML_file(file, typ="rt")
             env_list = self.EnvironmentsList.from_json_like(
                 env_data, shared_data=self._shared_data
             )
@@ -4304,7 +4310,7 @@ class BaseApp(metaclass=Singleton):
                 for env_i in env_list
                 if env_i.id not in remove_IDs
             ]
-            self.__update_env_source_file(file, new_env_data)
+            self.__update_env_source_file(file, new_env_data, typ="rt")
             self.logger.debug(
                 f"Removed environments with hash IDs {remove_IDs!r} from file "
                 f"{source_file!r}."
@@ -4377,7 +4383,7 @@ class BaseApp(metaclass=Singleton):
         if env_source.exists():
             existing_env_dat: list[dict] = read_YAML_file(env_source, typ="rt")
             all_env_dat = [*existing_env_dat, new_env_dat]
-            self.__update_env_source_file(env_source, all_env_dat)
+            self.__update_env_source_file(env_source, all_env_dat, typ="rt")
         else:
             all_env_dat = [new_env_dat]
             write_YAML_file(all_env_dat, env_source, typ="rt")

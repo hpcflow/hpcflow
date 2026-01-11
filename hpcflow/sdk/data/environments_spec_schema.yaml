@@ -11,12 +11,12 @@ rules:
         - value.type.equal_to: str
         - value.null: null
   - path: [executables]
-    condition: { value.type.equal_to: list }
+    condition: { value.is_instance: [list] }
   - path: [executables, { type: list_value }]
     condition: { value.allowed_keys: [label, instances] }
   - path: [executables, { type: list_value }, instances]
-    condition: { value.type.equal_to: list }
+    condition: { value.is_instance: [list] }
   - path: [executables, { type: list_value }, instances, { type: list_value }]
-    condition: { value.type.equal_to: dict }
+    condition: { value.is_instance: [dict] }
   - path: [executables, { type: list_value }, instances, { type: list_value }]
     condition: { value.allowed_keys: [command, num_cores, parallel_mode] }
