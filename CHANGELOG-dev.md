@@ -1,4 +1,18 @@
 
+<a name="v0.2.0a297"></a>
+## [v0.2.0a297](https://github.com/hpcflow/hpcflow/compare/v0.2.0a296...v0.2.0a297) - 2026.01.11
+
+### 🐛 Bug Fixes
+
+* round-trip modifying of env files
+* less than method of `Environment`
+* load_template_components when an env has no specifiers
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a296"></a>
 ## [v0.2.0a296](https://github.com/hpcflow/hpcflow/compare/v0.2.0a295...v0.2.0a296) - 2026.01.10
 
