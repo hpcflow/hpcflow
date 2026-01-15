@@ -2422,6 +2422,7 @@ class Workflow(AppAware):
         overwrite: bool = False,
         include_execute: bool = False,
         include_rechunk_backups: bool = False,
+        status: bool = True,
     ) -> str:
         """
         Convert the workflow to a zipped form.
@@ -2439,6 +2440,7 @@ class Workflow(AppAware):
             overwrite=overwrite,
             include_execute=include_execute,
             include_rechunk_backups=include_rechunk_backups,
+            status=status,
         )
 
     def unzip(self, path: str = ".", *, log: str | None = None) -> str:

@@ -1484,6 +1484,7 @@ class JSONPersistentStore(
         overwrite=False,
         include_execute=False,
         include_rechunk_backups=False,
+        status: bool = True,
     ) -> str:
         raise TypeError("unsupported operation: zipping-json")
 

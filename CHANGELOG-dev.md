@@ -1,4 +1,44 @@
 
+<a name="v0.2.0a297"></a>
+## [v0.2.0a297](https://github.com/hpcflow/hpcflow/compare/v0.2.0a296...v0.2.0a297) - 2026.01.11
+
+### 🐛 Bug Fixes
+
+* round-trip modifying of env files
+* less than method of `Environment`
+* load_template_components when an env has no specifiers
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a296"></a>
+## [v0.2.0a296](https://github.com/hpcflow/hpcflow/compare/v0.2.0a295...v0.2.0a296) - 2026.01.10
+
+### 🐛 Bug Fixes
+
+* status bool in `make_and_submit_demo_workflow`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a295"></a>
+## [v0.2.0a295](https://github.com/hpcflow/hpcflow/compare/v0.2.0a294...v0.2.0a295) - 2026.01.09
+
+### 🐛 Bug Fixes
+
+* type check
+* more efficient caching when via a GitHub repo
+
+### 👷 Build changes
+
+* temporarily use non-main github-support branch to test
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a294"></a>
 ## [v0.2.0a294](https://github.com/hpcflow/hpcflow/compare/v0.2.0a293...v0.2.0a294) - 2026.01.06
 
