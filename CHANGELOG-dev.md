@@ -1,4 +1,18 @@
 
+<a name="v0.2.0a299"></a>
+## [v0.2.0a299](https://github.com/hpcflow/hpcflow/compare/v0.2.0a298...v0.2.0a299) - 2026.01.20
+
+### 🐛 Bug Fixes
+
+* type check
+* check on `resources.num_threads` in `SlurmPosix.process_resources`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 6 updates
+
+
 <a name="v0.2.0a298"></a>
 ## [v0.2.0a298](https://github.com/hpcflow/hpcflow/compare/v0.2.0a297...v0.2.0a298) - 2026.01.15
 
