@@ -52,7 +52,7 @@ ipywidgets = "^8.1.8"
 [tool.poetry.group.dev.dependencies]
 pylint = ">=2.12.2,<5.0.0"
 pytest = ">=7.2,<10.0"
-black = ">=25.1,<26.0"
+black = ">=25.1,<27.0"
 commitizen = ">=2.20.3,<5.0.0"
 pre-commit = ">=2.16,<5.0"
 tuna = "^0.5.11"
@@ -61,7 +61,7 @@ sphinx-click = ">=4.4,<7.0"
 sphinx-jinja = "^2.0.1"
 sphinx-copybutton = "^0.5.0"
 sphinx-design = ">=0.4.1,<0.7.0"
-sphinx-togglebutton = "^0.3.2"
+sphinx-togglebutton = "^0.4.4"
 pydata-sphinx-theme = ">=0.13.3,<0.17.0"
 ipykernel = "^7.1.0"
 myst-nb = [
@@ -76,7 +76,7 @@ papermill = "^2.6.0"
 ipykernel = "^7.1.0"
 
 [tool.poetry.group.pyinstaller.dependencies]
-pyinstaller = "^6.17.0"
+pyinstaller = "^6.18.0"
 
 [tool.poetry.group.typecheck]
 optional = true
@@ -84,7 +84,7 @@ optional = true
 types-colorama = "^0.4.15.20240311"
 types-paramiko = ">=3.4.0.20240423,<5.0.0.0"
 types-psutil = ">=6.0.0.20240621,<8.0.0.0"
-types-pyinstaller = "^6.17.0.20251127"
+types-pyinstaller = "^6.18.0.20260115"
 types-requests = "^2.32.4.20260107"
 types-setuptools = ">=70.2.0.20240704,<81.0.0.0"
 mypy = "^1.19.1"
