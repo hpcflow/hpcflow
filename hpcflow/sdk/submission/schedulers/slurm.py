@@ -173,6 +173,7 @@ class SlurmPosix(QueuedScheduler):
                 resources.SLURM_num_cpus_per_task = resources.num_threads
 
             elif resources.parallel_mode is ParallelMode.DISTRIBUTED:
+                assert resources.num_threads
                 if resources.num_threads > 1:
                     raise ValueError(
                         f"For the {resources.parallel_mode.name.lower()} parallel "
