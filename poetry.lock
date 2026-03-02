@@ -218,18 +218,6 @@ files = [
 ]
 
 [[package]]
-name = "ansicolors"
-version = "1.1.8"
-description = "ANSI colors for Python"
-optional = false
-python-versions = "*"
-groups = ["test"]
-files = [
-    {file = "ansicolors-1.1.8-py2.py3-none-any.whl", hash = "sha256:00d2dde5a675579325902536738dd27e4fac1fd68f773fe36c21044eb559e187"},
-    {file = "ansicolors-1.1.8.zip", hash = "sha256:99f94f5e3348a0bcd43c82e5fc4414013ccc19d70bd939ad71e0133ce9c372e0"},
-]
-
-[[package]]
 name = "appnope"
 version = "0.1.4"
 description = "Disable App Nap on macOS >= 10.9"
@@ -781,14 +769,14 @@ test = ["pytest"]
 
 [[package]]
 name = "commitizen"
-version = "4.13.8"
+version = "4.13.9"
 description = "Python commitizen client tool"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["dev"]
 files = [
-    {file = "commitizen-4.13.8-py3-none-any.whl", hash = "sha256:dfbe2b5cb074cd86398d88e7afabdc6ba530fc02377ed9a7510477efd8deff86"},
-    {file = "commitizen-4.13.8.tar.gz", hash = "sha256:d8769c0b2ee7bfe15d6871af1e242913df696b4a94e91a8146c5d78b778144ee"},
+    {file = "commitizen-4.13.9-py3-none-any.whl", hash = "sha256:d2af3d6a83cacec9d5200e17768942c5de6266f93d932c955986c60c4285f2db"},
+    {file = "commitizen-4.13.9.tar.gz", hash = "sha256:2b4567ed50555e10920e5bd804a6a4e2c42ec70bb74f14a83f2680fe9eaf9727"},
 ]
 
 [package.dependencies]
@@ -2714,39 +2702,38 @@ files = [
 
 [[package]]
 name = "papermill"
-version = "2.6.0"
+version = "2.7.0"
 description = "Parameterize and run Jupyter and nteract Notebooks"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["test"]
 files = [
-    {file = "papermill-2.6.0-py3-none-any.whl", hash = "sha256:0f09da6ef709f3f14dde77cb1af052d05b14019189869affff374c9e612f2dd5"},
-    {file = "papermill-2.6.0.tar.gz", hash = "sha256:9fe2a91912fd578f391b4cc8d6d105e73124dcd0cde2a43c3c4a1c77ac88ea24"},
+    {file = "papermill-2.7.0-py3-none-any.whl", hash = "sha256:e1855e6670100a02bb4f8a6870484a5c10b84a8d2e49c49921c90209940c7514"},
+    {file = "papermill-2.7.0.tar.gz", hash = "sha256:ec10b37594a060662f57269e1ebd108c209d204450f00fdfeb70a1c7cfb7fbc8"},
 ]
 
 [package.dependencies]
-aiohttp = {version = ">=3.9.0", markers = "python_version == \"3.12\""}
-ansicolors = "*"
+aiohttp = {version = ">=3.9", markers = "python_version == \"3.12\""}
 click = "*"
 entrypoints = "*"
-nbclient = ">=0.2.0"
-nbformat = ">=5.2.0"
+nbclient = ">=0.2"
+nbformat = ">=5.2"
 pyyaml = "*"
 requests = "*"
 tenacity = ">=5.0.2"
 tqdm = ">=4.32.2"
 
 [package.extras]
-all = ["PyGithub (>=1.55)", "azure-datalake-store (>=0.0.30)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1.0)", "black (>=19.3b0)", "boto3", "gcsfs (>=0.2.0)", "pyarrow (>=2.0)", "requests (>=2.21.0)"]
-azure = ["azure-datalake-store (>=0.0.30)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1.0)", "requests (>=2.21.0)"]
+all = ["azure-datalake-store (>=0.0.30,<1.0.0a0)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1)", "black (>=19.3b0)", "boto3", "gcsfs (>=0.2)", "pyarrow (>=2)", "pygithub (>=1.55)", "requests (>=2.21)"]
+azure = ["azure-datalake-store (>=0.0.30,<1.0.0a0)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1)", "requests (>=2.21)"]
 black = ["black (>=19.3b0)"]
-dev = ["attrs (>=17.4.0)", "azure-datalake-store (>=0.0.30)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1.0)", "black (>=19.3b0)", "boto3", "botocore", "bumpversion", "check-manifest", "codecov", "coverage", "gcsfs (>=0.2.0)", "google-compute-engine", "ipython (>=5.0)", "ipywidgets", "moto (>=5.0.0,<5.1.0)", "notebook", "pip (>=18.1)", "pre-commit", "pytest (>=4.1)", "pytest-cov (>=2.6.1)", "pytest-env (>=0.6.2)", "pytest-mock (>=1.10)", "recommonmark", "requests (>=2.21.0)", "setuptools (>=38.6.0)", "tox", "twine (>=1.11.0)", "wheel (>=0.31.0)"]
-docs = ["PyGithub (>=1.55)", "Sphinx (>=7.2.6)", "azure-datalake-store (>=0.0.30)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1.0)", "black (>=19.3b0)", "boto3", "entrypoints", "furo (>=2023.9.10)", "gcsfs (>=0.2.0)", "moto (>=4.2.8)", "myst-parser (>=2.0.0)", "nbformat", "pyarrow (>=2.0)", "requests (>=2.21.0)", "sphinx-copybutton (>=0.5.2)"]
-gcs = ["gcsfs (>=0.2.0)"]
-github = ["PyGithub (>=1.55)"]
-hdfs = ["pyarrow (>=2.0)"]
+dev = ["attrs (>=17.4)", "azure-datalake-store (>=0.0.30,<1.0.0a0)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1)", "black (>=19.3b0)", "boto3", "botocore", "bumpversion", "check-manifest", "codecov", "coverage", "gcsfs (>=0.2)", "google-compute-engine", "ipython (>=5,<9)", "ipywidgets", "moto (>=5,<5.1)", "notebook", "pip (>=18.1)", "pre-commit", "pyarrow (>=2)", "pygithub (>=1.55)", "pytest (>=4.1)", "pytest-cov (>=2.6.1)", "pytest-env (>=0.6.2)", "pytest-mock (>=1.10)", "recommonmark", "requests (>=2.21)", "setuptools (>=38.6)", "tox", "twine (>=1.11)", "wheel (>=0.31)"]
+docs = ["azure-datalake-store (>=0.0.30,<1.0.0a0)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1)", "black (>=19.3b0)", "boto3", "furo (>=2023.9.10)", "gcsfs (>=0.2)", "moto (>=4.2.8)", "myst-parser (>=2)", "pyarrow (>=2)", "pygithub (>=1.55)", "requests (>=2.21)", "sphinx (>=7.2.6)", "sphinx-copybutton (>=0.5.2)"]
+gcs = ["gcsfs (>=0.2)"]
+github = ["pygithub (>=1.55)"]
+hdfs = ["pyarrow (>=2)"]
 s3 = ["boto3"]
-test = ["attrs (>=17.4.0)", "azure-datalake-store (>=0.0.30)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1.0)", "black (>=19.3b0)", "boto3", "botocore", "bumpversion", "check-manifest", "codecov", "coverage", "gcsfs (>=0.2.0)", "google-compute-engine", "ipython (>=5.0)", "ipywidgets", "moto (>=5.0.0,<5.1.0)", "notebook", "pip (>=18.1)", "pre-commit", "pytest (>=4.1)", "pytest-cov (>=2.6.1)", "pytest-env (>=0.6.2)", "pytest-mock (>=1.10)", "recommonmark", "requests (>=2.21.0)", "setuptools (>=38.6.0)", "tox", "twine (>=1.11.0)", "wheel (>=0.31.0)"]
+test = ["attrs (>=17.4)", "azure-datalake-store (>=0.0.30,<1.0.0a0)", "azure-identity (>=1.3.1)", "azure-storage-blob (>=12.1)", "black (>=19.3b0)", "boto3", "botocore", "bumpversion", "check-manifest", "codecov", "coverage", "gcsfs (>=0.2)", "google-compute-engine", "ipython (>=5,<9)", "ipywidgets", "moto (>=5,<5.1)", "notebook", "pip (>=18.1)", "pre-commit", "pyarrow (>=2)", "pygithub (>=1.55)", "pytest (>=4.1)", "pytest-cov (>=2.6.1)", "pytest-env (>=0.6.2)", "pytest-mock (>=1.10)", "recommonmark", "requests (>=2.21)", "setuptools (>=38.6)", "tox", "twine (>=1.11)", "wheel (>=0.31)"]
 
 [[package]]
 name = "paramiko"
@@ -5124,4 +5111,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "059bb5d80382ad0be3e4478cdcf697cdefec73c5df1538e9e20628acc194e209"
+content-hash = "3e188e3d2219d921e7701205cd15011d0b8aaac4d44df2a1894271fa4202b37a"
