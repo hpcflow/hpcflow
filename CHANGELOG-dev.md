@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a302"></a>
+## [v0.2.0a302](https://github.com/hpcflow/hpcflow/compare/v0.2.0a301...v0.2.0a302) - 2026.03.05
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 2 updates
+
+
 <a name="v0.2.0a301"></a>
 ## [v0.2.0a301](https://github.com/hpcflow/hpcflow/compare/v0.2.0a300...v0.2.0a301) - 2026.03.02
 
