@@ -2304,7 +2304,10 @@ class BaseApp(metaclass=Singleton):
 
     @TimeIt.decorator
     def _load_config(
-        self, config_dir: PathLike, config_key: str | None, **overrides
+        self,
+        config_dir: PathLike,
+        config_key: str | None,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         self.logger.info("Loading configuration.")
         self._ensure_user_data_dir()
@@ -2327,7 +2330,7 @@ class BaseApp(metaclass=Singleton):
             config_key=config_key,
             logger=self.config_logger,
             variables={"app_name": self.name, "app_version": self.version},
-            **overrides,
+            overrides=overrides,
         )
         self.log.update_console_level(self.config.get("log_console_level"))
         log_file_path = self.config.get("log_file_path")
@@ -2349,7 +2352,7 @@ class BaseApp(metaclass=Singleton):
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """
         Load the user's configuration.
@@ -2365,7 +2368,7 @@ class BaseApp(metaclass=Singleton):
         """
         if warn and self.is_config_loaded:
             warnings.warn("Configuration is already loaded; reloading.")
-        self._load_config(config_dir, config_key, **overrides)
+        self._load_config(config_dir, config_key, overrides=overrides)
 
     def unload_config(self) -> None:
         """
@@ -2394,21 +2397,21 @@ class BaseApp(metaclass=Singleton):
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """Reset the config file to defaults, and reload the config."""
         self.logger.info("resetting config")
         self._delete_config_file(config_dir=config_dir)
         self._config = None
         self._config_files = {}
-        self.load_config(config_dir, config_key, warn=warn, **overrides)
+        self.load_config(config_dir, config_key, warn=warn, overrides=overrides)
 
     def reload_config(
         self,
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """
         Reload the configuration. Use if a user has updated the configuration file
@@ -2418,7 +2421,7 @@ class BaseApp(metaclass=Singleton):
             warnings.warn("Configuration is not loaded; loading.")
         self.log.remove_file_handler()
         self._config_files = {}
-        self._load_config(config_dir, config_key, **overrides)
+        self._load_config(config_dir, config_key, overrides=overrides)
 
     @TimeIt.decorator
     def __load_builtin_files_from_nested_package(

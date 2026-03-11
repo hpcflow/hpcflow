@@ -247,12 +247,12 @@ class Config:
         uid: str | None = None,
         callbacks: dict[str, tuple[GetterCallback, ...]] | None = None,
         variables: dict[str, str] | None = None,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ):
         self._app = app
         self._file = config_file
         self._options = options
-        self._overrides = overrides
+        self._overrides = overrides or {}
         self._logger = logger
         self._variables = variables or {}
 
@@ -321,7 +321,10 @@ class Config:
         self._modified_keys: ConfigDescriptor = {}
         self._unset_keys: set[str] = set()
 
-        if any((unknown := name) not in self._configurable_keys for name in overrides):
+        if any(
+            (unknown := name) not in self._configurable_keys
+            for name in self._override_names
+        ):
             raise ConfigUnknownOverrideError(name=unknown)
 
         host_uid, host_uid_file_path = self._get_user_id()
@@ -569,6 +572,11 @@ class Config:
         else:
             super().__setattr__(name, value)
 
+    @property
+    def _override_names(self) -> set[str]:
+        """Get the set of top-level names of the provided overrides paths, if there are any."""
+        return set(over_key.split(".")[0] for over_key in self._overrides)
+
     def _disable_callbacks(self, callbacks: Sequence[str]) -> tuple[
         dict[str, tuple[GetterCallback, ...]],
         dict[str, tuple[SetterCallback, ...]],
@@ -808,8 +816,32 @@ class Config:
         elif name in self._meta_data:
             val = cast("dict", self._meta_data)[name]
 
-        elif include_overrides and name in self._overrides:
-            val = self._overrides[name]
+        elif include_overrides:
+
+            # overrides might be dot-delimited, so retrieve the non-dot-delimted value
+            # first, and merge into it:
+            if name in self._overrides:
+                root_over = deepcopy(self._overrides[name])
+            else:
+                root_over = self._get(
+                    name=name,
+                    include_overrides=False,
+                    callback=callback,
+                    as_str=as_str,
+                    default_value=default_value,
+                    raise_on_missing=raise_on_missing,
+                )
+
+            for over_key, over_val in self._overrides.items():
+                if over_key == name:
+                    continue
+                over_name, *path_prefix = over_key.split(".")
+                if over_name == name:
+                    if root_over is None:
+                        root_over = {}  # assume a mapping rather than a sequence
+                    set_in_container(root_over, path_prefix, over_val)
+
+            val = root_over
 
         elif name in self._unset_keys:
             if raise_on_missing:
