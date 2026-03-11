@@ -219,18 +219,21 @@ submit_quiet_opt = click.option(
     "--quiet",
     help="If True, do not print anything about workflow submission.",
     default=False,
+    is_flag=True,
 )
 #: Standard option
 wait_quiet_opt = click.option(
     "--quiet",
     help="If True, do not print anything (e.g. when jobscripts have completed).",
     default=False,
+    is_flag=True,
 )
 #: Standard option
 cancel_quiet_opt = click.option(
     "--quiet",
     help="If True, do not print anything (e.g. which jobscripts where cancelled).",
     default=False,
+    is_flag=True,
 )
 #: Standard option
 force_arr_opt = click.option(

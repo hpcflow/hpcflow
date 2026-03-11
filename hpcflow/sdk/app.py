@@ -4090,6 +4090,7 @@ class BaseApp(metaclass=Singleton):
         workflow_ref: int | str | Path,
         ref_is_path: str | None = None,
         status: bool = True,
+        quiet: bool = False,
     ) -> None:
         """
         Cancel the execution of a workflow submission.
@@ -4104,7 +4105,7 @@ class BaseApp(metaclass=Singleton):
             Whether to show a live status during cancel.
         """
         path = self._resolve_workflow_reference(str(workflow_ref), ref_is_path)
-        self.Workflow(path).cancel(status=status)
+        self.Workflow(path).cancel(status=status, quiet=quiet)
 
     @staticmethod
     def redirect_std_to_file(*args, **kwargs):
