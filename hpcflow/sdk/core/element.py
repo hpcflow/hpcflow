@@ -318,9 +318,8 @@ class ElementResources(JSONLike):
         An arbitrary integer that can be used to force multiple jobscripts.
     skip_downstream_on_failure: bool
         Whether to skip downstream dependents on failure.
-    allow_failed_dependencies: int | float | bool | None
-        The failure tolerance with respect to dependencies, specified as a number or
-        proportion.
+    random_seed: int | None
+        A random seed that is exposed as an environment variable during run execution.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -386,9 +385,8 @@ class ElementResources(JSONLike):
     resources_id: int | None = None
     #: Whether to skip downstream dependents on failure.
     skip_downstream_on_failure: bool = True
-    #: The failure tolerance with respect to dependencies, specified as a number or
-    #: proportion.
-    allow_failed_dependencies: int | float | bool | None = False
+    #: A random seed that is exposed as an environment variable during run execution.
+    random_seed: int | None = None
 
     # SGE scheduler specific:
     #: Which SGE parallel environment to request.
@@ -539,7 +537,7 @@ class ElementResources(JSONLike):
         if self.scheduler is None:
             self.scheduler = self.get_default_scheduler(self.os_name, self.shell)
 
-        # this are not set by the user:
+        # these are not set by the user:
         self.platform = self.get_default_platform()
         self.CPU_arch = self.get_default_CPU_arch()
         self.executable_extension = self.get_default_executable_extension()

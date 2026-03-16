@@ -24,6 +24,7 @@ from uuid import uuid4
 from warnings import warn
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
+from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
@@ -296,7 +297,8 @@ class WorkflowTemplate(JSONLike):
         self.tasks = new_tasks
 
         resources = self._app.ResourceList.normalise(self.resources)
-        self.resources = resources
+        self.resources = self._set_machine_agnostic_resource_defaults(resources)
+
         self._set_parent_refs()
 
         # merge template-level `resources` into task element set resources (this mutates
@@ -320,6 +322,23 @@ class WorkflowTemplate(JSONLike):
             bad_keys = set(self.config) - set(self._app.config_options._configurable_keys)
             if bad_keys:
                 raise ConfigNonConfigurableError(name=bad_keys)
+
+    @classmethod
+    def _set_machine_agnostic_resource_defaults(
+        cls, resources: ResourceList
+    ) -> ResourceList:
+        """Set workflow-level resource defaults (to the "any" scope) that do not depend
+        on the submission machine."""
+
+        # set a random seed, if not set for the any scope:
+        res_any = resources.get(scope=cls._app.ActionScope.any())
+        res_defaults = cls._app.ResourceList.normalise(
+            cls._app.ResourceSpec(
+                random_seed=ensure_seed(res_any.random_seed),
+            )
+        )
+        resources.merge_other(res_defaults)
+        return resources
 
     @property
     def _resources(self) -> ResourceList:
@@ -4241,6 +4260,7 @@ class Workflow(AppAware):
                             ),
                             f"{app_caps}_ELEMENT_ITER_ID": str(run.element_iteration.id_),
                             f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
+                            f"{app_caps}_RUN_RANDOM_SEED": str(run.resources.random_seed),
                         }
 
                         if (num_threads := run.resources.num_threads) is not None:

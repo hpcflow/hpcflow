@@ -34,10 +34,14 @@ def process_demo_data_strings(app: BaseApp, value: Any) -> Any:
     return process_string_nodes(value, string_processor)
 
 
-def _get_seed(seed: int | list[int] | None) -> int | list[int]:
+def ensure_seed(seed: int | list[int] | None) -> int | list[int]:
     """For methods that use a random seed, if the seed is not set, set it randomly so it
     can be recorded within the method args for reproducibility."""
-    return int(cast("int", np.random.SeedSequence().entropy)) if seed is None else seed
+    return (
+        int(cast("int", np.random.SeedSequence().generate_state(1)[0]))
+        if seed is None
+        else seed
+    )
 
 
 class ValuesMixin(ABC):
@@ -389,7 +393,7 @@ class ValuesMixin(ABC):
             "low": low,
             "high": high,
             "shape": shape,
-            "seed": _get_seed(seed),
+            "seed": ensure_seed(seed),
             **kwargs,
         }
         obj = cls(
@@ -425,7 +429,7 @@ class ValuesMixin(ABC):
             "loc": loc,
             "scale": scale,
             "shape": shape,
-            "seed": _get_seed(seed),
+            "seed": ensure_seed(seed),
             **kwargs,
         }
         obj = cls(
@@ -461,7 +465,7 @@ class ValuesMixin(ABC):
             "mean": mean,
             "sigma": sigma,
             "shape": shape,
-            "seed": _get_seed(seed),
+            "seed": ensure_seed(seed),
             **kwargs,
         }
         obj = cls(
