@@ -479,3 +479,39 @@ class ValuesMixin(ABC):
             )
         )
         return obj._remember_values_method_args("from_log_normal", args)
+
+    @classmethod
+    def _random_seeds(
+        cls: Type[T],
+        number: int | None,
+        master_seed: int | None = None,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = "resources.any.random_seed",
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        **kwargs,
+    ):
+        args = {
+            "number": number,
+            "master_seed": master_seed,
+            **kwargs,
+        }
+        values = (
+            np.random.SeedSequence(master_seed)
+            .generate_state(1 if number is None else number)
+            .tolist()
+        )
+        if number is None:
+            values = values[0]  # default for an InputValue is to return one value
+        obj = cls(
+            **cls._process_mixin_args(
+                values=values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("random_seeds", args)

@@ -165,6 +165,7 @@ if TYPE_CHECKING:
         TaskOutputParameters,
         ElementPropagation,
         ElementSet,
+        RepeatsDescriptor,
     )
     from .core.task_schema import TaskSchema, TaskObjective
     from .core.workflow import WorkflowTemplate as _WorkflowTemplate
@@ -1312,6 +1313,15 @@ class BaseApp(metaclass=Singleton):
         :meta private:
         """
         return self._get_app_core_class("CompactProblemFormatter")
+
+    @property
+    def RepeatsDescriptor(self) -> type[RepeatsDescriptor]:
+        """
+        The :class:`RepeatsDescriptor` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("RepeatsDescriptor")
 
     @property
     def make_workflow(self) -> _MakeWorkflow:

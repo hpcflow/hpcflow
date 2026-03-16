@@ -432,7 +432,7 @@ class ElementResources(JSONLike):
     def get_jobscript_hash(self) -> int:
         """Get hash from all arguments that distinguish jobscripts."""
 
-        exclude = ["time_limit", "skip_downstream_on_failure"]
+        exclude = ["time_limit", "skip_downstream_on_failure", "random_seed"]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
             # environments become effective/active within the command files, but if we

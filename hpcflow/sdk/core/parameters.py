@@ -1465,6 +1465,30 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             **kwargs,
         )
 
+    @classmethod
+    def random_seeds(
+        cls,
+        number: int,
+        path: str = "resources.any.random_seed",
+        master_seed: int | None = None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from a log-normal random number generator.
+        """
+        return super()._random_seeds(
+            path=path,
+            number=number,
+            master_seed=master_seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
 
 class MultiPathSequence(_BaseSequence):
     """
@@ -2440,6 +2464,25 @@ class InputValue(AbstractInputValue, ValuesMixin):
             sigma=sigma,
             shape=shape,
             seed=seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def random_seeds(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        number: int | None = None,
+        master_seed: int | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        return super()._random_seeds(
+            parameter=parameter,
+            number=number,
+            master_seed=master_seed,
             path=path,
             label=label,
             **kwargs,

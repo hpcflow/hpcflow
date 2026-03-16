@@ -265,7 +265,9 @@ def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equival
     wkt_yml_1 = dedent(
         """
         name: simple_workflow
-
+        resources:
+          any:
+            random_seed: 0
         tasks:
         - schema: dummy_task_1
           element_sets:
@@ -281,7 +283,9 @@ def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equival
     wkt_yml_2 = dedent(
         """
         name: simple_workflow
-
+        resources:
+          any:
+            random_seed: 0
         tasks:
         - schema: dummy_task_1
           inputs:

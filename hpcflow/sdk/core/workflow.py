@@ -334,7 +334,7 @@ class WorkflowTemplate(JSONLike):
         res_any = resources.get(scope=cls._app.ActionScope.any())
         res_defaults = cls._app.ResourceList.normalise(
             cls._app.ResourceSpec(
-                random_seed=ensure_seed(res_any.random_seed),
+                random_seed=cast("int", ensure_seed(res_any.random_seed)),
             )
         )
         resources.merge_other(res_defaults)

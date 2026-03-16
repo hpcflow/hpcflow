@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import NamedTuple, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
+import numpy as np
+
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.object_list import AppDataList
 from hpcflow.sdk.log import TimeIt
@@ -79,7 +81,7 @@ if TYPE_CHECKING:
         RelevantData,
         RelevantPath,
         Resources,
-        RepeatsDescriptor,
+        RepeatsDescriptorType,
     )
     from .workflow import Workflow, WorkflowTemplate
 
@@ -120,6 +122,62 @@ class InputStatus:
     def is_extra(self) -> bool:
         """True if the input is provided but not required."""
         return self.is_provided and not self.is_required
+
+
+@dataclass
+@hydrate
+class RepeatsDescriptor(JSONLike):
+    """Specification for defining element repeats.
+
+    Parameters
+    ----------
+    name: str
+        Name to reference this repeats descriptor. An empty string by default.
+    number: int
+        Number of times to repeat the elements of the element set.
+    nesting_order: int | float
+        The nesting order. Normally an integer; non-integer values have special meanings.
+    generate_seed_sequence: bool
+        Whether to generate a ValueSequence of random seeds corresponding to the repeats.
+    master_seed: int | None
+        The master seed to use if generating a corresponding ValueSequence of random seeds.
+    """
+
+    #: Number of times to repeat the elements of the element set.
+    number: int
+    #: Name to reference this repeats descriptor. An empty string by default.
+    name: str = ""
+    #: The nesting order. Normally an integer; non-integer values have special meanings.
+    nesting_order: int | float = 0.0
+    #: Whether to generate a ValueSequence of random seeds corresponding to the repeats
+    generate_seed_sequence: bool = True
+    #: The master seed to use if generating a corresponding ValueSequence of random seeds.
+    master_seed: int | None = None
+
+    def __post_init__(self):
+        if self.generate_seed_sequence and self.master_seed is None:
+            # set master seed if unset:
+            self.master_seed = int(np.random.SeedSequence().entropy)
+
+    @classmethod
+    def normalise(cls, repeats: RepeatsDescriptorType) -> list[Self]:
+        """Generate from repeats descriptors specified in potentially several ways."""
+        if not repeats:
+            return []
+        elif isinstance(repeats, int):
+            return [cls(number=repeats)]
+        elif isinstance(repeats, dict):
+            return [cls(**repeats)]
+        elif isinstance(repeats, list):
+            rep_lst = []
+            for rep_i in repeats:
+                if not isinstance(rep_i, cls):
+                    rep_i = cls(**rep_i)
+                rep_lst.append(rep_i)
+            return rep_lst
+        elif isinstance(repeats, cls):
+            return [repeats]
+        raise TypeError(f"Cannot normalise repeats descriptor: {repeats!r}.")
 
 
 class ElementSet(JSONLike):
@@ -219,7 +277,7 @@ class ElementSet(JSONLike):
         sequences: list[ValueSequence] | None = None,
         multi_path_sequences: list[MultiPathSequence] | None = None,
         resources: Resources = None,
-        repeats: list[RepeatsDescriptor] | int | None = None,
+        repeats: RepeatsDescriptorType = None,
         groups: list[ElementGroup] | None = None,
         input_sources: dict[str, list[InputSource]] | None = None,
         nesting_order: dict[str, float] | None = None,
@@ -234,7 +292,7 @@ class ElementSet(JSONLike):
         #: Input files to the set of elements.
         self.input_files = input_files or []
         #: Description of how to repeat the set of elements.
-        self.repeats = self.__decode_repeats(repeats or [])
+        self.repeats = self._app.RepeatsDescriptor.normalise(repeats)
         #: Groupings in the set of elements.
         self.groups = groups or []
         #: Resources to use for the set of elements.
@@ -290,6 +348,20 @@ class ElementSet(JSONLike):
             if self.multi_path_sequences:
                 for mp_seq in self.multi_path_sequences:
                     mp_seq._move_to_sequence_list(self.sequences)
+
+            # generate a random-seed sequence for repeats:
+            for rep_i in self.repeats:
+                if rep_i.generate_seed_sequence:
+                    self._app.logger.info(
+                        f"Auto-generating a sequence to correspond to element repeats: {rep_i!r}"
+                    )
+                    self.sequences.append(
+                        self._app.ValueSequence.random_seeds(
+                            number=rep_i.number,
+                            master_seed=rep_i.master_seed,
+                            nesting_order=rep_i.nesting_order,
+                        )
+                    )
 
             self.is_creation = False
 
@@ -384,22 +456,6 @@ class ElementSet(JSONLike):
         else:
             return inputs
 
-    @classmethod
-    def __decode_repeats(
-        cls, repeats: list[RepeatsDescriptor] | int
-    ) -> list[RepeatsDescriptor]:
-        # support repeats as an int:
-        if isinstance(repeats, int):
-            return [
-                {
-                    "name": "",
-                    "number": repeats,
-                    "nesting_order": 0.0,
-                }
-            ]
-        else:
-            return repeats
-
     _ALLOWED_NESTING_PATHS: ClassVar[frozenset[str]] = frozenset(
         {"inputs", "resources", "repeats"}
     )
@@ -463,8 +519,8 @@ class ElementSet(JSONLike):
                 self.nesting_order[seq.path] = seq.nesting_order
 
         for rep_spec in self.repeats:
-            if (reps_path_i := f'repeats.{rep_spec["name"]}') not in self.nesting_order:
-                self.nesting_order[reps_path_i] = rep_spec["nesting_order"]
+            if (reps_path_i := f"repeats.{rep_spec.name}") not in self.nesting_order:
+                self.nesting_order[reps_path_i] = rep_spec.nesting_order
 
         for k, v in self.nesting_order.items():
             if v < 0:
@@ -1806,8 +1862,8 @@ class WorkflowTask(AppAware):
                 pass
 
         for rep_spec in element_set.repeats:
-            seq_key = f"repeats.{rep_spec['name']}"
-            num_range = range(rep_spec["number"])
+            seq_key = f"repeats.{rep_spec.name}"
+            num_range = range(rep_spec.number)
             input_data_idx[seq_key] = list(num_range)
             sequence_idx[seq_key] = num_range
 

@@ -241,3 +241,118 @@ def test_can_use_non_default_scheduler(modifiable_config, tmp_path: Path):
         ],
     )
     wk.add_submission()
+
+
+@pytest.mark.integration
+def test_random_seed_env_var_set_and_read(tmp_path: Path):
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="random_seed",
+        path=tmp_path,
+        tasks=[hf.Task(schema=s1)],
+    )
+    wk.submit(wait=True)
+    assert int(
+        wk.submissions[0].jobscripts[0].get_stdout().strip()
+    )  # check an integer is printed
+
+
+def test_specified_random_seed(tmp_path: Path):
+    seed = 1234
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="random_seed",
+        path=tmp_path,
+        resources={"any": {"random_seed": seed}},
+        tasks=[hf.Task(schema=s1)],
+    )
+    run = wk.get_all_EARs()[0]
+    assert run.resources.random_seed == seed
+
+
+def test_task_specified_random_seed(tmp_path: Path):
+    seed = 1234
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="random_seed",
+        path=tmp_path,
+        tasks=[hf.Task(schema=s1, resources={"main": {"random_seed": seed}})],
+    )
+    run = wk.get_all_EARs()[0]
+    assert run.resources.random_seed == seed
+
+
+def test_random_seeds_are_different(tmp_path: Path):
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    wk1 = hf.Workflow.from_template_data(
+        template_name="random_seed_1",
+        path=tmp_path,
+        tasks=[hf.Task(schema=s1)],
+    )
+    wk2 = hf.Workflow.from_template_data(
+        template_name="random_seed_2",
+        path=tmp_path,
+        tasks=[hf.Task(schema=s1)],
+    )
+    run_1 = wk1.get_all_EARs()[0]
+    run_2 = wk2.get_all_EARs()[0]
+    assert run_1.resources.random_seed != run_2.resources.random_seed
+
+
+def test_repeats_generates_sequence(tmp_path: Path):
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="random_seed",
+        path=tmp_path,
+        tasks=[hf.Task(schema=s1, repeats=2)],
+    )
+    elem_set = wk.tasks[0].template.element_sets[0]
+    reps = elem_set.repeats
+    seqs = elem_set.sequences
+    assert len(seqs) == 1
+    assert len(reps) == 1
+    assert seqs[0].path == "resources.any.random_seed"
+    assert len(seqs[0].values) == reps[0].number == 2
+    assert seqs[0]._values_method_args["master_seed"] == reps[0].master_seed
+
+
+def test_repeats_generates_sequence_overriden_master_seed(tmp_path: Path):
+    s1 = hf.TaskSchema(
+        objective="random",
+        actions=[hf.Action(commands=[hf.Command("echo $HPCFLOW_RUN_RANDOM_SEED")])],
+    )
+    seed = 1234
+    wk = hf.Workflow.from_template_data(
+        template_name="random_seed",
+        path=tmp_path,
+        tasks=[
+            hf.Task(
+                schema=s1,
+                repeats={"number": 3, "master_seed": seed, "nesting_order": 2.5},
+            )
+        ],
+    )
+    elem_set = wk.tasks[0].template.element_sets[0]
+    reps = elem_set.repeats
+    seqs = elem_set.sequences
+    assert len(seqs) == 1
+    assert len(reps) == 1
+    assert seqs[0].path == "resources.any.random_seed"
+    assert seqs[0].nesting_order == reps[0].nesting_order == 2.5
+    assert len(seqs[0].values) == reps[0].number == 3
+    assert seqs[0]._values_method_args["master_seed"] == reps[0].master_seed == seed

@@ -127,9 +127,10 @@ def test_element_get_empty_path_single_labelled_input(tmp_path: Path):
         tasks=[t1],
         path=tmp_path,
         template_name="temp",
+        resources={"any": {"random_seed": 0}},
     )
     assert wk.tasks[0].elements[0].get() == {
-        "resources": {"any": {}},
+        "resources": {"any": {"random_seed": 0}},
         "inputs": {"p1": p1_val},
     }
 
@@ -271,12 +272,13 @@ def test_element_get_part_unset(tmp_path: Path):
         tasks=[t1, t2],
         template_name="w1",
         path=tmp_path,
+        resources={"any": {"random_seed": 0}},
     )
 
     # "inputs.p2.a" is set (local) but "inputs.p2" is unset (from task 1), so value of
     # "p2" should be `None`:
     assert wk.tasks.t2.elements[0].get() == {
-        "resources": {"any": {}},
+        "resources": {"any": {"random_seed": 0}},
         "inputs": {"p2": None},
     }
     assert wk.tasks.t2.elements[0].get("inputs") == {"p2": None}
