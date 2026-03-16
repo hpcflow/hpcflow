@@ -324,10 +324,14 @@ def test_repeats_generates_sequence(tmp_path: Path):
     elem_set = wk.tasks[0].template.element_sets[0]
     reps = elem_set.repeats
     seqs = elem_set.sequences
+    assert reps
+    assert seqs
     assert len(seqs) == 1
     assert len(reps) == 1
     assert seqs[0].path == "resources.any.random_seed"
+    assert seqs[0].values
     assert len(seqs[0].values) == reps[0].number == 2
+    assert seqs[0]._values_method_args
     assert seqs[0]._values_method_args["master_seed"] == reps[0].master_seed
 
 
@@ -350,9 +354,13 @@ def test_repeats_generates_sequence_overriden_master_seed(tmp_path: Path):
     elem_set = wk.tasks[0].template.element_sets[0]
     reps = elem_set.repeats
     seqs = elem_set.sequences
+    assert reps
+    assert seqs
     assert len(seqs) == 1
     assert len(reps) == 1
     assert seqs[0].path == "resources.any.random_seed"
     assert seqs[0].nesting_order == reps[0].nesting_order == 2.5
+    assert seqs[0].values
     assert len(seqs[0].values) == reps[0].number == 3
+    assert seqs[0]._values_method_args
     assert seqs[0]._values_method_args["master_seed"] == reps[0].master_seed == seed
