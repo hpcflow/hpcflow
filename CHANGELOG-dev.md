@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a305"></a>
+## [v0.2.0a305](https://github.com/hpcflow/hpcflow/compare/v0.2.0a304...v0.2.0a305) - 2026.03.19
+
+### ✨ Features
+
+* add `ValueSequence/InputValue.random_seeds` class methods
+* generate a workflow-level new default resource item `random_seed`
+
+### 🐛 Bug Fixes
+
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a304"></a>
 ## [v0.2.0a304](https://github.com/hpcflow/hpcflow/compare/v0.2.0a303...v0.2.0a304) - 2026.03.19
 
