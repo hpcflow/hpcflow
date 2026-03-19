@@ -1,4 +1,20 @@
 
+<a name="v0.2.0a304"></a>
+## [v0.2.0a304](https://github.com/hpcflow/hpcflow/compare/v0.2.0a303...v0.2.0a304) - 2026.03.19
+
+### ✨ Features
+
+* support dot-delimited config overrides
+
+### 🐛 Bug Fixes
+
+* missing quiet arg to cancel method
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a303"></a>
 ## [v0.2.0a303](https://github.com/hpcflow/hpcflow/compare/v0.2.0a302...v0.2.0a303) - 2026.03.12
 
