@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         Parameter,
         ResourceSpec,
     )
-    from .task import InputStatus
+    from .task import InputStatus, RepeatsDescriptor
     from ..persistence.types import ParamSource
 
 
@@ -195,6 +195,29 @@ _R: TypeAlias = "ResourceSpec | ResourceSpecArgs | dict"
 Resources: TypeAlias = "_R | ResourceList | None | Sequence[_R]"
 
 
+class RepeatsDescriptorArgs(TypedDict):
+    """
+    Supported keyword arguments for a RepeatsDescriptor.
+    """
+
+    #: The repeat count.
+    number: int
+    #: Name of the repeat.
+    name: NotRequired[str]
+    #: The nesting order. Normally an integer; non-integer values have special meanings.
+    nesting_order: NotRequired[float | int]
+    #: Whether to generate a ValueSequence of random seeds corresponding to the repeats
+    generate_seed_sequence: NotRequired[bool]
+    #: The master seed to use if generating a corresponding ValueSequence of random seeds.
+    master_seed: NotRequired[int]
+
+
+# Used in declaration of RepeatsDescriptorType below:
+_RD: TypeAlias = "RepeatsDescriptor | RepeatsDescriptorArgs | dict"
+#: The type of things we can normalise to a :py:class:`RepeatsDescriptor`.
+RepeatsDescriptorType: TypeAlias = "int | _RD | None | Sequence[_RD]"
+
+
 class SchemaInputKwargs(TypedDict):
     """
     Just used when deep copying `SchemaInput`.
@@ -246,19 +269,6 @@ class ActParameterDependence(TypedDict):
 
 #: A relevant path when applying an update.
 RelevantPath: TypeAlias = "ParentPath | UpdatePath | SiblingPath"
-
-
-class RepeatsDescriptor(TypedDict):
-    """
-    Descriptor for repeats.
-    """
-
-    #: Name of the repeat.
-    name: str
-    #: The repeat count.
-    number: int
-    #: The nesting order. Normally an integer; non-integer values have special meanings.
-    nesting_order: float
 
 
 class MultiplicityDescriptor(TypedDict):

@@ -1465,6 +1465,30 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             **kwargs,
         )
 
+    @classmethod
+    def random_seeds(
+        cls,
+        number: int,
+        path: str = "resources.any.random_seed",
+        master_seed: int | None = None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from a log-normal random number generator.
+        """
+        return super()._random_seeds(
+            path=path,
+            number=number,
+            master_seed=master_seed,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
 
 class MultiPathSequence(_BaseSequence):
     """
@@ -2445,6 +2469,25 @@ class InputValue(AbstractInputValue, ValuesMixin):
             **kwargs,
         )
 
+    @classmethod
+    def random_seeds(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        number: int | None = None,
+        master_seed: int | None = None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        return super()._random_seeds(
+            parameter=parameter,
+            number=number,
+            master_seed=master_seed,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
 
 class ResourceSpec(JSONLike):
     """Class to represent specification of resource requirements for a (set of) actions.
@@ -2498,9 +2541,8 @@ class ResourceSpec(JSONLike):
         An arbitrary integer that can be used to force multiple jobscripts.
     skip_downstream_on_failure: bool
         Whether to skip downstream dependents on failure.
-    allow_failed_dependencies: int | float | bool | None
-        The failure tolerance with respect to dependencies, specified as a number or
-        proportion.
+    random_seed : int | None
+        A random seed that is exposed as an environment variable during run execution.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -2537,6 +2579,7 @@ class ResourceSpec(JSONLike):
         "environments",
         "resources_id",
         "skip_downstream_on_failure",
+        "random_seed",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -2599,6 +2642,7 @@ class ResourceSpec(JSONLike):
         environments: Mapping[str, Mapping[str, Any]] | None = None,
         resources_id: int | None = None,
         skip_downstream_on_failure: bool | None = None,
+        random_seed: int | None = None,
         SGE_parallel_env: str | None = None,
         SLURM_partition: str | None = None,
         SLURM_num_tasks: str | None = None,
@@ -2629,6 +2673,7 @@ class ResourceSpec(JSONLike):
         self._environments = environments
         self._resources_id = resources_id
         self._skip_downstream_on_failure = skip_downstream_on_failure
+        self._random_seed = random_seed
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
         self._write_app_logs = write_app_logs
@@ -2778,6 +2823,7 @@ class ResourceSpec(JSONLike):
             self._environments = None
             self._resources_id = None
             self._skip_downstream_on_failure = None
+            self._random_seed = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -2951,6 +2997,13 @@ class ResourceSpec(JSONLike):
     @property
     def skip_downstream_on_failure(self) -> bool:
         return self._get_value("skip_downstream_on_failure")
+
+    @property
+    def random_seed(self) -> bool:
+        """
+        The random seed.
+        """
+        return self._get_value("random_seed")
 
     @property
     def SGE_parallel_env(self) -> str | None:
