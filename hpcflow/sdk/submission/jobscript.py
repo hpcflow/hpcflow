@@ -1998,7 +1998,7 @@ class Jobscript(JSONLike):
         py_main_block_workflow_load = dedent(
             """\
                 app.load_config(
-                    log_file_path=log_path,
+                    overrides={{"log_file_path": log_path}},
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )

@@ -1862,7 +1862,7 @@ def make_cli(app: BaseApp):
                 app.load_config(
                     config_dir=config_dir,
                     config_key=config_key,
-                    **overrides,
+                    overrides=overrides,
                 )
             except ConfigError as err:
                 click.echo(f"{colored(err.__class__.__name__, 'red')}: {err}")
