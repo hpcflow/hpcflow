@@ -59,6 +59,7 @@ from hpcflow.sdk.utils.files import (
 from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as Environment_cls
+from .core.errors import SecretExistsError, SecretNotFoundError
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -530,6 +531,7 @@ class BaseApp(metaclass=Singleton):
     _known_subs_file_name: ClassVar = "known_submissions.txt"
     _known_subs_file_sep: ClassVar = "::"
     _submission_ts_fmt: ClassVar = r"%Y-%m-%d %H:%M:%S.%f"
+    _secrets_file_name: ClassVar = "state.db"
     __load_pending: ClassVar = False
 
     def __init__(
@@ -2655,6 +2657,13 @@ class BaseApp(metaclass=Singleton):
         The path to the file describing known submissions.
         """
         return self.user_data_hostname_dir / self._known_subs_file_name
+
+    @property
+    def secrets_file_path(self) -> Path:
+        """
+        The path to the file containing secrets (e.g. passwords for third party services).
+        """
+        return self.user_data_dir / self._secrets_file_name
 
     def _format_known_submissions_line(
         self,
@@ -5560,6 +5569,56 @@ class BaseApp(metaclass=Singleton):
             will be raised if an item already exists.
         """
         self.__install_data_or_program_cache("program", path, overwrite)
+
+    def _get_all_secrets(self) -> dict[str, Any]:
+        """Get all secrets."""
+        try:
+            return read_YAML_file(self.secrets_file_path)
+        except FileNotFoundError:
+            return {}
+
+    def set_secret(self, key: str, value: Any, overwrite: bool = False):
+        """Set the value of a secret."""
+        secrets = self._get_all_secrets()
+        if key in secrets and not overwrite:
+            raise SecretExistsError(self, key)
+        secrets[key] = value
+        write_YAML_file(secrets, self.secrets_file_path)
+
+    def get_secret(self, key: str) -> Any:
+        """Get the value of a secret."""
+        secrets = self._get_all_secrets()
+        try:
+            return secrets[key]
+        except KeyError:
+            raise SecretNotFoundError(self, key, list(secrets), is_delete=False)
+
+    def delete_secret(self, key: str):
+        """Delete a secret."""
+        secrets = self._get_all_secrets()
+        try:
+            del secrets[key]
+        except KeyError:
+            raise SecretNotFoundError(self, key, list(secrets), is_delete=True)
+        write_YAML_file(secrets, self.secrets_file_path)
+
+    def _get_secrets_table(self, include_values: bool = False) -> Table:
+        """Generate a Rich table that shows secrets and optionally their secret values."""
+        headers = ["Key", "Value"]
+        tab = Table(*headers, box=box.SIMPLE)
+        for sec_name, sec_val in sorted(self._get_all_secrets().items()):
+            if not include_values:
+                sec_val = "*" * len(sec_val)
+            cols = [sec_name, sec_val]
+
+            tab.add_row(*cols)
+        return tab
+
+    def print_secrets(self, include_values: bool = False) -> None:
+        """
+        Print a table of available secrets, optionally with their secret values.
+        """
+        Console().print(self._get_secrets_table(include_values=include_values))
 
 
 class App(BaseApp):
