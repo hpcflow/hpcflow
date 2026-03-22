@@ -1134,7 +1134,7 @@ class CannotRemoveBuiltinEnvironment(CompactException, ValueError):
         )
 
 
-class SecretExistsError(CompactException):
+class SecretExistsError(CompactException, ValueError):
     """Raised when trying to set the value of a secret that already exists, without the
     `overwrite` option."""
 
@@ -1151,7 +1151,7 @@ class SecretExistsError(CompactException):
         )
 
 
-class SecretNotFoundError(CompactException):
+class SecretNotFoundError(CompactException, ValueError):
     """Raised when the requested secret is not set."""
 
     def __init__(self, app, key: str, available: Sequence[str], is_delete: bool):
