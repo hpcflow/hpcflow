@@ -72,10 +72,11 @@ def overwrite_YAML_file(
         try:
             tmp_file_callback(tmp_file)
         except:
-            logger.error(
-                "Exception raised when running tmp_file_callback; deleting temporary "
-                "file."
-            )
+            if logger:
+                logger.error(
+                    "Exception raised when running tmp_file_callback; deleting temporary "
+                    "file."
+                )
             tmp_file.unlink()
             raise
 
