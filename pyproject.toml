@@ -84,7 +84,7 @@ optional = true
 types-colorama = "^0.4.15.20240311"
 types-paramiko = ">=3.4.0.20240423,<5.0.0.0"
 types-psutil = ">=6.0.0.20240621,<8.0.0.0"
-types-pyinstaller = "^6.19.0.20260215"
+types-pyinstaller = "^6.19.0.20260322"
 types-requests = "^2.32.4.20260107"
 types-setuptools = ">=70.2.0.20240704,<83.0.0.0"
 mypy = "^1.19.1"
