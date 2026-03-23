@@ -817,7 +817,15 @@ class ElementActionRun(AppAware):
         """
         Get the environment in which this run will execute.
         """
-        return self._app.envs.get(**self.get_environment_spec())
+
+        if self.submission_idx is not None:
+            # associated with a submission, so get the environment from the submission
+            # object, rather than app data. Environments defined in the API (non-
+            # persistently) won't exist in the app data in a new session i.e. at run time:
+            env_lst = self.workflow.submissions[self.submission_idx].environments
+        else:
+            env_lst = self._app.envs
+        return env_lst.get(**self.get_environment_spec())
 
     def get_all_previous_iteration_runs(
         self, include_self: bool = True
