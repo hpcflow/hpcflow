@@ -3,7 +3,11 @@ import warnings
 from functools import wraps
 
 from ..compact_errors import FormatMixin
-from ..utils.web_docs import get_docs_url_of_class, get_docs_url_of_class_method
+from ..utils.web_docs import (
+    get_docs_url_of_class,
+    get_docs_url_of_class_method,
+    get_docs_url_how_to,
+)
 
 
 def batch_warnings(func):
@@ -76,6 +80,13 @@ class DeprecationWarning_(CompactWarning, DeprecationWarning):
 warnings.simplefilter("always", DeprecationWarning_)
 
 
+class SecretExposedWarning(CompactWarning, UserWarning):
+    """Warning that a secret credential might be exposed."""
+
+    def __init__(self, message, solution=None, docs=None):
+        super().__init__(message, solution, docs)
+
+
 def warn_scheduler_options_deprecated(app, cls_name: str):
     link = get_docs_url_of_class(app, cls_name)
     return DeprecationWarning_(
@@ -117,5 +128,17 @@ def warn_from_random_uniform_deprecated(app, cls_name):
             f"specify the number of required values with the 'shape' argument, instead "
             f"of the 'num' argument. See the method documentation for details: "
             f"[link={link}]{cls_name}.{new_method}[/link]."
+        ),
+    )
+
+
+def warn_secrets_in_env(app, location):
+    link = get_docs_url_how_to(app, "secrets")
+    return SecretExposedWarning(
+        f"It looks like you have included a secret credential in {location}.",
+        solution=(
+            f"Please store secrets using the secrets feature rather than in environment "
+            f"definitions. See the secrets documentation for details: "
+            f"[link={link}]Secrets[/link]."
         ),
     )

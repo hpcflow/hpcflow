@@ -4323,6 +4323,16 @@ class Workflow(AppAware):
                         for k, v in env.items():
                             if k.startswith(app_caps):
                                 self._app.submission_logger.debug(f"{k} = {v!r}")
+
+                        self._app.submission_logger.debug(
+                            "The following secrets are available:"
+                        )
+                        secrets_env = {}
+                        for secret_key in run.get_environment().secrets:
+                            self._app.submission_logger.debug(secret_key)
+                            secrets_env[secret_key] = self._app.get_secret(secret_key)
+                        env.update(secrets_env)
+
                         exe = self._app.Executor(cmd, env, self._app.package_name)
                         port = (
                             exe.start_zmq_server()

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from typing_extensions import override
 from pathlib import Path
 import copy
+import warnings
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.errors import DuplicateExecutableError
@@ -16,6 +17,8 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ExecutablesList
 from hpcflow.sdk.core.utils import check_valid_py_identifier, get_duplicate_items
 from hpcflow.sdk.utils.hashing import get_hash
+from hpcflow.sdk.utils.strings import looks_like_secret
+from hpcflow.sdk.core.warnings import warn_secrets_in_env
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -195,6 +198,9 @@ class Environment(JSONLike):
     setup_label: str
         String label of the environment setup helper that generated this environment, if
         it was generated in that way.
+    secrets: list[str]
+        List of secret keys whose values should be exposed as shell environment variables
+        for runs that use this environment.
     """
 
     _validation_schema: ClassVar[str] = "environments_spec_schema.yaml"
@@ -220,6 +226,7 @@ class Environment(JSONLike):
         executables: ExecutablesList | Sequence[Executable] | None = None,
         doc: str = "",
         setup_label: str | None = None,
+        secrets: Sequence[str] | None = None,
         _hash_value: str | None = None,
     ):
         #: The name of the environment.
@@ -252,8 +259,13 @@ class Environment(JSONLike):
         #: The file in which this environment is defined, if it originated from a file.
         self._source_file: Literal["<builtin>"] | Path | None = None
 
+        #: List of secret keys whose values should be exposed as shell environment
+        #: variables for runs that use this environment.
+        self.secrets = secrets or []
+
         self._set_parent_refs()
         self._validate()
+        self._check_secrets()
 
     def __eq__(self, other: Any) -> bool:
         return (
@@ -277,6 +289,29 @@ class Environment(JSONLike):
     def _validate(self):
         if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)
+
+    def _check_secrets(self):
+        """Try to check secrets are not set in the environment definition."""
+        if self.setup:
+            if looks_like_secret("\n".join(self.setup)):
+                warnings.warn(
+                    warn_secrets_in_env(
+                        app=self._app,
+                        location=f"the setup block of the environment {self.name!r}",
+                    )
+                )
+        for exec_i in self.executables:
+            for inst_j in exec_i.instances:
+                if looks_like_secret(inst_j.command):
+                    warnings.warn(
+                        warn_secrets_in_env(
+                            app=self._app,
+                            location=(
+                                f"an instance of the executable {exec_i.label!r} within "
+                                f"the environment {self.name!r}"
+                            ),
+                        )
+                    )
 
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:

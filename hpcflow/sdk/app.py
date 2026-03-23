@@ -55,6 +55,7 @@ from hpcflow.sdk.utils.files import (
     delete_file_or_dir,
     overwrite_YAML_file,
     download_github_repo,
+    set_file_permissions_600,
 )
 from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
@@ -5577,13 +5578,25 @@ class BaseApp(metaclass=Singleton):
         except FileNotFoundError:
             return {}
 
+    def __write_secrets_file(self, secrets: dict[str, Any]):
+        """Write the secrets file (e.g. when a secret has been added, updated or
+        deleted.)"""
+        overwrite_YAML_file(
+            path=self.secrets_file_path,
+            new_contents=secrets,
+            typ="safe",
+            description="secrets ",
+            logger=self.logger,
+            tmp_file_callback=set_file_permissions_600,
+        )
+
     def set_secret(self, key: str, value: Any, overwrite: bool = False):
         """Set the value of a secret."""
         secrets = self._get_all_secrets()
         if key in secrets and not overwrite:
             raise SecretExistsError(self, key)
         secrets[key] = value
-        write_YAML_file(secrets, self.secrets_file_path)
+        self.__write_secrets_file(secrets)
 
     def get_secret(self, key: str) -> Any:
         """Get the value of a secret."""
@@ -5600,7 +5613,7 @@ class BaseApp(metaclass=Singleton):
             del secrets[key]
         except KeyError:
             raise SecretNotFoundError(self, key, list(secrets), is_delete=True)
-        write_YAML_file(secrets, self.secrets_file_path)
+        self.__write_secrets_file(secrets)
 
     def _get_secrets_table(self, include_values: bool = False) -> Table:
         """Generate a Rich table that shows secrets and optionally their secret values."""
