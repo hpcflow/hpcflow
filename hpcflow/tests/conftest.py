@@ -93,11 +93,12 @@ def modifiable_config(tmp_path: Path):
     test without affecting other tests."""
     config_dir = hf.config.config_directory
     config_key = hf.config.config_key
+    overrides = copy.deepcopy(hf.config._overrides)
     hf.unload_config()
-    hf.load_config(config_dir=tmp_path)
+    hf.load_config(config_dir=tmp_path, overrides=overrides)
     yield
     hf.unload_config()
-    hf.load_config(config_dir=config_dir, config_key=config_key)
+    hf.load_config(config_dir=config_dir, config_key=config_key, overrides=overrides)
 
 
 @pytest.fixture()
