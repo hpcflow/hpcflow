@@ -3820,6 +3820,7 @@ class BaseApp(metaclass=Singleton):
         rich_print(group)
 
     @TimeIt.decorator
+    @batch_warnings
     def _show(
         self,
         max_recent: int = 3,
@@ -4425,7 +4426,9 @@ class BaseApp(metaclass=Singleton):
         shell: Literal["bash", "powershell"] | None = None,
         setup: str | list[str] | None = None,
         names: list[str] | None = None,
+        python_env: bool = True,
         use_current: bool = True,
+        secrets: list[str] | None = None,
         save: bool = False,
         env_source_file: Path | None = None,
         file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
@@ -4439,9 +4442,14 @@ class BaseApp(metaclass=Singleton):
             If specified, also set up these named environments using the same Python
             executable and setup, otherwise just set up the `python_env` environment. This
             should be a list of strings without the "_env" prefix, which will be added.
+        python_env:
+            If True (default), set up the `python_env` environment.
         use_current:
             Use the currently activate Python environment to provide a `python_script`
             executable within the environment. True by default.
+        secrets:
+            List of secret keys whose values should be exposed as shell environment
+            variables for runs that use this environment.
         save:
             If True, save the environment to a persistent environment definitions file.
         env_source_file:
@@ -4456,6 +4464,8 @@ class BaseApp(metaclass=Singleton):
             with the same name and specifiers with the new one. If False and an existing
             environment exists, an exception will be raised.
         """
+        if not python_env and not names:
+            raise ValueError("No Python environments to set up!")
         shell = shell or DEFAULT_SHELL_NAMES[os.name]
         setup = norm_env_setup(setup)
         executables = [
@@ -4472,13 +4482,15 @@ class BaseApp(metaclass=Singleton):
         ]
         setup = self.get_env_setup(shell) if use_current else setup
         environments = []
-        for name in sorted(set(["python", *(names if names else [])])):
+        names_py = ["python"] if python_env else []
+        for name in sorted(set([*names_py, *(names if names else [])])):
             environments.append(
                 self.Environment(
                     name=f"{name}_env",
                     setup=setup,
                     executables=executables,
                     setup_label="python",
+                    secrets=secrets,
                 )
             )
         if save:
