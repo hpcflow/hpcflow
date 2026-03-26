@@ -4631,14 +4631,14 @@ files = [
 
 [[package]]
 name = "types-paramiko"
-version = "4.0.0.20250822"
+version = "4.0.0.20260322"
 description = "Typing stubs for paramiko"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["typecheck"]
 files = [
-    {file = "types_paramiko-4.0.0.20250822-py3-none-any.whl", hash = "sha256:55bdb14db75ca89039725ec64ae3fa26b8d57b6991cfb476212fa8f83a59753c"},
-    {file = "types_paramiko-4.0.0.20250822.tar.gz", hash = "sha256:1b56b0cbd3eec3d2fd123c9eb2704e612b777e15a17705a804279ea6525e0c53"},
+    {file = "types_paramiko-4.0.0.20260322-py3-none-any.whl", hash = "sha256:c585bcf81b5d2fc722279763d50eca8095777ee949af8706900e9f8411af979b"},
+    {file = "types_paramiko-4.0.0.20260322.tar.gz", hash = "sha256:dfcb13d8cf52499a198ced552b78fa685369a376b143abfb90cd49f465e383a0"},
 ]
 
 [package.dependencies]
@@ -4658,14 +4658,14 @@ files = [
 
 [[package]]
 name = "types-pyinstaller"
-version = "6.19.0.20260215"
+version = "6.19.0.20260322"
 description = "Typing stubs for pyinstaller"
 optional = false
 python-versions = ">=3.10"
 groups = ["typecheck"]
 files = [
-    {file = "types_pyinstaller-6.19.0.20260215-py3-none-any.whl", hash = "sha256:5e3af03dad356be22eb2524c1955149ebd4723ad1af529ac4fecf9d8fbc17ec1"},
-    {file = "types_pyinstaller-6.19.0.20260215.tar.gz", hash = "sha256:dead1011722ad06d6c8482be271dc8c7e2f995ec76c7b8fc54b24f996ae8c608"},
+    {file = "types_pyinstaller-6.19.0.20260322-py3-none-any.whl", hash = "sha256:f6a877bf6ce55f0e02dcc2ea018234ea790c61108ebb5f13ce027fe6eb67b1b5"},
+    {file = "types_pyinstaller-6.19.0.20260322.tar.gz", hash = "sha256:78a119603cf794add12080575807e559a7cdfa06e18b8c68315ac5bd30490441"},
 ]
 
 [[package]]
@@ -5159,4 +5159,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "f98f29394acf715ca2fe77d38dbcddd5013383aea6329e2e639d54838ecbdbe4"
+content-hash = "8d225ad961f2214a3c5ef1fcd6efd0a4e633cbf474f95e6b2cebce0b16642c20"
