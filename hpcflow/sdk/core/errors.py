@@ -1132,3 +1132,52 @@ class CannotRemoveBuiltinEnvironment(CompactException, ValueError):
             ),
             solution=solution,
         )
+
+
+class SecretExistsError(CompactException, ValueError):
+    """Raised when trying to set the value of a secret that already exists, without the
+    `overwrite` option."""
+
+    def __init__(self, app, key: str):
+        if app.run_time_info.from_CLI:
+            cmd = f"`--overwrite` CLI flag"
+        else:
+            cmd = f"`overwrite=True` method argument"
+        solution = f"If you want to change the secret's value; use the {cmd}."
+        super().__init__(
+            app,
+            message=f"The secret {key!r} already exists.",
+            solution=solution,
+        )
+
+
+class SecretNotFoundError(CompactException, ValueError):
+    """Raised when the requested secret is not set."""
+
+    def __init__(self, app, key: str, available: Sequence[str], is_delete: bool):
+
+        message = f"The secret {key!r} does not exist."
+        solution = ""
+        avail_fmt = ", ".join(f"{sec_i!r}" for sec_i in available)
+        if available:
+            solution = (
+                f"Did you mean {'to delete ' if is_delete else ''}one of these instead: "
+                f"{avail_fmt}?"
+            )
+        else:
+            message += " There are no secrets currently defined."
+
+        if not is_delete:
+            if app.run_time_info.from_CLI:
+                cmd = f"`{app.package_name} manage secrets set` CLI command"
+            else:
+                cmd = f"`{app.docs_import_conv}.set_secret` method"
+            if solution:
+                solution += " "
+            solution += f"Maybe you want to add a new secret using the {cmd}."
+
+        super().__init__(
+            app,
+            message=message,
+            solution=solution,
+        )

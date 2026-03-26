@@ -2160,7 +2160,13 @@ class Jobscript(JSONLike):
                         os.environ["{app_caps}_BLOCK_ELEM_IDX"] = str(block_elem_idx)
                         os.environ["{app_caps}_JS_ELEM_IDX"] = str(js_elem_idx)                        
                         os.environ["{app_caps}_RUN_ID"] = str(run_ID)
+                        os.environ["{app_caps}_RUN_RANDOM_SEED"] = str(run.resources.random_seed)
 
+                        app.submission_logger.debug("The following secrets are available:")
+                        for secret_key in run.get_environment().secrets:
+                            app.submission_logger.debug(secret_key)
+                            os.environ[secret_key] = app.get_secret(secret_key)                        
+                        
                         std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"{{run_ID}}.txt")
                         with app.redirect_std_to_file(std_path):
 

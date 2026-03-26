@@ -1614,6 +1614,47 @@ def _make_manage_CLI(app: BaseApp):
         """Delete all cacheable files from the cache: data files and programs."""
         app.purge_all(not_exist_ok=not exist_ok)
 
+    @manage.group("secrets")
+    def secrets():
+        """Add and remove secrets for third party services."""
+
+    @secrets.command()
+    @click.argument("key")
+    def get(key: str):
+        """Print the value of a secret."""
+        click.echo(app.get_secret(key))
+
+    @secrets.command()
+    @click.argument("key")
+    @click.argument("value")
+    @click.option(
+        "--overwrite",
+        is_flag=True,
+        default=False,
+        help="Whether to change the value of an existing secret.",
+    )
+    def set(key: str, value: str, overwrite: bool):
+        """Add a new secret or update the value of an existing secret."""
+        app.set_secret(key, value, overwrite)
+
+    @secrets.command()
+    @click.argument("key")
+    def delete(key: str):
+        """Add a new secret or update the value of an existing secret."""
+        app.delete_secret(key)
+
+    @secrets.command("list")
+    @click.option(
+        "-v",
+        "--values",
+        is_flag=True,
+        default=False,
+        help="Whether to show secret values as well.",
+    )
+    def list_secrets(values: bool):
+        """List available secrets."""
+        app.print_secrets(include_values=values)
+
     return manage
 
 

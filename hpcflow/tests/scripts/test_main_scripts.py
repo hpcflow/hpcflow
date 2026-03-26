@@ -1231,3 +1231,35 @@ def test_combine_scripts_from_future_import(tmp_path: Path):
 
     run = wk.get_EARs_from_IDs([0])[0]
     assert run.status is EARStatus.success
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_random_seed(tmp_path: Path, combine_scripts: bool):
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[],
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_random_seed.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    SEED = 1234
+    t1 = hf.Task(schema=s1)
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        template_name="main_script_test_random_seed",
+        path=tmp_path,
+        resources={"any": {"combine_scripts": combine_scripts, "random_seed": SEED}},
+    )
+    wk.submit(wait=True, add_to_known=False)
+
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == SEED
