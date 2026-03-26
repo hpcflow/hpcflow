@@ -1,4 +1,27 @@
 
+<a name="v0.2.0a307"></a>
+## [v0.2.0a307](https://github.com/hpcflow/hpcflow/compare/v0.2.0a306...v0.2.0a307) - 2026.03.26
+
+### ✨ Features
+
+* support not generating the `python_env` env in `env_configure_python`
+* support accessing secrets in environments
+* support setting, getting, listing and deleting secrets
+
+### 🐛 Bug Fixes
+
+* use utf-8 encoding in `DeferredFileWriter`
+* only log if logger
+* respect config overrides in `modifiable_config` fixture
+* use env set in Submission object if available in `EAR.get_environment`
+* set random seed env var when combine_scripts=True
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 2 updates
+
+
 <a name="v0.2.0a306"></a>
 ## [v0.2.0a306](https://github.com/hpcflow/hpcflow/compare/v0.2.0a305...v0.2.0a306) - 2026.03.20
 
