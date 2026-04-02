@@ -9,15 +9,15 @@
     ############
 
     There are two ways of using {{ app_name }}:
-    
+
     * The {{ app_name }} command-line interface (CLI)
     * The {{ app_name }} Python package
 
     Both of these options allow workflows to be designed and executed. The {{ app_name }} CLI
-    is recommended for beginners and strongly recommended if you want to 
+    is recommended for beginners and strongly recommended if you want to
     run {{ app_name }} on a cluster. The Python package allows workflows to be
-    designed and explored via the Python API and is recommended for users 
-    comfortable working with Python. If you are interested in contributing to 
+    designed and explored via the Python API and is recommended for users
+    comfortable working with Python. If you are interested in contributing to
     the development of {{ app_name }}, the Python package is the place to start.
 
     The CLI and the Python package can be used simultaneously.
@@ -74,7 +74,7 @@
     Once this has been done, your environment file can be be opened using ``{{ app_package_name }} open env-source``.
 
     Below is an example environments file that defines an environment for running Python scripts.
-    Domain-specific tools can be added to the environments file as required, each with their own 
+    Domain-specific tools can be added to the environments file as required, each with their own
     setup instructions for loading that tool on your machine.
 
     .. code-block:: yaml
@@ -95,6 +95,7 @@
     and it must be the same version as is used to submit the workflow.
     In practice, this is most easily achieved by creating one python virtual environment
     and using it in each of these {{ app_name }} environments and to submit workflows.
+
 
     Tips for SLURM
     **************
