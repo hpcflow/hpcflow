@@ -5,4 +5,3 @@ Tutorials
    :maxdepth: 1
 
    Beginner: Install MatFlow on your local machine <install-locally>
-
