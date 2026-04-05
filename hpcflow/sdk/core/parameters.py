@@ -2543,6 +2543,10 @@ class ResourceSpec(JSONLike):
         Whether to skip downstream dependents on failure.
     random_seed : int | None
         A random seed that is exposed as an environment variable during run execution.
+    rng_spawn_key: int | list[int] | None
+        A sequence of integers that is exposed as an environment variable (as a
+        comma-separated string) during run execution and that can be used as a Numpy
+        SeedSequence spawn key.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -2580,6 +2584,7 @@ class ResourceSpec(JSONLike):
         "resources_id",
         "skip_downstream_on_failure",
         "random_seed",
+        "rng_spawn_key",
         "SGE_parallel_env",
         "SLURM_partition",
         "SLURM_num_tasks",
@@ -2643,6 +2648,7 @@ class ResourceSpec(JSONLike):
         resources_id: int | None = None,
         skip_downstream_on_failure: bool | None = None,
         random_seed: int | None = None,
+        rng_spawn_key: int | list[int] | None = None,
         SGE_parallel_env: str | None = None,
         SLURM_partition: str | None = None,
         SLURM_num_tasks: str | None = None,
@@ -2674,6 +2680,7 @@ class ResourceSpec(JSONLike):
         self._resources_id = resources_id
         self._skip_downstream_on_failure = skip_downstream_on_failure
         self._random_seed = random_seed
+        self._rng_spawn_key = self._process_rng_spawn_key(rng_spawn_key)
         self._use_job_array = use_job_array
         self._max_array_items = max_array_items
         self._write_app_logs = write_app_logs
@@ -2824,6 +2831,7 @@ class ResourceSpec(JSONLike):
             self._resources_id = None
             self._skip_downstream_on_failure = None
             self._random_seed = None
+            self._rng_spawn_key = None
 
         return (self.normalised_path, [data_ref], is_new)
 
@@ -2847,6 +2855,12 @@ class ResourceSpec(JSONLike):
     @staticmethod
     def _process_string(value: str | None):
         return value.lower().strip() if value else value
+
+    @staticmethod
+    def _process_rng_spawn_key(value: int | list[int] | None) -> list[int] | None:
+        if isinstance(value, int):
+            return [value]
+        return value
 
     def _setter_persistent_check(self):
         if self._value_group_idx:
@@ -2999,11 +3013,18 @@ class ResourceSpec(JSONLike):
         return self._get_value("skip_downstream_on_failure")
 
     @property
-    def random_seed(self) -> bool:
+    def random_seed(self) -> int | None:
         """
         The random seed.
         """
         return self._get_value("random_seed")
+
+    @property
+    def rng_spawn_key(self) -> list[int]:
+        """
+        The RNG spawn key.
+        """
+        return self._get_value("rng_spawn_key")
 
     @property
     def SGE_parallel_env(self) -> str | None:
