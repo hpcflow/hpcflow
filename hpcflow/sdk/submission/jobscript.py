@@ -2157,10 +2157,15 @@ class Jobscript(JSONLike):
                             
                         run_tic = time.perf_counter()
 
+                        rng_spawn_key_str = ",".join(
+                            str(key_i) for key_i in run.resources.rng_spawn_key
+                        )
+
                         os.environ["{app_caps}_BLOCK_ELEM_IDX"] = str(block_elem_idx)
                         os.environ["{app_caps}_JS_ELEM_IDX"] = str(js_elem_idx)                        
                         os.environ["{app_caps}_RUN_ID"] = str(run_ID)
                         os.environ["{app_caps}_RUN_RANDOM_SEED"] = str(run.resources.random_seed)
+                        os.environ["{app_caps}_RUN_RNG_SPAWN_KEY"] = rng_spawn_key_str
 
                         app.submission_logger.debug("The following secrets are available:")
                         for secret_key in run.get_environment().secrets:

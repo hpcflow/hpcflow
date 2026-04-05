@@ -320,6 +320,10 @@ class ElementResources(JSONLike):
         Whether to skip downstream dependents on failure.
     random_seed: int | None
         A random seed that is exposed as an environment variable during run execution.
+    rng_spawn_key: list[int] | None
+        A sequence of integers that is exposed as an environment variable (as a
+        comma-separated string) during run execution and that can be used as a Numpy
+        SeedSequence spawn key.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -387,6 +391,10 @@ class ElementResources(JSONLike):
     skip_downstream_on_failure: bool = True
     #: A random seed that is exposed as an environment variable during run execution.
     random_seed: int | None = None
+    #: A sequence of integers that is exposed as an environment variable (as a
+    #: comma-separated string) during run execution and that can be used as a Numpy
+    #: SeedSequence spawn key.
+    rng_spawn_key: list[int] | None = None
 
     # SGE scheduler specific:
     #: Which SGE parallel environment to request.
@@ -432,7 +440,12 @@ class ElementResources(JSONLike):
     def get_jobscript_hash(self) -> int:
         """Get hash from all arguments that distinguish jobscripts."""
 
-        exclude = ["time_limit", "skip_downstream_on_failure", "random_seed"]
+        exclude = [
+            "time_limit",
+            "skip_downstream_on_failure",
+            "random_seed",
+            "rng_spawn_key",
+        ]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
             # environments become effective/active within the command files, but if we

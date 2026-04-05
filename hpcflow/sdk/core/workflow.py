@@ -4246,6 +4246,9 @@ class Workflow(AppAware):
                         loop_idx_str = ";".join(
                             f"{k}={v}" for k, v in run.element_iteration.loop_idx.items()
                         )
+                        rng_spawn_key_str = ",".join(
+                            str(key_i) for key_i in run.resources.rng_spawn_key
+                        )
                         app_caps = self._app.package_name.upper()
 
                         # TODO: make these optionally set (more difficult to set in combine_script,
@@ -4261,6 +4264,7 @@ class Workflow(AppAware):
                             f"{app_caps}_ELEMENT_ITER_ID": str(run.element_iteration.id_),
                             f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
                             f"{app_caps}_RUN_RANDOM_SEED": str(run.resources.random_seed),
+                            f"{app_caps}_RUN_RNG_SPAWN_KEY": rng_spawn_key_str,
                         }
 
                         if (num_threads := run.resources.num_threads) is not None:
