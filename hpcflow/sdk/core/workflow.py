@@ -4254,6 +4254,8 @@ class Workflow(AppAware):
                         # TODO: make these optionally set (more difficult to set in combine_script,
                         # so have the option to turn off) [default ON]
                         add_env = {
+                            f"{app_caps}_TASK_IDX": str(run.task.index),
+                            f"{app_caps}_TASK_INSERT_ID": str(run.task.insert_ID),
                             f"{app_caps}_RUN_ID": str(run_ID),
                             f"{app_caps}_RUN_IDX": str(run.index),
                             f"{app_caps}_ELEMENT_IDX": str(run.element.index),
