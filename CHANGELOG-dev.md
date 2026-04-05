@@ -1,4 +1,22 @@
 
+<a name="v0.2.0a308"></a>
+## [v0.2.0a308](https://github.com/hpcflow/hpcflow/compare/v0.2.0a307...v0.2.0a308) - 2026.04.05
+
+### ✨ Features
+
+* support persisting numpy RNGs
+* add `rng_spawn_key` resource item
+
+### 🐛 Bug Fixes
+
+* add missing env vars to run execution
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 5 updates
+
+
 <a name="v0.2.0a307"></a>
 ## [v0.2.0a307](https://github.com/hpcflow/hpcflow/compare/v0.2.0a306...v0.2.0a307) - 2026.03.26
 
