@@ -2857,11 +2857,9 @@ class ResourceSpec(JSONLike):
         return value.lower().strip() if value else value
 
     @staticmethod
-    def _process_rng_spawn_key(value: int | list[int] | None) -> list[int]:
+    def _process_rng_spawn_key(value: int | list[int] | None) -> list[int] | None:
         if isinstance(value, int):
             return [value]
-        elif not value:
-            return []
         return value
 
     def _setter_persistent_check(self):

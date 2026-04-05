@@ -4247,7 +4247,7 @@ class Workflow(AppAware):
                             f"{k}={v}" for k, v in run.element_iteration.loop_idx.items()
                         )
                         rng_spawn_key_str = ",".join(
-                            str(key_i) for key_i in run.resources.rng_spawn_key
+                            str(key_i) for key_i in run.resources.rng_spawn_key or []
                         )
                         app_caps = self._app.package_name.upper()
 

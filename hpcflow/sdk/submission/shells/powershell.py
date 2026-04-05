@@ -314,6 +314,7 @@ class WindowsPowerShell(Shell):
             f"{app_caps}_RUN_NUM_CORES",
             f"{app_caps}_RUN_NUM_THREADS",
             f"{app_caps}_RUN_RANDOM_SEED",
+            f"{app_caps}_RNG_SPAWN_KEY",
         )
         add = False
         for i in var_strings:
