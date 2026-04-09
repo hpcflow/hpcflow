@@ -36,7 +36,7 @@ import rich.box
 
 
 from hpcflow.sdk import app
-from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.typing import WorkflowTemplateFromFileCommonArgs, hydrate
 from hpcflow.sdk.config.errors import (
     ConfigNonConfigurableError,
     UnknownMetaTaskConstitutiveSchema,
@@ -432,7 +432,7 @@ class WorkflowTemplate(JSONLike):
     def _from_data(
         cls,
         data: dict[str, Any],
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -641,7 +641,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         string: str,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -698,7 +698,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -736,7 +736,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         string: str,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -774,7 +774,7 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -817,7 +817,7 @@ class WorkflowTemplate(JSONLike):
         path: PathLike,
         template_format: Literal["yaml", "json"] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
@@ -847,13 +847,13 @@ class WorkflowTemplate(JSONLike):
         """
         path_ = Path(path or ".")
         fmt = template_format.lower() if template_format else None
-        kwargs = dict(
-            path=path_,
-            variables=variables,
-            updates=updates,
-            resources=resources,
-            config=config,
-        )
+        kwargs: WorkflowTemplateFromFileCommonArgs = {
+            "path": path_,
+            "variables": variables,
+            "updates": updates,
+            "resources": resources,
+            "config": config,
+        }
         if fmt == "yaml" or path_.suffix in (".yaml", ".yml"):
             return cls.from_YAML_file(**kwargs)
         elif fmt == "json" or path_.suffix in (".json", ".jsonc"):
@@ -1211,7 +1211,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         status: Status | None = None,
@@ -1302,7 +1302,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         status: Status | None = None,
@@ -1393,7 +1393,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         status: Status | None = None,
@@ -1484,7 +1484,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         status: Status | None = None,
@@ -1577,7 +1577,7 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
-        updates: dict[tuple[str | int], Any] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         status: Status | None = None,
