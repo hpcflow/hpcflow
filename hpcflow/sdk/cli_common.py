@@ -390,6 +390,35 @@ pytest_file_or_dir_opt = click.option(
         "provided, all tests are run. Multiple are allowed."
     ),
 )
+#: Standard option
+template_updates_opt = click.option(
+    "--update",
+    "updates",
+    multiple=True,
+    nargs=2,
+    help=(
+        "Template data to update, with the first argument being a dot-delimited path, "
+        "and the second being the value to update to. Multiple are allowed."
+    ),
+)
+#: Standard option
+template_resource_opt = click.option(
+    "--resource",
+    "resources",
+    multiple=True,
+    nargs=2,
+    help=(
+        "Updates to template-level resource items for the `any` scope Multiple are "
+        "allowed."
+    ),
+)
+#: Standard option
+template_config_opt = click.option(
+    "--config",
+    multiple=True,
+    nargs=2,
+    help="Updates to template-level config items. Multiple are allowed.",
+)
 
 
 def _add_doc_from_help(*args):
@@ -453,4 +482,7 @@ _add_doc_from_help(
     env_add_source_file_opt,
     env_add_source_file_name_opt,
     pytest_file_or_dir_opt,
+    template_updates_opt,
+    template_resource_opt,
+    template_config_opt,
 )
