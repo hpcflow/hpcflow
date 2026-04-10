@@ -185,3 +185,28 @@ def test_default_env_preset_used_if_available():
     assert wkt.tasks[0].element_sets[0].resources[0].environments == {
         "my_env": {"version": 1}
     }
+
+
+def test_update_resources():
+    resources_id = 13123
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", resources={"resources_id": resources_id}
+    )
+    assert wkt.resources.get().resources_id == resources_id
+    assert wkt.resources.get().random_seed == 0  # check this item still exists
+
+
+def test_update_config():
+    log_level = "debug"
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", config={"log_console_level": log_level}
+    )
+    assert wkt.config["log_console_level"] == log_level
+
+
+def test_updates():
+    inp_val = 999
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", updates={("tasks", 0, "inputs", "p1"): inp_val}
+    )
+    assert wkt.tasks[0].element_sets[0].inputs[0].value == inp_val

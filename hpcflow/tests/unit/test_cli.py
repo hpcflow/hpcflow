@@ -164,3 +164,26 @@ def test_cli_make_demo_workflow_add_sub(tmp_path, cli_runner):
     assert wk_path.is_dir()
     wk = hf.Workflow(wk_path)
     assert len(wk.submissions) == 1
+
+
+@pytest.mark.skip("Requires casting string types from the CLI")
+def test_cli_make_demo_workflow_with_resource_update(tmp_path, cli_runner):
+    resources_id = 13123
+    result = cli_runner(
+        [
+            "demo-workflow",
+            "make",
+            "workflow_1",
+            "--path",
+            str(tmp_path),
+            "--resource",
+            "resources_id",
+            resources_id,
+        ]
+    )
+    assert result.exit_code == 0
+    wk_path = Path(result.stdout_bytes.decode().strip())
+    assert wk_path.is_dir()
+    wkt = hf.Workflow(wk_path).template
+    assert wkt.resources.get().resources_id == resources_id
+    assert wkt.resources.get().random_seed == 0  # check this item still exists

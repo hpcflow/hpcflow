@@ -233,24 +233,39 @@ def make_test_data_YAML_workflow(
     path: PathLike,
     app: BaseApp | None = None,
     pkg: str = "hpcflow.tests.data",
+    updates: dict[tuple[str | int, ...], Any] | None = None,
+    resources: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
     **kwargs,
 ) -> Workflow:
     """Generate a workflow whose template file is defined in the test data directory."""
     app = app or hf
     with get_file_context(pkg, workflow_name) as file_path:
-        return app.Workflow.from_YAML_file(YAML_path=file_path, path=path, **kwargs)
+        return app.Workflow.from_YAML_file(
+            YAML_path=file_path,
+            path=path,
+            updates=updates,
+            resources=resources,
+            config=config,
+            **kwargs,
+        )
 
 
 def make_test_data_YAML_workflow_template(
     workflow_name: str,
     app: BaseApp | None = None,
     pkg: str = "hpcflow.tests.data",
+    updates: dict[tuple[str | int, ...], Any] | None = None,
+    resources: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
     **kwargs,
 ) -> WorkflowTemplate:
     """Generate a workflow template whose file is defined in the test data directory."""
     app = app or hf
     with get_file_context(pkg, workflow_name) as file_path:
-        return app.WorkflowTemplate.from_file(path=file_path, **kwargs)
+        return app.WorkflowTemplate.from_file(
+            path=file_path, updates=updates, resources=resources, config=config, **kwargs
+        )
 
 
 @dataclass

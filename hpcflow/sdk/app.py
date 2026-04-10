@@ -200,6 +200,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
         ) -> _Workflow | _Submission | None: ...
@@ -221,6 +224,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
         ) -> _Workflow | _Submission | None: ...
@@ -244,6 +250,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             wait: bool = False,
             add_to_known: bool = True,
@@ -272,6 +281,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             wait: bool = False,
             add_to_known: bool = True,
@@ -1373,6 +1385,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in `template_file_or_str`.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         status: bool
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -1431,6 +1452,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in the demo workflow template file.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         status: bool
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -1493,6 +1523,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in `template_file_or_str`.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism: bool
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
@@ -1570,6 +1609,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in the demo workflow template file.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism: bool
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
@@ -2911,6 +2959,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
     ) -> _Workflow | _Submission | None:
@@ -2959,6 +3010,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in `template_file_or_str`.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         status
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -2990,6 +3050,9 @@ class BaseApp(metaclass=Singleton):
                 "ts_name_fmt": ts_name_fmt,
                 "store_kwargs": store_kwargs,
                 "variables": variables,
+                "updates": updates,
+                "resources": resources,
+                "config": config,
                 "status": status_,
             }
             if not is_string:
@@ -3038,6 +3101,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3093,6 +3159,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in `template_file_or_str`.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism
             If True, allow multiple jobscripts to execute simultaneously. If
             'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
@@ -3142,6 +3217,9 @@ class BaseApp(metaclass=Singleton):
             ts_name_fmt=ts_name_fmt,
             store_kwargs=store_kwargs,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
             status=status,
         )
         assert isinstance(wk, _Workflow)
@@ -3174,6 +3252,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
     ) -> _Workflow | _Submission | None:
@@ -3219,6 +3300,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in the demo workflow template file.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         status
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -3253,6 +3343,9 @@ class BaseApp(metaclass=Singleton):
                 ts_name_fmt=ts_name_fmt,
                 store_kwargs=store_kwargs,
                 variables=variables,
+                updates=updates,
+                resources=resources,
+                config=config,
                 status=status_,
             )
             if add_submission:
@@ -3276,6 +3369,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3328,6 +3424,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in the demo workflow template file.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism
             If True, allow multiple jobscripts to execute simultaneously. If
             'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
@@ -3375,6 +3480,9 @@ class BaseApp(metaclass=Singleton):
             ts_name_fmt=ts_name_fmt,
             store_kwargs=store_kwargs,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
             status=status,
         )
         assert isinstance(wk, _Workflow)

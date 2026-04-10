@@ -36,7 +36,7 @@ import rich.box
 
 
 from hpcflow.sdk import app
-from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.typing import WorkflowTemplateFromFileCommonArgs, hydrate
 from hpcflow.sdk.config.errors import (
     ConfigNonConfigurableError,
     UnknownMetaTaskConstitutiveSchema,
@@ -82,6 +82,7 @@ from hpcflow.sdk.core.utils import (
     current_timestamp,
     normalise_timestamp,
     parse_timestamp,
+    set_in_container,
 )
 from hpcflow.sdk.core.errors import (
     InvalidInputSourceTaskReference,
@@ -428,7 +429,45 @@ class WorkflowTemplate(JSONLike):
 
     @classmethod
     @TimeIt.decorator
-    def _from_data(cls, data: dict[str, Any]) -> WorkflowTemplate:
+    def _from_data(
+        cls,
+        data: dict[str, Any],
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> WorkflowTemplate:
+        """
+        Generate a new workflow template from template data that has typically been
+        read from a file or string.
+
+        Parameters
+        ----------
+        data
+            The template data.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
+
+        """
+        updates = updates or {}
+        for res_key, res_val in (resources or {}).items():
+            updates[("resources", "any", res_key)] = res_val
+
+        for conf_key, conf_val in (config or {}).items():
+            updates[("config", conf_key)] = conf_val
+
+        for upd_path, upd_val in updates.items():
+            cls._app.logger.info(
+                f"Updating workflow template data: {upd_path!r} to {upd_val!r}."
+            )
+            set_in_container(data, upd_path, upd_val, cast_indices=True, ensure_path=True)
+
         def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
             """
             For each dict in a list of task parametrisations, ensure the `schema` key is
@@ -602,6 +641,9 @@ class WorkflowTemplate(JSONLike):
         cls,
         string: str,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML string.
 
@@ -614,13 +656,25 @@ class WorkflowTemplate(JSONLike):
             the YAML string looks to contain variable references (like "<<var:name>>"). If
             set to `False`, no substitutions will occur, which may result in an invalid
             workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         return cls._from_data(
             read_YAML_str(
                 string,
                 variables=variables,
                 source="(from the inline workflow template definition)",
-            )
+            ),
+            updates=updates,
+            resources=resources,
+            config=config,
         )
 
     @classmethod
@@ -644,6 +698,9 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
         """Load from a YAML file.
 
@@ -656,13 +713,22 @@ class WorkflowTemplate(JSONLike):
             be attempted if the YAML file looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
         data = read_YAML_file(path, variables=variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
-        return cls._from_data(data)
+        return cls._from_data(data, updates=updates, resources=resources, config=config)
 
     @classmethod
     @TimeIt.decorator
@@ -670,6 +736,9 @@ class WorkflowTemplate(JSONLike):
         cls,
         string: str,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON string.
 
@@ -682,8 +751,22 @@ class WorkflowTemplate(JSONLike):
             the JSON string looks to contain variable references (like "<<var:name>>"). If
             set to `False`, no substitutions will occur, which may result in an invalid
             workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
-        return cls._from_data(read_JSON_string(string, variables=variables))
+        return cls._from_data(
+            read_JSON_string(string, variables=variables),
+            updates=updates,
+            resources=resources,
+            config=config,
+        )
 
     @classmethod
     @TimeIt.decorator
@@ -691,6 +774,9 @@ class WorkflowTemplate(JSONLike):
         cls,
         path: PathLike,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
         """Load from a JSON file.
 
@@ -703,12 +789,26 @@ class WorkflowTemplate(JSONLike):
             be attempted if the JSON file looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
         data = read_JSON_file(path, variables=variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
-        return cls._from_data(data)
+        return cls._from_data(
+            data,
+            updates=updates,
+            resources=resources,
+            config=config,
+        )
 
     @classmethod
     @TimeIt.decorator
@@ -717,6 +817,9 @@ class WorkflowTemplate(JSONLike):
         path: PathLike,
         template_format: Literal["yaml", "json"] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowTemplate:
         """Load from either a YAML or JSON file, depending on the file extension.
 
@@ -732,13 +835,29 @@ class WorkflowTemplate(JSONLike):
             be attempted if the file looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         path_ = Path(path or ".")
         fmt = template_format.lower() if template_format else None
+        kwargs: WorkflowTemplateFromFileCommonArgs = {
+            "path": path_,
+            "variables": variables,
+            "updates": updates,
+            "resources": resources,
+            "config": config,
+        }
         if fmt == "yaml" or path_.suffix in (".yaml", ".yml"):
-            return cls.from_YAML_file(path_, variables=variables)
+            return cls.from_YAML_file(**kwargs)
         elif fmt == "json" or path_.suffix in (".json", ".jsonc"):
-            return cls.from_JSON_file(path_, variables=variables)
+            return cls.from_JSON_file(**kwargs)
         else:
             raise ValueError(
                 f"Unknown workflow template file extension {path_.suffix!r}. Supported "
@@ -1092,6 +1211,10 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+        status: Status | None = None,
     ) -> Workflow:
         """Generate from a YAML file.
 
@@ -1134,10 +1257,22 @@ class Workflow(AppAware):
             will be attempted if the YAML file looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         template = cls._app.WorkflowTemplate.from_YAML_file(
             path=YAML_path,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
         )
         return cls.from_template(
             template,
@@ -1150,6 +1285,7 @@ class Workflow(AppAware):
             ts_fmt,
             ts_name_fmt,
             store_kwargs,
+            status,
         )
 
     @classmethod
@@ -1166,6 +1302,9 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a YAML string.
@@ -1209,10 +1348,22 @@ class Workflow(AppAware):
             attempted if the YAML string looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         template = cls._app.WorkflowTemplate.from_YAML_string(
             string=YAML_str,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
         )
         return cls.from_template(
             template,
@@ -1242,6 +1393,9 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON file.
@@ -1285,10 +1439,22 @@ class Workflow(AppAware):
             will be attempted if the JSON file looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         template = cls._app.WorkflowTemplate.from_JSON_file(
             path=JSON_path,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
         )
         return cls.from_template(
             template,
@@ -1318,6 +1484,9 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from a JSON string.
@@ -1361,10 +1530,22 @@ class Workflow(AppAware):
             attempted if the JSON string looks to contain variable references (like
             "<<var:name>>"). If set to `False`, no substitutions will occur, which may
             result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         template = cls._app.WorkflowTemplate.from_JSON_string(
             string=JSON_str,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
         )
         return cls.from_template(
             template,
@@ -1396,6 +1577,9 @@ class Workflow(AppAware):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | Literal[False] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: Status | None = None,
     ) -> Workflow:
         """Generate from either a YAML or JSON file, depending on the file extension.
@@ -1443,12 +1627,24 @@ class Workflow(AppAware):
             Substitutions will be attempted if the file looks to contain variable
             references (like "<<var:name>>"). If set to `False`, no substitutions will
             occur, which may result in an invalid workflow template!
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         """
         try:
             template = cls._app.WorkflowTemplate.from_file(
                 template_path,
                 template_format,
                 variables=variables,
+                updates=updates,
+                resources=resources,
+                config=config,
             )
         except Exception:
             if status:

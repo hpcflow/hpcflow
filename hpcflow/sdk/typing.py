@@ -4,7 +4,7 @@ Common type aliases.
 
 from __future__ import annotations
 from dataclasses import InitVar
-from typing import Any, ClassVar, Final, TypeAlias, TypeVar, cast, TYPE_CHECKING
+from typing import Any, ClassVar, Final, Literal, TypeAlias, TypeVar, cast, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 from pathlib import Path
 import re
@@ -152,7 +152,23 @@ class MakeWorkflowCommonArgs(TypedDict):
     ts_name_fmt: str | None
     store_kwargs: dict[str, Any] | None
     variables: dict[str, Any] | None
+    updates: dict[tuple[str | int, ...], Any] | None
+    resources: dict[str, Any] | None
+    config: dict[str, Any] | None
     status: Status | None
+
+
+class WorkflowTemplateFromFileCommonArgs(TypedDict):
+    """
+    Common keys used in workflow template construction in
+    :py:meth:`WorkflowTemplate.from_file`.
+    """
+
+    path: Path
+    variables: dict[str, str] | Literal[False] | None
+    updates: dict[tuple[str | int, ...], Any] | None
+    resources: dict[str, Any] | None
+    config: dict[str, Any] | None
 
 
 #: Simplification of :class:`TemplateComponents` to allow some types of
