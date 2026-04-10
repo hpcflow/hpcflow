@@ -1,4 +1,20 @@
 
+<a name="v0.2.0a310"></a>
+## [v0.2.0a310](https://github.com/hpcflow/hpcflow/compare/v0.2.0a309...v0.2.0a310) - 2026.04.10
+
+### ✨ Features
+
+* support updating workflow template data when making a workflow
+
+### 🐛 Bug Fixes
+
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a309"></a>
 ## [v0.2.0a309](https://github.com/hpcflow/hpcflow/compare/v0.2.0a308...v0.2.0a309) - 2026.04.08
 
