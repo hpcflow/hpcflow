@@ -121,7 +121,7 @@
             number: 2
             generate_seed_sequence: false
     
-  Random number generator spawn keys
-  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Random number generator spawn keys
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  An RNG spawn key (as used by Numpy's ``SeedSequence```) can be specified via the ``rng_spawn_key`` resources key. If specified, this should be an integer or list of integers. This list is exposed as a comma-separated string environment variable called ``{{ app_caps }}_RUN_RNG_SPAWN_KEY`` during run execution.
+    An RNG spawn key (as used by Numpy's ``SeedSequence``) can be specified via the ``rng_spawn_key`` resources key. If specified, this should be an integer or list of integers. This list is exposed as a comma-separated string environment variable called ``{{ app_caps }}_RUN_RNG_SPAWN_KEY`` during run execution.
