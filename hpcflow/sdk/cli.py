@@ -65,6 +65,9 @@ from hpcflow.sdk.cli_common import (
     env_add_source_file_opt,
     env_add_source_file_name_opt,
     pytest_file_or_dir_opt,
+    template_updates_opt,
+    template_resource_opt,
+    template_config_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -179,6 +182,9 @@ def _make_API_CLI(app: BaseApp):
     @ts_fmt_option
     @ts_name_fmt_option
     @variables_option
+    @template_updates_opt
+    @template_resource_opt
+    @template_config_opt
     @make_status_opt
     @add_sub_opt
     def make_workflow(
@@ -194,6 +200,9 @@ def _make_API_CLI(app: BaseApp):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         variables: list[tuple[str, str]] | None = None,
+        updates: list[tuple[str, str]] | None = None,
+        resources: list[tuple[str, str]] | None = None,
+        config: list[tuple[str, str]] | None = None,
         status: bool = True,
         add_submission: bool = False,
     ):
@@ -216,6 +225,9 @@ def _make_API_CLI(app: BaseApp):
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables) if variables is not None else None,
+            updates={tuple(key.split(".")): val for key, val in (updates or [])} or None,
+            resources=dict(resources) if resources is not None else None,
+            config=dict(config) if config is not None else None,
             status=status,
             add_submission=add_submission,
         )
@@ -239,6 +251,9 @@ def _make_API_CLI(app: BaseApp):
     @ts_fmt_option
     @ts_name_fmt_option
     @variables_option
+    @template_updates_opt
+    @template_resource_opt
+    @template_config_opt
     @js_parallelism_option
     @wait_option
     @add_to_known_opt
@@ -260,6 +275,9 @@ def _make_API_CLI(app: BaseApp):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         variables: list[tuple[str, str]] | None = None,
+        updates: list[tuple[str, str]] | None = None,
+        resources: list[tuple[str, str]] | None = None,
+        config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
         wait: bool = False,
         add_to_known: bool = True,
@@ -289,6 +307,9 @@ def _make_API_CLI(app: BaseApp):
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
             variables=dict(variables) if variables is not None else None,
+            updates={tuple(key.split(".")): val for key, val in (updates or [])} or None,
+            resources=dict(resources) if resources is not None else None,
+            config=dict(config) if config is not None else None,
             JS_parallelism=js_parallelism,
             wait=wait,
             add_to_known=add_to_known,
@@ -1615,6 +1636,47 @@ def _make_manage_CLI(app: BaseApp):
         """Delete all cacheable files from the cache: data files and programs."""
         app.purge_all(not_exist_ok=not exist_ok)
 
+    @manage.group("secrets")
+    def secrets():
+        """Add and remove secrets for third party services."""
+
+    @secrets.command()
+    @click.argument("key")
+    def get(key: str):
+        """Print the value of a secret."""
+        click.echo(app.get_secret(key))
+
+    @secrets.command()
+    @click.argument("key")
+    @click.argument("value")
+    @click.option(
+        "--overwrite",
+        is_flag=True,
+        default=False,
+        help="Whether to change the value of an existing secret.",
+    )
+    def set(key: str, value: str, overwrite: bool):
+        """Add a new secret or update the value of an existing secret."""
+        app.set_secret(key, value, overwrite)
+
+    @secrets.command()
+    @click.argument("key")
+    def delete(key: str):
+        """Add a new secret or update the value of an existing secret."""
+        app.delete_secret(key)
+
+    @secrets.command("list")
+    @click.option(
+        "-v",
+        "--values",
+        is_flag=True,
+        default=False,
+        help="Whether to show secret values as well.",
+    )
+    def list_secrets(values: bool):
+        """List available secrets."""
+        app.print_secrets(include_values=values)
+
     return manage
 
 
@@ -1863,7 +1925,7 @@ def make_cli(app: BaseApp):
                 app.load_config(
                     config_dir=config_dir,
                     config_key=config_key,
-                    **overrides,
+                    overrides=overrides,
                 )
             except ConfigError as err:
                 click.echo(f"{colored(err.__class__.__name__, 'red')}: {err}")

@@ -32,7 +32,7 @@ class DeferredFileWriter:
 
     def _ensure_open(self):
         if not self._is_open:
-            self.file = open(self.filename, self.mode, **self.kwargs)
+            self.file = open(self.filename, self.mode, encoding="utf-8", **self.kwargs)
             self._is_open = True
 
     def write(self, data):

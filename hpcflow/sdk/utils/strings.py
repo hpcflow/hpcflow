@@ -67,3 +67,20 @@ def capitalise_first_letter(chars: str) -> str:
     The rest of the string is unchanged.
     """
     return chars[0].upper() + chars[1:]
+
+
+SECRET_PATTERNS = [
+    r"(?i)api[_-]?key\s*=\s*['\"]?[A-Za-z0-9_\-]{16,}",
+    r"(?i)username\s*=\s*['\"]?.+",
+    r"(?i)password\s*=\s*['\"]?.+",
+    r"(?i)secret\s*=\s*['\"]?.+",
+    r"AKIA[0-9A-Z]{16}",  # AWS access key
+]
+
+
+def looks_like_secret(text: str) -> bool:
+    """Return True if a string looks like it might contain a secret credential."""
+    for pattern in SECRET_PATTERNS:
+        if re.search(pattern, text):
+            return True
+    return False

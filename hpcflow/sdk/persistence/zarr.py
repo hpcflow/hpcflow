@@ -641,11 +641,13 @@ class ZarrStoreParameter(StoreParameter):
     """
 
     _encoders: ClassVar[dict[type, Callable]] = {  # keys are types
+        **StoreParameter._encoders,
         np.ndarray: _encode_numpy_array,
         MaskedArray: _encode_masked_array,
         bytes: _encode_bytes,
     }
     _decoders: ClassVar[dict[str, Callable]] = {  # keys are keys in type_lookup
+        **StoreParameter._decoders,
         "arrays": _decode_numpy_arrays,
         "masked_arrays": _decode_masked_arrays,
     }

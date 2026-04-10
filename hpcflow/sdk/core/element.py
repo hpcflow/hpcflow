@@ -318,9 +318,12 @@ class ElementResources(JSONLike):
         An arbitrary integer that can be used to force multiple jobscripts.
     skip_downstream_on_failure: bool
         Whether to skip downstream dependents on failure.
-    allow_failed_dependencies: int | float | bool | None
-        The failure tolerance with respect to dependencies, specified as a number or
-        proportion.
+    random_seed: int | None
+        A random seed that is exposed as an environment variable during run execution.
+    rng_spawn_key: list[int] | None
+        A sequence of integers that is exposed as an environment variable (as a
+        comma-separated string) during run execution and that can be used as a Numpy
+        SeedSequence spawn key.
     SGE_parallel_env: str
         Which SGE parallel environment to request.
     SLURM_partition: str
@@ -386,9 +389,12 @@ class ElementResources(JSONLike):
     resources_id: int | None = None
     #: Whether to skip downstream dependents on failure.
     skip_downstream_on_failure: bool = True
-    #: The failure tolerance with respect to dependencies, specified as a number or
-    #: proportion.
-    allow_failed_dependencies: int | float | bool | None = False
+    #: A random seed that is exposed as an environment variable during run execution.
+    random_seed: int | None = None
+    #: A sequence of integers that is exposed as an environment variable (as a
+    #: comma-separated string) during run execution and that can be used as a Numpy
+    #: SeedSequence spawn key.
+    rng_spawn_key: list[int] | None = None
 
     # SGE scheduler specific:
     #: Which SGE parallel environment to request.
@@ -434,7 +440,12 @@ class ElementResources(JSONLike):
     def get_jobscript_hash(self) -> int:
         """Get hash from all arguments that distinguish jobscripts."""
 
-        exclude = ["time_limit", "skip_downstream_on_failure"]
+        exclude = [
+            "time_limit",
+            "skip_downstream_on_failure",
+            "random_seed",
+            "rng_spawn_key",
+        ]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
             # environments become effective/active within the command files, but if we
@@ -539,7 +550,7 @@ class ElementResources(JSONLike):
         if self.scheduler is None:
             self.scheduler = self.get_default_scheduler(self.os_name, self.shell)
 
-        # this are not set by the user:
+        # these are not set by the user:
         self.platform = self.get_default_platform()
         self.CPU_arch = self.get_default_CPU_arch()
         self.executable_extension = self.get_default_executable_extension()

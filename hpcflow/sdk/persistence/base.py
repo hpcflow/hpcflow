@@ -767,6 +767,48 @@ def _decode_masked_arrays(
     return obj_
 
 
+def _encode_numpy_rng_state(
+    obj,
+    type_lookup,
+    path,
+    root_encoder,
+    **kwargs,
+):
+    """Encode a Numpy RNG (in particular, the bit generator's state.)"""
+    type_lookup["numpy.random._generator.Generator"].append(path)
+    state = obj.bit_generator.state
+    # stringify big arbitrary-precision integers, which msgpack does not like:
+    state["state"]["state"] = str(state["state"]["state"])
+    state["state"]["inc"] = str(state["state"]["inc"])
+    return root_encoder(state, type_lookup=type_lookup, path=path, **kwargs)["data"]
+
+
+def _decode_numpy_rng_state(
+    obj,
+    type_lookup,
+    path,
+    **kwargs,
+) -> np.random._generator.Generator:
+    """Decode a Numpy RNG (in particular, the bit generator's state.)"""
+    for dat_path in type_lookup.get("numpy.random._generator.Generator", []):
+        try:
+            rel_path = get_relative_path(dat_path, path)
+        except ValueError:
+            continue
+
+        obj["state"]["state"] = int(obj["state"]["state"])
+        obj["state"]["inc"] = int(obj["state"]["inc"])
+        rng = np.random.Generator(getattr(np.random, obj["bit_generator"])())
+        rng.bit_generator.state = obj
+
+        if rel_path:
+            set_in_container(obj, rel_path, rng)
+        else:
+            obj = rng
+
+    return obj
+
+
 @dataclass
 @hydrate
 class StoreParameter:
@@ -805,10 +847,12 @@ class StoreParameter:
     _encoders: ClassVar[dict[type, Callable]] = {  # keys are types
         np.ndarray: _encode_numpy_array,
         MaskedArray: _encode_masked_array,
+        np.random._generator.Generator: _encode_numpy_rng_state,
     }
     _decoders: ClassVar[dict[str, Callable]] = {  # keys are keys in type_lookup
         "arrays": _decode_numpy_arrays,
         "masked_arrays": _decode_masked_arrays,
+        "numpy.random._generator.Generator": _decode_numpy_rng_state,
     }
 
     _MAX_DEPTH: ClassVar[int] = 50

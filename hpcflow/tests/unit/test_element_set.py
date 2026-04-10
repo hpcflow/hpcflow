@@ -68,9 +68,11 @@ def test_resources_init_equivalence_list_of_obj_resource_list_obj() -> None:
     assert es1 == es2
 
 
-def test_repeats_single_int_equivalence() -> None:
-    es1 = hf.ElementSet(repeats=2)
-    es2 = hf.ElementSet(repeats=[{"name": "", "number": 2, "nesting_order": 0}])
+def test_repeats_descriptor_equivalence() -> None:
+    es1 = hf.ElementSet(repeats=hf.RepeatsDescriptor(number=2, master_seed=0))
+    es2 = hf.ElementSet(
+        repeats=[{"name": "", "number": 2, "nesting_order": 0.0, "master_seed": 0}]
+    )
     assert es1 == es2
 
 

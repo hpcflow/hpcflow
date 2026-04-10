@@ -8,13 +8,14 @@ from hpcflow.sdk.core.test_utils import (
 
 
 def test_merge_template_level_resources_into_element_set():
+    seed = 0
     wkt = hf.WorkflowTemplate(
         name="w1",
         tasks=[hf.Task(schema=[hf.task_schemas.test_t1_ps])],
-        resources={"any": {"num_cores": 1}},
+        resources={"any": {"num_cores": 1, "random_seed": seed}},
     )
     assert wkt.tasks[0].element_sets[0].resources == hf.ResourceList.from_json_like(
-        {"any": {"num_cores": 1}}
+        {"any": {"num_cores": 1, "random_seed": seed}}
     )
 
 
@@ -37,7 +38,7 @@ def test_workflow_template_vars(tmp_path):
         workflow_name="benchmark_N_elements.yaml",
         variables={"N": num_repeats},
     )
-    assert wkt.tasks[0].element_sets[0].repeats[0]["number"] == num_repeats
+    assert wkt.tasks[0].element_sets[0].repeats[0].number == num_repeats
 
 
 def test_workflow_template_vars_raise_no_vars(tmp_path):
@@ -51,7 +52,7 @@ def test_workflow_template_vars_defaults_used(tmp_path):
     # `benchmark_script_runner` contains a default value for the variable `N`, so that
     # should be used, since we don't pass any variables:
     wkt = make_test_data_YAML_workflow_template("benchmark_script_runner.yaml")
-    assert wkt.tasks[0].element_sets[0].repeats[0]["number"] == 1
+    assert wkt.tasks[0].element_sets[0].repeats[0].number == 1
 
 
 def test_workflow_template_vars_False_no_substitution(tmp_path):
@@ -184,3 +185,28 @@ def test_default_env_preset_used_if_available():
     assert wkt.tasks[0].element_sets[0].resources[0].environments == {
         "my_env": {"version": 1}
     }
+
+
+def test_update_resources():
+    resources_id = 13123
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", resources={"resources_id": resources_id}
+    )
+    assert wkt.resources.get().resources_id == resources_id
+    assert wkt.resources.get().random_seed == 0  # check this item still exists
+
+
+def test_update_config():
+    log_level = "debug"
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", config={"log_console_level": log_level}
+    )
+    assert wkt.config["log_console_level"] == log_level
+
+
+def test_updates():
+    inp_val = 999
+    wkt = make_test_data_YAML_workflow_template(
+        "workflow_1.yaml", updates={("tasks", 0, "inputs", "p1"): inp_val}
+    )
+    assert wkt.tasks[0].element_sets[0].inputs[0].value == inp_val

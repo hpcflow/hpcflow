@@ -10,6 +10,7 @@ from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     P1_sub_parameter_cls as P1_sub,
     make_test_data_YAML_workflow,
+    make_workflow_to_run_command,
 )
 
 
@@ -562,3 +563,21 @@ def test_get_text_file_file_not_found_zarr_zip(tmp_path):
     wkz = hf.Workflow(wk.zip(path=tmp_path))
     with pytest.raises(FileNotFoundError):
         wkz.get_text_file("non_existent_file.txt")
+
+
+@pytest.mark.integration
+def test_rng_spawn_key(tmp_path):
+    command = (
+        "echo $env:HPCFLOW_RUN_RNG_SPAWN_KEY"
+        if os.name == "nt"
+        else "echo $HPCFLOW_RUN_RNG_SPAWN_KEY"
+    )
+    wk = make_workflow_to_run_command(
+        command=command,
+        resources={"any": {"rng_spawn_key": [0, 1], "write_app_logs": True}},
+        path=tmp_path,
+        config={"log_file_level": "debug"},
+    )
+    wk.submit(wait=True, add_to_known=False)
+    stdout = wk.submissions[0].jobscripts[0].get_stdout().strip()
+    assert stdout == "0,1"

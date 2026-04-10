@@ -189,3 +189,15 @@ def test_workflow_template_config_set(modifiable_config, tmp_path):
 
     # log file level should not have changed:
     assert hf.config.get("log_file_level") == "warning"
+
+
+def test_dot_delimited_override(modifiable_config):
+    key = (
+        "shells.powershell.defaults.executable"
+        if os.name == "nt"
+        else "shells.bash.defaults.executable"
+    )
+    value = "MY_SHELL_EXE"
+    hf.unload_config()
+    hf.load_config(overrides={key: value})
+    assert hf.config.get(key) == value

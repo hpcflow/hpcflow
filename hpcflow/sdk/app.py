@@ -55,10 +55,12 @@ from hpcflow.sdk.utils.files import (
     delete_file_or_dir,
     overwrite_YAML_file,
     download_github_repo,
+    set_file_permissions_600,
 )
 from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as Environment_cls
+from .core.errors import SecretExistsError, SecretNotFoundError
 from hpcflow.sdk.log import AppLog, TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -165,6 +167,7 @@ if TYPE_CHECKING:
         TaskOutputParameters,
         ElementPropagation,
         ElementSet,
+        RepeatsDescriptor,
     )
     from .core.task_schema import TaskSchema, TaskObjective
     from .core.workflow import WorkflowTemplate as _WorkflowTemplate
@@ -197,6 +200,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
         ) -> _Workflow | _Submission | None: ...
@@ -218,6 +224,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
         ) -> _Workflow | _Submission | None: ...
@@ -241,6 +250,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             wait: bool = False,
             add_to_known: bool = True,
@@ -269,6 +281,9 @@ if TYPE_CHECKING:
             ts_name_fmt: str | None = None,
             store_kwargs: dict[str, Any] | None = None,
             variables: dict[str, str] | None = None,
+            updates: dict[tuple[str | int, ...], Any] | None = None,
+            resources: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             wait: bool = False,
             add_to_known: bool = True,
@@ -529,6 +544,7 @@ class BaseApp(metaclass=Singleton):
     _known_subs_file_name: ClassVar = "known_submissions.txt"
     _known_subs_file_sep: ClassVar = "::"
     _submission_ts_fmt: ClassVar = r"%Y-%m-%d %H:%M:%S.%f"
+    _secrets_file_name: ClassVar = "state.db"
     __load_pending: ClassVar = False
 
     def __init__(
@@ -1314,6 +1330,15 @@ class BaseApp(metaclass=Singleton):
         return self._get_app_core_class("CompactProblemFormatter")
 
     @property
+    def RepeatsDescriptor(self) -> type[RepeatsDescriptor]:
+        """
+        The :class:`RepeatsDescriptor` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("RepeatsDescriptor")
+
+    @property
     def make_workflow(self) -> _MakeWorkflow:
         """
         Generate a new workflow from a file or string containing a workflow
@@ -1360,6 +1385,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in `template_file_or_str`.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         status: bool
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -1418,6 +1452,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in the demo workflow template file.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         status: bool
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -1480,6 +1523,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in `template_file_or_str`.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism: bool
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
@@ -1557,6 +1609,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables: dict[str, str]
             String variables to substitute in the demo workflow template file.
+        updates: dict[tuple[str | int], Any]
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources: dict[str, Any]
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config: dict[str, Any]
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism: bool
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
@@ -2304,7 +2365,10 @@ class BaseApp(metaclass=Singleton):
 
     @TimeIt.decorator
     def _load_config(
-        self, config_dir: PathLike, config_key: str | None, **overrides
+        self,
+        config_dir: PathLike,
+        config_key: str | None,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         self.logger.info("Loading configuration.")
         self._ensure_user_data_dir()
@@ -2327,7 +2391,7 @@ class BaseApp(metaclass=Singleton):
             config_key=config_key,
             logger=self.config_logger,
             variables={"app_name": self.name, "app_version": self.version},
-            **overrides,
+            overrides=overrides,
         )
         self.log.update_console_level(self.config.get("log_console_level"))
         log_file_path = self.config.get("log_file_path")
@@ -2349,7 +2413,7 @@ class BaseApp(metaclass=Singleton):
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """
         Load the user's configuration.
@@ -2365,7 +2429,7 @@ class BaseApp(metaclass=Singleton):
         """
         if warn and self.is_config_loaded:
             warnings.warn("Configuration is already loaded; reloading.")
-        self._load_config(config_dir, config_key, **overrides)
+        self._load_config(config_dir, config_key, overrides=overrides)
 
     def unload_config(self) -> None:
         """
@@ -2394,21 +2458,21 @@ class BaseApp(metaclass=Singleton):
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """Reset the config file to defaults, and reload the config."""
         self.logger.info("resetting config")
         self._delete_config_file(config_dir=config_dir)
         self._config = None
         self._config_files = {}
-        self.load_config(config_dir, config_key, warn=warn, **overrides)
+        self.load_config(config_dir, config_key, warn=warn, overrides=overrides)
 
     def reload_config(
         self,
         config_dir: PathLike = None,
         config_key: str | None = None,
         warn: bool = True,
-        **overrides,
+        overrides: dict[str, Any] | None = None,
     ) -> None:
         """
         Reload the configuration. Use if a user has updated the configuration file
@@ -2418,7 +2482,7 @@ class BaseApp(metaclass=Singleton):
             warnings.warn("Configuration is not loaded; loading.")
         self.log.remove_file_handler()
         self._config_files = {}
-        self._load_config(config_dir, config_key, **overrides)
+        self._load_config(config_dir, config_key, overrides=overrides)
 
     @TimeIt.decorator
     def __load_builtin_files_from_nested_package(
@@ -2642,6 +2706,13 @@ class BaseApp(metaclass=Singleton):
         The path to the file describing known submissions.
         """
         return self.user_data_hostname_dir / self._known_subs_file_name
+
+    @property
+    def secrets_file_path(self) -> Path:
+        """
+        The path to the file containing secrets (e.g. passwords for third party services).
+        """
+        return self.user_data_dir / self._secrets_file_name
 
     def _format_known_submissions_line(
         self,
@@ -2888,6 +2959,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
     ) -> _Workflow | _Submission | None:
@@ -2936,6 +3010,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in `template_file_or_str`.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         status
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -2967,6 +3050,9 @@ class BaseApp(metaclass=Singleton):
                 "ts_name_fmt": ts_name_fmt,
                 "store_kwargs": store_kwargs,
                 "variables": variables,
+                "updates": updates,
+                "resources": resources,
+                "config": config,
                 "status": status_,
             }
             if not is_string:
@@ -3015,6 +3101,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3070,6 +3159,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in `template_file_or_str`.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism
             If True, allow multiple jobscripts to execute simultaneously. If
             'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
@@ -3119,6 +3217,9 @@ class BaseApp(metaclass=Singleton):
             ts_name_fmt=ts_name_fmt,
             store_kwargs=store_kwargs,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
             status=status,
         )
         assert isinstance(wk, _Workflow)
@@ -3151,6 +3252,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
     ) -> _Workflow | _Submission | None:
@@ -3196,6 +3300,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in the demo workflow template file.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         status
             If True, display a live status to track workflow creation progress.
         add_submission
@@ -3230,6 +3343,9 @@ class BaseApp(metaclass=Singleton):
                 ts_name_fmt=ts_name_fmt,
                 store_kwargs=store_kwargs,
                 variables=variables,
+                updates=updates,
+                resources=resources,
+                config=config,
                 status=status_,
             )
             if add_submission:
@@ -3253,6 +3369,9 @@ class BaseApp(metaclass=Singleton):
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
         variables: dict[str, str] | None = None,
+        updates: dict[tuple[str | int, ...], Any] | None = None,
+        resources: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3305,6 +3424,15 @@ class BaseApp(metaclass=Singleton):
             Keyword arguments to pass to the store's `write_empty_workflow` method.
         variables
             String variables to substitute in the demo workflow template file.
+        updates
+            Any updates to apply to the template data, in the form of a dict whose keys
+            are paths (as tuples of strings or ints) to the relevant datum, and whose
+            values are the new values to use at those paths.
+        resources
+            Any updates to template-level resource items for the "any" scope. This is
+            merged into `updates`.
+        config
+            Any updates to template-level config items. This is merged into `updates`.
         JS_parallelism
             If True, allow multiple jobscripts to execute simultaneously. If
             'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
@@ -3352,6 +3480,9 @@ class BaseApp(metaclass=Singleton):
             ts_name_fmt=ts_name_fmt,
             store_kwargs=store_kwargs,
             variables=variables,
+            updates=updates,
+            resources=resources,
+            config=config,
             status=status,
         )
         assert isinstance(wk, _Workflow)
@@ -3797,6 +3928,7 @@ class BaseApp(metaclass=Singleton):
         rich_print(group)
 
     @TimeIt.decorator
+    @batch_warnings
     def _show(
         self,
         max_recent: int = 3,
@@ -4087,6 +4219,7 @@ class BaseApp(metaclass=Singleton):
         workflow_ref: int | str | Path,
         ref_is_path: str | None = None,
         status: bool = True,
+        quiet: bool = False,
     ) -> None:
         """
         Cancel the execution of a workflow submission.
@@ -4101,7 +4234,7 @@ class BaseApp(metaclass=Singleton):
             Whether to show a live status during cancel.
         """
         path = self._resolve_workflow_reference(str(workflow_ref), ref_is_path)
-        self.Workflow(path).cancel(status=status)
+        self.Workflow(path).cancel(status=status, quiet=quiet)
 
     @staticmethod
     def redirect_std_to_file(*args, **kwargs):
@@ -4401,7 +4534,9 @@ class BaseApp(metaclass=Singleton):
         shell: Literal["bash", "powershell"] | None = None,
         setup: str | list[str] | None = None,
         names: list[str] | None = None,
+        python_env: bool = True,
         use_current: bool = True,
+        secrets: list[str] | None = None,
         save: bool = False,
         env_source_file: Path | None = None,
         file_name: str = Environment_cls.DEFAULT_CONFIGURED_ENVS_FILE,
@@ -4415,9 +4550,14 @@ class BaseApp(metaclass=Singleton):
             If specified, also set up these named environments using the same Python
             executable and setup, otherwise just set up the `python_env` environment. This
             should be a list of strings without the "_env" prefix, which will be added.
+        python_env:
+            If True (default), set up the `python_env` environment.
         use_current:
             Use the currently activate Python environment to provide a `python_script`
             executable within the environment. True by default.
+        secrets:
+            List of secret keys whose values should be exposed as shell environment
+            variables for runs that use this environment.
         save:
             If True, save the environment to a persistent environment definitions file.
         env_source_file:
@@ -4432,6 +4572,8 @@ class BaseApp(metaclass=Singleton):
             with the same name and specifiers with the new one. If False and an existing
             environment exists, an exception will be raised.
         """
+        if not python_env and not names:
+            raise ValueError("No Python environments to set up!")
         shell = shell or DEFAULT_SHELL_NAMES[os.name]
         setup = norm_env_setup(setup)
         executables = [
@@ -4448,13 +4590,15 @@ class BaseApp(metaclass=Singleton):
         ]
         setup = self.get_env_setup(shell) if use_current else setup
         environments = []
-        for name in sorted(set(["python", *(names if names else [])])):
+        names_py = ["python"] if python_env else []
+        for name in sorted(set([*names_py, *(names if names else [])])):
             environments.append(
                 self.Environment(
                     name=f"{name}_env",
                     setup=setup,
                     executables=executables,
                     setup_label="python",
+                    secrets=secrets,
                 )
             )
         if save:
@@ -5546,6 +5690,68 @@ class BaseApp(metaclass=Singleton):
             will be raised if an item already exists.
         """
         self.__install_data_or_program_cache("program", path, overwrite)
+
+    def _get_all_secrets(self) -> dict[str, Any]:
+        """Get all secrets."""
+        try:
+            return read_YAML_file(self.secrets_file_path)
+        except FileNotFoundError:
+            return {}
+
+    def __write_secrets_file(self, secrets: dict[str, Any]):
+        """Write the secrets file (e.g. when a secret has been added, updated or
+        deleted.)"""
+        overwrite_YAML_file(
+            path=self.secrets_file_path,
+            new_contents=secrets,
+            typ="safe",
+            description="secrets ",
+            logger=self.logger,
+            tmp_file_callback=set_file_permissions_600,
+        )
+
+    def set_secret(self, key: str, value: Any, overwrite: bool = False):
+        """Set the value of a secret."""
+        secrets = self._get_all_secrets()
+        if key in secrets and not overwrite:
+            raise SecretExistsError(self, key)
+        secrets[key] = value
+        self.__write_secrets_file(secrets)
+
+    def get_secret(self, key: str) -> Any:
+        """Get the value of a secret."""
+        secrets = self._get_all_secrets()
+        try:
+            return secrets[key]
+        except KeyError:
+            raise SecretNotFoundError(self, key, list(secrets), is_delete=False)
+
+    def delete_secret(self, key: str):
+        """Delete a secret."""
+        secrets = self._get_all_secrets()
+        try:
+            del secrets[key]
+        except KeyError:
+            raise SecretNotFoundError(self, key, list(secrets), is_delete=True)
+        self.__write_secrets_file(secrets)
+
+    def _get_secrets_table(self, include_values: bool = False) -> Table:
+        """Generate a Rich table that shows secrets and optionally their secret values."""
+        headers = ["Key", "Value"]
+        tab = Table(*headers, box=box.SIMPLE)
+        for sec_name, sec_val in sorted(self._get_all_secrets().items()):
+            if not include_values:
+                sec_val = "*" * len(sec_val)
+            cols = [sec_name, sec_val]
+
+            tab.add_row(*cols)
+        return tab
+
+    def print_secrets(self, include_values: bool = False) -> None:
+        """
+        Print a table of available secrets, optionally with their secret values.
+        """
+        Console().print(self._get_secrets_table(include_values=include_values))
 
 
 class App(BaseApp):

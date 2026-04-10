@@ -1,4 +1,171 @@
 
+<a name="v0.2.0a310"></a>
+## [v0.2.0a310](https://github.com/hpcflow/hpcflow/compare/v0.2.0a309...v0.2.0a310) - 2026.04.10
+
+### ✨ Features
+
+* support updating workflow template data when making a workflow
+
+### 🐛 Bug Fixes
+
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a309"></a>
+## [v0.2.0a309](https://github.com/hpcflow/hpcflow/compare/v0.2.0a308...v0.2.0a309) - 2026.04.08
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a308"></a>
+## [v0.2.0a308](https://github.com/hpcflow/hpcflow/compare/v0.2.0a307...v0.2.0a308) - 2026.04.05
+
+### ✨ Features
+
+* support persisting numpy RNGs
+* add `rng_spawn_key` resource item
+
+### 🐛 Bug Fixes
+
+* add missing env vars to run execution
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 5 updates
+
+
+<a name="v0.2.0a307"></a>
+## [v0.2.0a307](https://github.com/hpcflow/hpcflow/compare/v0.2.0a306...v0.2.0a307) - 2026.03.26
+
+### ✨ Features
+
+* support not generating the `python_env` env in `env_configure_python`
+* support accessing secrets in environments
+* support setting, getting, listing and deleting secrets
+
+### 🐛 Bug Fixes
+
+* use utf-8 encoding in `DeferredFileWriter`
+* only log if logger
+* respect config overrides in `modifiable_config` fixture
+* use env set in Submission object if available in `EAR.get_environment`
+* set random seed env var when combine_scripts=True
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 2 updates
+
+
+<a name="v0.2.0a306"></a>
+## [v0.2.0a306](https://github.com/hpcflow/hpcflow/compare/v0.2.0a305...v0.2.0a306) - 2026.03.20
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the github-actions-dependencies group with 2 updates
+* **deps-dev:** bump black in the pip-dependencies group
+
+
+<a name="v0.2.0a305"></a>
+## [v0.2.0a305](https://github.com/hpcflow/hpcflow/compare/v0.2.0a304...v0.2.0a305) - 2026.03.19
+
+### ✨ Features
+
+* add `ValueSequence/InputValue.random_seeds` class methods
+* generate a workflow-level new default resource item `random_seed`
+
+### 🐛 Bug Fixes
+
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a304"></a>
+## [v0.2.0a304](https://github.com/hpcflow/hpcflow/compare/v0.2.0a303...v0.2.0a304) - 2026.03.19
+
+### ✨ Features
+
+* support dot-delimited config overrides
+
+### 🐛 Bug Fixes
+
+* missing quiet arg to cancel method
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a303"></a>
+## [v0.2.0a303](https://github.com/hpcflow/hpcflow/compare/v0.2.0a302...v0.2.0a303) - 2026.03.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 3 updates
+
+
+<a name="v0.2.0a302"></a>
+## [v0.2.0a302](https://github.com/hpcflow/hpcflow/compare/v0.2.0a301...v0.2.0a302) - 2026.03.05
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 2 updates
+
+
+<a name="v0.2.0a301"></a>
+## [v0.2.0a301](https://github.com/hpcflow/hpcflow/compare/v0.2.0a300...v0.2.0a301) - 2026.03.02
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group across 1 directory with 11 updates
+
+
+<a name="v0.2.0a300"></a>
+## [v0.2.0a300](https://github.com/hpcflow/hpcflow/compare/v0.2.0a299...v0.2.0a300) - 2026.01.29
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 3 updates
+
+
+<a name="v0.2.0a299"></a>
+## [v0.2.0a299](https://github.com/hpcflow/hpcflow/compare/v0.2.0a298...v0.2.0a299) - 2026.01.20
+
+### 🐛 Bug Fixes
+
+* type check
+* check on `resources.num_threads` in `SlurmPosix.process_resources`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump the pip-dependencies group with 6 updates
+
+
+<a name="v0.2.0a298"></a>
+## [v0.2.0a298](https://github.com/hpcflow/hpcflow/compare/v0.2.0a297...v0.2.0a298) - 2026.01.15
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 3 updates
+
+
 <a name="v0.2.0a297"></a>
 ## [v0.2.0a297](https://github.com/hpcflow/hpcflow/compare/v0.2.0a296...v0.2.0a297) - 2026.01.11
 

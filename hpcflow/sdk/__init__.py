@@ -89,6 +89,7 @@ sdk_classes: Final[Mapping[str, str]] = {
     "TaskInputParameters": "hpcflow.sdk.core.task",
     "TaskOutputParameters": "hpcflow.sdk.core.task",
     "ElementPropagation": "hpcflow.sdk.core.task",
+    "RepeatsDescriptor": "hpcflow.sdk.core.task",
     "WorkflowTemplate": "hpcflow.sdk.core.workflow",
     "Workflow": "hpcflow.sdk.core.workflow",
     "WorkflowBlueprint": "hpcflow.sdk.core.workflow",

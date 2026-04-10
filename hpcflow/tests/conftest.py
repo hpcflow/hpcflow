@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 from pathlib import Path
 import pytest
 from click.testing import CliRunner
@@ -55,9 +56,13 @@ def isolated_app_config(tmp_path_factory, pytestconfig):
     hf.run_time_info.in_pytest = True
     original_config_dir = hf.config.config_directory
     original_config_key = hf.config.config_key
+
+    # honour config overrides provided via top-level CLI options `--with-config`:
+    overrides = copy.deepcopy(hf.config._overrides)
+
     hf.unload_config()
     new_config_dir = tmp_path_factory.mktemp("app_config")
-    hf.load_config(config_dir=new_config_dir)
+    hf.load_config(config_dir=new_config_dir, overrides=overrides)
 
     if pytestconfig.getoption("--configure-python-env"):
         # for setting up a Python env using the currently active virtual/conda env:
@@ -74,7 +79,11 @@ def isolated_app_config(tmp_path_factory, pytestconfig):
 
     yield
     hf.unload_config()
-    hf.load_config(config_dir=original_config_dir, config_key=original_config_key)
+    hf.load_config(
+        config_dir=original_config_dir,
+        config_key=original_config_key,
+        overrides=overrides,
+    )
     hf.run_time_info.in_pytest = False
 
 
@@ -84,11 +93,12 @@ def modifiable_config(tmp_path: Path):
     test without affecting other tests."""
     config_dir = hf.config.config_directory
     config_key = hf.config.config_key
+    overrides = copy.deepcopy(hf.config._overrides)
     hf.unload_config()
-    hf.load_config(config_dir=tmp_path)
+    hf.load_config(config_dir=tmp_path, overrides=overrides)
     yield
     hf.unload_config()
-    hf.load_config(config_dir=config_dir, config_key=config_key)
+    hf.load_config(config_dir=config_dir, config_key=config_key, overrides=overrides)
 
 
 @pytest.fixture()

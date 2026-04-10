@@ -1998,7 +1998,7 @@ class Jobscript(JSONLike):
         py_main_block_workflow_load = dedent(
             """\
                 app.load_config(
-                    log_file_path=log_path,
+                    overrides={{"log_file_path": log_path}},
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )
@@ -2158,10 +2158,30 @@ class Jobscript(JSONLike):
                             
                         run_tic = time.perf_counter()
 
+                        loop_idx_str = ";".join(
+                            f"{{k}}={{v}}" for k, v in run.element_iteration.loop_idx.items()
+                        )
+                        rng_spawn_key_str = ",".join(
+                            str(key_i) for key_i in run.resources.rng_spawn_key or []
+                        )
+
+                        os.environ["{app_caps}_TASK_IDX"] = str(run.task.index)
+                        os.environ["{app_caps}_TASK_INSERT_ID"] = str(run.task.insert_ID)
                         os.environ["{app_caps}_BLOCK_ELEM_IDX"] = str(block_elem_idx)
                         os.environ["{app_caps}_JS_ELEM_IDX"] = str(js_elem_idx)                        
                         os.environ["{app_caps}_RUN_ID"] = str(run_ID)
+                        os.environ["{app_caps}_ELEMENT_IDX"] = str(run.element.index)
+                        os.environ["{app_caps}_ELEMENT_ID"] = str(run.element.id_)
+                        os.environ["{app_caps}_ELEMENT_ITER_IDX"] = str(run.element_iteration.index)
+                        os.environ["{app_caps}_ELEMENT_ITER_LOOP_IDX"] = loop_idx_str
+                        os.environ["{app_caps}_RUN_RANDOM_SEED"] = str(run.resources.random_seed)
+                        os.environ["{app_caps}_RUN_RNG_SPAWN_KEY"] = rng_spawn_key_str
 
+                        app.submission_logger.debug("The following secrets are available:")
+                        for secret_key in run.get_environment().secrets:
+                            app.submission_logger.debug(secret_key)
+                            os.environ[secret_key] = app.get_secret(secret_key)                        
+                        
                         std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"{{run_ID}}.txt")
                         with app.redirect_std_to_file(std_path):
 
