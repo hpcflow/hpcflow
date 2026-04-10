@@ -27,13 +27,13 @@ Workflow templates how-tos
 
             .. code-block:: console
                 
-                {{ app_package_name }} demo-workflow make DEMO_WORKFLOW_NAME --resources random_seed 1234
+                {{ app_package_name }} demo-workflow make DEMO_WORKFLOW_NAME --resource random_seed 1234
 
             For making and submitting a demo workflow with modified resources:
 
             .. code-block:: console
                 
-                {{ app_package_name }} demo-workflow go DEMO_WORKFLOW_NAME --resources random_seed 1234
+                {{ app_package_name }} demo-workflow go DEMO_WORKFLOW_NAME --resource random_seed 1234
 
         .. tab-item:: Python API
 
