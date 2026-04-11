@@ -93,6 +93,11 @@ class TrackedDefaultDict(defaultdict):
         self.callback()
         return super().__setitem__(key, value)
 
+    def __missing__(self, key):
+        value = self.default_factory()
+        self[key] = value
+        return value
+
 
 class TrackedArray:
     """A numpy array wrapper that tracks mutations (append, setitem)."""
