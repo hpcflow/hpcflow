@@ -66,5 +66,3 @@ Workflow templates how-tos
             "DEMO_WORKFLOW_NAME", 
             updates={("tasks", 0, "inputs"): 99},
         )
-
-    
