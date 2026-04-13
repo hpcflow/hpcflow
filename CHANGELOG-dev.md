@@ -1,4 +1,21 @@
 
+<a name="v0.2.0a311"></a>
+## [v0.2.0a311](https://github.com/hpcflow/hpcflow/compare/v0.2.0a310...v0.2.0a311) - 2026.04.13
+
+### 🐛 Bug Fixes
+
+* add back SDK docs, which were removed inadvertently in [#862](https://github.com/hpcflow/hpcflow/issues/862) - again
+* add back SDK docs, which were removed inadvertently in [#862](https://github.com/hpcflow/hpcflow/issues/862)
+* typo
+
+### 👷 Build changes
+
+* sync updates from docs/CI repo
+* sync CI workflows with upstream templates
+* sync CI workflows with upstream templates
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a310"></a>
 ## [v0.2.0a310](https://github.com/hpcflow/hpcflow/compare/v0.2.0a309...v0.2.0a310) - 2026.04.10
 
