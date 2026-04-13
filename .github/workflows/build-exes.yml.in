@@ -41,7 +41,7 @@ on:
         description: "Run unit tests on the built executables."
         required: true
         default: true
-        type: boolean        
+        type: boolean
       unit_test_args:
         description: "CLI args to pass verbatim to pytest (unit tests)."
         required: false
@@ -79,11 +79,11 @@ jobs:
       build_onefile: ${{ github.event.inputs.build_onefile }}
       logLevel: ${{ github.event.inputs.logLevel }}
       tmate_debugging: ${{ github.event.inputs.tmate_debugging }}
-      unit_tests: ${{ github.event.inputs.unit_tests }}      
+      unit_tests: ${{ github.event.inputs.unit_tests }}
       unit_test_args: ${{ github.event.inputs.unit_test_args }}
       integration_tests: ${{ github.event.inputs.integration_tests }}
       integration_test_args: ${{ github.event.inputs.integration_test_args }}
       config_data_dir: ${{ github.event.inputs.config_data_dir }}
-      config_program_dir: ${{ github.event.inputs.config_program_dir }}      
+      config_program_dir: ${{ github.event.inputs.config_program_dir }}
       {% endraw %}executable_name: {{ executable_name }}
       pyinstaller_dir: {{ pyinstaller_dir }}
