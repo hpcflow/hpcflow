@@ -32,10 +32,6 @@ jobs:
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller
 
-      - name: Configure hpcflow for WSL
-        run: |
-          poetry run hpcflow config update --json shells.wsl.defaults '{\"WSL_executable\": \"wsl.exe\"}'
-          poetry run hpcflow config add-scheduler direct_posix
       - name: Run WSL tests
         run: |
           poetry run hpcflow test --wsl
