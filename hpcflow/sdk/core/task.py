@@ -287,6 +287,7 @@ class ElementSet(JSONLike):
         sourceable_elem_iters: list[int] | None = None,
         allow_non_coincident_task_sources: bool = False,
         is_creation: bool = True,
+        id_: int | None = None,
     ):
         #: Inputs to the set of elements.
         self.inputs = self.__decode_inputs(inputs or [])
@@ -321,6 +322,9 @@ class ElementSet(JSONLike):
         #: ``environments`` into ``resources`` using the "any" scope, and merge any multi-
         #: path sequences into the sequences list.
         self.is_creation = is_creation
+        #: Global ID of the element set across the workflow
+        self.id_ = id_
+
         self.original_input_sources: dict[str, list[InputSource]] | None = None
         self.original_nesting_order: dict[str, float] | None = None
 
@@ -983,7 +987,7 @@ class Task(JSONLike):
             return False
         return self.to_dict() == other.to_dict()
 
-    def _add_element_set(self, element_set: ElementSet, es_ID: int):
+    def _add_element_set(self, element_set: ElementSet):
         """Invoked by WorkflowTask._add_element_set."""
         self._pending_element_sets.append(element_set)
         wt = self.workflow_template
@@ -993,7 +997,6 @@ class Task(JSONLike):
         es_js = element_set.to_json_like()[0]
         w._store.add_element_set(self.insert_ID, cast("Mapping", es_js))
         es_js = copy.deepcopy(es_js)
-        es_js["id_"] = es_ID
         w._data.task_templates[self.index]["element_sets"].append(es_js)
 
     @classmethod
@@ -2483,7 +2486,8 @@ class WorkflowTask(AppAware):
         ]
 
         element_set._element_local_idx_range = local_element_idx_range
-        self.template._add_element_set(element_set, es_ID)
+        element_set.id_ = es_ID
+        self.template._add_element_set(element_set)
         es_idx = self.num_element_sets - 1
 
         output_data_idx = self.template._prepare_persistent_outputs(

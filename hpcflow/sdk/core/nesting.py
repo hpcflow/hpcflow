@@ -121,7 +121,7 @@ class NestingView:
     Attributes
     ----------
     offset
-        An integer offset which represented the cumulative length of any `NestingView`s
+        An integer offset which represents the cumulative length of any `NestingView`s
         associated with preceding element sets within a given task. This offset is
         subtracted from the index provided to the `get_indices` method, which represents
         a task element index (spanning potentially multiple element sets).
