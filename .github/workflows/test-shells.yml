@@ -9,33 +9,53 @@ env:
 
 on:
   workflow_dispatch: # manual invocation
+    inputs:
+      tmate_debugging:
+        description: "Enable tmate debugging (https://github.com/marketplace/actions/debugging-with-tmate)"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   test-wsl:
     runs-on: windows-latest
     steps:
       - uses: Vampire/setup-wsl@v7 # install a WSL distribution
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.ref }}
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - uses: hpcflow/github-support/setup-poetry@main
-        with:
-          version: ${{ env.POETRY_VERSION }}
-      - uses: hpcflow/github-support/init-cache@main
-        with:
-          name: wsl-test
-          version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        run: poetry install --without dev,pyinstaller
+      - run: wsl.exe --list
 
-      - name: Configure hpcflow for WSL
-        run: |
-          poetry run hpcflow config update --json shells.wsl.defaults '{\"WSL_executable\": \"wsl.exe\"}'
-          poetry run hpcflow config add-scheduler direct_posix
-      - name: Run WSL tests
-        run: |
-          poetry run hpcflow test --wsl
+      - run: wsl.exe --help
+
+      # - uses: actions/checkout@v6
+      #   with:
+      #     ref: ${{ github.ref }}
+      # - name: Setup tmate session
+      #   if: inputs.tmate_debugging
+      #   uses: mxschmitt/action-tmate@v3
+      #   with:
+      #     detached: true          
+      # - uses: actions/setup-python@v6
+      #   with:
+      #     python-version: ${{ env.PYTHON_VERSION }}
+      # - uses: hpcflow/github-support/setup-poetry@main
+      #   with:
+      #     version: ${{ env.POETRY_VERSION }}
+      # - uses: hpcflow/github-support/init-cache@main
+      #   with:
+      #     name: wsl-test
+      #     version: ${{ env.PYTHON_VERSION }}
+
+      # - name: Install dependencies
+      #   run: poetry install --without dev,pyinstaller
+
+      # - name: Run WSL tests
+      #   run: |
+      #     poetry run hpcflow test --wsl
+
+      # - name: Upload all pytest temp dirs
+      #   if: always()
+      #   uses: actions/upload-artifact@v6
+      #   with:
+      #     name: pytest-temp-mtex
+      #     path: C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin
+      #     retention-days: 1
