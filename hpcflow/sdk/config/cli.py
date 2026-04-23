@@ -197,7 +197,13 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         "is_json",
         is_flag=True,
         default=False,
-        help="Interpret VALUE as a JSON string.",
+        help=(
+            "Interpret VALUE as a JSON string. When using POSIX shells, format JSON "
+            f"strings with double quotes, like this: `{app.package_name} config set "
+            '--json key \'{"name": "alice"}\'`. When using Powershell, format JSON '
+            f"strings with backslash-double-quotes, like this: `{app.package_name} "
+            R"config set --json key '{\"name\": \"alice\"}'`"
+        ),
     )
     @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
@@ -226,7 +232,13 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         "is_json",
         is_flag=True,
         default=False,
-        help="Interpret VALUE as a JSON string.",
+        help=(
+            "Interpret VALUE as a JSON string. When using POSIX shells, format JSON "
+            f"strings with double quotes, like this: `{app.package_name} config append "
+            '--json key \'{"name": "alice"}\'`. When using Powershell, format JSON '
+            f"strings with backslash-double-quotes, like this: `{app.package_name} "
+            R"config append --json key '{\"name\": \"alice\"}'`"
+        ),
     )
     @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
@@ -250,7 +262,13 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         "is_json",
         is_flag=True,
         default=False,
-        help="Interpret VALUE as a JSON string.",
+        help=(
+            "Interpret VALUE as a JSON string. When using POSIX shells, format JSON "
+            f"strings with double quotes, like this: `{app.package_name} config prepend "
+            '--json key \'{"name": "alice"}\'`. When using Powershell, format JSON '
+            f"strings with backslash-double-quotes, like this: `{app.package_name} "
+            R"config prepend --json key '{\"name\": \"alice\"}'`"
+        ),
     )
     @pass_config
     @CLI_exception_wrapper_gen(ConfigError)
@@ -288,7 +306,13 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         "is_json",
         is_flag=True,
         default=False,
-        help="Interpret VALUE as a JSON string.",
+        help=(
+            "Interpret VALUE as a JSON string. When using POSIX shells, format JSON "
+            f"strings with double quotes, like this: `{app.package_name} config update "
+            '--json key \'{"name": "alice"}\'`. When using Powershell, format JSON '
+            f"strings with backslash-double-quotes, like this: `{app.package_name} "
+            R"config update --json key '{\"name\": \"alice\"}'`"
+        ),
     )
     @pass_config
     @CLI_exception_wrapper_gen(ConfigError)

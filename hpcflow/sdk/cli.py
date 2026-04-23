@@ -1875,7 +1875,14 @@ def make_cli(app: BaseApp):
     @click.option("--config-key", help="Set the configuration invocation key.")
     @click.option(
         "--with-config",
-        help="Override a config item in the config file",
+        help=(
+            "Override a config item in the config file. Keys can be dot-delimited. "
+            "JSON-like values are supported if prefixed with `json:`. When using "
+            "POSIX shells, format JSON strings with double quotes, like this: "
+            f'`{app.package_name} --with-config key \'json:{{"name": "alice"}}\'`. When '
+            f"using Powershell, format JSON strings with backslash-double-quotes, like "
+            f'this: `{app.package_name} --with-config \'json:{{\\"name\\": \\"alice\\"}}\'`'
+        ),
         nargs=2,
         multiple=True,
     )
