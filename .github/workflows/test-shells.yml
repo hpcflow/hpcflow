@@ -52,5 +52,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pytest-temp-mtex
-          path: /tmp/pytest-of-*
+          path: C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin
           retention-days: 1
