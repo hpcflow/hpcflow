@@ -25,7 +25,7 @@ jobs:
         with:
           ref: ${{ github.ref }}
       - name: Setup tmate session
-        if: inputs.tmate_debugging == 'true'
+        if: inputs.tmate_debugging
         uses: mxschmitt/action-tmate@v3
         with:
           detached: true          
