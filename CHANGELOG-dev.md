@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a314"></a>
+## [v0.2.0a314](https://github.com/hpcflow/hpcflow/compare/v0.2.0a313...v0.2.0a314) - 2026.04.23
+
+### ✨ Features
+
+* support parsing JSON config values via the CLI option `--with-config`
+
+### 🐛 Bug Fixes
+
+* add some missing env vars in WSLBash shell
+
+
 <a name="v0.2.0a313"></a>
 ## [v0.2.0a313](https://github.com/hpcflow/hpcflow/compare/v0.2.0a312...v0.2.0a313) - 2026.04.20
 
