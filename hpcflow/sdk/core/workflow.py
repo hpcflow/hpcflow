@@ -3634,7 +3634,6 @@ class Workflow(AppAware):
         status: Status | None = None,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
-        force_array: bool = False,
         min_jobscripts: bool = True,
         print_stdout: bool = False,
         add_to_known: bool = True,
@@ -3645,9 +3644,13 @@ class Workflow(AppAware):
 
         Parameters
         ----------
-        force_array
-            Used to force the use of job arrays, even if the scheduler does not support
-            it. This is provided for testing purposes only.
+        JS_parallelism
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
         min_jobscripts
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
@@ -3662,7 +3665,6 @@ class Workflow(AppAware):
                 new_sub := self._add_submission(
                     tasks=tasks,
                     JS_parallelism=JS_parallelism,
-                    force_array=force_array,
                     min_jobscripts=min_jobscripts,
                     status=status,
                 )
@@ -3707,6 +3709,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3723,6 +3726,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3738,6 +3742,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3761,6 +3766,10 @@ class Workflow(AppAware):
             type does not support the `jobscript_parallelism` feature. If not set,
             jobscript parallelism will be used if the store type supports it, for
             scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         print_stdout
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
@@ -3801,6 +3810,7 @@ class Workflow(AppAware):
                 exceptions, submitted_js = self._submit(
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
+                    min_jobscripts=min_jobscripts,
                     print_stdout=print_stdout,
                     status=status_,
                     add_to_known=add_to_known,

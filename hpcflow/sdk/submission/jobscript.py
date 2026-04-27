@@ -6,8 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import os
-import shutil
-import socket
+import logging
 import subprocess
 from textwrap import dedent, indent
 from typing import TextIO, cast, overload, TYPE_CHECKING
@@ -365,12 +364,14 @@ def merge_jobscripts_across_tasks(
                 # dependency from `js_idx` if merging into `closest_js`:
                 if min_jobscripts:
                     if js["dependencies"][closest_idx] != dep_i:
-                        logger.info(
-                            f"not consider merge of jobscript {js_idx!r}; it depends on "
-                            f"a jobscript ({dep_idx!r}) that the closest jobscript does "
-                            f"not depend on, and that dependency is not compatible with "
-                            f"the dependencies of the closest jobscript."
-                        )
+                        if logger:
+                            logger.info(
+                                f"not consider merge of jobscript {js_idx!r}; it depends "
+                                f"on a jobscript ({dep_idx!r}) that the closest "
+                                f"jobscript does not depend on, and that dependency is "
+                                f"not compatible with the dependencies of the closest "
+                                f"jobscript."
+                            )
                         merge_possible = False
                         break
                     else:
@@ -386,7 +387,10 @@ def merge_jobscripts_across_tasks(
             if (res_equal := js["resource_hash"] == js_j["resource_hash"]) and (
                 dep_is_arr := dep_info["is_array"]
             ):
-                logger.info(f"merging jobscript {js_idx!r} into jobscript {js_j_idx}.")
+                if logger:
+                    logger.info(
+                        f"merging jobscript {js_idx!r} into jobscript {js_j_idx}."
+                    )
 
                 num_loop_idx = len(
                     js_j["task_loop_idx"]
@@ -415,7 +419,7 @@ def merge_jobscripts_across_tasks(
                 # update dependencies of any downstream jobscripts that refer to this js
                 _reindex_dependencies(jobscripts, js_idx, js_j_idx)
 
-            else:
+            elif logger:
                 logger.info(
                     f"cannot merge jobscript {js_idx!r} into jobscript {js_j_idx}: "
                     f"res_equal={res_equal!r}; dep_is_arr={dep_is_arr!r}."
