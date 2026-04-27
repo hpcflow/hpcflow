@@ -387,7 +387,7 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources(tmp_path):
     assert len(sub.jobscripts) == 3
     assert len(sub.jobscripts[0].blocks) == 1
     assert len(sub.jobscripts[1].blocks) == 1
-    assert len(sub.jobscripts[2].blocks) == 2
+    assert len(sub.jobscripts[2].blocks) == 1
 
 
 def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_group(
