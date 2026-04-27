@@ -137,3 +137,62 @@ def resize_preserve_data(arr, new_shape, fill_value=0):
     slices = [slice(0, dim) for dim in arr.shape]
     extended[tuple(slices)] = arr[tuple(slices)]
     return extended
+
+
+def group_by_unique_fields(
+    arr, group_fields: str | list[str], value_fields: str | list[str]
+) -> dict[tuple[int, ...], NDArray]:
+    """Group the specified value fields by unique group fields in a structured array.
+
+    Note: this function is optimised for the case where the size of the array `arr` is
+    much bigger than the number of groups: len(arr) >> len(np.unique(arr[group_fields])).
+
+    Examples
+    --------
+    >>> arr = np.array(
+            [
+                (1, 2, 4),
+                (3, 4, 6),
+                (5, 6, 7),
+                (5, 6, 8),
+                (3, 4, 1),
+            ],
+            dtype=[("a", np.uint8), ("b", np.uint16), ("c", np.uint64)],
+        )
+    >>> group_by_unique_fields(arr, group_fields="a", value_fields="c")
+    {1: array([4], dtype=uint64),
+     3: array([6, 1], dtype=uint64),
+     5: array([7, 8], dtype=uint64)}
+
+    >>> group_by_unique_fields(arr, group_fields=["a", "b"], value_fields=["c"])
+    {(1, 2): array([4], dtype=uint64),
+     (3, 4): array([6, 1], dtype=uint64),
+     (5, 6): array([7, 8], dtype=uint64)}
+
+    """
+
+    group_vals = arr[group_fields]
+    values = arr[value_fields]
+    uq_vals, inverse_idx = np.unique(group_vals, return_inverse=True)
+
+    sort_idx = np.argsort(inverse_idx)
+    sorted_idx = inverse_idx[sort_idx]
+    sorted_values = values[sort_idx]
+
+    # detect where a new group starts
+    change = np.r_[True, sorted_idx[1:] != sorted_idx[:-1]]
+    group_starts = np.flatnonzero(change)
+    group_ends = np.r_[group_starts[1:], len(sorted_idx)]
+
+    grouped_values = []
+    for start, end in zip(group_starts, group_ends):
+        grp = sorted_values[start:end]
+        # restore original order within the group; an alternative to this would be to use
+        # a stable sort kind in the original `np.argsort(inverse_idx)` above, but
+        # restoring the original orders for individual groups seems to be faster for large
+        # arrays containing a relatively small number of groups.
+        original_positions = sort_idx[start:end]
+        restore = np.argsort(original_positions)
+        grouped_values.append(grp[restore])
+
+    return dict(zip(uq_vals.tolist(), grouped_values))
