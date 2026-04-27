@@ -5043,17 +5043,10 @@ class Workflow(AppAware):
                     deps = "; ".join(f"{int(i[0]),int(i[1])}" for i in blk.dependencies)
 
                     for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
-
-                        # loop indices are the same for all actions within a task, so get the
-                        # first `task_action` for this task insert ID:
-                        for i in blk_task_actions:
-                            if i[0] == t_iID:
-                                loop_idx = [
-                                    blk.task_loop_idx[i[2]].get(loop_name_i, "-")
-                                    for loop_name_i in loop_names
-                                ]
-                                break
-
+                        loop_idx = [
+                            blk.task_loop_idx[blk_t_idx].get(loop_name_i, "-")
+                            for loop_name_i in loop_names
+                        ]
                         c2 = self.tasks.get(insert_ID=t_iID).unique_name
 
                         if blk_t_idx > 0:
@@ -5126,16 +5119,12 @@ class Workflow(AppAware):
                 if max_js is not None and js.index > max_js:
                     break
                 for blk in js.blocks:
-                    blk_task_actions = blk.task_actions
-                    for i in blk.task_insert_IDs:
+                    for blk_t_idx, i in enumerate(blk.task_insert_IDs):
                         if i in matched:
-                            for j in blk_task_actions:
-                                if j[0] == i:
-                                    loop_idx = [
-                                        blk.task_loop_idx[j[2]].get(loop_name_i, "-")
-                                        for loop_name_i in loop_names
-                                    ]
-                                    break
+                            loop_idx = [
+                                blk.task_loop_idx[blk_t_idx].get(loop_name_i, "-")
+                                for loop_name_i in loop_names
+                            ]
                             task_jobscripts[i].append((js.index, blk.index, loop_idx))
 
             table = rich.table.Table(width=width)
