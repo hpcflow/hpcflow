@@ -755,3 +755,72 @@ def test_jobscript_dependencies_equivalence_JSON_Zarr(tmp_path):
         for blk_idx, js_blk_zarr in enumerate(js_zarr.blocks):
             js_blk_json = sub_json.jobscripts[js_idx].blocks[blk_idx]
             assert js_blk_zarr.dependencies == js_blk_json.dependencies
+
+
+def test_min_jobscripts_false(tmp_path):
+    s1, s2, s3, s4 = make_schemas(
+        ({}, ("p2",), "t1"),
+        ({"p3": None}, ("p4",), "t2"),  # does not depend on t1
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p2": None, "p5": None}, tuple(), "t4"),  # does not depend on t2
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_merge_js",
+        workflow_name="test_merge_js",
+        path=tmp_path,
+        overwrite=True,
+        tasks=[
+            hf.Task(schema=s1, repeats=2),
+            hf.Task(schema=s2, repeats=2),
+            hf.Task(schema=s3),
+            hf.Task(schema=s4),
+        ],
+    )
+    sub = wk.add_submission(status=False, force_array=True, min_jobscripts=False)
+    assert len(sub.jobscripts) == 3
+
+
+def test_min_jobscripts_true(tmp_path):
+    s1, s2, s3, s4 = make_schemas(
+        ({}, ("p2",), "t1"),
+        ({"p3": None}, ("p4",), "t2"),  # does not depend on t1
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p2": None, "p5": None}, tuple(), "t4"),  # does not depend on t2
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_merge_js",
+        workflow_name="test_merge_js",
+        path=tmp_path,
+        overwrite=True,
+        tasks=[
+            hf.Task(schema=s1, repeats=2),
+            hf.Task(schema=s2, repeats=2),
+            hf.Task(schema=s3),
+            hf.Task(schema=s4),
+        ],
+    )
+    sub = wk.add_submission(status=False, force_array=True, min_jobscripts=True)
+    assert len(sub.jobscripts) == 1
+
+
+def test_min_jobscripts_true_non_mergeable(tmp_path):
+    s1, s2, s3, s4 = make_schemas(
+        ({}, ("p2",), "t1"),
+        ({"p3": None}, ("p4",), "t2"),  # does not depend on t1
+        ({"p4": None}, ("p5",), "t3"),
+        ({"p2": None, "p5": None}, tuple(), "t4"),  # does not depend on t2
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_merge_js",
+        workflow_name="test_merge_js",
+        path=tmp_path,
+        overwrite=True,
+        tasks=[
+            hf.Task(schema=s1, repeats=1),
+            hf.Task(schema=s2, repeats=2),  # different number of elements, cannot merge
+            hf.Task(schema=s3),
+            hf.Task(schema=s4),
+        ],
+    )
+    sub = wk.add_submission(status=False, force_array=True, min_jobscripts=True)
+    assert len(sub.jobscripts) == 3

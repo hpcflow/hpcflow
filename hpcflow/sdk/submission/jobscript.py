@@ -383,7 +383,7 @@ def merge_jobscripts_across_tasks(
                     if js["dependencies"][closest_idx] != dep_i:
                         if logger:
                             logger.info(
-                                f"not consider merge of jobscript {js_idx!r}; it depends "
+                                f"not considering merge of jobscript {js_idx!r}; it depends "
                                 f"on a jobscript ({dep_idx!r}) that the closest "
                                 f"jobscript does not depend on, and that dependency is "
                                 f"not compatible with the dependencies of the closest "
@@ -396,6 +396,13 @@ def merge_jobscripts_across_tasks(
                             logger.info(f"considering merge of jobscript {js_idx!r}.")
                         deps_to_add[dep_idx] = dep_i
                 else:
+                    if logger:
+                        logger.info(
+                            f"not considering merge of jobscript {js_idx!r}; it depends "
+                            f"on a jobscript ({dep_idx!r}) that the closest "
+                            f"jobscript does not depend on. Use `min_jobscripts=True` to "
+                            f"attempt to merge in this scenario."
+                        )
                     merge_possible = False
                     break
 
