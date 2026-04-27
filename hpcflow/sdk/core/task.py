@@ -2512,7 +2512,7 @@ class WorkflowTask(AppAware):
                 if src_iter_IDs := inp_src_i.element_iters:
                     self.workflow._data.element_set_input_source_iter_IDs[es_ID][
                         inp_src_path
-                    ][inp_src_idx] = src_iter_IDs
+                    ][inp_src_idx] = np.asarray(src_iter_IDs)
 
         new_elem_md = []
         new_iter_md = []
