@@ -41,6 +41,7 @@ from hpcflow.sdk.cli_common import (
     wait_quiet_opt,
     cancel_quiet_opt,
     force_arr_opt,
+    min_jobscripts_opt,
     make_status_opt,
     add_sub_opt,
     zip_path_opt,
@@ -187,6 +188,9 @@ def _make_API_CLI(app: BaseApp):
     @template_config_opt
     @make_status_opt
     @add_sub_opt
+    @js_parallelism_option
+    @force_arr_opt
+    @min_jobscripts_opt
     def make_workflow(
         template_file_or_str: str,
         string: bool,
@@ -205,6 +209,9 @@ def _make_API_CLI(app: BaseApp):
         config: list[tuple[str, str]] | None = None,
         status: bool = True,
         add_submission: bool = False,
+        js_parallelism: bool = True,
+        force_array: bool = False,
+        min_jobscripts: bool = True,
     ):
         """Generate a new {app_name} workflow.
 
@@ -230,6 +237,9 @@ def _make_API_CLI(app: BaseApp):
             config=dict(config) if config is not None else None,
             status=status,
             add_submission=add_submission,
+            JS_parallelism=js_parallelism,
+            force_array=force_array,
+            min_jobscripts=min_jobscripts,
         )
         if add_submission:
             assert isinstance(wk_or_sub, Submission)
@@ -255,6 +265,7 @@ def _make_API_CLI(app: BaseApp):
     @template_resource_opt
     @template_config_opt
     @js_parallelism_option
+    @min_jobscripts_opt
     @wait_option
     @add_to_known_opt
     @print_idx_opt
@@ -279,6 +290,7 @@ def _make_API_CLI(app: BaseApp):
         resources: list[tuple[str, str]] | None = None,
         config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
+        min_jobscripts: bool = True,
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
@@ -311,6 +323,7 @@ def _make_API_CLI(app: BaseApp):
             resources=dict(resources) if resources is not None else None,
             config=dict(config) if config is not None else None,
             JS_parallelism=js_parallelism,
+            min_jobscripts=min_jobscripts,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=print_idx,
@@ -569,20 +582,23 @@ def _make_workflow_CLI(app: BaseApp):
     @js_parallelism_option
     @tasks_opt
     @force_arr_opt
+    @min_jobscripts_opt
     @submit_status_opt
-    @click.pass_context
+    @_pass_workflow
     def add_submission(
-        ctx,
+        wf: Workflow,
         js_parallelism=None,
         tasks=None,
         force_array=False,
+        min_jobscripts=True,
         status=True,
     ):
         """Add a new submission to the workflow, but do not submit."""
-        ctx.obj["workflow"].add_submission(
+        wf.add_submission(
             JS_parallelism=js_parallelism,
             tasks=tasks,
             force_array=force_array,
+            min_jobscripts=min_jobscripts,
             status=status,
         )
 

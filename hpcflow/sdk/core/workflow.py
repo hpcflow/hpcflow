@@ -3634,12 +3634,25 @@ class Workflow(AppAware):
         status: Status | None = None,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        force_array: bool = False,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
-        """Submit outstanding EARs for execution."""
+        """Submit outstanding EARs for execution.
+
+        Parameters
+        ----------
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
+        """
 
         # generate a new submission if there are no pending submissions:
         if not (pending := [sub for sub in self.submissions if sub.needs_submit]):
@@ -3649,6 +3662,8 @@ class Workflow(AppAware):
                 new_sub := self._add_submission(
                     tasks=tasks,
                     JS_parallelism=JS_parallelism,
+                    force_array=force_array,
+                    min_jobscripts=min_jobscripts,
                     status=status,
                 )
             ):
@@ -4054,6 +4069,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
         status: bool = True,
     ) -> Submission | None:
         """Add a new submission.
@@ -4063,6 +4079,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         """
         # JS_parallelism=None means guess
         # Type hint for mypy
@@ -4070,7 +4090,9 @@ class Workflow(AppAware):
             rich.console.Console().status("") if status else nullcontext()
         )
         with status_context as status_, self._store.cached_load(), self.batch_update():
-            return self._add_submission(tasks, JS_parallelism, force_array, status_)
+            return self._add_submission(
+                tasks, JS_parallelism, force_array, min_jobscripts, status_
+            )
 
     @TimeIt.decorator
     @load_workflow_config
@@ -4079,6 +4101,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
         status: Status | None = None,
     ) -> Submission | None:
         """Add a new submission.
@@ -4088,6 +4111,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         """
         new_idx = self.num_submissions
         _ = self.submissions  # TODO: just to ensure `submissions` is loaded
@@ -4100,7 +4127,7 @@ class Workflow(AppAware):
         sub_obj: Submission = self._app.Submission(
             index=new_idx,
             workflow=self,
-            jobscripts=self.resolve_jobscripts(cache, tasks, force_array),
+            jobscripts=self.resolve_jobscripts(cache, tasks, force_array, min_jobscripts),
             JS_parallelism=JS_parallelism,
         )
         if status:
@@ -4176,6 +4203,7 @@ class Workflow(AppAware):
         cache: ObjectCache,
         tasks: Sequence[int] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
     ) -> list[Jobscript]:
         """
         Resolve this workflow to a set of jobscripts to run for a new submission.
@@ -4185,6 +4213,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
 
         """
         with self._app.config.cached_config():
@@ -4199,7 +4231,9 @@ class Workflow(AppAware):
                 if js_idx in js_deps:
                     jsca["dependencies"] = js_deps[js_idx]  # type: ignore
 
-            js = merge_jobscripts_across_tasks(js)
+            js = merge_jobscripts_across_tasks(
+                js, min_jobscripts, logger=self._app.submission_logger
+            )
 
             # for direct or (non-array scheduled), combine into jobscripts of multiple
             # blocks for dependent jobscripts that have the same resource hashes
