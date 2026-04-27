@@ -375,7 +375,8 @@ def merge_jobscripts_across_tasks(
                         merge_possible = False
                         break
                     else:
-                        logger.info(f"considering merge of jobscript {js_idx!r}.")
+                        if logger:
+                            logger.info(f"considering merge of jobscript {js_idx!r}.")
                         deps_to_add[dep_idx] = dep_i
 
         if merge_possible:
