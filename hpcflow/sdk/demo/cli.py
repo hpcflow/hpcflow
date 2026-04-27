@@ -34,6 +34,8 @@ from hpcflow.sdk.cli_common import (
     template_updates_opt,
     template_resource_opt,
     template_config_opt,
+    force_arr_opt,
+    min_jobscripts_opt,
 )
 from hpcflow.sdk.submission.submission import Submission
 
@@ -132,6 +134,8 @@ def get_demo_workflow_CLI(app: BaseApp):
     @template_config_opt
     @make_status_opt
     @add_sub_opt
+    @force_arr_opt
+    @min_jobscripts_opt
     def make_demo_workflow(
         workflow_name: str,
         format: Literal["json", "yaml"] | None,
@@ -149,6 +153,8 @@ def get_demo_workflow_CLI(app: BaseApp):
         config: list[tuple[str, str]] | None = None,
         status: bool = True,
         add_submission: bool = False,
+        force_array: bool = False,
+        min_jobscripts: bool = True,
     ):
         wk_or_sub = app.make_demo_workflow(
             workflow_name=workflow_name,
@@ -167,6 +173,8 @@ def get_demo_workflow_CLI(app: BaseApp):
             config=dict(config) if config is not None else None,
             status=status,
             add_submission=add_submission,
+            force_array=force_array,
+            min_jobscripts=min_jobscripts,
         )
         if add_submission:
             assert isinstance(wk_or_sub, Submission)
@@ -191,6 +199,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @template_resource_opt
     @template_config_opt
     @js_parallelism_option
+    @min_jobscripts_opt
     @wait_option
     @add_to_known_opt
     @print_idx_opt
@@ -214,6 +223,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         resources: list[tuple[str, str]] | None = None,
         config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
+        min_jobscripts: bool = True,
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
@@ -238,6 +248,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             resources=dict(resources) if resources is not None else None,
             config=dict(config) if config is not None else None,
             JS_parallelism=js_parallelism,
+            min_jobscripts=min_jobscripts,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=print_idx,
