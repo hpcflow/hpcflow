@@ -349,10 +349,11 @@ def merge_jobscripts_across_tasks(
                 if not (
                     js["EAR_ID"].shape[1] == jobscripts[js_idx - 1]["EAR_ID"].shape[1]
                 ):
-                    logger.info(
-                        f"not considering merge of jobscript {js_idx!r} due to "
-                        f"different numbers of elements."
-                    )
+                    if logger:
+                        logger.info(
+                            f"not considering merge of jobscript {js_idx!r} due to "
+                            f"different numbers of elements."
+                        )
                     continue
 
         closest_idx = cast("int", max(js["dependencies"], default=js_idx - 1))
