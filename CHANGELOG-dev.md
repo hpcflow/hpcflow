@@ -1,4 +1,16 @@
 
+<a name="v0.2.0a315"></a>
+## [v0.2.0a315](https://github.com/hpcflow/hpcflow/compare/v0.2.0a314...v0.2.0a315) - 2026.04.27
+
+### 🐛 Bug Fixes
+
+* type checking
+* merging independent jobscripts
+* type checking properly
+* type checking
+* consistent submission options through the API
+
+
 <a name="v0.2.0a314"></a>
 ## [v0.2.0a314](https://github.com/hpcflow/hpcflow/compare/v0.2.0a313...v0.2.0a314) - 2026.04.23
 
