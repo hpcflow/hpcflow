@@ -1,0 +1,12 @@
+{
+    "project": "hpcflow",
+    "package": "hpcflow.app", // must have an importable "app" module (we do `from <<package>> import app`)
+    "copyright": "2023, hpcflow developers",
+    "author": "hpcflow developers",
+    "github_user": "hpcflow",
+    "github_repo": "hpcflow",
+    "PyPI_project": "hpcflow",
+    "switcher_JSON_URL": "https://hpcflow.github.io/docs/switcher.json",
+    "html_logo": "_static/images/logo-v2.png",
+    "additional_intersphinx": {}
+}

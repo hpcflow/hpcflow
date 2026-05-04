@@ -1,0 +1,5 @@
+rules:
+  - path: []
+    condition: { value.allowed_keys: [label, name, doc, _hash_value] }
+  - path: [name]
+    condition: { value.allowed_keys: [name, args, is_regex] }

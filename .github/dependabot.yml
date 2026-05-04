@@ -1,0 +1,26 @@
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+updates:
+  - directory: /
+    package-ecosystem: pip
+    schedule:
+      interval: weekly
+    reviewers:
+      - aplowman
+    groups:
+      pip-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "zarr"
+        versions: [">2.17.2"]
+  - directory: /
+    package-ecosystem: github-actions
+    schedule:
+      interval: weekly
+    reviewers:
+      - aplowman
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"

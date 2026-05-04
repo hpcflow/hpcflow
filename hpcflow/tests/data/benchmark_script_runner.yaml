@@ -1,0 +1,26 @@
+doc: |
+  A workflow for benchmarking the overhead introduced by hpcflow in running a Python
+  script `N` times.
+
+template_components:
+  task_schemas:
+    - objective: run_script
+      inputs:
+        - parameter: p1
+      outputs:
+        - parameter: p2
+      actions:
+        - environments:
+            - scope:
+                type: any
+              environment: python_env
+          script: <<script:main_script_test_direct_in_direct_out.py>>
+          script_exe: python_script
+          script_data_in: direct
+          script_data_out: direct
+
+tasks:
+  - schema: run_script
+    inputs:
+      p1: 101
+    repeats: <<var:N[default=1]>>

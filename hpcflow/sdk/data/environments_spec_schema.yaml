@@ -1,0 +1,27 @@
+rules:
+  - path: []
+    condition:
+      {
+        value.allowed_keys:
+          [name, setup, executables, specifiers, doc, _hash_value, setup_label, secrets],
+      }
+  - path: [setup]
+    condition:
+      or:
+        - value.type.equal_to: str
+        - value.null: null
+  - path: [secrets]
+    condition:
+      or:
+        - value.type.equal_to: str
+        - value.null: null
+  - path: [executables]
+    condition: { value.is_instance: [list] }
+  - path: [executables, { type: list_value }]
+    condition: { value.allowed_keys: [label, instances] }
+  - path: [executables, { type: list_value }, instances]
+    condition: { value.is_instance: [list] }
+  - path: [executables, { type: list_value }, instances, { type: list_value }]
+    condition: { value.is_instance: [dict] }
+  - path: [executables, { type: list_value }, instances, { type: list_value }]
+    condition: { value.allowed_keys: [command, num_cores, parallel_mode] }

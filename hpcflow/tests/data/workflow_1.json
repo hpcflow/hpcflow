@@ -1,0 +1,15 @@
+{
+  "resources": {
+    "any": {
+      "random_seed": 0
+    }
+  },
+  "tasks": [
+    {
+      "schema": "test_t1_conditional_OS",
+      "inputs": {
+        "p1": 101
+      }
+    }
+  ]
+}

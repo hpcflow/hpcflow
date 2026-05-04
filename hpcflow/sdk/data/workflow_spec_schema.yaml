@@ -1,0 +1,23 @@
+rules:
+  - path: []
+    condition:
+      value.allowed_keys:
+        - doc
+        - name
+        - source_file
+        - resources
+        - config
+        - environments
+        - env_presets
+        - template_components
+        - tasks
+        - meta_tasks
+        - loops
+        - imports
+        - store_kwargs
+        - merge_resources
+        - merge_envs
+        - workflow
+
+  - path: [tasks]
+    condition: { value.type.equal_to: list }

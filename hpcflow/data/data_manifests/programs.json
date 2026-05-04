@@ -1,0 +1,25 @@
+{
+    "hello_world/linux_x86_64": {
+        "zip_contents": "hello_world/linux_x86_64/hello_world.zip",
+        "executable": "hello_world",
+        "set_executable": [
+            "hello_world"
+        ]
+    },
+    "hello_world/macos_x86_64": {
+        "executable": "hello_world",
+        "set_executable": [
+            "hello_world"
+        ]
+    },
+    "hello_world/macos_arm64": {
+        "zip_file": "hello_world/macos_arm64/hello_world.zip",
+        "executable": "hello_world",
+        "set_executable": [
+            "hello_world"
+        ]
+    },
+    "hello_world/win_AMD64": {
+        "executable": "hello_world.exe"
+    }
+}

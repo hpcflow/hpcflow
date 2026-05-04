@@ -1,0 +1,8 @@
+name: workflow_1
+resources:
+  any:
+    shell: WSL
+tasks:
+  - schema: test_t1_bash
+    inputs:
+      p1: 101

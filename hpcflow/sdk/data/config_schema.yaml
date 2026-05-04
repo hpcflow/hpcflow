@@ -1,0 +1,307 @@
+rules:
+  - path: []
+    condition:
+      value.allowed_keys:
+        - machine
+        - user_name
+        - user_orcid
+        - user_affiliations
+        - linux_release_file
+        - log_file_path
+        - log_file_level
+        - log_console_level
+        - task_schema_sources
+        - parameter_sources
+        - command_file_sources
+        - environment_sources
+        - default_scheduler
+        - default_shell
+        - schedulers
+        - shells
+        - demo_data_dir # deprecated
+        - demo_data_manifest_file # deprecated
+        - data_manifest_file
+        - program_manifest_file
+        - data_dir
+        - program_dir
+        - default_workflow_path
+        - workflow_name_use_dir
+        - workflow_name_add_timestamp
+        - show_tracebacks
+        - use_rich_tracebacks
+  - path: []
+    condition:
+      value.required_keys:
+        - machine
+        - task_schema_sources
+        - parameter_sources
+        - command_file_sources
+        - environment_sources
+        - default_scheduler
+        - default_shell
+        - schedulers
+  - path: []
+    condition:
+      value.forbidden_keys:
+        - config_directory # Config metadata
+        - config_file_name # Config metadata
+        - config_file_path # Config metadata
+        - config_file_contents # Config metadata
+        - config_key # Config metadata
+        - config_schemas # Config metadata
+        - invoking_user_id # Config metadata
+        - host_user_id # Config metadata
+        - host_user_id_file_path # Config metadata
+        - config_callback # Config method
+        - get_all # Config method
+        - get # Config method
+        - set # Config method
+        - _set # Config method
+        - unset # Config method
+        - save # Config method
+        - reload # Config method
+
+  - path: [machine]
+    doc: >
+      A label that references the current machine. By default, this uses the return from
+      the Python function `socket.gethostname()`.
+    condition:
+      value.type.equal_to: str
+
+  - path: [user_name]
+    condition:
+      value.type.equal_to: str
+
+  - path: [user_orcid]
+    condition:
+      value.type.equal_to: str
+
+  - path: [user_affiliations]
+    condition:
+      value.type.equal_to: list
+
+  - path: [user_affiliations, { type: list_value }]
+    condition:
+      value.is_instance: [str]
+
+  - path: [linux_release_file]
+    condition:
+      value.type.equal_to: str
+
+  - path: [log_file_path]
+    doc:
+      - >
+        File path to the app log file. The variables `<<app_name>>` and `<<app_version>>`
+        are available to be used in this option, which resolve to the app name and version,
+        respectively.
+      - >
+        The file path may be nested in non-existent directories, in which case
+        those directories will be generated. If specified as a relative path, the path will
+        be resolved relative to the config directory (the directory that contains the config
+        file).
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [log_file_level]
+    condition:
+      and:
+        - value.type.equal_to: str
+        - value.in: [notset, debug, info, warning, error, critical]
+
+  - path: [log_console_level]
+    condition:
+      and:
+        - value.type.equal_to: str
+        - value.in: [notset, debug, info, warning, error, critical]
+
+  - path: [task_schema_sources]
+    condition:
+      value.type.equal_to: list
+
+  - path: [environment_sources]
+    condition:
+      value.type.equal_to: list
+
+  - path: [parameter_sources]
+    condition:
+      value.type.equal_to: list
+
+  - path: [command_file_sources]
+    condition:
+      value.type.equal_to: list
+
+  - path: [task_schema_sources, { type: list_value }]
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [environment_sources, { type: list_value }]
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [parameter_sources, { type: list_value }]
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [command_file_sources, { type: list_value }]
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [default_scheduler]
+    condition:
+      value.in: [direct, sge, slurm]
+
+  - path: [default_shell]
+    condition:
+      value.in: [powershell, bash, wsl, wsl+bash]
+
+  - path: [schedulers]
+    condition:
+      value.allowed_keys: [direct, direct_posix, sge, slurm]
+
+  - path: [schedulers, { type: map_value }]
+    condition:
+      value.allowed_keys: [defaults, parallel_environments, partitions] # TODO split these up based on scheduler type
+
+  - path: [schedulers, { type: map_value }, defaults]
+    condition:
+      value.allowed_keys: # TODO: split these up based on scheduler type
+        - shebang_executable
+        - directives # TODO: only actually allowed in `QueuedScheduler` sub-classes
+        - options # deprecated, replaced by directives
+        - submit_cmd
+        - show_cmd
+        - del_cmd
+        - js_cmd
+        - array_switch
+        - array_item_var
+        - cwd_switch
+
+  - path: [schedulers, sge]
+    condition:
+      value.type.equal_to: dict
+
+  - path: [schedulers, sge, parallel_environments]
+    condition:
+      value.type.equal_to: dict
+
+  - path: [schedulers, sge, parallel_environments, { type: map_value }]
+    condition:
+      and:
+        - value.allowed_keys:
+            - num_cores
+            - num_nodes
+            - parallel_modes
+        - value.required_keys:
+            - num_cores
+
+  - path: [schedulers, slurm]
+    condition:
+      value.type.equal_to: dict
+
+  - path: [schedulers, slurm, partitions]
+    condition:
+      value.type.equal_to: dict
+
+  - path: [schedulers, slurm, partitions, { type: map_value }]
+    condition:
+      and:
+        - value.allowed_keys:
+            - num_cores
+            - num_nodes
+            - num_cores_per_node
+            - parallel_modes
+        - value.required_keys:
+            - num_cores
+
+  - path: [shells]
+    condition:
+      value.allowed_keys: [powershell, bash, wsl, wsl+bash]
+
+  - path: [shells, { type: map_value }]
+    condition:
+      value.allowed_keys: [defaults]
+
+  - path: [shells, { type: map_value }, defaults]
+    condition:
+      value.allowed_keys:
+        - executable
+        - executable_args
+        - os_args
+        - WSL_executable
+        - WSL_distribution
+        - WSL_user
+
+  - path: [demo_data_dir]
+    doc: Deprecated. Please use `data_dir` instead.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [data_dir]
+    doc: >
+      If provided, this will be used as the path to the directory containing demo data
+      files. This can be a local path or an fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [program_dir]
+    doc: >
+      If provided, this will be used as the path to the directory containing built-in
+      programs. This can be a local path or an fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [demo_data_manifest_file]
+    doc: Deprecated. Please use `data_manifest_file` instead.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [data_manifest_file]
+    doc: >
+      If provided, this will be used as the path to the manifest for the built-in example 
+      data files. It should point to a JSON file whose top-level keys are example data
+      file names. Each value should be an empty map/dict or a map like: `{"in_zip": "text_file.zip"}`,
+      where `text_file.zip` is the name of a zip archive that contains the example data
+      file. This can be a local path or an fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [program_manifest_file]
+    doc: >
+      If provided, this will be used as the path to the manifest for the built-in example 
+      programs. It should point to a JSON file whose top-level keys are example program
+      file keys, like "hello_world/macos_arm64/hello_world". Each value should be an empty
+      map/dict or a map like: `{"in_zip": "hello_world.zip"}`, where `hello_world.zip` is
+      the name of a zip archive that contains the program. This can be a local path or an
+      fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [default_workflow_path]
+    doc: Default directory path in which new workflows will be generated.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [workflow_name_add_timestamp]
+    doc: By default, whether to suffix the workflow name with a date-timestamp.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [workflow_name_add_timestamp]
+    doc: >
+      By default, whether to use a directory named according to the workflow name, and 
+      a separate child directory named according to the date-timestamp if present.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [show_tracebacks]
+    doc: >
+      If True, for the subset of exceptions that have custom user-friendly formatting,
+      also show the traceback, which would otherwise be omitted.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [use_rich_tracebacks]
+    doc: >
+      If True, use the Rich library to format exception tracebacks.
+    condition:
+      value.is_instance: [bool]

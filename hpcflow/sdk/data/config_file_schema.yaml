@@ -1,0 +1,34 @@
+rules:
+  - path: []
+    condition:
+      and:
+        - value.required_keys:
+            - configs
+        - value.allowed_keys:
+            - configs
+
+  - path: [configs]
+    doc: >
+      A mapping of string config "invocation keys" to configuration settings.
+    condition:
+      and:
+        - value.type.equal_to: dict
+        - value.keys_is_instance: [str]
+
+  - path: [configs, { type: map_value }]
+    condition:
+      and:
+        - value.type.equal_to: dict
+        - value.required_keys:
+            - invocation
+            - config
+
+  - path: [configs, { type: map_value }, invocation]
+    condition:
+      value.allowed_keys:
+        - environment_setup
+        - match
+
+  - path: [configs, { type: map_value }, invocation, match]
+    condition:
+      value.type.equal_to: dict

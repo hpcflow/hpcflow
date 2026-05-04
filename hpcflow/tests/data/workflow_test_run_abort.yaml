@@ -1,0 +1,42 @@
+doc: |
+  A workflow to sleep a specified number of seconds, and then set an output parameter 
+  `is_finished` to the string "true". This is used for testing the run-abort
+  functionality.
+
+template_components:
+  task_schemas:
+    - objective: sleep
+      inputs:
+        - parameter: sleep_time_seconds
+      outputs:
+        - parameter: is_finished
+      actions:
+        - abortable: true
+          rules:
+            - path: resources.os_name
+              condition: { value.equal_to: posix }
+          commands:
+            - command: sleep <<parameter:sleep_time_seconds>>
+        - abortable: true
+          rules:
+            - path: resources.os_name
+              condition: { value.equal_to: nt }
+          commands:
+            - command: Start-Sleep <<parameter:sleep_time_seconds>>
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: posix }
+          commands:
+            - command: echo "true"
+              stdout: <<parameter:is_finished>>
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: nt }
+          commands:
+            - command: Write-Output "true"
+              stdout: <<parameter:is_finished>>
+
+tasks:
+  - schema: sleep
+    inputs:
+      sleep_time_seconds: 300 # 5 minutes

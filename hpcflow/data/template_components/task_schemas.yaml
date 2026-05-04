@@ -1,0 +1,139 @@
+- objective: test_t1_bash
+  doc: >
+    Simple echo test using bash.
+    <code>p1</code> &rarr; <code>p2</code>
+  inputs:
+    - parameter: p1
+  outputs:
+    - parameter: p2
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: echo "$((<<parameter:p1>> + 100))"
+          stdout: <<parameter:p2>>
+
+- objective: test_t1_ps
+  doc: >
+    Simple echo test using powershell.
+    <code>p1</code> &rarr; <code>p2</code>
+  inputs:
+    - parameter: p1
+  outputs:
+    - parameter: p2
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: Write-Output ((<<parameter:p1>> + 100))
+          stdout: <<parameter:p2>>
+
+- objective: test_t1_conditional_OS
+  doc: >
+    Simple echo test showing conditional enactment schemes.
+    <code>p1</code> &rarr; <code>p2</code>
+  inputs:
+    - parameter: p1
+  outputs:
+    - parameter: p2
+  actions:
+    - rules:
+        - path: resources.os_name
+          condition: { value.equal_to: posix }
+      environments:
+        any: null_env
+      commands:
+        - command: echo "$((<<parameter:p1>> + 100))"
+          stdout: <<parameter:p2>>
+    - rules:
+        - path: resources.os_name
+          condition: { value.equal_to: nt }
+      environments:
+        any: null_env
+      commands:
+        - command: Write-Output ((<<parameter:p1>> + 100))
+          stdout: <<parameter:p2>>
+
+- objective: test_t2_bash
+  doc: >
+    Simple echo test using bash.
+    <code>p2</code> &rarr; <code>p3</code>
+  inputs:
+    - parameter: p2
+  outputs:
+    - parameter: p3
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: echo "$((<<parameter:p2>> + 100))"
+          stdout: <<parameter:p3>>
+
+- objective: test_t2_ps
+  doc: >
+    Simple echo test using powershell.
+    <code>p2</code> &rarr; <code>p3</code>
+  inputs:
+    - parameter: p2
+  outputs:
+    - parameter: p3
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: Write-Output ((<<parameter:p2>> + 100))
+          stdout: <<parameter:p3>>
+
+# - objective: demo_task_2
+#   inputs:
+#     - parameter: p3
+#     - parameter: orientations
+#   outputs:
+#     - parameter: p4
+#   actions:
+#     - environments:
+#         any: demo_env_1
+#       commands:
+#         - command: >
+#             echo "hello! p3=<<parameter:p3>> orientations=<<parameter:orientations>>"
+#       output_file_parsers:
+#         p4:
+#           from_files: [t1_outfile_1]
+
+- objective: dummy_task_1
+  doc: >
+    A dummy task showing simple output file parsing.
+    <code>(p1, p2, p5)</code> &rarr; <code>p3</code>
+  inputs:
+    - parameter: p1
+    - parameter: p2
+    - parameter: p5
+  outputs:
+    - parameter: p3
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: >-
+            Set-Content -Path .\test.txt -Value "hello from ${pwd}; p1=<<parameter:p1>> p2=<<parameter:p2>> p5=<<parameter:p5>>"
+      output_file_parsers:
+        p3:
+          from_files: [t1_outfile_1]
+
+- objective: dummy_task_2
+  doc: >
+    A dummy task showing simple output file parsing.
+    <code>(p3, orientations)</code> &rarr; <code>p4</code>
+  inputs:
+    - parameter: p3
+    - parameter: orientations
+  outputs:
+    - parameter: p4
+  actions:
+    - environments:
+        any: null_env
+      commands:
+        - command: Start-Sleep 1; echo "p3=<<parameter:p3>>; orientations=<<parameter:orientations>>"
+      output_file_parsers:
+        p4:
+          from_files: [t1_outfile_1]

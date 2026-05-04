@@ -1,0 +1,3 @@
+rules:
+  - path: [inputs, { type: list_value }]
+    condition: { value.type.equal_to: dict }

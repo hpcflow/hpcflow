@@ -1,0 +1,8 @@
+Hola, {{ name }}!
+
+This is a template, with a loop. Here are your specified fruits:
+
+{%- for fruit_i in fruits %}
+- {{ fruit_i -}}
+{% endfor %}
+

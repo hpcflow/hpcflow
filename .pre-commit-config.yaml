@@ -7,7 +7,8 @@ repos:
           (?x)^(
             CHANGELOG.tpl.md|
             CHANGELOG.md|
-            CHANGELOG-dev.md
+            CHANGELOG-dev.md|
+            hpcflow/data/jinja_templates/.*
           )$
       - id: check-yaml
       - id: mixed-line-ending
@@ -20,24 +21,33 @@ repos:
             CHANGELOG-dev.md
           )$
         always_run: false # required to respect exclude
-  - repo: https://github.com/psf/black
-    rev: 19.3b0
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 25.1.0
     hooks:
       - id: black
+        args: [--line-length=90]
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v1.2.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
-        args: [] # optional: list of Conventional Commits types to allow
-ci:
-  autofix_commit_msg: |
-    [pre-commit.ci] [skip ci] auto fixes from pre-commit.com hooks
-
-    for more information, see https://pre-commit.ci
-  autofix_prs: true
-  autoupdate_branch: ""
-  autoupdate_commit_msg: "[pre-commit.ci] [skip ci] pre-commit autoupdate"
-  autoupdate_schedule: weekly
-  skip: []
-  submodules: false
+        args: # optional: list of Conventional Commits types to allow
+          - build
+          - change
+          - chore
+          - ci
+          - deprecate
+          - docs
+          - feat
+          - fix
+          - perf
+          - refactor
+          - remove
+          - revert
+          - security
+          - style
+          - test
+  - repo: https://github.com/python-poetry/poetry
+    rev: "1.4"
+    hooks:
+      - id: poetry-check

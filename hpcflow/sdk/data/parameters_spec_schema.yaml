@@ -1,0 +1,7 @@
+rules:
+  - path: []
+    condition:
+      {
+        value.allowed_keys:
+          [type, sub_parameters, is_file, _hash_value, _validation, _is_hidden],
+      }

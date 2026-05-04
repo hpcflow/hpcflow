@@ -1,11 +1,11 @@
-name: test-schedulers
+name: Test schedulers
 concurrency:
   | # e.g. don't run simultaneously on the same branch (since we may commit to that branch)
-  ci-${{ format('{0}github.head_ref', 'refs/heads') || github.ref }}
+  ci-test-schedulers-${{ format('{0}github.head_ref', 'refs/heads') || github.ref }}
 
 env:
-  PYTHON_VERSION: "3.11"
-  POETRY_VERSION: "1.4"
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2.1.3"
 
 on:
   workflow_dispatch: # manual invocation
@@ -14,19 +14,50 @@ jobs:
   test-slurm:
     runs-on: ubuntu-latest
     container:
-      image: nathanhess/slurm:base
+      image: nathanhess/slurm:base-root
     steps:
-      - uses: actions/checkout@v3
+      - name: setup slurm
+        run: /etc/startup.sh
+
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
 
+      - name: set up tkinter
+        run: apt install -y python-tk
+
       - name: Set ownership
+        # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
+        # this is to fix GIT not liking owner of the checkout dir
         run: |
-          # see: https://github.com/actions/runner/issues/2033#issuecomment-1204205989
-          # this is to fix GIT not liking owner of the checkout dir
           chown -R $(id -u):$(id -g) $PWD
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: hpcflow/github-support/setup-poetry@main
+        with:
+          version: ${{ env.POETRY_VERSION }}
+      - uses: hpcflow/github-support/init-cache@main
+        with:
+          name: slurm-test
+          version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: poetry install --without dev,pyinstaller
+
+      - name: Run slurm tests only
+        run: |
+          poetry run hpcflow test --slurm
+
+  test-direct-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -36,17 +67,15 @@ jobs:
       - name: Configure poetry
         run: |
           poetry config virtualenvs.in-project true
-          poetry config installer.modern-installation false
 
-      - name: Cache the virtualenv
-        uses: actions/cache@v3
+      - uses: hpcflow/github-support/init-cache@main
         with:
-          path: ./.venv
-          key: venv-slurm-test-${{ hashFiles('**/poetry.lock') }}
+          name: direct-linux-test
+          version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: poetry install --without dev,pyinstaller
 
-      - name: Run slurm tests only tests
+      - name: Run direct-linux tests only
         run: |
-          poetry run python -m pytest --slurm
+          poetry run hpcflow test --direct-linux

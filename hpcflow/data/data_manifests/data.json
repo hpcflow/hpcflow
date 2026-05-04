@@ -1,0 +1,15 @@
+{
+    "text_file_1.txt": {
+        "zip_file": "text_file_1.zip"
+    },
+    "text_file_2": {
+        "zip_contents": "text_file_2.zip"
+    },
+    "zip_file.zip": {},
+    "test_dataset_1": {
+        "zip_file": "test_dataset_1.zip"
+    },
+    "test_dataset_2": {
+        "zip_contents": "test_dataset_2.zip"
+    }
+}

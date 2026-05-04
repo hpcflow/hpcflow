@@ -3,18 +3,25 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to hpcflow's documentation!
+Welcome to hpcFlow's documentation!
 ===================================
+
+hpcFlow is a workflow system, principally designed for running on
+High Performance Computing clusters.
+It's usually used (as `matFlow <matflow_>`_, a derived software package) for Materials Science.
+
+Unlike many workflow engines, hpcFlow supports running without an orchestration process
+on the head node of the cluster, and can handle iterative looping over a sequence of
+commands until a condition is satisfied (often a convergence criterion).
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   Install <install/index>
+   Install <installation>
    User Guide <user/index>
-   API reference <reference/index>
-   Contribute <contribute/index>
-
+   Reference <reference/index>
+   Development <development/index>
 
 Indices and tables
 ==================
@@ -23,4 +30,4 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
-Here is some stuff.
+.. _matflow: https://docs.matflow.io/

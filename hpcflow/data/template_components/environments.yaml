@@ -1,0 +1,20 @@
+- name: null_env
+  specifiers:
+    is_built_in: true
+  doc: The default system environment.
+
+- name: python_env
+  specifiers:
+    is_built_in: true
+  executables:
+    - label: python_script
+      instances:
+        - command: |
+            python <<script_path>> <<args>>
+          num_cores:
+            start: 1
+            stop: 100
+          parallel_mode: null
+  doc: |
+    An environment for running Python, typically with access to hpcflow and matflow modules and their dependencies.
+    May be a Python virtual environment.
