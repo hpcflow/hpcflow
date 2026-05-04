@@ -1187,7 +1187,7 @@ class ZarrPersistentStore(
             # transform to 2D indices:
             r_idx, c_idx = get_2D_idx(new_idx, num_cols=arr.shape[1])
 
-            # add rows to accomodate new runs:
+            # add rows to accommodate new runs:
             max_r_idx = np.max(r_idx)
             if max_r_idx + 1 > arr.shape[0]:
                 arr.resize(max_r_idx + 1, arr.shape[1])
