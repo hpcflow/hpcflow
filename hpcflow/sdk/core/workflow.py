@@ -3444,7 +3444,7 @@ class Workflow(AppAware):
                     ):
                         # run failed
                         self._app.logger.info(
-                            "run was not succcess and skip reason was not "
+                            "run was not success and skip reason was not "
                             "LOOP_TERMINATION."
                         )
                         # loop termination skips are already propagated
