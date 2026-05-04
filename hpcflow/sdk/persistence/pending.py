@@ -241,7 +241,7 @@ class PendingChanges(
         return decorator
 
     def get_pending_resource_map_groups(self) -> dict[tuple[str, ...], list[str]]:
-        """Retrive resource map groups, where values are filtered to include only those
+        """Retrieve resource map groups, where values are filtered to include only those
         commit methods that must be invoked, due to pending data associated with those
         methods.
 
