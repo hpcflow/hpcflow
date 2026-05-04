@@ -1,4 +1,140 @@
 
+<a name="v0.2.0a319"></a>
+## [v0.2.0a319](https://github.com/hpcflow/hpcflow/compare/v0.2.0a318...v0.2.0a319) - 2026.05.04
+
+### ✨ Features
+
+* fix a typo and try to cleanly release from main
+
+
+<a name="v0.2.0a318"></a>
+## [v0.2.0a318](https://github.com/hpcflow/hpcflow/compare/v0.1.1a0...v0.2.0a318) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* try to fix version problems
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.1.1a0"></a>
+## [v0.1.1a0](https://github.com/hpcflow/hpcflow/compare/v0.1.0...v0.1.1a0) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* typo
+* typo
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.1.0"></a>
+## [v0.1.0](https://github.com/hpcflow/hpcflow/compare/v0.2.0a317...v0.1.0) - 2026.05.04
+
+### Other changes
+
+* add workflow to main to enable running
+
+### ✨ Features
+
+* test-pre-python workflow to allow dispatch from dev branch
+
+### 🐛 Bug Fixes
+
+* another typo
+* another typo
+* misspelt word
+* missing space
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.2.0a317"></a>
+## [v0.2.0a317](https://github.com/hpcflow/hpcflow/compare/v0.2.0a316...v0.2.0a317) - 2026.05.04
+
+### 👷 Build changes
+
+* **deps:** bump the pip-dependencies group across 1 directory with 9 updates
+
+
+<a name="v0.2.0a316"></a>
+## [v0.2.0a316](https://github.com/hpcflow/hpcflow/compare/v0.2.0a315...v0.2.0a316) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* function `get_run_directories` where element/iter directory depths are > 1
+* correct loop indices in list jobscript methods
+
+
+<a name="v0.2.0a315"></a>
+## [v0.2.0a315](https://github.com/hpcflow/hpcflow/compare/v0.2.0a314...v0.2.0a315) - 2026.04.27
+
+### 🐛 Bug Fixes
+
+* type checking
+* merging independent jobscripts
+* type checking properly
+* type checking
+* consistent submission options through the API
+
+
+<a name="v0.2.0a314"></a>
+## [v0.2.0a314](https://github.com/hpcflow/hpcflow/compare/v0.2.0a313...v0.2.0a314) - 2026.04.23
+
+### ✨ Features
+
+* support parsing JSON config values via the CLI option `--with-config`
+
+### 🐛 Bug Fixes
+
+* add some missing env vars in WSLBash shell
+
+
+<a name="v0.2.0a313"></a>
+## [v0.2.0a313](https://github.com/hpcflow/hpcflow/compare/v0.2.0a312...v0.2.0a313) - 2026.04.20
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the github-actions-dependencies group with 2 updates
+
+
+<a name="v0.2.0a312"></a>
+## [v0.2.0a312](https://github.com/hpcflow/hpcflow/compare/v0.2.0a311...v0.2.0a312) - 2026.04.14
+
+### 🐛 Bug Fixes
+
+* fix typecheck
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group across 1 directory with 15 updates
+
+
+<a name="v0.2.0a311"></a>
+## [v0.2.0a311](https://github.com/hpcflow/hpcflow/compare/v0.2.0a310...v0.2.0a311) - 2026.04.13
+
+### 🐛 Bug Fixes
+
+* add back SDK docs, which were removed inadvertently in [#862](https://github.com/hpcflow/hpcflow/issues/862) - again
+* add back SDK docs, which were removed inadvertently in [#862](https://github.com/hpcflow/hpcflow/issues/862)
+* typo
+
+### 👷 Build changes
+
+* sync updates from docs/CI repo
+* sync CI workflows with upstream templates
+* sync CI workflows with upstream templates
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a310"></a>
 ## [v0.2.0a310](https://github.com/hpcflow/hpcflow/compare/v0.2.0a309...v0.2.0a310) - 2026.04.10
 

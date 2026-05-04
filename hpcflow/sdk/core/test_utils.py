@@ -524,7 +524,7 @@ def command_line_test(
         else inputs
     )
 
-    schema_inputs_ = (
+    schema_inputs_: list[Parameter | SchemaInput] | None = (
         schema_inputs
         if schema_inputs
         else [hf.SchemaInput(parameter=inp_val.parameter) for inp_val in inputs_]

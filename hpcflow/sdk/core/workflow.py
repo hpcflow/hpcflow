@@ -3475,7 +3475,7 @@ class Workflow(AppAware):
                     ):
                         # run failed
                         self._app.logger.info(
-                            "run was not succcess and skip reason was not "
+                            "run was not success and skip reason was not "
                             "LOOP_TERMINATION."
                         )
                         # loop termination skips are already propagated
@@ -3494,7 +3494,7 @@ class Workflow(AppAware):
                     else:
                         self._app.logger.info(
                             "`skip_downstream_on_failure` is False, run was "
-                            "succcess, or skip reason was LOOP_TERMINATION."
+                            "success, or skip reason was LOOP_TERMINATION."
                         )
 
                     run_ids.append(run.id_)
@@ -3665,12 +3665,28 @@ class Workflow(AppAware):
         status: Status | None = None,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
-        """Submit outstanding EARs for execution."""
+        """Submit outstanding EARs for execution.
+
+        Parameters
+        ----------
+        JS_parallelism
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
+        """
 
         # generate a new submission if there are no pending submissions:
         if not (pending := [sub for sub in self.submissions if sub.needs_submit]):
@@ -3680,6 +3696,7 @@ class Workflow(AppAware):
                 new_sub := self._add_submission(
                     tasks=tasks,
                     JS_parallelism=JS_parallelism,
+                    min_jobscripts=min_jobscripts,
                     status=status,
                 )
             ):
@@ -3723,6 +3740,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3739,6 +3757,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3754,6 +3773,7 @@ class Workflow(AppAware):
         *,
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3777,6 +3797,10 @@ class Workflow(AppAware):
             type does not support the `jobscript_parallelism` feature. If not set,
             jobscript parallelism will be used if the store type supports it, for
             scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         print_stdout
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
@@ -3817,6 +3841,7 @@ class Workflow(AppAware):
                 exceptions, submitted_js = self._submit(
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
+                    min_jobscripts=min_jobscripts,
                     print_stdout=print_stdout,
                     status=status_,
                     add_to_known=add_to_known,
@@ -4090,6 +4115,7 @@ class Workflow(AppAware):
         tasks: list[int] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
         status: bool = True,
     ) -> Submission | None:
         """Add a new submission.
@@ -4099,6 +4125,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         """
         # JS_parallelism=None means guess
         # Type hint for mypy
@@ -4106,7 +4136,9 @@ class Workflow(AppAware):
             rich.console.Console().status("") if status else nullcontext()
         )
         with status_context as status_, self._store.cached_load(), self.batch_update():
-            return self._add_submission(tasks, JS_parallelism, force_array, status_)
+            return self._add_submission(
+                tasks, JS_parallelism, force_array, min_jobscripts, status_
+            )
 
     @TimeIt.decorator
     @load_workflow_config
@@ -4115,6 +4147,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
         status: Status | None = None,
     ) -> Submission | None:
         """Add a new submission.
@@ -4124,6 +4157,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         """
         new_idx = self.num_submissions
         _ = self.submissions  # TODO: just to ensure `submissions` is loaded
@@ -4136,7 +4173,7 @@ class Workflow(AppAware):
         sub_obj: Submission = self._app.Submission(
             index=new_idx,
             workflow=self,
-            jobscripts=self.resolve_jobscripts(cache, tasks, force_array),
+            jobscripts=self.resolve_jobscripts(cache, tasks, force_array, min_jobscripts),
             JS_parallelism=JS_parallelism,
         )
         if status:
@@ -4217,6 +4254,7 @@ class Workflow(AppAware):
         cache: ObjectCache,
         tasks: Sequence[int] | None = None,
         force_array: bool = False,
+        min_jobscripts: bool = True,
     ) -> list[Jobscript]:
         """
         Resolve this workflow to a set of jobscripts to run for a new submission.
@@ -4226,6 +4264,10 @@ class Workflow(AppAware):
         force_array
             Used to force the use of job arrays, even if the scheduler does not support
             it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
 
         """
         with self._app.config.cached_config():
@@ -4240,7 +4282,9 @@ class Workflow(AppAware):
                 if js_idx in js_deps:
                     jsca["dependencies"] = js_deps[js_idx]  # type: ignore
 
-            js = merge_jobscripts_across_tasks(js)
+            js = merge_jobscripts_across_tasks(
+                js, min_jobscripts, logger=self._app.submission_logger
+            )
 
             # for direct or (non-array scheduled), combine into jobscripts of multiple
             # blocks for dependent jobscripts that have the same resource hashes
@@ -4881,12 +4925,12 @@ class Workflow(AppAware):
         def _get_depth_dirs(
             item_idx: int,
             max_per_dir: int,
-            max_depth: int,
+            max_depth: int | np.unsignedinteger,
             depth_idx_cache: dict[tuple[int, int], NDArray],
             prefix: str,
         ) -> list[str]:
             dirs = []
-            max_avail_items = max_per_dir**max_depth
+            max_avail_items = max_per_dir ** int(max_depth)
             for depth_i in range(1, max_depth):
                 tot_items_per_level = int(max_avail_items / max_per_dir**depth_i)
                 key = (max_avail_items, tot_items_per_level)
@@ -5053,17 +5097,10 @@ class Workflow(AppAware):
                     deps = "; ".join(f"{int(i[0]),int(i[1])}" for i in blk.dependencies)
 
                     for blk_t_idx, t_iID in enumerate(blk.task_insert_IDs):
-
-                        # loop indices are the same for all actions within a task, so get the
-                        # first `task_action` for this task insert ID:
-                        for i in blk_task_actions:
-                            if i[0] == t_iID:
-                                loop_idx = [
-                                    blk.task_loop_idx[i[2]].get(loop_name_i, "-")
-                                    for loop_name_i in loop_names
-                                ]
-                                break
-
+                        loop_idx = [
+                            blk.task_loop_idx[blk_t_idx].get(loop_name_i, "-")
+                            for loop_name_i in loop_names
+                        ]
                         c2 = self.tasks.get(insert_ID=t_iID).unique_name
 
                         if blk_t_idx > 0:
@@ -5136,16 +5173,12 @@ class Workflow(AppAware):
                 if max_js is not None and js.index > max_js:
                     break
                 for blk in js.blocks:
-                    blk_task_actions = blk.task_actions
-                    for i in blk.task_insert_IDs:
+                    for blk_t_idx, i in enumerate(blk.task_insert_IDs):
                         if i in matched:
-                            for j in blk_task_actions:
-                                if j[0] == i:
-                                    loop_idx = [
-                                        blk.task_loop_idx[j[2]].get(loop_name_i, "-")
-                                        for loop_name_i in loop_names
-                                    ]
-                                    break
+                            loop_idx = [
+                                blk.task_loop_idx[blk_t_idx].get(loop_name_i, "-")
+                                for loop_name_i in loop_names
+                            ]
                             task_jobscripts[i].append((js.index, blk.index, loop_idx))
 
             table = rich.table.Table(width=width)

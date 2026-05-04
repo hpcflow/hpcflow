@@ -81,7 +81,7 @@
 
     .. note::
 
-    {{ app_name }} does not encrypt secrets as there is not a straightforward way to do so across all platforms, and for typical use cases (like running on HPC systems). Instead, {{ app_name }} stores secrets in a file with appropriate permissions set such that the file can only be read (or written to) by the current user. The secrets file is stored within the app's user data directory.
+        {{ app_name }} does not encrypt secrets as there is not a straightforward way to do so across all platforms, and for typical use cases (like running on HPC systems). Instead, {{ app_name }} stores secrets in a file with appropriate permissions set such that the file can only be read (or written to) by the current user. The secrets file is stored within the app's user data directory.
 
     Using secrets
     ~~~~~~~~~~~~~

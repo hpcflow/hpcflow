@@ -245,6 +245,16 @@ force_arr_opt = click.option(
     is_flag=True,
     default=False,
 )
+#: Standard option
+min_jobscripts_opt = click.option(
+    "--min-jobscripts/--no-min-jobscripts",
+    help=(
+        "Minimise the total number of jobscripts by performing as many merges as "
+        "possible. This may merge otherwise independent jobscripts, such that they are "
+        "run sequentially rather than in parallel."
+    ),
+    default=True,
+)
 
 #: Standard option
 make_status_opt = click.option(
@@ -460,6 +470,7 @@ _add_doc_from_help(
     wait_quiet_opt,
     cancel_quiet_opt,
     force_arr_opt,
+    min_jobscripts_opt,
     make_status_opt,
     zip_path_opt,
     zip_overwrite_opt,

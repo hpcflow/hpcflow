@@ -205,6 +205,9 @@ if TYPE_CHECKING:
             config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
+            JS_parallelism: bool = True,
+            force_array: bool = False,
+            min_jobscripts: bool = True,
         ) -> _Workflow | _Submission | None: ...
 
     class _MakeDemoWorkflow(Protocol):
@@ -229,6 +232,9 @@ if TYPE_CHECKING:
             config: dict[str, Any] | None = None,
             status: bool = True,
             add_submission: bool = False,
+            JS_parallelism: bool = True,
+            force_array: bool = False,
+            min_jobscripts: bool = True,
         ) -> _Workflow | _Submission | None: ...
 
     class _MakeAndSubmitWorkflow(Protocol):
@@ -254,6 +260,7 @@ if TYPE_CHECKING:
             resources: dict[str, Any] | None = None,
             config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
+            min_jobscripts: bool = True,
             wait: bool = False,
             add_to_known: bool = True,
             return_idx: bool = False,
@@ -285,6 +292,7 @@ if TYPE_CHECKING:
             resources: dict[str, Any] | None = None,
             config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
+            min_jobscripts: bool = True,
             wait: bool = False,
             add_to_known: bool = True,
             return_idx: bool = False,
@@ -302,6 +310,7 @@ if TYPE_CHECKING:
             self,
             workflow_path: PathLike,
             JS_parallelism: bool | None = None,
+            min_jobscripts: bool = True,
             wait: bool = False,
             return_idx: bool = False,
             tasks: list[int] | None = None,
@@ -1465,6 +1474,20 @@ class BaseApp(metaclass=Singleton):
             If True, display a live status to track workflow creation progress.
         add_submission
             If True, add a submission to the workflow (but do not submit).
+        JS_parallelism
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
 
         Returns
         -------
@@ -1536,6 +1559,10 @@ class BaseApp(metaclass=Singleton):
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
             not set, jobscript parallelism will be used if the store type supports it.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
         add_to_known: bool
@@ -1622,6 +1649,10 @@ class BaseApp(metaclass=Singleton):
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
             not set, jobscript parallelism will be used if the store type supports it.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
         add_to_known: bool
@@ -1662,6 +1693,10 @@ class BaseApp(metaclass=Singleton):
             If True, allow multiple jobscripts to execute simultaneously. Raises if set to
             True but the store type does not support the `jobscript_parallelism` feature. If
             not set, jobscript parallelism will be used if the store type supports it.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         tasks: list[int]
             List of task indices to include in this submission. By default all tasks are
             included.
@@ -2964,6 +2999,9 @@ class BaseApp(metaclass=Singleton):
         config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
+        JS_parallelism: bool = True,
+        force_array: bool = False,
+        min_jobscripts: bool = True,
     ) -> _Workflow | _Submission | None:
         """
         Generate a new {app_name} workflow from a file or string containing a workflow
@@ -3023,6 +3061,20 @@ class BaseApp(metaclass=Singleton):
             If True, display a live status to track workflow creation progress.
         add_submission
             If True, add a submission to the workflow (but do not submit).
+        JS_parallelism
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
 
         Returns
         -------
@@ -3081,7 +3133,12 @@ class BaseApp(metaclass=Singleton):
                 )
             if add_submission:
                 with wk._store.cached_load(), wk.batch_update():
-                    return wk._add_submission(status=status_)
+                    return wk._add_submission(
+                        status=status_,
+                        JS_parallelism=JS_parallelism,
+                        force_array=force_array,
+                        min_jobscripts=min_jobscripts,
+                    )
 
         return wk
 
@@ -3105,6 +3162,7 @@ class BaseApp(metaclass=Singleton):
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         wait: bool = False,
         add_to_known: bool = True,
         return_idx: bool = False,
@@ -3175,6 +3233,10 @@ class BaseApp(metaclass=Singleton):
             type does not support the `jobscript_parallelism` feature. If not set,
             jobscript parallelism will be used if the store type supports it, for
             scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         wait
             If True, this command will block until the workflow execution is complete.
         add_to_known
@@ -3225,6 +3287,7 @@ class BaseApp(metaclass=Singleton):
         assert isinstance(wk, _Workflow)
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
+            min_jobscripts=min_jobscripts,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=True,
@@ -3257,6 +3320,9 @@ class BaseApp(metaclass=Singleton):
         config: dict[str, Any] | None = None,
         status: bool = True,
         add_submission: bool = False,
+        JS_parallelism: bool = True,
+        force_array: bool = False,
+        min_jobscripts: bool = True,
     ) -> _Workflow | _Submission | None:
         """
         Generate a new {app_name} workflow from a builtin demo workflow template.
@@ -3313,6 +3379,20 @@ class BaseApp(metaclass=Singleton):
             If True, display a live status to track workflow creation progress.
         add_submission
             If True, add a submission to the workflow (but do not submit).
+        JS_parallelism
+            If True, allow multiple jobscripts to execute simultaneously. If
+            'scheduled'/'direct', only allow simultaneous execution of scheduled/direct
+            jobscripts. Raises if set to True, 'scheduled', or 'direct', but the store
+            type does not support the `jobscript_parallelism` feature. If not set,
+            jobscript parallelism will be used if the store type supports it, for
+            scheduled jobscripts only.
+        force_array
+            Used to force the use of job arrays, even if the scheduler does not support
+            it. This is provided for testing purposes only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
 
         Returns
         -------
@@ -3351,7 +3431,13 @@ class BaseApp(metaclass=Singleton):
             if add_submission:
                 with wk._store.cached_load():
                     with wk.batch_update():
-                        return wk._add_submission(status=status_)
+                        return wk._add_submission(
+                            status=status_,
+                            JS_parallelism=JS_parallelism,
+                            force_array=force_array,
+                            min_jobscripts=min_jobscripts,
+                        )
+
             return wk
 
     @batch_warnings
@@ -3373,6 +3459,7 @@ class BaseApp(metaclass=Singleton):
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         wait: bool = False,
         add_to_known: bool = True,
         return_idx: bool = False,
@@ -3440,6 +3527,10 @@ class BaseApp(metaclass=Singleton):
             type does not support the `jobscript_parallelism` feature. If not set,
             jobscript parallelism will be used if the store type supports it, for
             scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         wait
             If True, this command will block until the workflow execution is complete.
         add_to_known
@@ -3488,6 +3579,7 @@ class BaseApp(metaclass=Singleton):
         assert isinstance(wk, _Workflow)
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
+            min_jobscripts=min_jobscripts,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=True,
@@ -3505,6 +3597,7 @@ class BaseApp(metaclass=Singleton):
         self,
         workflow_path: PathLike,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
         wait: bool = False,
         return_idx: bool = False,
         tasks: list[int] | None = None,
@@ -3524,6 +3617,10 @@ class BaseApp(metaclass=Singleton):
             type does not support the `jobscript_parallelism` feature. If not set,
             jobscript parallelism will be used if the store type supports it, for
             scheduled jobscripts only.
+        min_jobscripts
+            If True (the default), minimise the total number of jobscripts by performing
+            as many merges as possible. This may merge otherwise independent jobscripts,
+            such that they are run sequentially rather than in parallel.
         wait:
             Whether to wait for the submission to complete.
         return_idx:
@@ -3545,6 +3642,7 @@ class BaseApp(metaclass=Singleton):
         if return_idx:
             return wk.submit(
                 JS_parallelism=JS_parallelism,
+                min_jobscripts=min_jobscripts,
                 wait=wait,
                 return_idx=True,
                 tasks=tasks,

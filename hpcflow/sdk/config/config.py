@@ -237,6 +237,10 @@ class Config:
         Deprecated; please use data_manifest_file instead.
     """
 
+    #: Special prefix to an override value string to indicate we should parse the value as
+    #: JSON.
+    JSON_OVERRIDE_PREFIX = "json:"
+
     def __init__(
         self,
         app: BaseApp,
@@ -252,7 +256,7 @@ class Config:
         self._app = app
         self._file = config_file
         self._options = options
-        self._overrides = overrides or {}
+        self._overrides = self.__parse_json_overrides(overrides or {})
         self._logger = logger
         self._variables = variables or {}
 
@@ -356,6 +360,17 @@ class Config:
     def __dir__(self) -> Iterator[str]:
         yield from super().__dir__()
         yield from self._all_keys
+
+    @classmethod
+    def __parse_json_overrides(cls, overrides: dict[str, Any]) -> dict[str, Any]:
+        """Check for a special 'json:' prefix to override values. If found, parse the
+        remainder of the value as JSON."""
+        out = {}
+        for ov_key, ov_val in overrides.items():
+            if isinstance(ov_val, str) and ov_val.startswith(cls.JSON_OVERRIDE_PREFIX):
+                ov_val = json.loads(ov_val.removeprefix(cls.JSON_OVERRIDE_PREFIX))
+            out[ov_key] = ov_val
+        return out
 
     @property
     def config_directory(self) -> Path:

@@ -6,8 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import os
-import shutil
-import socket
+import logging
 import subprocess
 from textwrap import dedent, indent
 from typing import TextIO, cast, overload, TYPE_CHECKING
@@ -274,14 +273,19 @@ def resolve_jobscript_dependencies(
             js_i_num_js_elements = jobscripts[js_i_idx]["EAR_ID"].shape[1]
             js_k_num_js_elements = jobscripts[js_k_idx]["EAR_ID"].shape[1]
 
+            # is there a dependency for each jobscript element?
             is_all_i_elems = sorted(set(deps_j["js_element_mapping"])) == list(
                 range(js_i_num_js_elements)
             )
 
+            # does each jobscript element depend on exactly one jobscript element from the
+            # other jobscript?
             is_all_k_single = set(
                 len(i) for i in deps_j["js_element_mapping"].values()
             ) == {1}
 
+            # is each jobscript element in the dependency jobscript associated with an
+            # element in the dependent jobscript?
             is_all_k_elems = sorted(
                 i[0] for i in deps_j["js_element_mapping"].values()
             ) == list(range(js_k_num_js_elements))
@@ -308,11 +312,20 @@ def _reindex_dependencies(
 @TimeIt.decorator
 def merge_jobscripts_across_tasks(
     jobscripts: Mapping[int, JobScriptCreationArguments],
+    min_jobscripts: bool = True,
+    logger: logging.Logger | None = None,
 ) -> Mapping[int, JobScriptCreationArguments]:
     """Try to merge jobscripts between tasks.
 
     This is possible if two jobscripts share the same resources and have an array
     dependency (i.e. one-to-one element dependency mapping).
+
+    Parameters
+    ----------
+    min_jobscripts
+        If True (the default), minimise the total number of jobscripts by performing as
+        many merges as possible. This may merge otherwise independent jobscripts, such
+        that they are run sequentially rather than in parallel.
 
     """
 
@@ -322,29 +335,96 @@ def merge_jobscripts_across_tasks(
 
     for js_idx, js in jobscripts.items():
         if not js["dependencies"]:
-            continue
+            if js_idx == 0 or not min_jobscripts:
+                if logger:
+                    logger.info(
+                        f"not considering merge of jobscript {js_idx!r} due to no "
+                        f"dependencies."
+                    )
+                continue
+            else:
+                # aiming to merge this jobscript with the previous jobscript, even though
+                # it has no dependency relationship; skip if not compatible (equal number
+                # of elements):
+                if not (
+                    js["EAR_ID"].shape[1] == jobscripts[js_idx - 1]["EAR_ID"].shape[1]
+                ):
+                    if logger:
+                        logger.info(
+                            f"not considering merge of jobscript {js_idx!r} due to "
+                            f"different numbers of elements."
+                        )
+                    continue
 
-        closest_idx = cast("int", max(js["dependencies"]))
+        closest_idx = cast("int", max(js["dependencies"], default=js_idx - 1))
         closest_js = jobscripts[closest_idx]
         other_deps = {k: v for k, v in js["dependencies"].items() if k != closest_idx}
 
-        # if all `other_deps` are also found within `closest_js`'s dependencies, then we
-        # can merge `js` into `closest_js`:
-        merge = True
+        # first check if jobscript dependencies are compatible with merging:
+        merge_possible = True
+        deps_to_add = {}
         for dep_idx, dep_i in other_deps.items():
             try:
-                if closest_js["dependencies"][dep_idx] != dep_i:
-                    merge = False
+                if (closest_dep := closest_js["dependencies"][dep_idx]) != dep_i:
+                    if logger:
+                        logger.info(
+                            f"not considering merge of jobscript {js_idx!r} due to "
+                            f"incompatible dependencies: dependency of this jobscript: "
+                            f"{dep_i!r} is not compatible with the same dependency in "
+                            f"the closest jobscript: {closest_dep!r}"
+                        )
+                    merge_possible = False
+                    break
             except KeyError:
-                merge = False
+                # current jobscript (`js_idx`) depends on a jobscript that `closest_js`
+                # does not depend on; this doesn't prohibit merging, but we need to
+                # check that the `js_element_mapping` is the same, and also add the
+                # dependency from `js_idx` if merging into `closest_js`:
+                if min_jobscripts:
+                    if js["dependencies"][closest_idx] != dep_i:
+                        if logger:
+                            logger.info(
+                                f"not considering merge of jobscript {js_idx!r}; it depends "
+                                f"on a jobscript ({dep_idx!r}) that the closest "
+                                f"jobscript does not depend on, and that dependency is "
+                                f"not compatible with the dependencies of the closest "
+                                f"jobscript."
+                            )
+                        merge_possible = False
+                        break
+                    else:
+                        if logger:
+                            logger.info(f"considering merge of jobscript {js_idx!r}.")
+                        deps_to_add[dep_idx] = dep_i
+                else:
+                    if logger:
+                        logger.info(
+                            f"not considering merge of jobscript {js_idx!r}; it depends "
+                            f"on a jobscript ({dep_idx!r}) that the closest "
+                            f"jobscript does not depend on. Use `min_jobscripts=True` to "
+                            f"attempt to merge in this scenario."
+                        )
+                    merge_possible = False
+                    break
 
-        if merge:
+        if merge_possible:
             js_j = closest_js  # the jobscript we are merging `js` into
             js_j_idx = closest_idx
-            dep_info = js["dependencies"][js_j_idx]
+            if dep_info := js["dependencies"].get(js_j_idx):
+                # can only merge if it's an array dependency
+                dep_compat = dep_info["is_array"]
+            else:
+                # i.e. merging independent jobscripts
+                dep_compat = True
 
-            # can only merge if resources are the same and is array dependency:
-            if js["resource_hash"] == js_j["resource_hash"] and dep_info["is_array"]:
+            # can only merge if resources are the same:
+            res_equal = js["resource_hash"] == js_j["resource_hash"]
+            if res_equal and dep_compat:
+                if logger:
+                    logger.info(
+                        f"merging jobscript {js_idx!r} into jobscript {js_j_idx}."
+                    )
+
                 num_loop_idx = len(
                     js_j["task_loop_idx"]
                 )  # TODO: should this be: `js_j["task_loop_idx"][0]`?
@@ -365,8 +445,18 @@ def merge_jobscripts_across_tasks(
                 # mark this js as defunct
                 merged.add(id(js))
 
+                # add dependencies that were defined current jobscript (`js_idx`) but not
+                # in `js_j`:
+                js_j["dependencies"].update(deps_to_add)
+
                 # update dependencies of any downstream jobscripts that refer to this js
                 _reindex_dependencies(jobscripts, js_idx, js_j_idx)
+
+            elif logger:
+                logger.info(
+                    f"cannot merge jobscript {js_idx!r} into jobscript {js_j_idx}: "
+                    f"res_equal={res_equal!r}; dep_compat={dep_compat!r}."
+                )
 
     # remove is_merged jobscripts:
     return {k: v for k, v in jobscripts.items() if id(v) not in merged}
