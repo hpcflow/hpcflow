@@ -3463,7 +3463,7 @@ class Workflow(AppAware):
                     else:
                         self._app.logger.info(
                             "`skip_downstream_on_failure` is False, run was "
-                            "succcess, or skip reason was LOOP_TERMINATION."
+                            "success, or skip reason was LOOP_TERMINATION."
                         )
 
                     run_ids.append(run.id_)
