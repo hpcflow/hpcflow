@@ -161,7 +161,7 @@ class PersistentStoreFeatures:
     create: bool = False
     #: Whether the workflow can be modified.
     edit: bool = False
-    #: Whetherthe store supports workflows running multiple independent jobscripts
+    #: Whether the store supports workflows running multiple independent jobscripts
     #: simultaneously.
     jobscript_parallelism: bool = False
     #: Whether the store supports workflows running multiple EARs simultaneously.
