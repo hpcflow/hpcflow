@@ -898,7 +898,7 @@ class ZarrPersistentStore(
 
         Notes
         -----
-        This mutates `sub_js`, by setting `depdendencies` jobscript-block keys to `None`.
+        This mutates `sub_js`, by setting `dependencies` jobscript-block keys to `None`.
         """
 
         # TODO: avoid this horrible mess of casts
