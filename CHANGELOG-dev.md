@@ -1,4 +1,40 @@
 
+<a name="v0.1.1a0"></a>
+## [v0.1.1a0](https://github.com/hpcflow/hpcflow/compare/v0.1.0...v0.1.1a0) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* typo
+* typo
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.1.0"></a>
+## [v0.1.0](https://github.com/hpcflow/hpcflow/compare/v0.2.0a317...v0.1.0) - 2026.05.04
+
+### Other changes
+
+* add workflow to main to enable running
+
+### ✨ Features
+
+* test-pre-python workflow to allow dispatch from dev branch
+
+### 🐛 Bug Fixes
+
+* another typo
+* another typo
+* misspelt word
+* missing space
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a317"></a>
 ## [v0.2.0a317](https://github.com/hpcflow/hpcflow/compare/v0.2.0a316...v0.2.0a317) - 2026.05.04
 
