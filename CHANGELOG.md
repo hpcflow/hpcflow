@@ -1,4 +1,24 @@
 
+<a name="v0.2.0"></a>
+## [v0.2.0](https://github.com/hpcflow/hpcflow/compare/v0.1.0...v0.2.0) - 2026.05.04
+
+### ✨ Features
+
+* fix a typo and try to cleanly release from main
+
+### 🐛 Bug Fixes
+
+* try to fix version problems
+* typo
+* typo
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+
+
 <a name="v0.1.0"></a>
 ## [v0.1.0](https://github.com/hpcflow/hpcflow/compare/v0.0.1...v0.1.0) - 2026.05.04
 
