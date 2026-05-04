@@ -1,4 +1,13 @@
 
+<a name="v0.2.0a316"></a>
+## [v0.2.0a316](https://github.com/hpcflow/hpcflow/compare/v0.2.0a315...v0.2.0a316) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* function `get_run_directories` where element/iter directory depths are > 1
+* correct loop indices in list jobscript methods
+
+
 <a name="v0.2.0a315"></a>
 ## [v0.2.0a315](https://github.com/hpcflow/hpcflow/compare/v0.2.0a314...v0.2.0a315) - 2026.04.27
 
