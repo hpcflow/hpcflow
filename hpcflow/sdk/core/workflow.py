@@ -4871,12 +4871,12 @@ class Workflow(AppAware):
         def _get_depth_dirs(
             item_idx: int,
             max_per_dir: int,
-            max_depth: int,
+            max_depth: int | np.unsignedinteger,
             depth_idx_cache: dict[tuple[int, int], NDArray],
             prefix: str,
         ) -> list[str]:
             dirs = []
-            max_avail_items = max_per_dir**max_depth
+            max_avail_items = max_per_dir ** int(max_depth)
             for depth_i in range(1, max_depth):
                 tot_items_per_level = int(max_avail_items / max_per_dir**depth_i)
                 key = (max_avail_items, tot_items_per_level)
