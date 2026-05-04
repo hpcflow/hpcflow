@@ -1,4 +1,24 @@
 
+<a name="v0.2.0a319"></a>
+## [v0.2.0a319](https://github.com/hpcflow/hpcflow/compare/v0.2.0a318...v0.2.0a319) - 2026.05.04
+
+### ✨ Features
+
+* fix a typo and try to cleanly release from main
+
+
+<a name="v0.2.0a318"></a>
+## [v0.2.0a318](https://github.com/hpcflow/hpcflow/compare/v0.1.1a0...v0.2.0a318) - 2026.05.04
+
+### 🐛 Bug Fixes
+
+* try to fix version problems
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.1.1a0"></a>
 ## [v0.1.1a0](https://github.com/hpcflow/hpcflow/compare/v0.1.0...v0.1.1a0) - 2026.05.04
 
