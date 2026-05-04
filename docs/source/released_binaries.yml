@@ -1,6 +1,6 @@
-hpcflow-v0.1.0-win.exe: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-win.exe
-hpcflow-v0.1.0-macOS: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-macOS
-hpcflow-v0.1.0-linux: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-linux
-hpcflow-v0.1.0-win-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-win-dir.zip
-hpcflow-v0.1.0-macOS-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-macOS-dir.zip
-hpcflow-v0.1.0-linux-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.1.0/hpcflow-v0.1.0-linux-dir.zip
+hpcflow-v0.2.0a319-win.exe: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-win.exe
+hpcflow-v0.2.0a319-macOS: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-macOS
+hpcflow-v0.2.0a319-linux: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-linux
+hpcflow-v0.2.0a319-win-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-win-dir.zip
+hpcflow-v0.2.0a319-macOS-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-macOS-dir.zip
+hpcflow-v0.2.0a319-linux-dir.zip: https://github.com/hpcflow/hpcflow/releases/download/v0.2.0a319/hpcflow-v0.2.0a319-linux-dir.zip

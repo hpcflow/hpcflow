@@ -241,7 +241,7 @@ class PendingChanges(
         return decorator
 
     def get_pending_resource_map_groups(self) -> dict[tuple[str, ...], list[str]]:
-        """Retrive resource map groups, where values are filtered to include only those
+        """Retrieve resource map groups, where values are filtered to include only those
         commit methods that must be invoked, due to pending data associated with those
         methods.
 
@@ -429,7 +429,7 @@ class PendingChanges(
             add_elem_iter_EAR_IDs_cur = copy.deepcopy(self.add_elem_iter_EAR_IDs)
             self._clear_add_elem_iter_EAR_IDs()  # reset to empty nested defaultdict
             for iter_id, all_run_IDs in add_elem_iter_EAR_IDs_cur.items():
-                # only re-assign iter_IDs that have not been comitted above:
+                # only re-assign iter_IDs that have not been committed above:
                 if iter_id not in iter_ids:
                     for act_idx, run_IDs in all_run_IDs.items():
                         self.add_elem_iter_EAR_IDs[iter_id][act_idx].extend(run_IDs)
