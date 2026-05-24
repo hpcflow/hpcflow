@@ -4,12 +4,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.enums import InputSourceType
 from hpcflow.sdk.core.errors import (
     InapplicableInputSourceElementIters,
     MissingInputs,
     NoCoincidentInputSources,
     UnavailableInputSource,
 )
+from hpcflow.sdk.core.parameters import NullDefault
 from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     P1_sub_parameter_cls as P1_sub,
@@ -207,20 +209,11 @@ def param_p3() -> Parameter:
     return hf.Parameter("p3")
 
 
-@pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
-def test_specified_sourceable_elements_subset(
-    param_p1: Parameter,
-    param_p2: Parameter,
-    param_p3: Parameter,
-    tmp_path: Path,
-):
-    input_p1 = hf.SchemaInput(param_p1, default_value=1001)
-    input_p2 = hf.SchemaInput(param_p2, default_value=np.array([2002, 2003]))
-    input_p3 = hf.SchemaInput(param_p3)
-
-    s1 = hf.TaskSchema("ts1", actions=[], inputs=[input_p1], outputs=[input_p3])
-    s2 = hf.TaskSchema("ts2", actions=[], inputs=[input_p2, input_p3])
-
+def test_specified_sourceable_elements_subset(tmp_path: Path):
+    s1, s2 = make_schemas(
+        ({"p1": 1001}, ("p3",), "t1"),
+        ({"p2": np.array([2002, 2003]), "p3": None}, (), "t2"),
+    )
     t1 = hf.Task(
         schema=s1,
         sequences=[
@@ -229,7 +222,7 @@ def test_specified_sourceable_elements_subset(
     )
     t2 = hf.Task(
         schema=s2,
-        inputs=[hf.InputValue(input_p2, 201)],
+        inputs=[hf.InputValue("p2", 201)],
         sourceable_elem_iters=[0],
         nesting_order={"inputs.p3": 1},
     )
@@ -237,26 +230,17 @@ def test_specified_sourceable_elements_subset(
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1, t2])
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
 
-    assert (
-        wk.tasks[1].num_elements == 1
-        and wk.tasks[1].elements[0].input_sources["inputs.p3"] == "element.0.OUTPUT"
+    assert wk.tasks[1].num_elements == 1 and wk.tasks[1].elements[0].input_sources[
+        "inputs.p3"
+    ].element_iters == [0]
+
+
+def test_specified_sourceable_elements_all_available(tmp_path: Path):
+
+    s1, s2 = make_schemas(
+        ({"p1": 1001}, ("p3",), "t1"),
+        ({"p2": np.array([2002, 2003]), "p3": None}, (), "t2"),
     )
-
-
-@pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
-def test_specified_sourceable_elements_all_available(
-    param_p1: Parameter,
-    param_p2: Parameter,
-    param_p3: Parameter,
-    tmp_path: Path,
-):
-    input_p1 = hf.SchemaInput(param_p1, default_value=1001)
-    input_p2 = hf.SchemaInput(param_p2, default_value=np.array([2002, 2003]))
-    input_p3 = hf.SchemaInput(param_p3)
-
-    s1 = hf.TaskSchema("ts1", actions=[], inputs=[input_p1], outputs=[input_p3])
-    s2 = hf.TaskSchema("ts2", actions=[], inputs=[input_p2, input_p3])
-
     t1 = hf.Task(
         schema=s1,
         sequences=[
@@ -265,7 +249,7 @@ def test_specified_sourceable_elements_all_available(
     )
     t2 = hf.Task(
         schema=s2,
-        inputs=[hf.InputValue(input_p2, 201)],
+        inputs=[hf.InputValue("p2", 201)],
         sourceable_elem_iters=[0, 1],
         nesting_order={"inputs.p3": 1},
     )
@@ -273,31 +257,20 @@ def test_specified_sourceable_elements_all_available(
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1, t2])
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
 
-    assert (
-        wk.tasks[1].num_elements == 2
-        and wk.tasks[1].elements[0].input_sources["inputs.p3"] == "element.0.OUTPUT"
-        and wk.tasks[1].elements[1].input_sources["inputs.p3"] == "element.1.OUTPUT"
+    assert wk.tasks[1].num_elements == 2 and wk.tasks[1].elements[0].input_sources[
+        "inputs.p3"
+    ].element_iters == [0, 1]
+
+
+def test_no_sourceable_elements_so_raise_missing(tmp_path: Path):
+    s1, s2 = make_schemas(
+        ({"p1": 1001}, ("p3",), "t1"),
+        ({"p2": np.array([2002, 2003]), "p3": NullDefault.NULL}, (), "t2"),
     )
-
-
-@pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
-def test_no_sourceable_elements_so_raise_missing(
-    param_p1: Parameter,
-    param_p2: Parameter,
-    param_p3: Parameter,
-    tmp_path: Path,
-):
-    input_p1 = hf.SchemaInput(param_p1, default_value=1001)
-    input_p2 = hf.SchemaInput(param_p2, default_value=np.array([2002, 2003]))
-    input_p3 = hf.SchemaInput(param_p3)
-
-    s1 = hf.TaskSchema("ts1", actions=[], inputs=[input_p1], outputs=[input_p3])
-    s2 = hf.TaskSchema("ts2", actions=[], inputs=[input_p2, input_p3])
-
-    t1 = hf.Task(schema=s1, inputs=[hf.InputValue(input_p1, 101)])
+    t1 = hf.Task(schema=s1, inputs=[hf.InputValue("p1", 101)])
     t2 = hf.Task(
         schema=s2,
-        inputs=[hf.InputValue(input_p2, 201)],
+        inputs=[hf.InputValue("p2", 201)],
         sourceable_elem_iters=[],
     )
 
@@ -307,31 +280,25 @@ def test_no_sourceable_elements_so_raise_missing(
         _ = hf.Workflow.from_template(wkt, path=tmp_path)
 
 
-@pytest.mark.skip(reason="Need to add e.g. parameters of the workflow to the app data.")
-def test_no_sourceable_elements_so_default_used(
-    param_p1: Parameter,
-    param_p2: Parameter,
-    param_p3: Parameter,
-    tmp_path: Path,
-):
-    input_p1 = hf.SchemaInput(param_p1, default_value=1001)
-    input_p2 = hf.SchemaInput(param_p2, default_value=np.array([2002, 2003]))
-    input_p3 = hf.SchemaInput(param_p3, default_value=3001)
-
-    s1 = hf.TaskSchema("ts1", actions=[], inputs=[input_p1], outputs=[input_p3])
-    s2 = hf.TaskSchema("ts2", actions=[], inputs=[input_p2, input_p3])
-
-    t1 = hf.Task(schema=s1, inputs=[hf.InputValue(input_p1, 101)])
+def test_no_sourceable_elements_so_default_used(tmp_path: Path):
+    s1, s2 = make_schemas(
+        ({"p1": 1001}, ("p3",), "t1"),
+        ({"p2": np.array([2002, 2003]), "p3": 3001}, (), "t2"),
+    )
+    t1 = hf.Task(schema=s1, inputs=[hf.InputValue("p1", 101)])
     t2 = hf.Task(
         schema=s2,
-        inputs=[hf.InputValue(input_p2, 201)],
+        inputs=[hf.InputValue("p2", 201)],
         sourceable_elem_iters=[],
     )
 
     wkt = hf.WorkflowTemplate(name="w1", tasks=[t1, t2])
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
 
-    assert wk.tasks[1].elements[0].input_sources["inputs.p3"] == "default"
+    assert (
+        wk.tasks[1].elements[0].input_sources["inputs.p3"].source_type
+        is InputSourceType.DEFAULT
+    )
 
 
 def test_equivalent_where_args() -> None:
