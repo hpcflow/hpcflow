@@ -130,6 +130,7 @@ def get_task_source_element_iters(
     src_task: Task,
     labelled_path: str,
     sourceable_elem_iters: list[int] | None,
+    sourceable_elements: list[int] | None,
 ) -> list[int]:
     """Get a sorted list of element iteration IDs that provide either inputs or
     outputs from the provided source task."""
@@ -161,9 +162,11 @@ def get_task_source_element_iters(
         raise NoAvailableElementSetsError()
 
     src_elem_iters: list[int] = []
+    src_elements: list[int] = []
     for es_i_idx in es_idx:
         es_i = src_task.element_sets[es_i_idx]
         src_elem_iters.extend(es_i.elem_iter_IDs)  # should be sorted already
+        src_elements.extend(es_i.element_IDs)
 
     if sourceable_elem_iters is not None:
         # can only use a subset of element iterations (this is the
@@ -173,7 +176,10 @@ def get_task_source_element_iters(
         # element set):
         src_elem_iters = sorted(set(sourceable_elem_iters).intersection(src_elem_iters))
 
-    return src_elem_iters
+    if sourceable_elements is not None:
+        src_elements = sorted(set(sourceable_elements).intersection(src_elements))
+
+    return src_elem_iters, src_elements
 
 
 def get_available_task_sources(
@@ -182,6 +188,7 @@ def get_available_task_sources(
     source_tasks: list[WorkflowTask],
     available: dict[str, list[InputSource]],
     sourceable_elem_iters: list[int] | None = None,
+    sourceable_elements: list[int] | None = None,
 ):
     """Locate possible task-type sources for the specified input parameter."""
     for src_wk_task_i in source_tasks:
@@ -229,11 +236,12 @@ def get_available_task_sources(
 
             if not src_elem_iters:
                 try:
-                    src_elem_iters = get_task_source_element_iters(
+                    src_elem_iters, src_elements = get_task_source_element_iters(
                         in_or_out=in_or_out,
                         src_task=src_task_i,
                         labelled_path=labelled_path,
                         sourceable_elem_iters=sourceable_elem_iters,
+                        sourceable_elements=sourceable_elements,
                     )
                 except NoAvailableElementSetsError:
                     continue
@@ -250,12 +258,15 @@ def get_available_task_sources(
             else:
                 insert_idx = len(available.get(avail_src_path, []))
 
+            # key in InputSource.task elements arg is run index, always zero on
+            # generation of the InputSource:
             available.setdefault(avail_src_path, []).insert(
                 insert_idx,
                 app.InputSource.task(
                     task_ref=src_task_i.insert_ID,
                     task_source_type=in_or_out,
                     element_iters=src_elem_iters,
+                    elements={0: src_elements},
                 ),
             )
 

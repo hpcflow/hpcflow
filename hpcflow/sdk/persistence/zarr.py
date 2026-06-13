@@ -709,6 +709,7 @@ class ZarrPersistentStore(
     _task_v2_arr_name: ClassVar[str] = "v2_tasks"
     _elem_set_metadata_arr_name: ClassVar[str] = "elem_set_meta"
     _elem_set_inp_src_iter_IDs_arr_name: ClassVar[str] = "elem_set_inp_src_iter_IDs"
+    _elem_set_inp_src_elem_IDs_arr_name: ClassVar[str] = "elem_set_inp_src_elem_IDs"
     _elem_arr_name: ClassVar[str] = "elements"
     _elem_v2_arr_name: ClassVar[str] = "elem_meta"
     _elem_seq_idx_arr_name: ClassVar[str] = "elem_seq_idx"
@@ -759,6 +760,7 @@ class ZarrPersistentStore(
     ]
     run_data_idx_lookup_dtype = np.uint32
     elem_set_inp_src_iter_IDs_dtype = np.uint32
+    elem_set_inp_src_elem_IDs_dtype = np.uint32
 
     def __init__(self, app, workflow, path: str | Path, fs: AbstractFileSystem) -> None:
         self._zarr_store = None  # assigned on first access to `zarr_store`
@@ -936,6 +938,14 @@ class ZarrPersistentStore(
             compressor=cmp,
         )
 
+        elem_set_inp_src_elem_IDs_arr = md.create_dataset(
+            name=cls._elem_set_inp_src_elem_IDs_arr_name,
+            shape=0,
+            dtype=cls.elem_set_inp_src_elem_IDs_dtype,
+            chunks=1_000_000,
+            compressor=cmp,
+        )
+
         elems_v2_arr = md.create_dataset(
             name=cls._elem_v2_arr_name,
             shape=0,
@@ -1096,6 +1106,15 @@ class ZarrPersistentStore(
             }
             for es_ID, inp_src_iters in adjacency_list_to_nested_graph(
                 self._get_v2_element_set_input_source_iter_IDs_array()[:], depth=3
+            ).items()
+        }
+        self.element_set_input_source_element_IDs = {
+            es_ID: {
+                self.es_inp_src_paths[psrc]: elem_IDs
+                for psrc, elem_IDs in inp_src_iters.items()
+            }
+            for es_ID, inp_src_iters in adjacency_list_to_nested_graph(
+                self._get_v2_element_set_input_source_element_IDs_array()[:], depth=4
             ).items()
         }
 
@@ -1265,6 +1284,25 @@ class ZarrPersistentStore(
         es_iter_IDs_adj_lst = nested_graph_to_adjacency_list(es_inp_src_iter_IDs, depth=3)
         es_iter_IDs_arr.resize(len(es_iter_IDs_adj_lst))
         es_iter_IDs_arr[:] = es_iter_IDs_adj_lst
+
+    def update_element_set_input_source_element_IDs(self, elem_set_inp_src_elem_IDs, ctx):
+        es_elem_IDs_arr = self._get_v2_element_set_input_source_element_IDs_array(
+            mode="r+"
+        )
+        es_inp_src_paths = []
+        es_inp_src_elem_IDs = {
+            es_ID: {
+                ensure_in(inp_src_path, es_inp_src_paths): inp_src_elem_IDs_j
+                for inp_src_path, inp_src_elem_IDs_j in path_elem_IDs.items()
+            }
+            for es_ID, path_elem_IDs in elem_set_inp_src_elem_IDs.items()
+        }
+        self.es_inp_src_paths[:] = es_inp_src_paths
+        es_elem_IDs_adj_lst = nested_graph_to_adjacency_list(
+            es_inp_src_elem_IDs, depth=4
+        )  # TODO: FAILS
+        es_elem_IDs_arr.resize(len(es_elem_IDs_adj_lst))
+        es_elem_IDs_arr[:] = es_elem_IDs_adj_lst
 
     def update_element_src_idx(self, element_src_idx, ctx):
         md_group = self._get_root_group(mode="r+").get("metadata")
@@ -2361,6 +2399,13 @@ class ZarrPersistentStore(
     def _get_v2_element_set_input_source_iter_IDs_array(self, mode: str = "r") -> Array:
         return self._get_root_group(mode=mode).get(
             f"metadata/{self._elem_set_inp_src_iter_IDs_arr_name}"
+        )
+
+    def _get_v2_element_set_input_source_element_IDs_array(
+        self, mode: str = "r"
+    ) -> Array:
+        return self._get_root_group(mode=mode).get(
+            f"metadata/{self._elem_set_inp_src_elem_IDs_arr_name}"
         )
 
     def _get_v2_element_metadata_array(self, mode: str = "r") -> Array:

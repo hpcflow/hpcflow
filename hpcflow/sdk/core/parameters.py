@@ -39,7 +39,6 @@ from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
 from hpcflow.sdk.utils.arrays import is_primitive_homogeneous
 from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
 
-
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
     from typing import Any, ClassVar, Literal, TypeAlias
@@ -3221,6 +3220,9 @@ class InputSource(JSONLike):
         Type of task source.
     element_iters:
         Which element iterations does this apply to?
+    elements:
+        For task sources only, which upstream element IDs should be used? This is a
+        mapping whose keys are run indices (usually zero).
     path:
         Path to where this input goes.
     where: ~hpcflow.app.Rule | list[~hpcflow.app.Rule] | ~hpcflow.app.ElementFilter
@@ -3251,6 +3253,7 @@ class InputSource(JSONLike):
         task_ref: int | None = None,
         task_source_type: TaskSourceType | str | None = None,
         element_iters: list[int] | None = None,
+        elements: dict[int, list[int]] | None = None,
         path: str | None = None,
         where: Where | None = None,
     ):
@@ -3275,6 +3278,8 @@ class InputSource(JSONLike):
         self.task_source_type = get_enum_by_name_or_val(TaskSourceType, task_source_type)
         #: Which element iterations does this apply to?
         self.element_iters = element_iters
+        #: For task sources only, which upstream element IDs should be used?
+        self.elements = elements
         #: Path to where this input goes.
         self.path = path
 
@@ -3296,6 +3301,7 @@ class InputSource(JSONLike):
             and self.task_ref == other.task_ref
             and self.task_source_type == other.task_source_type
             and self.element_iters == other.element_iters
+            and self.elements == other.elements
             and self.where == other.where
             and self.path == other.path
         )
@@ -3320,6 +3326,9 @@ class InputSource(JSONLike):
         if self.element_iters is not None:
             args_lst.append(f"element_iters={self.element_iters}")
 
+        if self.elements is not None:
+            args_lst.append(f"elements={self.elements}")
+
         if self.where is not None:
             args_lst.append(f"where={self.where!r}")
 
@@ -3339,7 +3348,7 @@ class InputSource(JSONLike):
 
     def is_in(self, other_input_sources: Sequence[InputSource]) -> int | None:
         """Check if this input source is in a list of other input sources, without
-        considering the `element_iters` and `where` attributes."""
+        considering the `element_iters`, `elements`, and `where` attributes."""
 
         for idx, other in enumerate(other_input_sources):
             if (
@@ -3462,6 +3471,7 @@ class InputSource(JSONLike):
         cls,
         import_ref: int,
         element_iters: list[int] | None = None,
+        elements: dict[int, list[int]] | None = None,
         where: Where | None = None,
     ) -> Self:
         """
@@ -3473,6 +3483,8 @@ class InputSource(JSONLike):
             Import reference.
         element_iters:
             Originating element iterations.
+        elements:
+            Originating elements.
         where:
             Filtering rule.
         """
@@ -3480,6 +3492,7 @@ class InputSource(JSONLike):
             source_type=InputSourceType.IMPORT,
             import_ref=import_ref,
             element_iters=element_iters,
+            elements=elements,
             where=where,
         )
 
@@ -3503,6 +3516,7 @@ class InputSource(JSONLike):
         task_ref: int,
         task_source_type: TaskSourceType | str | None = None,
         element_iters: list[int] | None = None,
+        elements: dict[int, list[int]] | None = None,
         where: Where | None = None,
     ) -> Self:
         """
@@ -3516,6 +3530,8 @@ class InputSource(JSONLike):
             Type of task source.
         element_iters:
             Originating element iterations.
+        elements:
+            Originating elements.
         where:
             Filtering rule.
         """
@@ -3527,4 +3543,5 @@ class InputSource(JSONLike):
             ),
             where=where,
             element_iters=element_iters,
+            elements=elements,
         )

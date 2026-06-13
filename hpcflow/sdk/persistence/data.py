@@ -935,13 +935,25 @@ class WorkflowData(AppAware):
             list, _cb_dict("iter_run_IDs"), self.store.iter_run_IDs
         )
 
-        _cb_es_is = _cb_dict("element_set_input_source_iter_IDs")
+        _cb_es_is_iters = _cb_dict("element_set_input_source_iter_IDs")
         self.element_set_input_source_iter_IDs = TrackedDefaultDict(
             lambda: TrackedDefaultDict(
-                lambda: TrackedDict(callback=_cb_es_is), callback=_cb_es_is
+                lambda: TrackedDict(callback=_cb_es_is_iters), callback=_cb_es_is_iters
+            ),
+            _cb_es_is_iters,
+            self.store.element_set_input_source_iter_IDs,
+        )
+
+        _cb_es_is = _cb_dict("element_set_input_source_element_IDs")
+        self.element_set_input_source_element_IDs = TrackedDefaultDict(
+            lambda: TrackedDefaultDict(
+                lambda: TrackedDefaultDict(
+                    lambda: TrackedDict(callback=_cb_es_is), callback=_cb_es_is
+                ),
+                callback=_cb_es_is,
             ),
             _cb_es_is,
-            self.store.element_set_input_source_iter_IDs,
+            self.store.element_set_input_source_element_IDs,
         )
 
         self.iter_loop_idx = TrackedDefaultDict(
@@ -1118,6 +1130,12 @@ class WorkflowData(AppAware):
             if (key := "element_set_input_source_iter_IDs") in self._modified_dicts:
                 self.store.update_element_set_input_source_iter_IDs(
                     self.element_set_input_source_iter_IDs, ctx
+                )
+                self._modified_dicts.remove(key)
+
+            if (key := "element_set_input_source_element_IDs") in self._modified_dicts:
+                self.store.update_element_set_input_source_element_IDs(
+                    self.element_set_input_source_element_IDs, ctx
                 )
                 self._modified_dicts.remove(key)
 

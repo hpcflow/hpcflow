@@ -320,6 +320,13 @@ class NestingView:
                     )
                     < self._TOL
                 ):
+                    if seq_item.length != group.sequences[0].length:
+                        raise ValueError(
+                            f"Nesting sequences with the same `nesting_order` must have "
+                            f"the same length, but sequences with paths "
+                            f"{group.sequences[0].path!r} and {seq_item.path!r} have "
+                            f"lengths {group.sequences[0].length} and {seq_item.length}."
+                        )
                     groups[group_idx].sequences.append(seq_item)
                     break
             if not is_vals_equal:
@@ -335,16 +342,20 @@ class NestingView:
     def get_indices(
         self,
         element_idx: Sequence[int] | NDArray | None = None,
-    ) -> dict[str, tuple[NDArray, NDArray]]:
+        ret_source_index: bool = True,
+    ) -> dict[str, tuple[NDArray, NDArray] | NDArray]:
         """
         Parameters
         ----------
         element_idx:
             The element index within the task, for which we want input indices for the
             paths of this nesting view.
-        as_list:
-            If True, return a list of tuples. If False, return a Numpy record array whose
-            fields correspond to the nesting sequence paths.
+        ret_source_index:
+            If True (by default), return a dict whose values are two-tuples containing
+            the input source index, and the index within that input source. If False,
+            return a dict whose values are single arrays representing the global indices
+            across all input sources for that nesting sequence (group).
+
         """
 
         if element_idx is not None and (min_idx := min(element_idx)) < self.offset:
@@ -366,10 +377,14 @@ class NestingView:
         # index within the values for that input source:
         dct = {}
         for global_idx, group in zip(out.T, self.groups):
-            inp_src_idx, seq_idx = vectorized_multi_global_to_local(
-                group.padded_lengths, global_idx, outer_dtype="uint8"
-            )
-            for ns_idx, ns_i in enumerate(group.sequences):
-                dct[ns_i.path] = (inp_src_idx[ns_idx], seq_idx[ns_idx])
+            if ret_source_index:
+                inp_src_idx, seq_idx = vectorized_multi_global_to_local(
+                    group.padded_lengths, global_idx, outer_dtype="uint8"
+                )
+                for ns_idx, ns_i in enumerate(group.sequences):
+                    dct[ns_i.path] = (inp_src_idx[ns_idx], seq_idx[ns_idx])
+            else:
+                for ns_idx, ns_i in enumerate(group.sequences):
+                    dct[ns_i.path] = global_idx
 
         return dct

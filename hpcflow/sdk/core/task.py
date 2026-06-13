@@ -90,6 +90,7 @@ if TYPE_CHECKING:
 
 
 INPUT_SOURCE_TYPES = ("local", "default", "task", "import")
+DEFAULT_NESTING_ORDER = -1.0
 
 
 @dataclass
@@ -436,8 +437,8 @@ class ElementSet(JSONLike):
         return [in_.labelled_type for in_ in self.inputs]
 
     @property
-    def element_local_idx_range(self) -> tuple[int, ...]:
-        """Indices of elements belonging to this element set."""
+    def element_local_idx_range(self) -> tuple[int, int]:
+        """Range indices (start and stop) of elements belonging to this element set."""
         return tuple(self._element_local_idx_range or ())
 
     @classmethod
@@ -673,6 +674,16 @@ class ElementSet(JSONLike):
         i = self.task_template.index
         assert i is not None
         return w.tasks[i]
+
+    @property
+    def element_IDs(self) -> list[int]:
+        """
+        The IDs of the elements in this element set.
+        """
+        task_elem_IDs = np.asarray(
+            self.task.workflow._data.task_element_IDs[self.task.insert_ID]
+        )
+        return task_elem_IDs[range(*self.element_local_idx_range)].tolist()
 
     @property
     def elements(self) -> list[Element]:
@@ -1149,7 +1160,9 @@ class Task(JSONLike):
         multiplicities: list[MultiplicityDescriptor] = [
             {
                 "multiplicity": len(inp_idx_i),
-                "nesting_order": element_set.nesting_order.get(path_i, -1.0),
+                "nesting_order": element_set.nesting_order.get(
+                    path_i, DEFAULT_NESTING_ORDER
+                ),
                 "path": path_i,
             }
             for path_i, inp_idx_i in input_data_indices.items()
@@ -2343,7 +2356,6 @@ class WorkflowTask(AppAware):
         return element_dat_idx
 
     @TimeIt.decorator
-    @TimeIt.decorator
     def initialise_EARs(self, iter_IDs: list[int] | None = None) -> Sequence[int]:
         """Try to initialise any uninitialised EARs of this task."""
         if iter_IDs:
@@ -2466,7 +2478,7 @@ class WorkflowTask(AppAware):
         padded_elem_iters = self.ensure_input_sources(element_set)
         es_ID = len(self.workflow._data.element_set_metadata)
 
-        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
+        input_data_idx, seq_idx, src_idx = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
             element_set_ID=es_ID,
@@ -2495,7 +2507,7 @@ class WorkflowTask(AppAware):
             local_element_idx_range=local_element_idx_range,
         )
 
-        (element_data_idx, element_seq_idx, element_src_idx) = self.generate_new_elements(
+        element_data_idx, element_seq_idx, element_src_idx = self.generate_new_elements(
             input_data_idx,
             output_data_idx,
             element_inp_data_idx,
@@ -2513,6 +2525,10 @@ class WorkflowTask(AppAware):
                     self.workflow._data.element_set_input_source_iter_IDs[es_ID][
                         inp_src_path
                     ][inp_src_idx] = np.asarray(src_iter_IDs)
+                if src_elem_IDs := inp_src_i.elements:
+                    self.workflow._data.element_set_input_source_element_IDs[es_ID][
+                        inp_src_path
+                    ][inp_src_idx][0] = np.asarray(src_elem_IDs[0])
 
         new_elem_md = []
         new_iter_md = []

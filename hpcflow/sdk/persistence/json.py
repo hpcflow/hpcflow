@@ -511,20 +511,34 @@ class JSONPersistentStore(
         self.iter_run_IDs = _iter_run_IDs
         self.iter_loop_idx = _iter_loop_idx
 
-        _es_md = []
         _es_inp_src_iter_IDs = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+        for task_idx, task_tmp in enumerate(self.template["tasks"]):
+            task_ID = self.task_ID_list[task_idx]
+            for es_idx, elem_set in enumerate(task_tmp["element_sets"]):
+                for path, sources in elem_set["input_sources"].items():
+                    for src_idx, src in enumerate(sources):
+                        if elem_IDs := src.get("element_iters"):
+                            _es_inp_src_iter_IDs[elem_set["id_"]][path][
+                                src_idx
+                            ] = elem_IDs
+
+        _es_md = []
+        _es_inp_src_elem_IDs = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+        )
         for task_idx, task_tmp in enumerate(self.template["tasks"]):
             task_ID = self.task_ID_list[task_idx]
             for es_idx, elem_set in enumerate(task_tmp["element_sets"]):
                 _es_md.append((es_idx, task_ID))
                 for path, sources in elem_set["input_sources"].items():
                     for src_idx, src in enumerate(sources):
-                        if iter_IDs := src.get("element_iters"):
-                            _es_inp_src_iter_IDs[elem_set["id_"]][path][
+                        if elem_IDs := src.get("elements"):
+                            _es_inp_src_elem_IDs[elem_set["id_"]][path][
                                 src_idx
-                            ] = iter_IDs
+                            ] = elem_IDs
 
         self.element_set_input_source_iter_IDs = _es_inp_src_iter_IDs
+        self.element_set_input_source_element_IDs = _es_inp_src_elem_IDs
         self.element_set_metadata = np.array(_es_md, dtype=self.elem_set_metadata_dtype)
 
         _run_md = []
@@ -710,6 +724,11 @@ class JSONPersistentStore(
             self.metadata_file_dat["iterations"][iter_ID]["run_IDs"] = run_IDs
 
     def update_element_set_input_source_iter_IDs(self, elem_set_inp_src_iter_IDs, ctx):
+        ctx["files_to_update"].add("metadata_v2")
+
+    def update_element_set_input_source_element_IDs(
+        self, elem_set_inp_src_element_IDs, ctx
+    ):
         ctx["files_to_update"].add("metadata_v2")
 
     def update_element_src_idx(self, element_src_idx, ctx):
