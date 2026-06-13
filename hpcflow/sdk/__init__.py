@@ -92,6 +92,7 @@ sdk_classes: Final[Mapping[str, str]] = {
     "RepeatsDescriptor": "hpcflow.sdk.core.task",
     "WorkflowTemplate": "hpcflow.sdk.core.workflow",
     "Workflow": "hpcflow.sdk.core.workflow",
+    "WorkflowData": "hpcflow.sdk.persistence.data",
     "WorkflowBlueprint": "hpcflow.sdk.core.workflow",
     "Jobscript": "hpcflow.sdk.submission.jobscript",
     "JobscriptBlock": "hpcflow.sdk.submission.jobscript",

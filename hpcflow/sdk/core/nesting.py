@@ -108,6 +108,10 @@ class ZippedNestingSequences:
             out[seq_idx, : len(lens_i)] = lens_i
         return out
 
+    @property
+    def path_lengths(self) -> dict[str, list[int]]:
+        return dict(zip(self.paths, self.all_lengths))
+
 
 class NestingView:
     """A class to transform flat indices into the set of indices that index the
@@ -278,6 +282,13 @@ class NestingView:
     @property
     def indices_dtype(self):
         return np.dtype([(path_i, np.int32) for path_i in self.paths])
+
+    @property
+    def path_lengths(self) -> dict[str, list[int]]:
+        out = {}
+        for group in self.groups:
+            out.update(group.path_lengths)
+        return out
 
     def _get_decimal_indices(self) -> tuple[int, ...]:
         """Get the group indices that have non-integer nesting orders, signifying that

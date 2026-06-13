@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict, namedtuple
 from collections.abc import Mapping, Sequence
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 import copy
+import enum
+from dataclasses import dataclass
 
 import numpy as np
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
@@ -12,6 +15,9 @@ from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from fsspec.core import url_to_fs  # type: ignore
 
 from hpcflow.sdk.core.app_aware import AppAware
+from hpcflow.sdk.core.nesting import NestingSequence, NestingView
+from hpcflow.sdk.core.enums import TaskSourceType
+from hpcflow.sdk.core.task import DEFAULT_NESTING_ORDER
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.log import TimeIt
@@ -70,6 +76,45 @@ def _process_run_IDs(run_IDs):
         if len(set(lst)) < len(lst):
             raise ValueError("Specify unique run IDs.")
         return lst, False
+
+
+class RunInputSourceType(enum.Enum):
+    """The source type of a run input."""
+
+    LOCAL_INPUT = 0
+    LOCAL_SEQUENCE = 1
+    DEFAULT = 2
+    RUN_OUTPUT = 3
+    RUN_OUTPUT_GROUP = 4
+
+
+@dataclass(frozen=True)
+class RunInputSourceInfo:
+    """Information about a run input."""
+
+    type: RunInputSourceType
+
+
+@dataclass(frozen=True)
+class DefaultSourceInfo(RunInputSourceInfo):
+    task_insert_ID: int
+
+
+@dataclass(frozen=True)
+class TaskOutputRunInputSourceInfo(RunInputSourceInfo):
+    """Information about a run input that is sourced from an output of a preceding
+    task."""
+
+    task_source_type: TaskSourceType
+    source_action_idx: int
+
+
+@dataclass(frozen=True)
+class RunOutputRunInputSourceInfo(RunInputSourceInfo):
+    """Information about a run input that is sourced from an output of a preceding
+    action within the same task."""
+
+    source_action_idx: int
 
 
 class TrackedDict(dict):
@@ -416,7 +461,7 @@ class WorkflowData(AppAware):
     # we only need to know (for now) that the "top-level" has been modified, when a nested
     # level is modified.
 
-    def __init__(self, workflow_path, workflow, store_fmt, fs_kwargs, app):
+    def __init__(self, workflow_path, workflow, store_fmt, fs_kwargs):
 
         #: Tracking of modified data:
         self._appended_arrays = defaultdict(list)
@@ -425,7 +470,15 @@ class WorkflowData(AppAware):
         self._modified_dicts = set()
         self._modified_lists = set()
 
-        self.load_store(workflow_path, workflow, store_fmt, fs_kwargs, app)
+        self.load_store(workflow_path, workflow, store_fmt, fs_kwargs)
+        self._update_input_source_types(workflow)
+
+    def _update_input_source_types(self, workflow):
+        """To be run on loading of a workflow and on addition of a new task."""
+        source_types, intra_types, nv = self.generate_input_data_source_types(workflow)
+        self.input_data_source_types = source_types
+        self.intra_task_source_types = intra_types
+        self.nesting_views = nv
 
     def register_submission(self):
         """Tell the store that a submission has occurred, meaning we might need to reload
@@ -433,9 +486,197 @@ class WorkflowData(AppAware):
 
         self.store.has_just_submitted = True
 
+    def _add_sources_from_element_set_input_sources(
+        self,
+        workflow,
+        p_type: str,
+        group_name: str | None,
+        act_idx: int,
+        element_sets,
+        input_data_source_types,
+        nesting_seqs,
+        task_insert_ID: int,
+    ):
+        """Add input source types to the input_data_source_types dictionary for the specified
+        parameter and action index that are sourced via the defined element set input
+        sources.
+
+        """
+        for es in element_sets:
+            # TODO: in NEW attrs, don't store inp src elem iters; and load the NEW to use here
+            # TODO: store a 2D array for inp src elem iters for group input
+            inp_sources = es.input_sources.get(p_type)
+            print(f"{inp_sources=!r}")
+
+            inp_src_lengths = []
+            for inp_src_idx, inp_src_i in enumerate(inp_sources):
+
+                if inp_src_i == self._app.InputSource.local():
+                    seqs = [
+                        seq_i for seq_i in es.sequences if seq_i.parameter.typ == p_type
+                    ]
+                    if seqs:
+                        src_type = RunInputSourceType.LOCAL_SEQUENCE
+                        inp_src_lengths.append(len(seqs[0]))
+                    else:
+                        src_type = RunInputSourceType.LOCAL_INPUT
+                        inp_src_lengths.append(1)
+
+                    input_data_source_types[es.id_][act_idx][p_type][inp_src_idx] = (
+                        RunInputSourceInfo(src_type)
+                    )
+
+                elif inp_src_i == self._app.InputSource.default():
+                    input_data_source_types[es.id_][act_idx][p_type][inp_src_idx] = (
+                        DefaultSourceInfo(
+                            RunInputSourceType.DEFAULT, task_insert_ID=task_insert_ID
+                        )
+                    )
+                    inp_src_lengths.append(1)
+
+                elif inp_src_i.source_type == self._app.InputSourceType.TASK:
+                    src_task = inp_src_i.get_task(workflow)
+                    # print(f"{src_task=!r}")
+
+                    src_schema = src_task.template.schema
+                    if (
+                        task_src_type := inp_src_i.task_source_type
+                    ) == TaskSourceType.OUTPUT:
+                        src_act_idx = src_schema.get_output_type_action_idx(p_type)
+                    elif inp_src_i.task_source_type == TaskSourceType.INPUT:
+                        src_act_idx = src_schema.get_input_type_action_idx(p_type)
+                    else:
+                        raise RuntimeError("Task source type should be input or output.")
+
+                    # print(f"{src_act_idx=!r}")
+                    if group_name:
+                        src_type = RunInputSourceType.RUN_OUTPUT_GROUP
+                        # TODO: this assumes the group contains all elements:
+                        # in future, we might have a group definition that results in multiple
+                        # groups; and then that number of groups would be then inp src length
+                        inp_src_lengths.append(1)
+                        # TODO: this should still be `len(inp_src_i.element_iters)`, but we
+                        # would expect this to be a 2D array for groups! (for now with 1 row)
+                    else:
+                        src_type = RunInputSourceType.RUN_OUTPUT
+                        inp_src_lengths.append(len(inp_src_i.element_iters))
+
+                    input_data_source_types[es.id_][act_idx][p_type][inp_src_idx] = (
+                        TaskOutputRunInputSourceInfo(
+                            src_type, task_src_type, src_act_idx
+                        )  # TODO: base output or array output? output or input?
+                    )
+
+            nesting_seqs[es.id_].append(
+                NestingSequence(
+                    path=p_type,
+                    lengths=inp_src_lengths,
+                    nesting_order=es.nesting_order.get(
+                        f"inputs.{p_type}", DEFAULT_NESTING_ORDER
+                    ),
+                )
+            )
+
+    def generate_input_data_source_types(self, workflow):
+        """Get a nested map that whose keys are element set ID, action index, parameter type,
+        and input source index, and whose values are InputSourceType objects.
+
+        This function can be called on workflow load, and whenever persistent changes are
+        made. The result is a lookup map that can be used to quickly locate input parameter
+        data, since the location of input data depends on the type of its source/origin; e.g.
+        local inputs defined in the workflow template are stored separately from inputs
+        sourced from preceding tasks.
+
+        """
+
+        # element-set ID -> action index -> param type -> inp_src idx -> InputSourceType
+        input_data_source_types = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(dict))
+        )
+
+        # task ID -> action index -> param type -> InputSourceType
+        intra_task_source_type = defaultdict(lambda: defaultdict(dict))
+
+        nesting_views = {}  # keys are element set ID
+        nesting_seqs = defaultdict(list)  # keys are element set ID
+        for task in workflow.tasks:
+
+            task_tmp = task.template
+
+            groups_by_labelled_schema = {
+                lab_info["labelled_type"]: lab_info["group"]
+                for inp in task_tmp.schema.inputs
+                for lab_info in inp.labelled_info()
+            }
+
+            print(f"{groups_by_labelled_schema=!r}")
+
+            for p_type, src_sink in task_tmp.schema.get_action_parameter_flow().items():
+                print(f"{p_type=!r}")
+                print(f"{src_sink=!r}")
+
+                sources = src_sink["sources"]
+                sinks = src_sink["sinks"]
+
+                group_name = groups_by_labelled_schema.get(p_type)
+
+                for act_idx in sinks:
+                    # this parameter `p_type` is used by this action index, so needs to be
+                    # sourced; source from the element inputs, or the most recent action
+                    # source
+                    source_act_idx = max(
+                        (
+                            src_idx_i
+                            for src_idx_i in sources
+                            if (src_idx_i < act_idx if act_idx > -1 else True)
+                        )
+                    )
+
+                    # TODO: if act_idx (from sinks) is -1; then this parameter is an output of
+                    # the action.
+
+                    print(f"{act_idx=!r}; {source_act_idx=!r}")
+                    if source_act_idx == -1:
+                        # source from element set input sources:
+                        self._add_sources_from_element_set_input_sources(
+                            workflow=workflow,
+                            p_type=p_type,
+                            group_name=group_name,
+                            act_idx=act_idx,
+                            element_sets=task_tmp.element_sets,
+                            input_data_source_types=input_data_source_types,
+                            nesting_seqs=nesting_seqs,
+                            task_insert_ID=task.insert_ID,
+                        )
+
+                    elif act_idx > -1:  # excluding task outputs
+                        # source from a preceding action of the same task
+                        intra_task_source_type[task.insert_ID][act_idx][p_type] = (
+                            RunOutputRunInputSourceInfo(
+                                RunInputSourceType.RUN_OUTPUT,
+                                source_action_idx=source_act_idx,
+                            )
+                        )
+
+            # instantiate nesting views:
+            _task_nesting_views = []
+            for elem_set in task_tmp.element_sets:
+                # offset is the cumulative length of nesting views for any preceding element
+                # sets of the same task:
+                offset = sum(len(prev_nv) for prev_nv in _task_nesting_views)
+                nv = NestingView(*nesting_seqs[elem_set.id_], offset=offset)
+                _task_nesting_views.append(nv)
+                nesting_views[elem_set.id_] = nv
+
+        return input_data_source_types, intra_task_source_type, nesting_views
+
     @property
     def task_ID_to_index(self) -> dict[int, int]:
         return {id_: idx for idx, id_ in enumerate(self.task_ID_list)}
+
+    @property
+    def element_set_task_IDs(self) -> list[int]:
+        return [es_md["task_ID"].item() for es_md in self.element_set_metadata]
 
     _RunParents = namedtuple(
         "run_parents",
@@ -584,7 +825,6 @@ class WorkflowData(AppAware):
         workflow,  # TODO: need to pass to persistent store for now?
         store_fmt: str | None = None,
         fs_kwargs: dict[str, Any] | None = None,
-        app=None,
     ):
         """Load data from the persistent store."""
 
@@ -630,7 +870,7 @@ class WorkflowData(AppAware):
         store_cls = store_cls_from_str(store_fmt)
 
         self.workflow_path = path_s
-        self.store = store_cls(app, workflow, self.workflow_path, fs)
+        self.store = store_cls(self._app, workflow, self.workflow_path, fs)
         self.store.load_data()
 
         # wrap loaded store attributes to provide basic change tracking:

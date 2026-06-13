@@ -180,6 +180,7 @@ if TYPE_CHECKING:
     from .submission.shells.base import VersionInfo
     from .core.json_like import JSONDocument
     from .compact_errors import CompactProblemFormatter
+    from .persistence.data import WorkflowData
 
     # Complex types for SDK functions
     class _MakeWorkflow(Protocol):
@@ -671,6 +672,15 @@ class BaseApp(metaclass=Singleton):
         # config is loaded):
         self._compact_formatter = self.CompactProblemFormatter()
         self._compact_formatter.enable()
+
+    @property
+    def WorkflowData(self) -> type[WorkflowData]:
+        """
+        The :class:`WorkflowData` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("WorkflowData")
 
     @property
     def ElementActionRun(self) -> type[ElementActionRun]:

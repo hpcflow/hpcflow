@@ -1055,7 +1055,7 @@ class Workflow(AppAware):
         self._is_tracking_unset: bool = False
         self._tracked_unset: dict[str, UnsetParamTracker] | None = None
 
-        self._data = WorkflowData(path, self, store_fmt, fs_kwargs, self._app)
+        self._data = self._app.WorkflowData(path, self, store_fmt, fs_kwargs)
 
     def reload(self) -> Self:
         """Reload the workflow from disk."""
@@ -1817,6 +1817,7 @@ class Workflow(AppAware):
     def _add_task(self, task: Task, new_index: int | None = None) -> None:
         new_wk_task = self._add_empty_task(task=task, new_index=new_index)
         new_wk_task._add_elements(element_sets=task.element_sets, propagate_to={})
+        self._data._update_input_source_types(self)
 
     def add_task(self, task: Task, new_index: int | None = None) -> None:
         """
