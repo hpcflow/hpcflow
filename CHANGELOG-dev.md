@@ -1,4 +1,24 @@
 
+<a name="v0.2.1a0"></a>
+## [v0.2.1a0](https://github.com/hpcflow/hpcflow/compare/v0.2.0...v0.2.1a0) - 2026.06.15
+
+### 👷 Build changes
+
+* set PATCH level bumps for other commit types including build
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group across 1 directory with 13 updates
+* **deps:** bump the pip-dependencies group with 10 updates
+* **deps:** bump the github-actions-dependencies group with 4 updates
+
+
+<a name="v0.2.0"></a>
+## [v0.2.0](https://github.com/hpcflow/hpcflow/compare/v0.2.0a319...v0.2.0) - 2026.05.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.0a319"></a>
 ## [v0.2.0a319](https://github.com/hpcflow/hpcflow/compare/v0.2.0a318...v0.2.0a319) - 2026.05.04
 
