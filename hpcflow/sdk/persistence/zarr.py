@@ -1501,7 +1501,7 @@ class ZarrPersistentStore(
                         id_=None,
                         data=enc_i,
                         source=None,
-                        decoders={"array": _decode_numpy_arrays_NEW},
+                        decoders={"arrays": _decode_numpy_arrays_NEW},
                         arr_group=self._get_parameter_NEW_array_group(),
                         dataset_copy=False,
                     )

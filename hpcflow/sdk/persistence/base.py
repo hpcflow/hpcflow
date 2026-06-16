@@ -887,7 +887,7 @@ class StoreParameter:
         return out
 
     @classmethod
-    def get_all_decoders(cls) -> dict[type, Callable]:
+    def get_all_decoders(cls) -> dict[str, Callable]:
         assert (out := cls._all_decoders.get(cls.__name__)) is not None
         return out
 
