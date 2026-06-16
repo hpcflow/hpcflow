@@ -1139,7 +1139,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             are_objs = [isinstance(item, ParameterValue) for item in self._values]
             # TODO: save where?
 
-        workflow._data.local_inputs["sequences"][element_set_ID][self.path] = self._values
+        workflow._data.set_value_sequence(element_set_ID, self.path, self._values)
 
         self._values_group_idx = data_ref
         self._workflow = workflow

@@ -1165,7 +1165,7 @@ class ZarrPersistentStore(
                     id_=None,
                     data=arr[0],
                     source=None,
-                    decoders={"array": _decode_numpy_arrays_NEW},
+                    decoders={"arrays": _decode_numpy_arrays_NEW},
                     arr_group=self._get_parameter_NEW_array_group(),
                     dataset_copy=False,
                 )
@@ -1176,7 +1176,9 @@ class ZarrPersistentStore(
                 "inputs": {},  # keyed by element set ID, then path
                 "resources": {},  # keyed by element set ID, then path
                 "workflow_resources": {},  # keyed by element set ID, then path
-                "sequences": {},  # keyed by element set ID, then path
+                "sequences": {},  # keys are element set ID, then path, values are indices into `sequence_values`
+                "seq_values": [],  # values for each sequence
+                "seq_hashes": {},  # keys are hashes of values, values are indices into `sequence_values`
                 "defaults": {},  # keyed by task insert ID (assuming one schema per task), then path
             }
 

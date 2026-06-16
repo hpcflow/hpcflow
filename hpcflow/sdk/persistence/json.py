@@ -576,7 +576,9 @@ class JSONPersistentStore(
                 "inputs": {},  # keyed by element set ID, then path
                 "resources": {},  # keyed by element set ID, then path
                 "workflow_resources": {},  # keyed by element set ID, then path
-                "sequences": {},  # keyed by element set ID, then path
+                "sequences": {},  # keys are element set ID, then path, values are indices into `sequence_values`
+                "seq_values": [],  # values for each sequence
+                "seq_hashes": {},  # keys are hashes of values, values are indices into `sequence_values`
                 "defaults": {},  # keyed by task insert ID (assuming one schema per task), then path
             }
 

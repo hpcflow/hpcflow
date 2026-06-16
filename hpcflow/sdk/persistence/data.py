@@ -21,6 +21,7 @@ from hpcflow.sdk.core.task import DEFAULT_NESTING_ORDER
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.utils.hashing import stable_hash, array_hash
 
 if TYPE_CHECKING:
 
@@ -970,10 +971,14 @@ class WorkflowData(AppAware):
         )
 
         self.local_inputs = {
-            k: TrackedDefaultDict(
-                lambda: TrackedDict(callback=_cb_dict("local_inputs")),
-                _cb_dict("local_inputs"),
-                v,
+            k: (
+                TrackedDefaultDict(
+                    lambda: TrackedDict(callback=_cb_dict("local_inputs")),
+                    _cb_dict("local_inputs"),
+                    v,
+                )
+                if k not in ("seq_hashes", "seq_values")
+                else v
             )
             for k, v in self.store.local_inputs.items()
         }
@@ -1013,6 +1018,28 @@ class WorkflowData(AppAware):
         self.new_array_output_arrays = TrackedDefaultDict(
             dict, self._cb_dict("new_output_arrays")
         )
+
+    def set_value_sequence(self, element_set_ID: int, path: str, values):
+        """Set the values of a ValueSequence."""
+        if isinstance(values, np.ndarray):
+            vals_hash = array_hash(values)
+        else:
+            vals_hash = stable_hash(values)
+
+        if (vals_idx := self.local_inputs["seq_hashes"].get(vals_hash)) is not None:
+            self.local_inputs["sequences"][element_set_ID][path] = vals_idx
+        else:
+            vals_idx = len(self.local_inputs["seq_values"])
+            self.local_inputs["seq_hashes"][vals_hash] = vals_idx
+            self.local_inputs["seq_values"].append(values)
+            self.local_inputs["sequences"][element_set_ID][path] = vals_idx
+
+    def get_value_sequence(self, element_set_ID: int, path: str):
+        vals_idx = self.local_inputs["sequences"][element_set_ID][path]
+        return self.local_inputs["seq_values"][vals_idx]
+
+    def get_value_sequence_ID(self, element_set_ID: int, path: str):
+        return self.local_inputs["sequences"][element_set_ID][path]
 
     def ensure_output_arrays(
         self,
