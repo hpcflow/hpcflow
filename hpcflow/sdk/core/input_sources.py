@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .element import ElementParameter, _ElementPrefixedParameter as EPP
     from .rule import Rule
     from .workflow import Workflow
+    from hpcflow.sdk.core.task import OutputLabel
 
 
 def get_task_out_available_src_insert_idx(
@@ -85,17 +86,22 @@ def get_task_out_available_src_insert_idx(
     return new_idx
 
 
-def __get_common_path(labelled_path: str, inputs_path: str) -> str | None:
-    lab_s = labelled_path.split(".")
-    inp_s = inputs_path.split(".")
+def __get_avail_source_path(source_path: str, req_path: str) -> str | None:
+    """Return `source_path` if `source_path` is equal to or a sub-parameter of
+    `req_path`; or return `req_path` if `req_path` is a sub-parameter of
+    `src_path`; otherwise return None.
+
+    """
+    src_s = source_path.split(".")
+    req_s = req_path.split(".")
     try:
-        get_relative_path(lab_s, inp_s)
-        return labelled_path
+        get_relative_path(src_s, req_s)
+        return source_path
     except ValueError:
         pass
     try:
-        get_relative_path(inp_s, lab_s)
-        return inputs_path
+        get_relative_path(req_s, src_s)
+        return req_path
     except ValueError:
         # no intersection between paths
         return None
@@ -127,20 +133,21 @@ def __filtered_iters(wk_task: WorkflowTask, where: Rule) -> list[int]:
 
 def get_task_source_element_iters(
     in_or_out: Literal["input", "output", "any"],
-    src_task: Task,
+    src_task: WorkflowTask,
     labelled_path: str,
+    output_label: OutputLabel | None,
     sourceable_elem_iters: list[int] | None,
 ) -> list[int]:
     """Get a sorted list of element iteration IDs that provide either inputs or
     outputs from the provided source task."""
-
+    src_task_template = src_task.template
     if in_or_out == "input":
         # input parameter might not be provided e.g. if it is only used
         # to generate an input file, and that input file is passed
         # directly, so consider only source task element sets that
         # provide the input locally:
-        es_idx = src_task.get_param_provided_element_sets(labelled_path)
-        for es_i in src_task.element_sets:
+        es_idx = src_task_template.get_param_provided_element_sets(labelled_path)
+        for es_i in src_task_template.element_sets:
             # add any element set that has task sources for this parameter
             es_i_idx = es_i.index
             if (
@@ -155,15 +162,18 @@ def get_task_source_element_iters(
     else:
         # outputs are always available, so consider all source task
         # element sets:
-        es_idx = list(range(src_task.num_element_sets))
+        es_idx = list(range(src_task_template.num_element_sets))
 
     if not es_idx:
         raise NoAvailableElementSetsError()
 
     src_elem_iters: list[int] = []
     for es_i_idx in es_idx:
-        es_i = src_task.element_sets[es_i_idx]
+        es_i = src_task_template.element_sets[es_i_idx]
         src_elem_iters.extend(es_i.elem_iter_IDs)  # should be sorted already
+
+    if in_or_out == "output" and output_label and output_label.where:
+        src_elem_iters = __filtered_iters(src_task, output_label.where)
 
     if sourceable_elem_iters is not None:
         # can only use a subset of element iterations (this is the
@@ -176,81 +186,116 @@ def get_task_source_element_iters(
     return src_elem_iters
 
 
+def __add_param_label(path: str, label: str):
+    path_s = path.split(".")
+    base, sub_parts_s = path_s[0], path_s[1:]
+    sub_parts = ".".join(sub_parts_s)
+    return f"{base}[{label}].{sub_parts}" if sub_parts else f"{base}[{label}]"
+
+
 def get_available_task_sources(
     app: BaseApp,
-    inputs_path: str,
+    req_path: str,
     source_tasks: list[WorkflowTask],
     available: dict[str, list[InputSource]],
     sourceable_elem_iters: list[int] | None = None,
 ):
-    """Locate possible task-type sources for the specified input parameter."""
+    """Locate possible task-type sources for the specified input parameter.
+
+    Parameters
+    ----------
+    req_path
+        The input path for which we are finding sources from the source tasks, like:
+        "p1", "p1.a", "p1[label]", or "p1[label].a".
+
+    """
     for src_wk_task_i in source_tasks:
         # ensure we process output types before input types, so they appear in the
         # available sources list first, meaning they take precedence when choosing
         # an input source:
         src_task_i = src_wk_task_i.template
-        for in_or_out, labelled_path in sorted(
+        for in_or_out, source_path in sorted(
             src_task_i.provides_parameters(),
             key=lambda x: x[0],
             reverse=True,
         ):
-            src_elem_iters: list[int] = []
-            common = __get_common_path(labelled_path, inputs_path)
-            if common is not None:
-                avail_src_path = common
-            else:
-                # no intersection between paths
-                inputs_path_label = None
+            # `source_path` has the same format as `inputs_path`, and is like: "p1" for
+            # either inputs and outputs, or, for inputs only, like: "p1.a", "p1[label]",
+            # "p1[label].a".
+
+            # remove any label from `req_path` and `source_path``
+            req_nolab, req_label = split_param_label(req_path)
+            src_nolab, src_label = split_param_label(source_path)
+
+            # if label in source_path but not in req_path, discount the source:
+            if src_label and not req_label:
+                # source provides exclusively for the specified label only
+                continue
+
+            if src_label and req_label and src_label != req_label:
+                # if different labels in source_path and req_path, discount the source:
+                continue
+
+            # find new source path:
+            if new_src_nolab := __get_avail_source_path(src_nolab, req_nolab):
+
                 out_label = None
-                unlabelled, inputs_path_label = split_param_label(inputs_path)
-                if unlabelled is None:
-                    continue
-                try:
-                    get_relative_path(unlabelled.split("."), labelled_path.split("."))
-                    avail_src_path = inputs_path
-                except ValueError:
-                    continue
-                if not inputs_path_label:
-                    continue
-                for out_lab_i in src_task_i.output_labels:
-                    if out_lab_i.label == inputs_path_label:
-                        out_label = out_lab_i
 
-                # consider output labels
-                if out_label and in_or_out == "output":
-                    # find element iteration IDs that match the output label
-                    # filter:
-                    if out_label.where:
-                        src_elem_iters = __filtered_iters(src_wk_task_i, out_label.where)
+                # if the request is labelled but the source is not, allow matching outputs
+                # that define the requested OutputLabel:
+                if req_label and not src_label:
+
+                    if in_or_out != "output":
+                        # only supported by outputs with a provided OutputLabel.
+                        continue
+
+                    # find the matching output label in the source task, if it exists:
+                    for out_lab_i in src_task_i.output_labels:
+                        if out_lab_i.label == req_label:
+                            out_label = out_lab_i
+                            break
+
+                    if not out_label:
+                        continue
+
+                    new_src_path = __add_param_label(new_src_nolab, req_label)
+
+                else:
+                    # either neither path is labelled, or both have the same label
+                    if req_label:
+                        new_src_path = __add_param_label(new_src_nolab, req_label)
                     else:
-                        src_elem_iters = [
-                            elem_i.iterations[0].id_ for elem_i in src_wk_task_i.elements
-                        ]
+                        new_src_path = new_src_nolab
 
-            if not src_elem_iters:
                 try:
                     src_elem_iters = get_task_source_element_iters(
                         in_or_out=in_or_out,
-                        src_task=src_task_i,
-                        labelled_path=labelled_path,
+                        src_task=src_wk_task_i,
+                        labelled_path=new_src_path,
+                        output_label=out_label,
                         sourceable_elem_iters=sourceable_elem_iters,
                     )
+
                 except NoAvailableElementSetsError:
                     continue
+
                 if not src_elem_iters:
                     continue
+
+            else:
+                continue
 
             if in_or_out == "output":
                 insert_idx = get_task_out_available_src_insert_idx(
                     app=app,
-                    existing_sources=available.get(avail_src_path, []),
+                    existing_sources=available.get(new_src_path, []),
                     source_tasks=source_tasks,
-                    param_typ=avail_src_path,
+                    param_typ=new_src_path,
                 )
             else:
-                insert_idx = len(available.get(avail_src_path, []))
+                insert_idx = len(available.get(new_src_path, []))
 
-            available.setdefault(avail_src_path, []).insert(
+            available.setdefault(new_src_path, []).insert(
                 insert_idx,
                 app.InputSource.task(
                     task_ref=src_task_i.insert_ID,

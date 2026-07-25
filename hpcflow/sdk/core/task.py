@@ -1224,10 +1224,10 @@ class Task(JSONLike):
 
             # get possible sources from preceding tasks (mutates `available`):
             get_available_task_sources(
-                self._app,
-                inputs_path,
-                source_tasks,
-                available,
+                app=self._app,
+                req_path=inputs_path,
+                source_tasks=source_tasks,
+                available=available,
                 sourceable_elem_iters=element_set.sourceable_elem_iters,
             )
 
@@ -2439,7 +2439,7 @@ class WorkflowTask(AppAware):
         # may modify element_set.input_sources:
         padded_elem_iters = self.ensure_input_sources(element_set)
 
-        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
+        input_data_idx, seq_idx, src_idx = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
             padded_elem_iters=padded_elem_iters,
@@ -2465,7 +2465,7 @@ class WorkflowTask(AppAware):
             local_element_idx_range=local_element_idx_range,
         )
 
-        (element_data_idx, element_seq_idx, element_src_idx) = self.generate_new_elements(
+        element_data_idx, element_seq_idx, element_src_idx = self.generate_new_elements(
             input_data_idx,
             output_data_idx,
             element_inp_data_idx,
