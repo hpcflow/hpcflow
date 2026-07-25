@@ -226,6 +226,8 @@ def get_available_task_sources(
             # remove any label from `req_path` and `source_path``
             req_nolab, req_label = split_param_label(req_path)
             src_nolab, src_label = split_param_label(source_path)
+            assert req_nolab
+            assert src_nolab
 
             # if label in source_path but not in req_path, discount the source:
             if src_label and not req_label:
