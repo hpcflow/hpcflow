@@ -173,7 +173,9 @@ def get_task_source_element_iters(
         src_elem_iters.extend(es_i.elem_iter_IDs)  # should be sorted already
 
     if in_or_out == "output" and output_label and output_label.where:
-        src_elem_iters = __filtered_iters(src_task, output_label.where)
+        if len(output_label.where.rules) > 1:
+            raise NotImplementedError("only support one rule in output labels")
+        src_elem_iters = __filtered_iters(src_task, output_label.where.rules[0])
 
     if sourceable_elem_iters is not None:
         # can only use a subset of element iterations (this is the

@@ -313,25 +313,27 @@ def test_input_source_labels_and_groups(tmp_path: Path):
         hf.Task(
             schema=s2,
             nesting_order={"inputs.p1": 0},
+            output_labels=[
+                hf.OutputLabel(
+                    parameter="p2",
+                    label="one",
+                    where=hf.ElementFilter(
+                        rules=[hf.Rule(path="inputs.p1", condition={"value.equal_to": 1})]
+                    ),
+                ),
+                hf.OutputLabel(
+                    parameter="p2",
+                    label="two",
+                    where=hf.ElementFilter(
+                        rules=[
+                            hf.Rule(path="inputs.p1", condition={"value.not_equal_to": 1})
+                        ]
+                    ),
+                ),
+            ],
         ),
         hf.Task(
             schema=s3,
-            input_sources={
-                "p2[one]": [
-                    hf.InputSource.task(
-                        task_ref=1,
-                        where=hf.Rule(path="inputs.p1", condition={"value.equal_to": 1}),
-                    )
-                ],
-                "p2[two]": [
-                    hf.InputSource.task(
-                        task_ref=1,
-                        where=hf.Rule(
-                            path="inputs.p1", condition={"value.not_equal_to": 1}
-                        ),
-                    )
-                ],
-            },
         ),
     ]
     wk = hf.Workflow.from_template_data(
