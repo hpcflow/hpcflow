@@ -78,9 +78,10 @@ def make_schemas(
 
         act_i = hf.Action(commands=cmds_lst, **act_kwargs)
 
-        inputs = []
+        inputs: list[Parameter | SchemaInput] = []
         for param_lab, def_val in ins_i.items():
             param, label = split_param_label(param_lab)
+            assert param
             sch_inp = hf.SchemaInput(
                 param,
                 labels={label: {}} if label is not None else None,
@@ -167,6 +168,7 @@ def make_tasks(
         inputs = []
         for loc_in_spec in local_inputs.get(s_idx, ()):
             base_param, label = split_param_label(loc_in_spec)
+            assert base_param
             sub_param = None
             if "." in base_param:
                 base_param, sub_param = base_param.split(".", maxsplit=1)
