@@ -228,7 +228,7 @@ def get_available_task_sources(
         "p1", "p1.a", "p1[label]", or "p1[label].a".
 
     """
-    available_out_labs = {}
+    available_out_labs: dict[str, list[OutputLabel | None]] = {}
     for src_wk_task_i in source_tasks:
         # ensure we process output types before input types, so they appear in the
         # available sources list first, meaning they take precedence when choosing
@@ -309,7 +309,7 @@ def get_available_task_sources(
                     existing_sources=available.get(new_src_path, []),
                     source_tasks=source_tasks,
                     param_typ=new_src_path,
-                    output_labels=available_out_labs.get(new_src_path),
+                    output_labels=available_out_labs.get(new_src_path, []),
                 )
             else:
                 insert_idx = len(available.get(new_src_path, []))
