@@ -563,7 +563,9 @@ def test_task_input_sources_output_label_filtered(tmp_path: Path):
                 hf.OutputLabel(
                     parameter="p1",
                     label="one",
-                    where=hf.Rule(path="inputs.p1", condition={"value.equal_to": 2}),
+                    where=hf.ElementFilter(
+                        rules=[hf.Rule(path="inputs.p1", condition={"value.equal_to": 2})]
+                    ),
                 ),
             ],
         ),

@@ -745,7 +745,7 @@ class OutputLabel(JSONLike):
         self,
         parameter: str,
         label: str,
-        where: Rule | None = None,
+        where: ElementFilter | None = None,
     ) -> None:
         #: Name of a parameter.
         self.parameter = parameter

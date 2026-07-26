@@ -25,6 +25,7 @@ def get_task_out_available_src_insert_idx(
     app,
     param_typ: str,
     existing_sources: list[InputSource],
+    output_labels: list[OutputLabel | None],
     source_tasks: Sequence[WorkflowTask] = (),
 ) -> int:
     """Decide where to place a new task-output input source in the list of available
@@ -56,11 +57,27 @@ def get_task_out_available_src_insert_idx(
     sense for the t2(input) source to take precedence, because it is explicitly
     defined.
 
+    We also ensure task-output sources with associated output labels take precedence over
+    task-output sources without associated output labels, even if the other task-output
+    sources are closer. For example, if two tasks, t1 and t2, provide the same output
+    parameter, p1, but the first task has a defined output label on the parameter p1, then
+    in a subsequent task, t3, that requires an input parameter p1 with that label, task t1
+    will be preferred over task t2, even though t2 is closer than t1 to t3.
+
     """
     src_tasks = {task.insert_ID: task for task in source_tasks}
     num_existing = len(existing_sources)
     new_idx = num_existing
     for rev_idx, ex_src in enumerate(existing_sources[::-1]):
+
+        # if new source is associated with an output label, the new source should
+        # be placed before an output source without an associated output label:
+        if ex_src.task_source_type is TaskSourceType.OUTPUT:
+            new_src_out_lab = output_labels[-1]
+            ex_src_out_lab = output_labels[-2::-1][rev_idx]
+            if new_src_out_lab:
+                if not ex_src_out_lab:
+                    return num_existing - rev_idx - 1
 
         # stop once we reach another task-output source or a local source:
         if (
@@ -211,6 +228,7 @@ def get_available_task_sources(
         "p1", "p1.a", "p1[label]", or "p1[label].a".
 
     """
+    available_out_labs = {}
     for src_wk_task_i in source_tasks:
         # ensure we process output types before input types, so they appear in the
         # available sources list first, meaning they take precedence when choosing
@@ -245,22 +263,17 @@ def get_available_task_sources(
 
                 out_label = None
 
-                # if the request is labelled but the source is not, allow matching outputs
-                # that define the requested OutputLabel:
+                # if the request is labelled but the source is not, allow the source.
+                # sources with associated OutputLabels take precedence over those
+                # without (this logic is encoded in
+                # `get_task_out_available_src_insert_idx`):
                 if req_label and not src_label:
-
-                    if in_or_out != "output":
-                        # only supported by outputs with a provided OutputLabel.
-                        continue
 
                     # find the matching output label in the source task, if it exists:
                     for out_lab_i in src_task_i.output_labels:
                         if out_lab_i.label == req_label:
                             out_label = out_lab_i
                             break
-
-                    if not out_label:
-                        continue
 
                     new_src_path = __add_param_label(new_src_nolab, req_label)
 
@@ -279,6 +292,7 @@ def get_available_task_sources(
                         output_label=out_label,
                         sourceable_elem_iters=sourceable_elem_iters,
                     )
+                    available_out_labs.setdefault(new_src_path, []).append(out_label)
 
                 except NoAvailableElementSetsError:
                     continue
@@ -295,6 +309,7 @@ def get_available_task_sources(
                     existing_sources=available.get(new_src_path, []),
                     source_tasks=source_tasks,
                     param_typ=new_src_path,
+                    output_labels=available_out_labs.get(new_src_path),
                 )
             else:
                 insert_idx = len(available.get(new_src_path, []))
