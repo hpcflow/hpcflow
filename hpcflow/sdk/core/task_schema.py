@@ -149,6 +149,7 @@ class TaskSchema(JSONLike):
         web_doc: bool | None = True,
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
+        parameter_dependencies: Sequence[str] | None = None,
         _hash_value: str | None = None,
     ):
         #: This is a string representing the objective of the task schema.
@@ -172,13 +173,12 @@ class TaskSchema(JSONLike):
         self.environment_presets = environment_presets
         #: Documentation information about the task schema.
         self.doc = doc
+        #: Additional parameters that the actions of this schema should depend on (e.g.
+        # for the purposes of jobscript scheduling).
+        self.parameter_dependencies = parameter_dependencies or []
         self._hash_value = _hash_value
 
         self._set_parent_refs()
-
-        # process `Action` script/program_data_in/out formats:
-        for act in self.actions:
-            act.process_action_data_formats()
 
         self._validate()
         self.actions = self.__expand_actions()
@@ -720,6 +720,18 @@ class TaskSchema(JSONLike):
         """coerce Parameters to SchemaOutputs"""
         return [cls.__coerce_one_output(out) for out in outputs]
 
+    def add_parameter_dependency(self, param: str):
+        """Add a explicit parameter dependency to the schema and each of its actions."""
+        # check the parameter is not already a schema input:
+        if param in self.input_types:
+            raise ValueError(
+                f"Parameter {param!r} is already a schema input of the task schema "
+                f"{self.name}."
+            )
+        self.parameter_dependencies.append(param)
+        self.inputs.append(self._app.SchemaInput(parameter=param))
+        self._validate()
+
     def get_action_parameter_flow(self) -> dict[str, dict[str, list[int]]]:
         """
         For each parameter that appears within the actions of this task schema, get the
@@ -786,7 +798,7 @@ class TaskSchema(JSONLike):
             if sources_act:
                 act_outs.add(p_type)
 
-        extra_ins = set(self.input_types) - act_ins
+        extra_ins = (set(self.input_types) - act_ins) - set(self.parameter_dependencies)
         missing_outs = set(self.output_types) - act_outs
 
         # TODO: bit of a hack, need to consider script/program ins/outs later
@@ -805,6 +817,11 @@ class TaskSchema(JSONLike):
             raise TaskSchemaMissingActionOutputs(self, missing_outs)
 
     def _validate(self) -> None:
+
+        # process `Action` script/program_data_in/out formats:
+        for act in self.actions:
+            act.process_action_data_formats()
+
         if self.method:
             self.method = check_valid_py_identifier(self.method)
         if self.implementation:
