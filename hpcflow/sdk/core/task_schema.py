@@ -175,7 +175,7 @@ class TaskSchema(JSONLike):
         self.doc = doc
         #: Additional parameters that the actions of this schema should depend on (e.g.
         # for the purposes of jobscript scheduling).
-        self.parameter_dependencies = parameter_dependencies or []
+        self.parameter_dependencies = list(parameter_dependencies or [])
         self._hash_value = _hash_value
 
         self._set_parent_refs()
