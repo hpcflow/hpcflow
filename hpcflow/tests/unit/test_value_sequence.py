@@ -528,3 +528,23 @@ def test_from_yaml_and_json_like_various():
             "inputs.p1c", nesting_order=1, **norm_args, value_class_method="from_data"
         )
     )
+
+
+def test_from_repeat():
+    seq = hf.ValueSequence.from_repeat(path="inputs.p1", arr=[1, 2, 3], repeats=2)
+    assert np.allclose(seq.values, [1, 1, 2, 2, 3, 3])
+
+
+def test_from_repeat_array():
+    seq = hf.ValueSequence.from_repeat(path="inputs.p1", arr=[1, 2, 3], repeats=[2, 1, 3])
+    assert np.allclose(seq.values, [1, 1, 2, 3, 3, 3])
+
+
+def test_from_tile():
+    seq = hf.ValueSequence.from_tile(path="inputs.p1", arr=[1, 2, 3], reps=2)
+    assert np.allclose(seq.values, [1, 2, 3, 1, 2, 3])
+
+
+def test_from_tile_arrays():
+    seq = hf.ValueSequence.from_tile(path="inputs.p1", arr=[1, 2, 3], reps=[2, 1])
+    assert np.allclose(seq.values, [[1, 2, 3], [1, 2, 3]])

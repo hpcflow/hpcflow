@@ -13,7 +13,6 @@ import numpy as np
 
 from hpcflow.sdk.core.utils import linspace_rect, process_string_nodes
 
-
 if TYPE_CHECKING:
     from ..app import BaseApp
     from hpcflow.sdk.core.parameters import SchemaInput, Parameter
@@ -78,6 +77,14 @@ class ValuesMixin(ABC):
         cls, start: int | float, stop: int | float, step: int | float, **kwargs
     ) -> list[float]:
         return np.arange(start, stop, step, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+
+    @classmethod
+    def _values_from_repeat(cls, arr, repeats, axis=None) -> list[float]:
+        return np.repeat(arr, repeats, axis=axis).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+
+    @classmethod
+    def _values_from_tile(cls, arr, reps) -> list[float]:
+        return np.tile(arr, reps).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
     def _values_from_file(cls, file_path: str | Path) -> list[str]:
@@ -270,6 +277,65 @@ class ValuesMixin(ABC):
             )
         )
         return obj._remember_values_method_args("from_range", args)
+
+    @classmethod
+    def _from_repeat(
+        cls: Type[T],
+        arr,
+        repeats,
+        axis=None,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from the return of Numpy's ``repeat`` function.
+        """
+        args = {"arr": arr, "repeats": repeats, "axis": axis, **kwargs}
+        values = cls._values_from_repeat(**args)
+        obj = cls(
+            **cls._process_mixin_args(
+                values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("from_repeat", args)
+
+    @classmethod
+    def _from_tile(
+        cls: Type[T],
+        arr,
+        reps,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from the return of Numpy's ``tile`` function.
+        """
+        args = {"arr": arr, "reps": reps, **kwargs}
+        values = cls._values_from_tile(**args)
+        obj = cls(
+            **cls._process_mixin_args(
+                values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("from_tile", args)
 
     @classmethod
     def _from_file(
