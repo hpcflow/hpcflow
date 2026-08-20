@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a0"></a>
+## [v0.3.0a0](https://github.com/hpcflow/hpcflow/compare/v0.2.1a0...v0.3.0a0) - 2026.08.20
+
+### ✨ Features
+
+* add `from_tile` and `from_repeat` methods to `ValueSequence` etc.
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.2.1a0"></a>
 ## [v0.2.1a0](https://github.com/hpcflow/hpcflow/compare/v0.2.0...v0.2.1a0) - 2026.06.15
 
