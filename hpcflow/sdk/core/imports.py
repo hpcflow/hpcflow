@@ -263,11 +263,12 @@ class Import(JSONLike):
             'Literal["input", "output", "any"]', src.task_source_type.name.lower()
         )
         # retrieve data from the input source in the source workflow:
-        src_elem_iters = get_task_source_element_iters(
+        src_elem_iters, src_elements = get_task_source_element_iters(
             in_or_out=in_out,
             src_task=self.workflow.tasks.get(insert_ID=src.task_ref).template,
             labelled_path=input_type,
             sourceable_elem_iters=src.element_iters,
+            sourceable_elements=src.elements,
         )
         src_elem_iter_objs = self.workflow.get_element_iterations_from_IDs(src_elem_iters)
 

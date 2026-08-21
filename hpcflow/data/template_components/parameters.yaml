@@ -12,3 +12,6 @@
 - type: empirical_potential
 - type: optimised_atoms
 - type: test_UPPER_case
+- type: yield_stress
+  dtype: float64
+  shape: null

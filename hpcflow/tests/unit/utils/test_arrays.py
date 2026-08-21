@@ -1,6 +1,11 @@
 import numpy as np
 
-from hpcflow.sdk.utils.arrays import get_1D_idx, get_2D_idx, split_arr
+from hpcflow.sdk.utils.arrays import (
+    get_1D_idx,
+    get_2D_idx,
+    is_primitive_homogeneous,
+    split_arr,
+)
 
 
 def test_get_2D_idx():
@@ -38,3 +43,31 @@ def test_split_arr():
     assert np.array_equal(splt[0][1], np.array([1, 2, 3]))
     assert np.array_equal(splt[1][0], np.array([1]))
     assert np.array_equal(splt[1][1], np.array([4, 5, 6]))
+
+
+def test_is_primitive_homogeneous():
+    assert is_primitive_homogeneous([])
+    assert is_primitive_homogeneous([1])
+    assert is_primitive_homogeneous([1, 2, 3])
+    assert is_primitive_homogeneous([[1, 2, 3]])
+    assert is_primitive_homogeneous([[1, 2, 3], [4, 5, 6]])
+    assert is_primitive_homogeneous(["a", "b", "c"])
+    assert is_primitive_homogeneous([["a", "b", "c"], ["d", "e", "f"]])
+    assert is_primitive_homogeneous(
+        np.array([1, 2, "a"])
+    )  # True: numpy has cast it to string!
+
+    assert not is_primitive_homogeneous(1)
+    assert not is_primitive_homogeneous([3, [0, 1, 2]])
+    assert not is_primitive_homogeneous([[0, 1, 2], 3])
+    assert not is_primitive_homogeneous([[1, 2, 3], [4, 5]])
+    assert not is_primitive_homogeneous([[[1, 2, 3], [4, 5, 6]], [[1, 2, 3], [4, 5]]])
+    assert not is_primitive_homogeneous(["a", 1])
+    assert not is_primitive_homogeneous([1, "a"])
+    assert not is_primitive_homogeneous([["a", "b", "c"], ["d", "e"]])
+
+    class SomeRandomClass:
+        pass
+
+    assert not is_primitive_homogeneous(np.array([1, SomeRandomClass()]))
+    assert not is_primitive_homogeneous([1, SomeRandomClass()])

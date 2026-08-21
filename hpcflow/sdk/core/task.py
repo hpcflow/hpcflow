@@ -3,13 +3,14 @@ Tasks are components of workflows.
 """
 
 from __future__ import annotations
-from collections import defaultdict
+from collections import defaultdict, Counter
 import copy
 from dataclasses import dataclass, field
 from itertools import chain
 from pathlib import Path
 from typing import NamedTuple, cast, overload, TYPE_CHECKING
 from typing_extensions import override
+import numpy as np
 
 import numpy as np
 
@@ -89,6 +90,7 @@ if TYPE_CHECKING:
 
 
 INPUT_SOURCE_TYPES = ("local", "default", "task", "import")
+DEFAULT_NESTING_ORDER = -1.0
 
 
 @dataclass
@@ -286,6 +288,7 @@ class ElementSet(JSONLike):
         sourceable_elem_iters: list[int] | None = None,
         allow_non_coincident_task_sources: bool = False,
         is_creation: bool = True,
+        id_: int | None = None,
     ):
         #: Inputs to the set of elements.
         self.inputs = self.__decode_inputs(inputs or [])
@@ -320,6 +323,9 @@ class ElementSet(JSONLike):
         #: ``environments`` into ``resources`` using the "any" scope, and merge any multi-
         #: path sequences into the sequences list.
         self.is_creation = is_creation
+        #: Global ID of the element set across the workflow
+        self.id_ = id_
+
         self.original_input_sources: dict[str, list[InputSource]] | None = None
         self.original_nesting_order: dict[str, float] | None = None
 
@@ -431,8 +437,8 @@ class ElementSet(JSONLike):
         return [in_.labelled_type for in_ in self.inputs]
 
     @property
-    def element_local_idx_range(self) -> tuple[int, ...]:
-        """Indices of elements belonging to this element set."""
+    def element_local_idx_range(self) -> tuple[int, int]:
+        """Range indices (start and stop) of elements belonging to this element set."""
         return tuple(self._element_local_idx_range or ())
 
     @classmethod
@@ -670,6 +676,16 @@ class ElementSet(JSONLike):
         return w.tasks[i]
 
     @property
+    def element_IDs(self) -> list[int]:
+        """
+        The IDs of the elements in this element set.
+        """
+        task_elem_IDs = np.asarray(
+            self.task.workflow._data.task_element_IDs[self.task.insert_ID]
+        )
+        return task_elem_IDs[range(*self.element_local_idx_range)].tolist()
+
+    @property
     def elements(self) -> list[Element]:
         """
         The elements in this element set.
@@ -890,6 +906,10 @@ class Task(JSONLike):
             allow_non_coincident_task_sources=allow_non_coincident_task_sources,
             sourceable_elem_iters=sourceable_elem_iters,
         )
+
+        for es in self._element_sets:
+            self.set_sequence_parameters(es)
+
         self._output_labels = output_labels or []
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
@@ -985,9 +1005,10 @@ class Task(JSONLike):
         assert wt
         w = wt.workflow
         assert w
-        w._store.add_element_set(
-            self.insert_ID, cast("Mapping", element_set.to_json_like()[0])
-        )
+        es_js = element_set.to_json_like()[0]
+        w._store.add_element_set(self.insert_ID, cast("Mapping", es_js))
+        es_js = copy.deepcopy(es_js)
+        w._data.task_templates[self.index]["element_sets"].append(es_js)
 
     @classmethod
     def _json_like_constructor(cls, json_like: dict) -> Self:
@@ -1025,7 +1046,8 @@ class Task(JSONLike):
         source: ParamSource = {"type": "default_input", "task_insert_ID": insert_ID}
         new_refs = list(
             chain.from_iterable(
-                schema.make_persistent(workflow, source) for schema in obj.schemas
+                schema.make_persistent(workflow, source, insert_ID)
+                for schema in obj.schemas
             )
         )
 
@@ -1138,7 +1160,9 @@ class Task(JSONLike):
         multiplicities: list[MultiplicityDescriptor] = [
             {
                 "multiplicity": len(inp_idx_i),
-                "nesting_order": element_set.nesting_order.get(path_i, -1.0),
+                "nesting_order": element_set.nesting_order.get(
+                    path_i, DEFAULT_NESTING_ORDER
+                ),
                 "path": path_i,
             }
             for path_i, inp_idx_i in input_data_indices.items()
@@ -1730,7 +1754,6 @@ class WorkflowTask(AppAware):
         src_task = inp_src.get_task(self.workflow)
         assert src_task
         src_elem_iters, src_elem_set_idx = self.__get_src_elem_iters(src_task, inp_src)
-
         if not src_elem_iters:
             return None
 
@@ -1746,6 +1769,7 @@ class WorkflowTask(AppAware):
             (itr.get_data_idx()[src_key] if itr_idx not in padded_iters else -1)
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
+        # grp_idx is converting src element iterations into data indices
 
         if not inp_group_name:
             return grp_idx
@@ -1794,6 +1818,7 @@ class WorkflowTask(AppAware):
         self,
         element_set: ElementSet,
         element_set_idx: int,
+        element_set_ID: int,
         padded_elem_iters: Mapping[str, Sequence[int]],
     ) -> tuple[
         dict[str, list[int | list[int]]], dict[str, Sequence[int]], dict[str, list[int]]
@@ -1818,12 +1843,16 @@ class WorkflowTask(AppAware):
         has_local = {}
         loc_inp_src = self._app.InputSource.local()
         for res_i in element_set.resources:
-            key, dat_ref, _ = res_i.make_persistent(self.workflow, param_src)
+            key, dat_ref, _ = res_i.make_persistent(
+                self.workflow, param_src, element_set_ID
+            )
             has_local[key] = True
             input_data_idx[key] = list(dat_ref)
 
         for inp_i in element_set.inputs:
-            key, dat_ref, _ = inp_i.make_persistent(self.workflow, param_src)
+            key, dat_ref, _ = inp_i.make_persistent(
+                self.workflow, param_src, element_set_ID
+            )
             has_local[key] = True
             input_data_idx[key] = list(dat_ref)
             key_ = key.removeprefix("inputs.")
@@ -1841,7 +1870,9 @@ class WorkflowTask(AppAware):
             input_data_idx[key] = list(input_dat_ref)
 
         for seq_i in element_set.sequences:
-            key, seq_dat_ref, _ = seq_i.make_persistent(self.workflow, param_src)
+            key, seq_dat_ref, _ = seq_i.make_persistent(
+                self.workflow, param_src, element_set_ID
+            )
             has_local[key] = True
             input_data_idx[key] = list(seq_dat_ref)
             sequence_idx[key] = list(range(len(seq_dat_ref)))
@@ -2325,7 +2356,6 @@ class WorkflowTask(AppAware):
         return element_dat_idx
 
     @TimeIt.decorator
-    @TimeIt.decorator
     def initialise_EARs(self, iter_IDs: list[int] | None = None) -> Sequence[int]:
         """Try to initialise any uninitialised EARs of this task."""
         if iter_IDs:
@@ -2356,6 +2386,9 @@ class WorkflowTask(AppAware):
                 else:
                     iter_i._EARs_initialised = True
                     self.workflow.set_EARs_initialised(iter_i.id_)
+                    self.workflow._data.iter_metadata.update_field(
+                        "runs_initialised", idx=iter_i.id_, values=True
+                    )
         return initialised
 
     @TimeIt.decorator
@@ -2421,6 +2454,11 @@ class WorkflowTask(AppAware):
                 commands_idx=run["commands_idx"],
                 data_idx=all_data_idx[act_idx, EAR_ID_i],
             )
+            self.workflow._data.iter_run_IDs[element_iter.id_].append(EAR_ID_i)
+            self.workflow._data.run_metadata.append(
+                (act_idx, np.iinfo(np.uint8).max, element_iter.id_)
+            )  # fill value for submission idx - which is not yet set.
+            # TODO: separate array for cmds_idx (it's a list?) ?
 
         self.workflow._store.update_param_source(param_src_updates)
 
@@ -2438,10 +2476,12 @@ class WorkflowTask(AppAware):
 
         # may modify element_set.input_sources:
         padded_elem_iters = self.ensure_input_sources(element_set)
+        es_ID = len(self.workflow._data.element_set_metadata)
 
-        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
+        input_data_idx, seq_idx, src_idx = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
+            element_set_ID=es_ID,
             padded_elem_iters=padded_elem_iters,
         )
         element_set.task_template = self.template  # may modify element_set.nesting_order
@@ -2458,14 +2498,16 @@ class WorkflowTask(AppAware):
         ]
 
         element_set._element_local_idx_range = local_element_idx_range
+        element_set.id_ = es_ID
         self.template._add_element_set(element_set)
+        es_idx = self.num_element_sets - 1
 
         output_data_idx = self.template._prepare_persistent_outputs(
             workflow=self.workflow,
             local_element_idx_range=local_element_idx_range,
         )
 
-        (element_data_idx, element_seq_idx, element_src_idx) = self.generate_new_elements(
+        element_data_idx, element_seq_idx, element_src_idx = self.generate_new_elements(
             input_data_idx,
             output_data_idx,
             element_inp_data_idx,
@@ -2475,26 +2517,107 @@ class WorkflowTask(AppAware):
 
         iter_IDs: list[int] = []
         elem_IDs: list[int] = []
+        task_elem_IDs = self.workflow._data.task_element_IDs[self.insert_ID]
+
+        for inp_src_path, inp_sources in element_set.input_sources.items():
+            for inp_src_idx, inp_src_i in enumerate(inp_sources):
+                if src_iter_IDs := inp_src_i.element_iters:
+                    self.workflow._data.element_set_input_source_iter_IDs[es_ID][
+                        inp_src_path
+                    ][inp_src_idx] = np.asarray(src_iter_IDs)
+                if src_elem_IDs := inp_src_i.elements:
+                    self.workflow._data.element_set_input_source_element_IDs[es_ID][
+                        inp_src_path
+                    ][inp_src_idx][0] = np.asarray(src_elem_IDs[0])
+
+        new_elem_md = []
+        new_iter_md = []
+        idx_in_elem = 0
         for elem_idx, data_idx in enumerate(element_data_idx):
             schema_params = set(i for i in data_idx if len(i.split(".")) == 2)
+            seq_idx = {k: v[elem_idx] for k, v in element_seq_idx.items()}
+            src_idx = {
+                k: v[elem_idx] for k, v in element_src_idx.items() if v[elem_idx] != -1
+            }
+
             elem_ID_i = self.workflow._store.add_element(
                 task_ID=self.insert_ID,
-                es_idx=self.num_element_sets - 1,
-                seq_idx={k: v[elem_idx] for k, v in element_seq_idx.items()},
-                src_idx={k: v[elem_idx] for k, v in element_src_idx.items() if v != -1},
+                es_idx=es_idx,
+                es_ID=es_ID,
+                seq_idx=seq_idx,
+                src_idx=src_idx,
             )
+
+            idx_in_task = len(task_elem_IDs)
+            task_elem_IDs.append(elem_ID_i)
+            new_elem_md.append((idx_in_task, self.insert_ID, es_ID))
+
+            self.workflow._data.element_src_idx[elem_ID_i] = src_idx
+
+            # add indices into task-input-source element-iter IDs for input that originate
+            # in upstream tasks (I think this is right...)
+            seq_idx_2 = {k: v for k, v in seq_idx.items()}
+            for inp_src_path in self.workflow._data.element_set_input_source_iter_IDs[
+                es_ID
+            ]:
+                seq_idx_2[f"inputs.{inp_src_path}"] = element_inp_data_idx[elem_idx][
+                    f"inputs.{inp_src_path}"
+                ]
+
+            self.workflow._data.element_seq_idx[elem_ID_i] = seq_idx_2
+
             iter_ID_i = self.workflow._store.add_element_iteration(
+                index=idx_in_elem,
                 element_ID=elem_ID_i,
                 data_idx=data_idx,
                 schema_parameters=list(schema_params),
             )
+            self.workflow._data.element_iter_IDs[elem_ID_i].append(iter_ID_i)
+            new_iter_md.append((idx_in_elem, elem_ID_i, runs_initialised := 0))
             iter_IDs.append(iter_ID_i)
             elem_IDs.append(elem_ID_i)
 
+        self.workflow._data.element_set_metadata.append((es_idx, self.insert_ID))
+        self.workflow._data.element_metadata.append(new_elem_md)
+        self.workflow._data.iter_metadata.append(new_iter_md)
+
         self._pending_element_IDs += elem_IDs
         self.initialise_EARs()
+        self._ensure_output_arrays(es_idx, len(elem_IDs))
 
         return iter_IDs
+
+    def _ensure_output_arrays(self, element_set_idx: int, num_new_elements: int):
+        # initialise arrays of known-data type outputs (one array per task)
+        out_act_idx = defaultdict(dict)
+        out_counter = Counter()
+        schema_acts = self.template.schema.actions
+        num_acts = len(schema_acts)
+        arr_specs: dict[str, tuple[str, list[int] | None]] = {}
+        for act_idx, act in enumerate(schema_acts):
+            for out_type in act.get_output_types():
+                param = self._app.parameters.get(
+                    out_type
+                )  # TODO: does this include inline parameters?
+                if p_dtype := param.dtype:
+                    # the output array will have an action index dimension, which would
+                    # have length greater than one if this output parameter is output
+                    # from multiple actions within the schema; we need to record the
+                    # mapping between the original action index and the index along the
+                    # action dimension in the array:
+                    out_act_idx[out_type].update({act_idx: out_counter[out_type]})
+                    out_counter.update([out_type])
+                    arr_specs[out_type] = (p_dtype, param.shape)
+
+        if num_acts > 0:
+            self.workflow._data.ensure_output_arrays(
+                task_ID=self.insert_ID,
+                is_new=element_set_idx == 0,
+                num_new_elements=num_new_elements,
+                num_actions=num_acts,
+                output_act_indices=out_act_idx,
+                arr_specs=arr_specs,
+            )
 
     @overload
     def add_elements(

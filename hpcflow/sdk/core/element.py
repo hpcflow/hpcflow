@@ -1156,6 +1156,8 @@ class ElementIteration(AppAware):
         Dependencies may come from either elements from upstream tasks, or from locally
         defined inputs/sequences/defaults from upstream tasks."""
 
+        # TODO: re-implement with WorkflowData
+
         out = set(
             self.workflow.get_task_IDs_from_element_IDs(self.get_element_dependencies())
         )
@@ -1400,6 +1402,8 @@ class Element(AppAware):
         The index of this element.
     es_idx: int
         The index within the task of the element set containing this element.
+    es_ID: int
+        The ID of the element set containing this element.
     seq_idx: dict[str, int]
         The sequence index IDs.
     src_idx: dict[str, int]
@@ -1422,6 +1426,7 @@ class Element(AppAware):
         task: WorkflowTask,
         index: int,
         es_idx: int,
+        es_ID: int,
         seq_idx: Mapping[str, int],
         src_idx: Mapping[str, int],
         iteration_IDs: list[int],
@@ -1432,6 +1437,7 @@ class Element(AppAware):
         self._task = task
         self._index = index
         self._es_idx = es_idx
+        self._es_ID = es_ID
         self._seq_idx = seq_idx
         self._src_idx = src_idx
 
@@ -1541,7 +1547,6 @@ class Element(AppAware):
             self._iteration_objs = [
                 self._app.ElementIteration(
                     element=self,
-                    index=idx,
                     **{k: v for k, v in iter_i.items() if k != "element_ID"},
                 )
                 for idx, iter_i in enumerate(self._iterations)
