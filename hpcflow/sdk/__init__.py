@@ -12,6 +12,7 @@ from typing import Final
 sdk_classes: Final[Mapping[str, str]] = {
     "Workflow": "hpcflow.sdk.core.workflow",
     "Task": "hpcflow.sdk.core.task",
+    "TaskCondition": "hpcflow.sdk.core.task",
     "MetaTask": "hpcflow.sdk.core.task",
     "ActionScopeType": "hpcflow.sdk.core.enums",
     "ActionScope": "hpcflow.sdk.core.actions",

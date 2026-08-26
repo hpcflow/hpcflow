@@ -720,7 +720,7 @@ class TaskSchema(JSONLike):
         """coerce Parameters to SchemaOutputs"""
         return [cls.__coerce_one_output(out) for out in outputs]
 
-    def add_parameter_dependency(self, param: str):
+    def add_parameter_dependency(self, param: str, group_name: str | None = None):
         """Add a explicit parameter dependency to the schema and each of its actions."""
         # check the parameter is not already a schema input:
         if param in self.input_types:
@@ -729,7 +729,7 @@ class TaskSchema(JSONLike):
                 f"{self.name}."
             )
         self.parameter_dependencies.append(param)
-        self.inputs.append(self._app.SchemaInput(parameter=param))
+        self.inputs.append(self._app.SchemaInput(parameter=param, group=group_name))
         self._validate()
 
     def get_action_parameter_flow(self) -> dict[str, dict[str, list[int]]]:

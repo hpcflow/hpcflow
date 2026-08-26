@@ -165,6 +165,7 @@ if TYPE_CHECKING:
         Parameters,
         TaskInputParameters,
         TaskOutputParameters,
+        TaskCondition,
         ElementPropagation,
         ElementSet,
         RepeatsDescriptor,
@@ -1238,6 +1239,15 @@ class BaseApp(metaclass=Singleton):
         :meta private:
         """
         return self._get_app_core_class("TaskOutputParameters")
+
+    @property
+    def TaskCondition(self) -> type[TaskCondition]:
+        """
+        The :class:`TaskCondition` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("TaskCondition")
 
     @property
     def ElementPropagation(self) -> type[ElementPropagation]:

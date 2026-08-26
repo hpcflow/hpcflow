@@ -2075,6 +2075,7 @@ class Jobscript(JSONLike):
             import {app_module} as app
 
             from hpcflow.sdk.core.errors import UnsetParameterDataErrorBase
+            from hpcflow.sdk.core.skip_reason import SkipReason
 
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
@@ -2131,6 +2132,12 @@ class Jobscript(JSONLike):
                 get_all_runs_tic = time.perf_counter()
                 run_IDs_flat = [j for i in run_IDs for j in i]
                 runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
+
+                for run_id, run in runs.items():
+                    if not wk._Workflow__apply_group_task_conditions(run):                    
+                        # run was set to skip due to task condition not being met:                        
+                        run._skip = SkipReason.TASK_CONDITION_NOT_MET.value                
+                
                 run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
                 get_all_runs_toc = time.perf_counter()
 
@@ -2409,7 +2416,10 @@ class Jobscript(JSONLike):
                         # set run end for all elements of this action
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
-                        wk.set_multi_run_ends(run_end_dat)
+                        new_skips = wk.set_multi_run_ends(run_end_dat)
+                        run_skips.update(new_skips)
+                        for run_id, skip_i in new_skips.items():
+                            runs[run_id]._skip = skip_i
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
                         app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
