@@ -514,7 +514,22 @@ class WorkflowTemplate(JSONLike):
                 _normalise_task_parametrisation(meta_tasks[i])
             new_task_dat: list[WorkflowTemplateTaskData] = []
             reindex = {}
+            task_name_counts = defaultdict(int)
+            task_uq_name_to_idx = {}
             for task_idx, task_dat in enumerate(data["tasks"]):
+
+                task_name = task_dat["schema"]
+                task_name_counts[task_name] += 1
+                uq_str = ""
+                if task_name_counts[task_name] > 1:
+                    uq_str = f"_{task_name_counts[task_name]}"
+                    if task_name_counts[task_name] == 2:
+                        # include a _1 suffix in the first appearance of this task:
+                        task_uq_name_to_idx[f"{task_name}_1"] = task_uq_name_to_idx.pop(
+                            task_name
+                        )
+                task_uq_name_to_idx[f"{task_name}{uq_str}"] = task_idx
+
                 if meta_task_dat := meta_tasks.get(task_dat["schema"]):
                     reindex[task_idx] = [
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
@@ -563,8 +578,11 @@ class WorkflowTemplate(JSONLike):
                                         base_data[s_idx]["element_sets"][es_idx][
                                             k
                                         ].update(dat)
+                                    elif k in ("output_labels", "condition"):
+                                        # task-level attributes; just overwrite
+                                        base_data[s_idx][k] = dat
                                     else:
-                                        # just overwrite
+                                        # element set attributes; just overwrite
                                         base_data[s_idx]["element_sets"][es_idx][k] = dat
 
                     new_task_dat.extend(base_data)
@@ -575,14 +593,29 @@ class WorkflowTemplate(JSONLike):
 
             data["tasks"] = new_task_dat
 
+            # re-index loop task references
             if loops := data.get("loops"):
                 for loop_idx, loop in enumerate(loops):
-                    loops[loop_idx]["tasks"] = [
-                        j for i in loop["tasks"] for j in reindex[i]
-                    ]
+                    new_loop_tasks = []
+                    for i in loop["tasks"]:
+                        try:
+                            new_idx = reindex[i]
+                        except KeyError:
+                            # loop tasks use unique task names
+                            new_idx = reindex[task_uq_name_to_idx[i]]
+                        for j in new_idx:
+                            new_loop_tasks.append(j)
+
+                    loops[loop_idx]["tasks"] = new_loop_tasks
+
                     term_task = loop.get("termination_task")
                     if term_task is not None:
-                        loops[loop_idx]["termination_task"] = reindex[term_task][0]
+                        try:
+                            new_idx = reindex[term_task]
+                        except KeyError:
+                            # loop termination task uses a unique task name
+                            new_idx = reindex[task_uq_name_to_idx[term_task]]
+                        loops[loop_idx]["termination_task"] = new_idx[0]
 
         _normalise_task_parametrisation(data["tasks"])
 
