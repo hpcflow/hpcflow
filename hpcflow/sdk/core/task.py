@@ -1550,11 +1550,11 @@ class TaskCondition(AppAware):
     """An element-wise condition on the execution of a task."""
 
     source_task_ID: int
-    input_or_output: Literal["inputs", "outputs"]
+    input_or_output: str
     source_parameter: str
 
     group_name: str | None = None
-    group_function: Literal["any", "all"] | None = None
+    group_function: str | None = None
 
     @property
     def get_path(self) -> str:
@@ -1567,6 +1567,11 @@ class TaskCondition(AppAware):
             return self.source_parameter in run.action.get_input_types()
         elif self.input_or_output == "outputs":
             return self.source_parameter in run.action.get_output_types()
+        else:
+            raise ValueError(
+                f"'input_or_output' must be 'inputs' or 'outputs', but received "
+                f"{self.input_or_output!r}."
+            )
 
     def test(self, run, task_ID: int) -> bool | None:
         """
@@ -1603,6 +1608,8 @@ class TaskCondition(AppAware):
             # is the condition met (just support bool for now)?
             return bool(src_out_val)
 
+        return None
+
     def test_group(self, runs, task_ID: int) -> bool | None:
 
         assert self.group_name
@@ -1610,9 +1617,8 @@ class TaskCondition(AppAware):
         # filter out runs that are not valid for this condition (do not provide the source
         # parameter as either an input or output):
         runs_filtered = [run for run in runs if self.__validate_run(run)]
-        print(f"test_group: {runs_filtered=!r}")
         if not runs_filtered:
-            return
+            return None
 
         self._app.submission_logger.info(
             f"checking group task condition of task {task_ID!r}: {self!r}."
@@ -1624,6 +1630,8 @@ class TaskCondition(AppAware):
 
         elif self.group_function == "all":
             return all(src_out_vals)
+
+        return None
 
     @classmethod
     def from_string(cls, condition: str, workflow: Workflow):
@@ -1776,6 +1784,7 @@ class WorkflowTask(AppAware):
             return self._app.TaskCondition.from_string(
                 condition=condition, workflow=self.workflow
             )
+        return None
 
     @property
     def workflow(self) -> Workflow:

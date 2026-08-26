@@ -514,8 +514,8 @@ class WorkflowTemplate(JSONLike):
                 _normalise_task_parametrisation(meta_tasks[i])
             new_task_dat: list[WorkflowTemplateTaskData] = []
             reindex = {}
-            task_name_counts = defaultdict(int)
-            task_uq_name_to_idx = {}
+            task_name_counts: DefaultDict[str, int] = defaultdict(int)
+            task_uq_name_to_idx: dict[str, int] = {}
             for task_idx, task_dat in enumerate(data["tasks"]):
 
                 task_name = task_dat["schema"]
@@ -593,7 +593,7 @@ class WorkflowTemplate(JSONLike):
 
             data["tasks"] = new_task_dat
 
-            # re-index loop task references
+            # re-index loop task references (and convert to indices if names are used):
             if loops := data.get("loops"):
                 for loop_idx, loop in enumerate(loops):
                     new_loop_tasks = []
@@ -1847,7 +1847,7 @@ class Workflow(AppAware):
         source task ID, whether the source is an input or output, and the parameter
         type."""
         return {
-            task.insert_ID: task.validate_condition()
+            task.insert_ID: cast("TaskCondition", task.validate_condition())
             for task in self.tasks
             if task.template.condition
         }
