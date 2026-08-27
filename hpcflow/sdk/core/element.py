@@ -452,6 +452,7 @@ class ElementResources(JSONLike):
             "skip_downstream_on_failure",
             "random_seed",
             "rng_spawn_key",
+            "num_MPI_ranks",
         ]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
