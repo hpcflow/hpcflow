@@ -960,9 +960,10 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                 f"{path!r}."
             )
         path_l = path.lower()
-        path_split = path_l.split(".")
+        path_l_split = path_l.split(".")
+        path_split = path.split(".")
         ALLOWED_PATH_START = ("inputs", "resources", "environments", "env_preset")
-        if not path_split[0] in ALLOWED_PATH_START:
+        if not path_l_split[0] in ALLOWED_PATH_START:
             raise MalformedParameterPathError(
                 f"`path` must start with one of: "
                 f'{", ".join(f"{pfx!r}" for pfx in ALLOWED_PATH_START)}, but given path '
@@ -971,7 +972,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         _, label_from_path = split_param_label(path_l)
 
-        if path_split[0] == "inputs":
+        if path_l_split[0] == "inputs":
             if label_arg is not None and label_arg != "":
                 if label_from_path is None:
                     # add label to path without lower casing any parts:
@@ -987,7 +988,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             elif label_from_path:
                 label = label_from_path
 
-        elif path_split[0] == "resources":
+        elif path_l_split[0] == "resources":
             if label_from_path or label_arg:
                 raise ValueError(
                     f"{self.__class__.__name__} `label` argument ({label_arg!r}) and/or "
@@ -995,14 +996,14 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                     f"`resource` sequences."
                 )
             try:
-                self._app.ActionScope.from_json_like(path_split[1])
+                self._app.ActionScope.from_json_like(path_l_split[1])
             except Exception as err:
                 raise MalformedParameterPathError(
                     f"Cannot parse a resource action scope from the second component of the "
                     f"path: {path!r}. Exception was: {err}."
                 ) from None
 
-            if len(path_split) > 2:
+            if len(path_l_split) > 2:
                 if path_split[2] not in ResourceSpec.ALLOWED_PARAMETERS:
                     raise UnknownResourceSpecItemError(
                         f"Resource item name {path_split[2]!r} is unknown. Allowed "
@@ -1010,7 +1011,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                     )
             label = ""
 
-        elif path_split[0] == "environments":
+        elif path_l_split[0] == "environments":
             # rewrite as a resources path:
             path = f"resources.any.{path}"
             label = str(label) if label is not None else ""
