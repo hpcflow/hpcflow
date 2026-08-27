@@ -108,7 +108,7 @@ if TYPE_CHECKING:
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
     from .parameters import InputSource, ResourceSpec
-    from .task import Task, WorkflowTask, InputStatus
+    from .task import Task, WorkflowTask, InputStatus, TaskCondition
     from .imports import Import
     from .types import (
         AbstractFileSystem,
@@ -487,11 +487,13 @@ class WorkflowTemplate(JSONLike):
                 else:
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
+                    condition = task_dat.pop("condition", None)
                     es_dat = cast("WorkflowTemplateElementSetData", task_dat)
                     new_task_dat: WorkflowTemplateTaskData = {
                         "schema": schema_list,
                         "element_sets": [es_dat],
                         "output_labels": out_labels,
+                        "condition": condition,
                     }
                     task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
@@ -512,7 +514,22 @@ class WorkflowTemplate(JSONLike):
                 _normalise_task_parametrisation(meta_tasks[i])
             new_task_dat: list[WorkflowTemplateTaskData] = []
             reindex = {}
+            task_name_counts: DefaultDict[str, int] = defaultdict(int)
+            task_uq_name_to_idx: dict[str, int] = {}
             for task_idx, task_dat in enumerate(data["tasks"]):
+
+                task_name = task_dat["schema"]
+                task_name_counts[task_name] += 1
+                uq_str = ""
+                if task_name_counts[task_name] > 1:
+                    uq_str = f"_{task_name_counts[task_name]}"
+                    if task_name_counts[task_name] == 2:
+                        # include a _1 suffix in the first appearance of this task:
+                        task_uq_name_to_idx[f"{task_name}_1"] = task_uq_name_to_idx.pop(
+                            task_name
+                        )
+                task_uq_name_to_idx[f"{task_name}{uq_str}"] = task_idx
+
                 if meta_task_dat := meta_tasks.get(task_dat["schema"]):
                     reindex[task_idx] = [
                         len(new_task_dat) + i for i in range(len(meta_task_dat))
@@ -561,8 +578,11 @@ class WorkflowTemplate(JSONLike):
                                         base_data[s_idx]["element_sets"][es_idx][
                                             k
                                         ].update(dat)
+                                    elif k in ("output_labels", "condition"):
+                                        # task-level attributes; just overwrite
+                                        base_data[s_idx][k] = dat
                                     else:
-                                        # just overwrite
+                                        # element set attributes; just overwrite
                                         base_data[s_idx]["element_sets"][es_idx][k] = dat
 
                     new_task_dat.extend(base_data)
@@ -573,14 +593,29 @@ class WorkflowTemplate(JSONLike):
 
             data["tasks"] = new_task_dat
 
+            # re-index loop task references (and convert to indices if names are used):
             if loops := data.get("loops"):
                 for loop_idx, loop in enumerate(loops):
-                    loops[loop_idx]["tasks"] = [
-                        j for i in loop["tasks"] for j in reindex[i]
-                    ]
+                    new_loop_tasks = []
+                    for i in loop["tasks"]:
+                        try:
+                            new_idx = reindex[i]
+                        except KeyError:
+                            # loop tasks use unique task names
+                            new_idx = reindex[task_uq_name_to_idx[i]]
+                        for j in new_idx:
+                            new_loop_tasks.append(j)
+
+                    loops[loop_idx]["tasks"] = new_loop_tasks
+
                     term_task = loop.get("termination_task")
                     if term_task is not None:
-                        loops[loop_idx]["termination_task"] = reindex[term_task][0]
+                        try:
+                            new_idx = reindex[term_task]
+                        except KeyError:
+                            # loop termination task uses a unique task name
+                            new_idx = reindex[task_uq_name_to_idx[term_task]]
+                        loops[loop_idx]["termination_task"] = new_idx[0]
 
         _normalise_task_parametrisation(data["tasks"])
 
@@ -1807,6 +1842,16 @@ class Workflow(AppAware):
         self._pending["tasks"].append(new_index)
         return self.tasks[new_index]
 
+    def _get_task_conditions(self) -> dict[int, TaskCondition]:
+        """Get a mapping of task IDs to parsed task conditions as tuples containing the
+        source task ID, whether the source is an input or output, and the parameter
+        type."""
+        return {
+            task.insert_ID: cast("TaskCondition", task.validate_condition())
+            for task in self.tasks
+            if task.template.condition
+        }
+
     @TimeIt.decorator
     def _add_task(self, task: Task, new_index: int | None = None) -> None:
         new_wk_task = self._add_empty_task(task=task, new_index=new_index)
@@ -3011,12 +3056,78 @@ class Workflow(AppAware):
         with self._store.cached_load(), self.batch_update():
             self._store.set_multi_run_starts(run_ids, run_dirs, port_number)
 
+    def __apply_task_conditions(self, run):
+        """When a run has ended, check if any non-group task conditions are defined that
+        depend on the run's parameters, and if so, skip any runs of those tasks if the
+        condition is not met. Group task conditions cannot be evaluated until we start the
+        run of the task where the condition is defined (see
+        `__apply_group_task_conditions`)."""
+
+        self._app.submission_logger.info(
+            f"checking workflow non-group task conditions for run {run.id_!r} with task "
+            f"ID {run.task.insert_ID!r}."
+        )
+
+        conditions_not_met = []
+        for task_ID_i, condition in self._get_task_conditions().items():
+            if (
+                not condition.group_name
+                and condition.test(run=run, task_ID=task_ID_i) is False
+            ):
+                conditions_not_met.append(task_ID_i)
+
+        # for each condition that is not met, skip all runs of the task that are dependent
+        # on the current run:
+        new_skips: dict[int, int] = {}
+        for not_met_task_ID in conditions_not_met:
+            dep_skips = {
+                dep.id_: SkipReason.TASK_CONDITION_NOT_MET
+                for dep in run.get_dependent_EARs(as_objects=True)
+                if dep.task.insert_ID == not_met_task_ID
+            }
+            self.set_EAR_skip(dep_skips)
+            new_skips.update({k: v.value for k, v in dep_skips.items()})
+
+        return new_skips
+
+    def __apply_group_task_conditions(self, run) -> bool:
+        """Before a run starts, check if any group task conditions are defined in the
+        run's task, and if so, skip the run if the condition is not met.
+
+        Non-group task conditions can be evaluated earlier (see
+        `__apply_task_conditions`).
+
+        Returns False if the run was set to skip, otherwise returns True.
+        """
+
+        self._app.submission_logger.info(
+            f"checking workflow group task conditions for run ID {run._id!r}"
+        )
+
+        for task_ID_i, condition in self._get_task_conditions().items():
+
+            if condition.group_name:
+                # get dependencies of this run that belong to the condition's source task:
+                run_deps = [
+                    dep
+                    for dep in run.get_EAR_dependencies(as_objects=True)
+                    if dep.task.insert_ID == condition.source_task_ID
+                ]
+                if not run_deps:
+                    return True
+
+                if condition.test_group(runs=run_deps, task_ID=task_ID_i) is False:
+                    # skip this run:
+                    self.set_EAR_skip({run.id_: SkipReason.TASK_CONDITION_NOT_MET})
+                    return False
+        return True
+
     def set_EAR_end(
         self,
         block_act_key: BlockActionKey,
         run: ElementActionRun,
         exit_code: int,
-    ) -> None:
+    ) -> dict[int, int]:
         """Set the end time and exit code on an EAR.
 
         If the exit code is non-zero, also set all downstream dependent EARs to be
@@ -3027,6 +3138,10 @@ class Workflow(AppAware):
             f"Setting end for run ID {run.id_!r} with exit code {exit_code!r}."
         )
         param_id: int | list[int] | None
+
+        # additional run skips (set via __apply_task_conditions):
+        new_run_skips: dict[int, int] = {}
+
         with self._store.cached_load(), self.batch_update():
             success = exit_code == 0  # TODO  more sophisticated success heuristics
             if not run.skip:
@@ -3206,7 +3321,11 @@ class Workflow(AppAware):
                         {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                     )
 
+            new_run_skips.update(self.__apply_task_conditions(run))
+
             self._store.set_EAR_end(run.id_, exit_code, success, run.action.requires_dir)
+
+        return new_run_skips
 
     def set_multi_run_ends(
         self,
@@ -3214,7 +3333,7 @@ class Workflow(AppAware):
             BlockActionKey,
             list[tuple[ElementActionRun, int, Path | None]],
         ],
-    ) -> None:
+    ) -> dict[int, int]:
         """Set end times and exit codes on multiple runs.
 
         If the exit code is non-zero, also set all downstream dependent runs to be
@@ -3222,6 +3341,10 @@ class Workflow(AppAware):
 
         self._app.logger.debug(f"Setting end for multiple run IDs.")
         param_id: int | list[int] | None
+
+        # additional run skips (set via __apply_task_conditions):
+        new_run_skips: dict[int, int] = {}
+
         with self._store.cached_load(), self.batch_update():
             run_ids = []
             run_dirs = []
@@ -3471,7 +3594,11 @@ class Workflow(AppAware):
                     exit_codes.append(exit_code)
                     successes.append(success)
 
+                    new_run_skips.update(self.__apply_task_conditions(run))
+
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
+
+        return new_run_skips
 
     def set_EAR_skip(self, skip_reasons: dict[int, SkipReason]) -> None:
         """
@@ -4424,6 +4551,10 @@ class Workflow(AppAware):
                     os.chdir(run_dir)
                 self._app.submission_logger.debug(f"{run.skip=}; {run.skip_reason=}")
 
+                if not self.__apply_group_task_conditions(run):
+                    # run was set to skip due to task condition not being met:
+                    run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
+
                 # check if we should skip:
                 if not run.skip:
 
@@ -4514,6 +4645,9 @@ class Workflow(AppAware):
 
                         if (num_cores := run.resources.num_cores) is not None:
                             add_env[f"{app_caps}_RUN_NUM_CORES"] = str(num_cores)
+
+                        if (num_MPI_ranks := run.resources.num_MPI_ranks) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_MPI_RANKS"] = str(num_MPI_ranks)
 
                         if run.action.script:
                             if run.is_snippet_script:

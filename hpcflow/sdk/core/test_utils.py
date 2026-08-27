@@ -8,10 +8,9 @@ from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, TYPE_CHECKING
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import ParameterValue
-from hpcflow.sdk.core.utils import get_file_context
+from hpcflow.sdk.core.utils import get_file_context, split_param_label
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 from hpcflow.sdk.typing import hydrate
-
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -45,12 +44,12 @@ def make_schemas(
     for idx, info in enumerate(ins_outs):
         act_kwargs: dict[str, Any] = {}
         if len(info) == 2:
-            (ins_i, outs_i) = info
+            ins_i, outs_i = info
             obj = f"t{idx}"
         elif len(info) == 3:
-            (ins_i, outs_i, obj) = info
+            ins_i, outs_i, obj = info
         else:
-            (ins_i, outs_i, obj, act_kwargs) = info
+            ins_i, outs_i, obj, act_kwargs = info
 
         # distribute outputs over multiple commands' stdout:
         cmds_lst = []
@@ -78,11 +77,23 @@ def make_schemas(
             ]
 
         act_i = hf.Action(commands=cmds_lst, **act_kwargs)
+
+        inputs: list[Parameter | SchemaInput] = []
+        for param_lab, def_val in ins_i.items():
+            param, label = split_param_label(param_lab)
+            assert param
+            sch_inp = hf.SchemaInput(
+                param,
+                labels={label: {}} if label is not None else None,
+                multiple=label is not None,
+                default_value=def_val,
+            )
+            inputs.append(sch_inp)
         out.append(
             hf.TaskSchema(
                 objective=obj,
                 actions=[act_i],
-                inputs=[hf.SchemaInput(k, default_value=v) for k, v in ins_i.items()],
+                inputs=inputs,
                 outputs=[hf.SchemaOutput(hf.Parameter(k)) for k in outs_i],
             )
         )
@@ -154,10 +165,21 @@ def make_tasks(
     schemas = make_schemas(*schemas_spec)
     tasks: list[Task] = []
     for s_idx, s in enumerate(schemas):
-        inputs = [
-            hf.InputValue(hf.Parameter(i), value=int(i[1:]) * 100)
-            for i in local_inputs.get(s_idx, ())
-        ]
+        inputs = []
+        for loc_in_spec in local_inputs.get(s_idx, ()):
+            base_param, label = split_param_label(loc_in_spec)
+            assert base_param
+            sub_param = None
+            if "." in base_param:
+                base_param, sub_param = base_param.split(".", maxsplit=1)
+            inputs.append(
+                hf.InputValue(
+                    hf.Parameter(base_param),
+                    path=sub_param,
+                    label=label,
+                    value=int(base_param[1:]) * 100,
+                )
+            )
         seqs = [
             hf.ValueSequence(
                 path=i[0],

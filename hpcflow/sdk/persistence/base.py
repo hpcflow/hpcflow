@@ -10,6 +10,7 @@ from collections import defaultdict
 import contextlib
 import copy
 from dataclasses import dataclass, field
+from datetime import datetime
 import enum
 from logging import Logger
 from functools import wraps
@@ -53,7 +54,6 @@ from hpcflow.sdk.persistence.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
-    from datetime import datetime
     from typing import Any, ClassVar, Final, Literal
     from typing_extensions import Self, TypeIs
     from fsspec import AbstractFileSystem  # type: ignore
@@ -561,7 +561,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
 
     @staticmethod
     def _decode_datetime(dt_str: str | None, ts_fmt: str) -> datetime | None:
-        return parse_timestamp(dt_str, ts_fmt) if dt_str else None
+        return datetime.strptime(dt_str, ts_fmt) if dt_str else None
 
     @abstractmethod
     def encode(self, ts_fmt: str, context: ContextT) -> SerFormT:

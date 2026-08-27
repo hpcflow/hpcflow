@@ -358,6 +358,8 @@ class WorkflowTemplateTaskData(TypedDict):
     element_sets: NotRequired[list[WorkflowTemplateElementSetData]]
     #: The output labels, if known.
     output_labels: NotRequired[list[str]]
+    #: The condition to consider, if known.
+    condition: NotRequired[str | None]
 
 
 class WorkflowTemplateElementSetData(TypedDict):

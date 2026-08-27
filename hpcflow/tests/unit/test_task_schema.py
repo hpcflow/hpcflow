@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 from typing import TYPE_CHECKING
 from typing_extensions import TypedDict
 import pytest
@@ -12,7 +13,8 @@ from hpcflow.sdk.core.errors import (
     TaskSchemaExtraInputs,
     TaskSchemaMissingActionOutputs,
 )
-from hpcflow.sdk.core.test_utils import make_actions, make_parameters
+from hpcflow.sdk.core.parameters import NullDefault
+from hpcflow.sdk.core.test_utils import make_actions, make_parameters, make_schemas
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
@@ -198,3 +200,125 @@ def test_validate_jinja_template_input_not_in_schema() -> None:
         )
     exc = exc_info.value
     assert exc.parameter_type == "fruits"
+
+
+def test_schema_add_parameter_dependency():
+    sch = hf.TaskSchema(
+        objective="my_schema", actions=[hf.Action(commands=[hf.Command("echo 'hello'")])]
+    )
+    sch.add_parameter_dependency("p1")
+    assert sch.inputs[0] == hf.SchemaInput(parameter=hf.Parameter("p1"), multiple=False)
+    assert sch.parameter_dependencies == ["p1"]
+    assert sch.actions[0].get_input_types() == ("p1",)
+
+
+def test_schema_add_parameter_dependency_input_source(tmp_path):
+    (s1,) = make_schemas(({"p1": NullDefault.NULL}, ("p2",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2", actions=[hf.Action(commands=[hf.Command("echo 'hello'")])]
+    )
+
+    # force a dependency on t1 via its output p1, even though the parameter is not
+    # required by any of this schema's actions:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p2")
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_conditional_tasks",
+        workflow_name="test_conditional_tasks",
+        overwrite=True,
+        path=tmp_path,
+        tasks=[
+            hf.Task(schema=s1, inputs={"p1": 100}),
+            hf.Task(schema=s2_c),
+        ],
+    )
+    # check the input is defined as required and not provided (so must be sourced from the
+    # previous task):
+    p2_inp_status = wk.tasks.t2.template.get_input_statuses(
+        wk.tasks.t2.template.element_sets[0]
+    )["p2"]
+    assert p2_inp_status.has_default == False
+    assert p2_inp_status.is_required == True
+    assert p2_inp_status.is_provided == False
+
+    # check source is defined properly:
+    p2_inp_source = wk.tasks.t2.template.element_sets[0].input_sources["p2"]
+    assert len(p2_inp_source) == 1
+    assert p2_inp_source[0] == hf.InputSource.task(
+        task_ref=0, task_source_type="output", element_iters=[0]
+    )
+
+    # check it's in the data index:
+    dat_idx = wk.tasks.t2.elements[0].get_data_idx()
+    assert "inputs.p2" in dat_idx
+
+
+def test_schema_add_parameter_dependency_added_to_all_schema_actions(tmp_path):
+    """Check that for multi-action schemas, the parameter dependency is added to all of
+    them."""
+
+    (s1,) = make_schemas(({"p1": NullDefault.NULL}, ("p2",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2",
+        actions=[
+            hf.Action(commands=[hf.Command("echo 'hello!'")]),
+            hf.Action(commands=[hf.Command("echo 'hey!'")]),
+        ],
+    )
+
+    # force a dependency on t1 via its output p1, even though the parameter is not
+    # required by any of this schema's actions:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p2")
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_conditional_tasks",
+        overwrite=True,
+        path=tmp_path,
+        tasks=[
+            hf.Task(schema=s1, inputs={"p1": 100}),
+            hf.Task(schema=s2_c),
+        ],
+    )
+
+    runs = wk.get_all_EARs()
+    assert "inputs.p2" in runs[1].get_data_idx()
+    assert "inputs.p2" in runs[2].get_data_idx()
+
+
+def test_schema_add_parameter_dependency_script_action(tmp_path):
+    (s1,) = make_schemas(({"p0": NullDefault.NULL}, ("p3",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],  # doesn't depend on s1
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_direct_in_direct_out.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+
+    # force a dependency on s1 via a parameter dependency:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p3")
+
+    p1_val = 100
+    t1 = hf.Task(s1, inputs={"p0": 100})
+    t2 = hf.Task(schema=s2_c, inputs={"p1": p1_val})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1, t2],
+        template_name="main_script_test_param_deps",
+        path=tmp_path,
+    )
+
+    runs = wk.get_all_EARs()
+    assert runs[0].get_dependent_EARs() == {1}
+    assert runs[1].get_EAR_dependencies() == {0}
+    assert "inputs.p3" in runs[1].get_data_idx()
+    assert "inputs.p3" not in runs[1].get_data_in_values_direct()

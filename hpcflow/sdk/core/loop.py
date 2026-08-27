@@ -737,64 +737,68 @@ class WorkflowLoop(AppAware):
                         new_data_idx[key] = val
 
                 for inp in task.template.all_schema_inputs:
-                    is_inp_task = False
-                    if iter_dat := self.iterable_parameters.get(inp.typ):
-                        is_inp_task = task.insert_ID == iter_dat["input_task"]
+                    for inp_lab_typ in inp.all_labelled_types:
+                        is_inp_task = False
+                        if iter_dat := self.iterable_parameters.get(inp_lab_typ):
+                            is_inp_task = task.insert_ID == iter_dat["input_task"]
 
-                    inp_key = f"inputs.{inp.typ}"
+                        inp_key = f"inputs.{inp_lab_typ}"
 
-                    if is_inp_task:
-                        assert iter_dat is not None
-                        inp_dat_idx = self.__get_looped_index(
-                            task,
-                            elem_ID,
-                            cache,
-                            iter_dat,
-                            inp,
-                            parent_loops,
-                            parent_loop_indices_,
-                            child_loops,
-                            cur_loop_idx,
-                        )
-                        new_data_idx[inp_key] = inp_dat_idx
-                    else:
-                        orig_inp_src = cache.elements[elem_ID]["input_sources"][inp_key]
-                        inp_dat_idx = None
-
-                        if orig_inp_src.source_type is InputSourceType.LOCAL:
-                            # keep locally defined inputs from original element
-                            inp_dat_idx = zi_data_idx[inp_key]
-
-                        elif orig_inp_src.source_type is InputSourceType.DEFAULT:
-                            # keep default value from original element
-                            try:
-                                inp_dat_idx = zi_data_idx[inp_key]
-                            except KeyError:
-                                # if this input is required by a conditional action, and
-                                # that condition is not met, then this input will not
-                                # exist in the action-run data index, so use the initial
-                                # iteration data index:
-                                inp_dat_idx = zi_iter_data_idx[inp_key]
-
-                        elif orig_inp_src.source_type is InputSourceType.TASK:
-                            inp_dat_idx = self.__get_task_index(
+                        if is_inp_task:
+                            assert iter_dat is not None
+                            inp_dat_idx = self.__get_looped_index(
                                 task,
-                                orig_inp_src,
-                                cache,
                                 elem_ID,
+                                cache,
+                                iter_dat,
                                 inp,
-                                inp_key,
+                                parent_loops,
                                 parent_loop_indices_,
-                                all_new_data_idx,
+                                child_loops,
+                                cur_loop_idx,
                             )
+                            new_data_idx[inp_key] = inp_dat_idx
+                        else:
+                            orig_inp_src = cache.elements[elem_ID]["input_sources"][
+                                inp_key
+                            ]
+                            inp_dat_idx = None
 
-                        if inp_dat_idx is None:
-                            raise RuntimeError(
-                                f"Could not find a source for parameter {inp.typ} "
-                                f"when adding a new iteration for task {task!r}."
-                            )
+                            if orig_inp_src.source_type is InputSourceType.LOCAL:
+                                # keep locally defined inputs from original element
+                                inp_dat_idx = zi_data_idx[inp_key]
 
-                        new_data_idx[inp_key] = inp_dat_idx
+                            elif orig_inp_src.source_type is InputSourceType.DEFAULT:
+                                # keep default value from original element
+                                try:
+                                    inp_dat_idx = zi_data_idx[inp_key]
+                                except KeyError:
+                                    # if this input is required by a conditional action,
+                                    # and that condition is not met, then this input will
+                                    # not exist in the action-run data index, so use the
+                                    # initial iteration data index:
+                                    inp_dat_idx = zi_iter_data_idx[inp_key]
+
+                            elif orig_inp_src.source_type is InputSourceType.TASK:
+                                inp_dat_idx = self.__get_task_index(
+                                    task,
+                                    orig_inp_src,
+                                    cache,
+                                    elem_ID,
+                                    inp,
+                                    inp_key,
+                                    parent_loop_indices_,
+                                    all_new_data_idx,
+                                )
+
+                            if inp_dat_idx is None:
+                                raise RuntimeError(
+                                    f"Could not find a source for parameter "
+                                    f"{inp_lab_typ} when adding a new iteration for task "
+                                    f"{task!r}."
+                                )
+
+                            new_data_idx[inp_key] = inp_dat_idx
 
                 # add any locally defined sub-parameters:
                 inp_statuses = cache.elements[elem_ID]["input_statuses"]
