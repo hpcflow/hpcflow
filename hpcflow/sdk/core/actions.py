@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 from dataclasses import dataclass
+from datetime import timedelta
 import json
 import contextlib
 from collections import defaultdict
@@ -45,7 +46,7 @@ from hpcflow.sdk.core.utils import (
     JSONLikeDirSnapShot,
     split_param_label,
     swap_nested_dict_keys,
-    get_relative_path,
+    timedelta_format,
 )
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
@@ -330,6 +331,18 @@ class ElementActionRun(AppAware):
         When the EAR finished.
         """
         return self._end_time
+
+    @property
+    def run_time(self) -> timedelta | None:
+        if self.start_time and self.end_time:
+            return self.end_time - self.start_time
+        return None
+
+    @property
+    def run_time_str(self) -> str | None:
+        if run_time := self.run_time:
+            return timedelta_format(run_time)
+        return None
 
     @property
     def submission_idx(self) -> int | None:
