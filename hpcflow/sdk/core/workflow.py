@@ -4646,6 +4646,9 @@ class Workflow(AppAware):
                         if (num_cores := run.resources.num_cores) is not None:
                             add_env[f"{app_caps}_RUN_NUM_CORES"] = str(num_cores)
 
+                        if (num_MPI_ranks := run.resources.num_MPI_ranks) is not None:
+                            add_env[f"{app_caps}_RUN_NUM_MPI_RANKS"] = str(num_MPI_ranks)
+
                         if run.action.script:
                             if run.is_snippet_script:
                                 script_artifact_name = run.get_script_artifact_name()

@@ -38,7 +38,6 @@ from hpcflow.sdk.core.utils import (
 from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
 from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
 
-
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
     from typing import Any, ClassVar, Literal, TypeAlias
@@ -2513,6 +2512,8 @@ class ResourceSpec(JSONLike):
         How many threads to request.
     num_nodes: int
         How many compute nodes to request.
+    num_MPI_ranks: int
+        How many MPI ranks to use, defaults to ``num_cores``.
     scheduler: str
         Which scheduler to use.
     shell: str
@@ -2569,6 +2570,7 @@ class ResourceSpec(JSONLike):
         "num_cores_per_node",
         "num_threads",
         "num_nodes",
+        "num_MPI_ranks",
         "scheduler",
         "shell",
         "use_job_array",
@@ -2633,6 +2635,7 @@ class ResourceSpec(JSONLike):
         num_cores_per_node: int | None = None,
         num_threads: int | None = None,
         num_nodes: int | None = None,
+        num_MPI_ranks: int | None = None,
         scheduler: str | None = None,
         shell: str | None = None,
         use_job_array: bool | None = None,
@@ -2673,6 +2676,7 @@ class ResourceSpec(JSONLike):
         self._num_threads = num_threads
         self._num_nodes = num_nodes
         self._num_cores_per_node = num_cores_per_node
+        self._num_MPI_ranks = num_MPI_ranks
         self._scheduler = self._process_string(scheduler)
         self._shell = self._process_string(shell)
         self._os_name = self._process_string(os_name)
@@ -2815,6 +2819,7 @@ class ResourceSpec(JSONLike):
                 self._workflow = workflow
 
             self._num_cores = None
+            self._num_MPI_ranks = None
             self._scratch = None
             self._scheduler = None
             self._shell = None
@@ -2913,6 +2918,13 @@ class ResourceSpec(JSONLike):
         How many threads to request.
         """
         return self._get_value("num_threads")
+
+    @property
+    def num_MPI_ranks(self) -> int | None:
+        """
+        How many MPI ranks to use, defaults to ``num_cores``.
+        """
+        return self._get_value("num_MPI_ranks")
 
     @property
     def scheduler(self) -> str | None:
