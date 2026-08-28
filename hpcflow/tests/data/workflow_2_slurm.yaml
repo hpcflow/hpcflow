@@ -1,0 +1,24 @@
+template_components:
+  task_schemas:
+  - objective: locate_bash
+    outputs:
+      - parameter: bash_location
+    actions:
+    - commands:
+      - command: which bash
+        stdout: <<parameter:bash_location>>
+      environments:
+      - scope:
+          type: any
+        environment: null_env
+
+tasks:
+- schema: locate_bash
+
+resources:
+  any:
+    scheduler_args:
+      directives:
+        --time: 00:30:00
+#        --partition: serial
+    num_cores: 1
