@@ -2541,7 +2541,7 @@ class ZarrPersistentStore(
     def _rechunk_arr(
         self,
         arr: Array,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Array:
@@ -2626,7 +2626,7 @@ class ZarrPersistentStore(
 
     def rechunk_parameter_base(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Array:
@@ -2638,7 +2638,7 @@ class ZarrPersistentStore(
 
     def rechunk_runs(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Array:
@@ -2732,7 +2732,7 @@ class ZarrZipPersistentStore(ZarrPersistentStore):
     def _rechunk_arr(
         self,
         arr,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Array:
