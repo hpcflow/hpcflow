@@ -8,6 +8,7 @@ import copy
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import override
@@ -731,6 +732,32 @@ class ZarrPersistentStore(
             ),
         )
 
+    def __create_run_metadata_array(
+        self,
+        task_ID,
+        num_actions,
+        iter_num_chunks,
+        *,
+        shape=None,
+        name=None,
+        write_empty_chunks=True,
+    ):
+        if shape is None:
+            shape = (0, 1000, 1, num_actions)
+
+        if name is None:
+            name = str(task_ID)
+
+        return self._get_EARs_group(mode="r+").create_dataset(
+            name=name,
+            shape=shape,
+            dtype=object,
+            object_codec=self._CODEC,
+            chunks=(1, 1, iter_num_chunks, num_actions),
+            dimension_separator="/",
+            write_empty_chunks=write_empty_chunks,
+        )
+
     def _append_tasks(self, tasks: Iterable[ZarrStoreTask]):
         elem_IDs_arr = self._get_tasks_arr(mode="r+")
         elem_IDs: list[int] = []
@@ -751,13 +778,10 @@ class ZarrPersistentStore(
         for task in tasks:
             if task.num_actions == 0:
                 continue
-            runs_arr_i = self._get_EARs_group(mode="r+").create_dataset(
-                name=str(task.id_),
-                shape=(0, 1000, 1, task.num_actions),  # (elem_i, elem_j, iters, actions)
-                dtype=object,
-                object_codec=self._CODEC,
-                chunks=(1, 1, 1_000_000, task.num_actions),
-                dimension_separator="/",
+            runs_arr_i = self.__create_run_metadata_array(
+                task_ID=task.id_,
+                num_actions=task.num_actions,
+                iter_num_chunks=10,
             )
             runs_arr_i.attrs.update({"parameter_paths": []})
 
@@ -1165,6 +1189,65 @@ class ZarrPersistentStore(
         arr[elem_ID] = store_elem.encode(attrs)
         # attrs shouldn't be mutated (TODO: test!)
 
+    _RUN_ARR_ITER_CHUNK_SIZES = (10, 100, 1_000, 10_000, 100_000, 1_000_000)
+
+    def __get_iter_chunk_size(self, num_iters: int) -> int:
+        for size in self._RUN_ARR_ITER_CHUNK_SIZES:
+            if num_iters <= size:
+                return size
+        return self._RUN_ARR_ITER_CHUNK_SIZES[-1]
+
+    def __rechunk_EARs_task_array(self, task_ID: int, iter_num_chunks: int):
+
+        group = self._get_EARs_group(mode="r+")
+        name = str(task_ID)
+        tmp_name = f"{name}.__rechunk__"
+        old_name = f"{name}.__old__"
+
+        group_path = Path(group.store.path) / group.path
+
+        old_arr = group[name]
+
+        data = old_arr[:]
+        attrs = dict(old_arr.attrs)
+
+        shape = old_arr.shape
+        num_actions = shape[3]
+
+        new_arr = self.__create_run_metadata_array(
+            task_ID,
+            num_actions=num_actions,
+            iter_num_chunks=iter_num_chunks,
+            shape=shape,
+            name=tmp_name,
+            write_empty_chunks=False,
+        )
+
+        new_arr[:] = data
+        new_arr.attrs.update(attrs)
+
+        # make sure we no longer have Zarr objects actively being used here.
+        del new_arr
+        del old_arr
+
+        # Get the actual filesystem paths for these arrays.
+        arr_path = Path(group_path) / name
+        tmp_path = Path(group_path) / tmp_name
+        old_path = Path(group_path) / old_name
+
+        os.rename(arr_path, old_path)
+
+        try:
+            os.rename(tmp_path, arr_path)
+        except BaseException:
+            # Restore the original array if installing the new one fails.
+            os.rename(old_path, arr_path)
+            raise
+
+        shutil.rmtree(old_path)
+
+        return self._get_EARs_task_array(task_ID, mode="r+")
+
     def _append_elem_iters(self, iters: Sequence[ZarrStoreElementIter]):
         arr = self._get_iters_arr(mode="r+")
         with self.__mutate_attrs(arr) as attrs:
@@ -1188,8 +1271,14 @@ class ZarrPersistentStore(
                 continue
             max_iter_idx = max(cast("int", iter_i.index) for iter_i in iters)
             req_iter_size = max_iter_idx + 1
-            new_shape = list(runs_arr.shape)
+
+            # re-chunk iteration dimension to ensure a single-file per element:
+            target_iter_chunk = self.__get_iter_chunk_size(req_iter_size)
+            if target_iter_chunk != runs_arr.chunks[2]:
+                runs_arr = self.__rechunk_EARs_task_array(task_ID, target_iter_chunk)
+
             if req_iter_size > runs_arr.shape[2]:
+                new_shape = list(runs_arr.shape)
                 new_shape[2] = req_iter_size
                 runs_arr.resize(tuple(new_shape))
 
@@ -1278,6 +1367,7 @@ class ZarrPersistentStore(
 
         lookup_by_run_ID = {}
         run_sub_dat_by_run_ID = {}
+        chunks_by_task = defaultdict(set)
         for task_ID, runs_i in runs_by_task.items():
             arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
 
