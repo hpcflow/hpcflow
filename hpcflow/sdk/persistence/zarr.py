@@ -1494,12 +1494,23 @@ class ZarrPersistentStore(
             with self.__mutate_attrs(arr) as attrs:
                 for run_ID, update, row in task_updates:
 
+                    run = runs[run_ID]
+                    sub_idx = update.get("submission_idx", run.submission_idx)
+                    cmd_ID = update.get("commands_file_ID", run.commands_file_ID)
+
                     # submission data lives in the separate array:
                     if sub_update_keys & update.keys():
-                        new_sub_dat[run_ID] = (
-                            update["submission_idx"],
-                            update["commands_file_ID"],
+                        sub_idx = (
+                            sub_idx
+                            if sub_idx is not None
+                            else self._RUN_SUB_DAT_FILL["submission_idx"]
                         )
+                        cmd_ID = (
+                            cmd_ID
+                            if cmd_ID is not None
+                            else self._RUN_SUB_DAT_FILL["commands_file_ID"]
+                        )
+                        new_sub_dat[run_ID] = (sub_idx, cmd_ID)
 
                     # Everything else updates the encoded EAR.
                     run_update = {
