@@ -291,7 +291,7 @@ def test_zarr_rechunk_data_equivalent(tmp_path: Path):
     bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     arr_bak = zarr.open(bak_path)
 
-    assert arr_bak.chunks == (1, 1)  # runs array is 2D
+    assert arr_bak.chunks == (1, 1, 10, 2)  # (elem, elem, iter, act)
 
     # check backup and new runs data are equal:
     assert np.all(arr[:] == arr_bak[:])
@@ -317,15 +317,15 @@ def test_zarr_rechunk_data_equivalent_custom_chunk_size(tmp_path: Path):
         path=tmp_path,
     )
     wk.submit(wait=True, status=False, add_to_known=False)
-    wk.rechunk_runs(backup=True, status=False, chunk_size=2)
+    wk.rechunk_runs(backup=True, status=False, chunk_size=(2, 2, 1, 2))
 
     arr = cast("ZarrPersistentStore", wk._store)._get_EARs_task_array(0)
-    assert arr.chunks == (2, 2)  # runs array is 2D
+    assert arr.chunks == (2, 2, 1, 2)  # (elem, elem, iter, act)
 
     bak_path = (Path(arr.store.path) / arr.path).with_suffix(".bak")
     arr_bak = zarr.open(bak_path)
 
-    assert arr_bak.chunks == (1, 1)  # runs array is 2D
+    assert arr_bak.chunks == (1, 1, 10, 2)  # (elem, elem, iter, act)
 
     # check backup and new runs data are equal:
     assert np.all(arr[:] == arr_bak[:])

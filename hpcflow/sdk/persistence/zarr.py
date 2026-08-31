@@ -2583,6 +2583,7 @@ class ZarrPersistentStore(
             chunks=arr.shape if chunk_size is None else chunk_size,
             dtype=object,
             object_codec=self._CODEC,
+            write_empty_chunks=False,
         )
 
         if status:
