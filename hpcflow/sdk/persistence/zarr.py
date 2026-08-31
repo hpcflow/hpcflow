@@ -354,57 +354,70 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
     """
 
     @override
-    def encode(self, ts_fmt: str, attrs: ZarrAttrs) -> ListAny:
+    def encode(
+        self, ts_fmt: str, attrs: ZarrAttrs
+    ) -> tuple[ListAny, int | None, int | None]:
         """Prepare store EAR data for the persistent store.
+
+        Note ``submission_idx`` and ``commands_file_ID`` are stored separated.
 
         This method mutates `attrs`.
         """
         # task ID, element_idx, iteration_idx is not stored
-        return [
-            self.id_,
-            self.elem_iter_ID,
-            self.action_idx,
+        return (
             [
-                [ensure_in(dk, attrs["parameter_paths"]), dv]
-                for dk, dv in self.data_idx.items()
+                self.id_,
+                self.elem_iter_ID,
+                self.action_idx,
+                [
+                    [ensure_in(dk, attrs["parameter_paths"]), dv]
+                    for dk, dv in self.data_idx.items()
+                ],
+                self.skip,
+                self.success,
+                self._encode_datetime(self.start_time, ts_fmt),
+                self._encode_datetime(self.end_time, ts_fmt),
+                self.snapshot_start,
+                self.snapshot_end,
+                self.exit_code,
+                self.metadata,
+                self.run_hostname,
+                self.commands_idx,
+                self.port_number,
             ],
             self.submission_idx,
-            self.skip,
-            self.success,
-            self._encode_datetime(self.start_time, ts_fmt),
-            self._encode_datetime(self.end_time, ts_fmt),
-            self.snapshot_start,
-            self.snapshot_end,
-            self.exit_code,
-            self.metadata,
-            self.run_hostname,
-            self.commands_idx,
-            self.port_number,
             self.commands_file_ID,
-        ]
+        )
 
     @override
     @classmethod
-    def decode(cls, EAR_dat: ListAny, ts_fmt: str, attrs: ZarrAttrs) -> Self:
+    def decode(
+        cls,
+        EAR_dat: ListAny,
+        ts_fmt: str,
+        attrs: ZarrAttrs,
+        submission_idx: int,
+        commands_file_ID: int,
+    ) -> Self:
         """Initialise a `ZarrStoreEAR` from persistent EAR data"""
         obj_dat = {
             "id_": EAR_dat[0],
             "elem_iter_ID": EAR_dat[1],
             "action_idx": EAR_dat[2],
             "data_idx": {attrs["parameter_paths"][i[0]]: i[1] for i in EAR_dat[3]},
-            "submission_idx": EAR_dat[4],
-            "skip": EAR_dat[5],
-            "success": EAR_dat[6],
-            "start_time": cls._decode_datetime(EAR_dat[7], ts_fmt),
-            "end_time": cls._decode_datetime(EAR_dat[8], ts_fmt),
-            "snapshot_start": EAR_dat[9],
-            "snapshot_end": EAR_dat[10],
-            "exit_code": EAR_dat[11],
-            "metadata": EAR_dat[12],
-            "run_hostname": EAR_dat[13],
-            "commands_idx": EAR_dat[14],
-            "port_number": EAR_dat[15],
-            "commands_file_ID": EAR_dat[16],
+            "submission_idx": submission_idx,
+            "skip": EAR_dat[4],
+            "success": EAR_dat[5],
+            "start_time": cls._decode_datetime(EAR_dat[6], ts_fmt),
+            "end_time": cls._decode_datetime(EAR_dat[7], ts_fmt),
+            "snapshot_start": EAR_dat[8],
+            "snapshot_end": EAR_dat[9],
+            "exit_code": EAR_dat[10],
+            "metadata": EAR_dat[11],
+            "run_hostname": EAR_dat[12],
+            "commands_idx": EAR_dat[13],
+            "port_number": EAR_dat[14],
+            "commands_file_ID": commands_file_ID,
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -482,6 +495,7 @@ class ZarrPersistentStore(
     _elem_arr_name: ClassVar[str] = "elements"
     _iter_arr_name: ClassVar[str] = "iters"
     _EAR_group_name: ClassVar[str] = "runs"
+    _EAR_sub_dat_arr_name: ClassVar[str] = "run_sub_dat"
     _EAR_task_lookup_arr_name: ClassVar[str] = "run_lookup"
     _run_dir_arr_name: ClassVar[str] = "run_dirs"
     _js_at_submit_md_arr_name: ClassVar[str] = "js_at_submit_md"
@@ -498,6 +512,14 @@ class ZarrPersistentStore(
         ("iteration_idx", np.uint32),
         ("action_idx", np.uint16),
     ]
+    _RUN_SUB_DAT_DTYPE: ClassVar = [
+        ("submission_idx", np.uint8),
+        ("commands_file_ID", np.uint32),
+    ]
+    _RUN_SUB_DAT_FILL: ClassVar = {
+        "submission_idx": np.iinfo(np.uint8).max,
+        "commands_file_ID": np.iinfo(np.uint32).max,
+    }
 
     _res_map: ClassVar[CommitResourceMap] = CommitResourceMap(
         commit_template_components=("attrs",)
@@ -701,6 +723,19 @@ class ZarrPersistentStore(
             dtype=cls._RUN_LOOKUP_DTYPE,
             chunks=100_000,
             compressor=cmp,
+        )
+
+        # for storing submission index and commands file ID for each run:
+        md.create_dataset(
+            name=cls._EAR_sub_dat_arr_name,
+            shape=0,
+            dtype=cls._RUN_SUB_DAT_DTYPE,
+            chunks=100_000,
+            compressor=cmp,
+            fill_value=tuple(
+                cls._RUN_SUB_DAT_FILL[key]
+                for key in ("submission_idx", "commands_file_ID")
+            ),
         )
 
     def _append_tasks(self, tasks: Iterable[ZarrStoreTask]):
@@ -1250,7 +1285,7 @@ class ZarrPersistentStore(
             runs_by_task[run.task_ID].append(run)
 
         lookup_by_run_ID = {}
-
+        run_sub_dat_by_run_ID = {}
         for task_ID, runs_i in runs_by_task.items():
             arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
 
@@ -1271,7 +1306,24 @@ class ZarrPersistentStore(
                     col_idx[i] = col
                     iter_idx[i] = run.iteration_idx
                     act_idx[i] = run.action_idx
-                    values[i] = run.encode(self.ts_fmt, attrs)
+                    values[i], sub_idx, cmd_ID = run.encode(self.ts_fmt, attrs)
+
+                    sub_idx = (
+                        sub_idx
+                        if sub_idx is not None
+                        else self._RUN_SUB_DAT_FILL["submission_idx"]
+                    )
+                    cmd_ID = (
+                        cmd_ID
+                        if cmd_ID is not None
+                        else self._RUN_SUB_DAT_FILL["commands_file_ID"]
+                    )
+
+                    if (
+                        sub_idx != self._RUN_SUB_DAT_FILL["submission_idx"]
+                        or cmd_ID != self._RUN_SUB_DAT_FILL["commands_file_ID"]
+                    ):
+                        run_sub_dat_by_run_ID[run.id_] = (sub_idx, cmd_ID)
 
                     lookup_by_run_ID[run.id_] = (
                         task_ID,
@@ -1286,26 +1338,36 @@ class ZarrPersistentStore(
         with self.__mutate_attrs(self._get_EARs_group(mode="r+")) as attrs:
             attrs["num_runs"] += len(EARs)
 
-        # lookup array is indexed directly by run.id_.
+        # arrays indexed by run ID:
         run_lookup_arr = self._get_EARs_lookup_arr(mode="r+")
 
         max_run_ID = max(lookup_by_run_ID)
         required_size = max_run_ID + 1
         if required_size > run_lookup_arr.shape[0]:
             run_lookup_arr.resize(required_size)
-
         run_IDs = np.fromiter(
             lookup_by_run_ID, dtype=np.uint32, count=len(lookup_by_run_ID)
         )
         lookup_values = np.empty(len(run_IDs), dtype=self._RUN_LOOKUP_DTYPE)
         for i, run_ID in enumerate(run_IDs):
             lookup_values[i] = lookup_by_run_ID[int(run_ID)]
-
         run_lookup_arr.set_coordinate_selection((run_IDs,), lookup_values)
+
+        sub_dat_arr = self._get_EARs_sub_dat_arr(mode="r+")
+        if required_size > sub_dat_arr.shape[0]:
+            sub_dat_arr.resize(required_size)
+
+        if run_sub_dat_by_run_ID:
+            sub_run_IDs = np.fromiter(
+                run_sub_dat_by_run_ID, dtype=np.uint32, count=len(run_sub_dat_by_run_ID)
+            )
+            sub_dat_values = np.empty(len(sub_run_IDs), dtype=self._RUN_SUB_DAT_DTYPE)
+            for i, run_ID in enumerate(sub_run_IDs):
+                sub_dat_values[i] = run_sub_dat_by_run_ID[int(run_ID)]
+            sub_dat_arr.set_coordinate_selection((sub_run_IDs,), sub_dat_values)
 
         # add more rows to run dirs array:
         dirs_arr = self._get_dirs_arr(mode="r+")
-        required_size = max_run_ID + 1
         if required_size > dirs_arr.shape[0]:
             dirs_arr.resize(required_size)
 
@@ -1316,42 +1378,78 @@ class ZarrPersistentStore(
     @TimeIt.decorator
     def _update_runs(self, updates: dict[int, dict[str, Any]]):
         """Update the provided EAR attribute values in the specified existing runs."""
-        run_IDs = list(updates.keys())
+
+        run_IDs = list(updates)
         runs = self._get_persistent_EARs(run_IDs)
-
-        indices = self._get_EARs_lookup_arr()[list(updates)]
-
-        indices_by_task = defaultdict(list)
-        for row in indices:
-            indices_by_task[int(row["task_ID"])].append(
-                (
-                    row["element_idx_1"].item(),
-                    row["element_idx_2"].item(),
-                    row["iteration_idx"].item(),
-                    row["action_idx"].item(),
-                )
-            )
-            task_ID = int(row["task_ID"])
+        indices = self._get_EARs_lookup_arr()[run_IDs]
 
         updates_by_task = defaultdict(list)
-        for (r_ID, upd_i), row in zip(updates.items(), indices):
-            task_ID = int(row["task_ID"])
-            coord = (
-                row["element_idx_1"],
-                row["element_idx_2"],
-                row["iteration_idx"],
-                row["action_idx"],
-            )
-            updates_by_task[task_ID].append((r_ID, upd_i, coord))
+        for (run_ID, update), row in zip(updates.items(), indices):
+            updates_by_task[int(row["task_ID"])].append((run_ID, update, row))
+
+        # if we're updating submission idx and commands file ID, they go to a separate
+        # array:
+        new_sub_dat = {}
+        sub_update_keys = {"submission_idx", "commands_file_ID"}
 
         for task_ID, task_updates in updates_by_task.items():
-            arr_i = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
-            with self.__mutate_attrs(arr_i) as attrs:
-                for r_ID, upd_i, coord in task_updates:
-                    new_run_i = runs[r_ID].update(**upd_i)
-                    # seems to be a Zarr bug that prevents `set_coordinate_selection` with
-                    # an object array, so set one-by-one:
-                    arr_i[coord] = new_run_i.encode(self.ts_fmt, attrs)
+            arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
+
+            row_idx = []
+            col_idx = []
+            iter_idx = []
+            act_idx = []
+            values = []
+
+            with self.__mutate_attrs(arr) as attrs:
+                for run_ID, update, row in task_updates:
+
+                    # submission data lives in the separate array:
+                    if sub_update_keys & update.keys():
+                        new_sub_dat[run_ID] = (
+                            update["submission_idx"],
+                            update["commands_file_ID"],
+                        )
+
+                    # Everything else updates the encoded EAR.
+                    run_update = {
+                        key: value
+                        for key, value in update.items()
+                        if key not in sub_update_keys
+                    }
+
+                    if run_update:
+                        run_new = runs[run_ID].update(**run_update)
+                        val, _, _ = run_new.encode(self.ts_fmt, attrs)
+                        values.append(val)
+                        row_idx.append(row["element_idx_1"])
+                        col_idx.append(row["element_idx_2"])
+                        iter_idx.append(row["iteration_idx"])
+                        act_idx.append(row["action_idx"])
+
+            if values:
+                coords = (
+                    np.asarray(row_idx),
+                    np.asarray(col_idx),
+                    np.asarray(iter_idx),
+                    np.asarray(act_idx),
+                )
+                values_arr = np.empty(len(values), dtype=object)
+                values_arr[:] = values
+                arr.set_coordinate_selection(coords, values_arr)
+
+        if new_sub_dat:
+            sub_dat_arr = self._get_EARs_sub_dat_arr(mode="r+")
+            required_size = max(new_sub_dat) + 1
+            if required_size > sub_dat_arr.shape[0]:
+                sub_dat_arr.resize(required_size)
+
+            run_IDs = np.fromiter(new_sub_dat, dtype=np.uint32, count=len(new_sub_dat))
+            sub_dat_values = np.empty(len(run_IDs), dtype=self._RUN_SUB_DAT_DTYPE)
+            for i, run_ID in enumerate(run_IDs):
+                sub_dat_values[i] = new_sub_dat[int(run_ID)]
+
+            sub_dat_arr.set_coordinate_selection((run_IDs,), sub_dat_values)
 
     @TimeIt.decorator
     def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
@@ -1681,6 +1779,9 @@ class ZarrPersistentStore(
     def _get_EARs_lookup_arr(self, mode: str = "r") -> Array:
         return self._get_metadata_group(mode=mode).get(self._EAR_task_lookup_arr_name)
 
+    def _get_EARs_sub_dat_arr(self, mode: str = "r") -> Array:
+        return self._get_metadata_group(mode=mode).get(self._EAR_sub_dat_arr_name)
+
     def _get_dirs_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._run_dir_arr_name)
 
@@ -1887,6 +1988,16 @@ class ZarrPersistentStore(
                 )
                 ids_by_task[task_id] = id_arr[mask]
 
+            # retrieve submission idx and commands file ID for each run:
+            sub_dat = {}
+            for id_i, sub_dat_i in zip(id_lst, self._get_EARs_sub_dat_arr()[id_lst]):
+                sub_idx, cmd_ID = sub_dat_i
+                if sub_idx == self._RUN_SUB_DAT_FILL["submission_idx"]:
+                    sub_idx = None
+                if cmd_ID == self._RUN_SUB_DAT_FILL["commands_file_ID"]:
+                    cmd_ID = None
+                sub_dat[id_i] = (sub_idx, cmd_ID)
+
             new_runs = {}
             for task_ID, indices_i in indices_by_task.items():
                 arr_i = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
@@ -1899,7 +2010,13 @@ class ZarrPersistentStore(
                 EAR_dat = dict(zip(ids_i, EAR_arr_dat))
                 new_runs.update(
                     {
-                        k: ZarrStoreEAR.decode(EAR_dat=v, ts_fmt=self.ts_fmt, attrs=attrs)
+                        k: ZarrStoreEAR.decode(
+                            EAR_dat=v,
+                            ts_fmt=self.ts_fmt,
+                            attrs=attrs,
+                            submission_idx=sub_dat[k][0],
+                            commands_file_ID=sub_dat[k][1],
+                        )
                         for k, v in EAR_dat.items()
                     }
                 )
