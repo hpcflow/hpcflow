@@ -9,7 +9,6 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-import pprint
 from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import override
 import shutil
@@ -354,9 +353,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
     """
 
     @override
-    def encode(
-        self, ts_fmt: str, attrs: ZarrAttrs
-    ) -> tuple[ListAny, int | None, int | None]:
+    def encode(self, ts_fmt: str, attrs: ZarrAttrs) -> ListAny:
         """Prepare store EAR data for the persistent store.
 
         Note ``submission_idx`` and ``commands_file_ID`` are stored separated.
@@ -364,30 +361,28 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
         This method mutates `attrs`.
         """
         # task ID, element_idx, iteration_idx is not stored
-        return (
+        return [
+            self.id_,
+            self.elem_iter_ID,
+            self.action_idx,
             [
-                self.id_,
-                self.elem_iter_ID,
-                self.action_idx,
-                [
-                    [ensure_in(dk, attrs["parameter_paths"]), dv]
-                    for dk, dv in self.data_idx.items()
-                ],
-                self.skip,
-                self.success,
-                self._encode_datetime(self.start_time, ts_fmt),
-                self._encode_datetime(self.end_time, ts_fmt),
-                self.snapshot_start,
-                self.snapshot_end,
-                self.exit_code,
-                self.metadata,
-                self.run_hostname,
-                self.commands_idx,
-                self.port_number,
+                [ensure_in(dk, attrs["parameter_paths"]), dv]
+                for dk, dv in self.data_idx.items()
             ],
+            self.skip,
+            self.success,
+            self._encode_datetime(self.start_time, ts_fmt),
+            self._encode_datetime(self.end_time, ts_fmt),
+            self.snapshot_start,
+            self.snapshot_end,
+            self.exit_code,
+            self.metadata,
+            self.run_hostname,
+            self.commands_idx,
+            self.port_number,
             self.submission_idx,
             self.commands_file_ID,
-        )
+        ]
 
     @override
     @classmethod
@@ -396,8 +391,6 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
         EAR_dat: ListAny,
         ts_fmt: str,
         attrs: ZarrAttrs,
-        submission_idx: int,
-        commands_file_ID: int,
     ) -> Self:
         """Initialise a `ZarrStoreEAR` from persistent EAR data"""
         obj_dat = {
@@ -405,7 +398,6 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             "elem_iter_ID": EAR_dat[1],
             "action_idx": EAR_dat[2],
             "data_idx": {attrs["parameter_paths"][i[0]]: i[1] for i in EAR_dat[3]},
-            "submission_idx": submission_idx,
             "skip": EAR_dat[4],
             "success": EAR_dat[5],
             "start_time": cls._decode_datetime(EAR_dat[6], ts_fmt),
@@ -417,7 +409,8 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             "run_hostname": EAR_dat[12],
             "commands_idx": EAR_dat[13],
             "port_number": EAR_dat[14],
-            "commands_file_ID": commands_file_ID,
+            "submission_idx": EAR_dat[15],
+            "commands_file_ID": EAR_dat[16],
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -1280,7 +1273,6 @@ class ZarrPersistentStore(
 
         for run in EARs:
             assert run.task_ID is not None
-            assert run.element_idx is not None
             assert run.id_ is not None
             runs_by_task[run.task_ID].append(run)
 
@@ -1300,13 +1292,21 @@ class ZarrPersistentStore(
             with self.__mutate_attrs(arr) as attrs:
 
                 for i, run in enumerate(runs_i):
-                    row, col = divmod(run.element_idx, 1000)
 
+                    assert (run_elem_idx := run.element_idx) is not None
+                    assert (run_iter_idx := run.iteration_idx) is not None
+                    assert (run_act_idx := run.action_idx) is not None
+
+                    row, col = divmod(run_elem_idx, 1000)
                     row_idx[i] = row
                     col_idx[i] = col
-                    iter_idx[i] = run.iteration_idx
-                    act_idx[i] = run.action_idx
-                    values[i], sub_idx, cmd_ID = run.encode(self.ts_fmt, attrs)
+                    iter_idx[i] = run_iter_idx
+                    act_idx[i] = run_act_idx
+
+                    enc_i = run.encode(self.ts_fmt, attrs)
+                    cmd_ID = enc_i.pop()
+                    sub_idx = enc_i.pop()
+                    values[i] = enc_i
 
                     sub_idx = (
                         sub_idx
@@ -1420,8 +1420,9 @@ class ZarrPersistentStore(
 
                     if run_update:
                         run_new = runs[run_ID].update(**run_update)
-                        val, _, _ = run_new.encode(self.ts_fmt, attrs)
-                        values.append(val)
+
+                        enc_i = run_new.encode(self.ts_fmt, attrs)
+                        values.append(enc_i[:-2])
                         row_idx.append(row["element_idx_1"])
                         col_idx.append(row["element_idx_2"])
                         iter_idx.append(row["iteration_idx"])
@@ -1444,12 +1445,14 @@ class ZarrPersistentStore(
             if required_size > sub_dat_arr.shape[0]:
                 sub_dat_arr.resize(required_size)
 
-            run_IDs = np.fromiter(new_sub_dat, dtype=np.uint32, count=len(new_sub_dat))
-            sub_dat_values = np.empty(len(run_IDs), dtype=self._RUN_SUB_DAT_DTYPE)
-            for i, run_ID in enumerate(run_IDs):
+            sub_run_IDs = np.fromiter(
+                new_sub_dat, dtype=np.uint32, count=len(new_sub_dat)
+            )
+            sub_dat_values = np.empty(len(sub_run_IDs), dtype=self._RUN_SUB_DAT_DTYPE)
+            for i, run_ID in enumerate(sub_run_IDs):
                 sub_dat_values[i] = new_sub_dat[int(run_ID)]
 
-            sub_dat_arr.set_coordinate_selection((run_IDs,), sub_dat_values)
+            sub_dat_arr.set_coordinate_selection((sub_run_IDs,), sub_dat_values)
 
     @TimeIt.decorator
     def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
@@ -2007,19 +2010,13 @@ class ZarrPersistentStore(
                     EAR_arr_dat = _zarr_get_coord_selection(arr_i, indices_i, self.logger)
                 except BoundsCheckError:
                     raise MissingStoreEARError(ids_i) from None
-                EAR_dat = dict(zip(ids_i, EAR_arr_dat))
-                new_runs.update(
-                    {
-                        k: ZarrStoreEAR.decode(
-                            EAR_dat=v,
-                            ts_fmt=self.ts_fmt,
-                            attrs=attrs,
-                            submission_idx=sub_dat[k][0],
-                            commands_file_ID=sub_dat[k][1],
-                        )
-                        for k, v in EAR_dat.items()
-                    }
-                )
+                for id_i, EAR_dat_i in zip(ids_i, EAR_arr_dat):
+                    EAR_dat_i.extend([sub_dat[id_i][0], sub_dat[id_i][1]])
+                    new_runs[id_i] = ZarrStoreEAR.decode(
+                        EAR_dat=EAR_dat_i,
+                        ts_fmt=self.ts_fmt,
+                        attrs=attrs,
+                    )
 
             self.EAR_cache.update(new_runs)
             runs.update(new_runs)
