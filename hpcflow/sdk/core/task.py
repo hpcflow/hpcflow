@@ -2605,6 +2605,9 @@ class WorkflowTask(AppAware):
                 action_idx=act_idx,
                 commands_idx=run["commands_idx"],
                 data_idx=all_data_idx[act_idx, EAR_ID_i],
+                task_ID=self.insert_ID,
+                element_idx=element_iter.element.index,
+                iteration_idx=element_iter.index,
             )
 
         self.workflow._store.update_param_source(param_src_updates)
@@ -2672,6 +2675,8 @@ class WorkflowTask(AppAware):
                 element_ID=elem_ID_i,
                 data_idx=data_idx,
                 schema_parameters=list(schema_params),
+                task_ID=self.insert_ID,
+                index=0,
             )
             iter_IDs.append(iter_ID_i)
             elem_IDs.append(elem_ID_i)

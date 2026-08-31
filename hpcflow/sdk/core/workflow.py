@@ -1823,7 +1823,9 @@ class Workflow(AppAware):
         task_js, temp_comps_js = task_c.to_json_like()
         assert temp_comps_js is not None
         self._store.add_template_components(temp_comps_js)
-        self._store.add_task(new_index, cast("Mapping", task_js))
+        self._store.add_task(
+            new_index, cast("Mapping", task_js), task_c.num_all_schema_actions
+        )
 
         # update in-memory workflow template components:
         temp_comps = cast(

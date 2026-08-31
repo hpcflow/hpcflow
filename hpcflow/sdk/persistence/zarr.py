@@ -358,6 +358,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
 
         This method mutates `attrs`.
         """
+        # task ID, element_idx, iteration_idx is not stored
         return [
             self.id_,
             self.elem_iter_ID,
@@ -479,7 +480,8 @@ class ZarrPersistentStore(
     _task_arr_name: ClassVar[str] = "tasks"
     _elem_arr_name: ClassVar[str] = "elements"
     _iter_arr_name: ClassVar[str] = "iters"
-    _EAR_arr_name: ClassVar[str] = "runs"
+    _EAR_group_name: ClassVar[str] = "runs"
+    _EAR_task_lookup_arr_name: ClassVar[str] = "run_lookup"
     _run_dir_arr_name: ClassVar[str] = "run_dirs"
     _js_at_submit_md_arr_name: ClassVar[str] = "js_at_submit_md"
     _js_run_IDs_arr_name: ClassVar[str] = "js_run_IDs"
@@ -487,6 +489,14 @@ class ZarrPersistentStore(
     _js_task_acts_arr_name: ClassVar[str] = "js_task_acts"
     _js_deps_arr_name: ClassVar[str] = "js_deps"
     _time_res: ClassVar[str] = "us"  # microseconds; must not be smaller than micro!
+
+    _RUN_LOOKUP_DTYPE: ClassVar = [
+        ("task_ID", np.uint16),
+        ("element_idx_1", np.uint16),
+        ("element_idx_2", np.uint16),
+        ("iteration_idx", np.uint32),
+        ("action_idx", np.uint16),
+    ]
 
     _res_map: ClassVar[CommitResourceMap] = CommitResourceMap(
         commit_template_components=("attrs",)
@@ -645,17 +655,6 @@ class ZarrPersistentStore(
             }
         )
 
-        EARs_arr = md.create_dataset(
-            name=cls._EAR_arr_name,
-            shape=(0, 1000),
-            dtype=object,
-            object_codec=cls._CODEC,
-            chunks=1,  # single-chunk rows for multiprocess writing
-            compressor=cmp,
-            dimension_separator="/",
-        )
-        EARs_arr.attrs.update({"parameter_paths": [], "num_runs": 0})
-
         # array for storing indices that can be used to reproduce run directory paths:
         run_dir_arr = md.create_dataset(
             name=cls._run_dir_arr_name,
@@ -690,6 +689,19 @@ class ZarrPersistentStore(
         # for storing submission metadata that should not be stored in the root group:
         md.create_group(name=cls._subs_md_group_name)
 
+        # for storing run metadata per-task
+        run_group = md.create_group(name=cls._EAR_group_name)
+        run_group.attrs["num_runs"] = 0
+
+        # for looking up where a given run IDs metadata is stored in the per-task group
+        md.create_dataset(
+            name=cls._EAR_task_lookup_arr_name,
+            shape=0,
+            dtype=cls._RUN_LOOKUP_DTYPE,
+            chunks=100_000,
+            compressor=cmp,
+        )
+
     def _append_tasks(self, tasks: Iterable[ZarrStoreTask]):
         elem_IDs_arr = self._get_tasks_arr(mode="r+")
         elem_IDs: list[int] = []
@@ -706,6 +718,19 @@ class ZarrPersistentStore(
         # tasks array rows correspond to task IDs, and we assume `tasks` have sequentially
         # increasing IDs.
         append_items_to_ragged_array(arr=elem_IDs_arr, items=elem_IDs)
+
+        for task in tasks:
+            if task.num_actions == 0:
+                continue
+            runs_arr_i = self._get_EARs_group(mode="r+").create_dataset(
+                name=str(task.id_),
+                shape=(0, 1000, 1, task.num_actions),  # (elem_i, elem_j, iters, actions)
+                dtype=object,
+                object_codec=self._CODEC,
+                chunks=(1, 1, 1_000_000, task.num_actions),
+                dimension_separator="/",
+            )
+            runs_arr_i.attrs.update({"parameter_paths": []})
 
     def _append_loops(self, loops: dict[int, LoopDescriptor]):
         with self.using_resource("attrs", action="update") as attrs:
@@ -1066,7 +1091,7 @@ class ZarrPersistentStore(
         return cast("ZarrAttrs", attrs.asdict())
 
     @contextmanager
-    def __mutate_attrs(self, arr: Array) -> Iterator[ZarrAttrs]:
+    def __mutate_attrs(self, arr: Array | Group) -> Iterator[ZarrAttrs]:
         attrs_orig = self.__as_dict(arr.attrs)
         attrs = copy.deepcopy(attrs_orig)
         yield attrs
@@ -1079,6 +1104,23 @@ class ZarrPersistentStore(
             arr_add = np.empty((len(elems)), dtype=object)
             arr_add[:] = [elem.encode(attrs) for elem in elems]
             arr.append(arr_add)
+
+        # group by task ID:
+        elements_by_task = defaultdict(list)
+        for elem in elems:
+            elements_by_task[elem.task_ID].append(elem)
+
+        # resize runs array to accommodate new elements:
+        for task_ID, elements in elements_by_task.items():
+            runs_arr = self._get_EARs_task_array(task_ID, mode="r+")
+            if runs_arr is None:
+                # e.g. an action-less task
+                continue
+            max_elem_idx = max(element.index for element in elements)
+            required_rows = max_elem_idx // 1000 + 1
+            if required_rows > runs_arr.shape[0]:
+                new_shape = (required_rows, 1000, *runs_arr.shape[2:])
+                runs_arr.resize(new_shape)
 
     def _append_element_sets(self, task_id: int, es_js: Sequence[Mapping]):
         task_idx = task_idx = self._get_task_id_to_idx_map()[task_id]
@@ -1100,6 +1142,27 @@ class ZarrPersistentStore(
             arr_add = np.empty((len(iters)), dtype=object)
             arr_add[:] = [i.encode(attrs) for i in iters]
             arr.append(arr_add)
+
+        # group by task ID:
+        iters_by_task = defaultdict(list)
+        for iter_i in iters:
+            task_ID = iter_i.task_ID
+            assert task_ID is not None
+            assert iter_i.index is not None
+            iters_by_task[task_ID].append(iter_i)
+
+        # resize runs array to accommodate new iterations:
+        for task_ID, iters in iters_by_task.items():
+            runs_arr = self._get_EARs_task_array(task_ID, mode="r+")
+            if runs_arr is None:
+                # e.g. an action-less task
+                continue
+            max_iter_idx = max(cast("int", iter_i.index) for iter_i in iters)
+            req_iter_size = max_iter_idx + 1
+            new_shape = list(runs_arr.shape)
+            if req_iter_size > runs_arr.shape[2]:
+                new_shape[2] = req_iter_size
+                runs_arr.resize(tuple(new_shape))
 
     def _append_elem_iter_EAR_IDs(
         self, iter_ID: int, act_idx: int, EAR_IDs: Sequence[int]
@@ -1173,36 +1236,67 @@ class ZarrPersistentStore(
         )
 
     def _append_EARs(self, EARs: Sequence[ZarrStoreEAR]):
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            num_existing = attrs["num_runs"]
-            num_add = len(EARs)
-            num_tot = num_existing + num_add
-            arr_add = np.empty(num_add, dtype=object)
-            arr_add[:] = [i.encode(self.ts_fmt, attrs) for i in EARs]
 
-            # get new 1D indices:
-            new_idx: NDArray = np.arange(num_existing, num_tot)
+        # group by task insert ID:
+        runs_by_task = defaultdict(list)
+        for run in EARs:
+            task_ID = run.task_ID
+            assert task_ID is not None
+            assert run.element_idx is not None
+            runs_by_task[task_ID].append(run)
 
-            # transform to 2D indices:
-            r_idx, c_idx = get_2D_idx(new_idx, num_cols=arr.shape[1])
+        # lookup entries keyed by run ID:
+        new_run_lookups = {}
 
-            # add rows to accommodate new runs:
-            max_r_idx = np.max(r_idx)
-            if max_r_idx + 1 > arr.shape[0]:
-                arr.resize(max_r_idx + 1, arr.shape[1])
+        for task_ID, runs_i in runs_by_task.items():
+            arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
 
-            # fill in new data:
-            for arr_add_idx_i, (r_idx_i, c_idx_i) in enumerate(zip(r_idx, c_idx)):
-                # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-                # object array, so set one-by-one:
-                arr[r_idx_i, c_idx_i] = arr_add[arr_add_idx_i]
+            with self.__mutate_attrs(arr) as attrs:
+                for run in runs_i:
+                    run_elem_idx = run.element_idx
+                    assert run_elem_idx is not None
+                    row, col = divmod(run_elem_idx, 1000)
+                    coord = (
+                        row,
+                        col,
+                        run.iteration_idx,
+                        run.action_idx,
+                    )
+                    # seems to be a Zarr bug that prevents `set_coordinate_selection` with
+                    # an object array, so set one-by-one:
+                    arr[coord] = run.encode(self.ts_fmt, attrs)
 
-            attrs["num_runs"] = num_tot
+                    new_run_lookups[run.id_] = (
+                        task_ID,
+                        row,
+                        col,
+                        run.iteration_idx,
+                        run.action_idx,
+                    )
+
+        with self.__mutate_attrs(self._get_EARs_group(mode="r+")) as attrs:
+            attrs["num_runs"] += len(EARs)
+
+        # ensure lookup array can be indexed directly by run ID
+        run_lookup_arr = self._get_EARs_lookup_arr(mode="r+")
+
+        required_size = max(new_run_lookups) + 1
+        if required_size > run_lookup_arr.shape[0]:
+            run_lookup_arr.resize(required_size)
+
+        run_IDs = np.fromiter(new_run_lookups, dtype=np.uint32)
+        lookup_values = np.array(
+            [new_run_lookups[i] for i in run_IDs],
+            dtype=self._RUN_LOOKUP_DTYPE,
+        )
+        run_lookup_arr[run_IDs] = lookup_values
 
         # add more rows to run dirs array:
         dirs_arr = self._get_dirs_arr(mode="r+")
-        dirs_arr.resize(num_tot)
+        max_run_ID = max(run.id_ for run in EARs)
+        req_dir_rows = max_run_ID + 1
+        if req_dir_rows > dirs_arr.shape[0]:
+            dirs_arr.resize(req_dir_rows)
 
     def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray):
         dirs_arr = self._get_dirs_arr(mode="r+")
@@ -1214,19 +1308,39 @@ class ZarrPersistentStore(
         run_IDs = list(updates.keys())
         runs = self._get_persistent_EARs(run_IDs)
 
-        arr = self._get_EARs_arr(mode="r+")
-        with self.__mutate_attrs(arr) as attrs:
-            # convert to 2D array indices:
-            r_idx, c_idx = get_2D_idx(
-                np.array(list(updates.keys())), num_cols=arr.shape[1]
+        indices = self._get_EARs_lookup_arr()[list(updates)]
+
+        indices_by_task = defaultdict(list)
+        for row in indices:
+            indices_by_task[int(row["task_ID"])].append(
+                (
+                    row["element_idx_1"].item(),
+                    row["element_idx_2"].item(),
+                    row["iteration_idx"].item(),
+                    row["action_idx"].item(),
+                )
             )
-            for ri, ci, rID_i, upd_i in zip(
-                r_idx, c_idx, updates.keys(), updates.values()
-            ):
-                new_run_i = runs[rID_i].update(**upd_i)
-                # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-                # object array, so set one-by-one:
-                arr[ri, ci] = new_run_i.encode(self.ts_fmt, attrs)
+            task_ID = int(row["task_ID"])
+
+        updates_by_task = defaultdict(list)
+        for (r_ID, upd_i), row in zip(updates.items(), indices):
+            task_ID = int(row["task_ID"])
+            coord = (
+                row["element_idx_1"],
+                row["element_idx_2"],
+                row["iteration_idx"],
+                row["action_idx"],
+            )
+            updates_by_task[task_ID].append((r_ID, upd_i, coord))
+
+        for task_ID, task_updates in updates_by_task.items():
+            arr_i = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
+            with self.__mutate_attrs(arr_i) as attrs:
+                for r_ID, upd_i, coord in task_updates:
+                    new_run_i = runs[r_ID].update(**upd_i)
+                    # seems to be a Zarr bug that prevents `set_coordinate_selection` with
+                    # an object array, so set one-by-one:
+                    arr_i[coord] = new_run_i.encode(self.ts_fmt, attrs)
 
     @TimeIt.decorator
     def _update_EAR_submission_data(self, sub_data: Mapping[int, tuple[int, int | None]]):
@@ -1416,7 +1530,7 @@ class ZarrPersistentStore(
         if self.use_cache and self.num_EARs_cache is not None:
             num = self.num_EARs_cache
         else:
-            num = self._get_EARs_arr().attrs["num_runs"]
+            num = self._get_EARs_group().attrs["num_runs"]
         if self.use_cache and self.num_EARs_cache is None:
             self.num_EARs_cache = num
         return num
@@ -1547,8 +1661,14 @@ class ZarrPersistentStore(
     def _get_iters_arr(self, mode: str = "r") -> Array:
         return self._get_metadata_group(mode=mode).get(self._iter_arr_name)
 
-    def _get_EARs_arr(self, mode: str = "r") -> Array:
-        return self._get_metadata_group(mode=mode).get(self._EAR_arr_name)
+    def _get_EARs_group(self, mode: str = "r") -> Group:
+        return self._get_metadata_group(mode=mode).get(self._EAR_group_name)
+
+    def _get_EARs_task_array(self, task_ID: int, mode: str = "r") -> Array:
+        return self._get_EARs_group(mode=mode).get(str(task_ID))
+
+    def _get_EARs_lookup_arr(self, mode: str = "r") -> Array:
+        return self._get_metadata_group(mode=mode).get(self._EAR_task_lookup_arr_name)
 
     def _get_dirs_arr(self, mode: str = "r") -> zarr.Array:
         return self._get_metadata_group(mode=mode).get(self._run_dir_arr_name)
@@ -1599,15 +1719,6 @@ class ZarrPersistentStore(
             }
         )
 
-        EARs_arr = md.create_dataset(
-            name=cls._EAR_arr_name,
-            shape=0,
-            dtype=object,
-            object_codec=cls._CODEC,
-            chunks=1000,
-        )
-        EARs_arr.attrs["parameter_paths"] = []
-
         tasks, elems, elem_iters, EARs_ = super().prepare_test_store_from_spec(spec)
 
         path = Path(path).resolve()
@@ -1617,13 +1728,11 @@ class ZarrPersistentStore(
             ZarrStoreElementIter(**i).encode(elem_iters_arr.attrs.asdict())
             for i in elem_iters
         ]
-        EARs = [ZarrStoreEAR(**i).encode(ts_fmt, EARs_arr.attrs.asdict()) for i in EARs_]
 
         append_items_to_ragged_array(tasks_arr, tasks)
 
         elems_arr.append(np.fromiter(elements, dtype=object))
         elem_iters_arr.append(np.fromiter(elem_iters, dtype=object))
-        EARs_arr.append(np.fromiter(EARs, dtype=object))
 
         return cls(path)
 
@@ -1750,24 +1859,40 @@ class ZarrPersistentStore(
                 f"loading {len(id_lst)} persistent EAR(s) from disk: "
                 f"{shorten_list_str(id_lst)}."
             )
-            arr = self._get_EARs_arr()
-            attrs = arr.attrs.asdict()
-            sel: tuple[NDArray, NDArray] | list[int]
-            try:
-                # convert to 2D array indices:
-                sel = get_2D_idx(np.array(id_lst), num_cols=arr.shape[1])
-            except IndexError:
-                # 1D runs array from before update to 2D in Feb 2025 refactor/jobscript:
-                sel = id_lst
-            try:
-                EAR_arr_dat = _zarr_get_coord_selection(arr, sel, self.logger)
-            except BoundsCheckError:
-                raise MissingStoreEARError(id_lst) from None
-            EAR_dat = dict(zip(id_lst, EAR_arr_dat))
-            new_runs = {
-                k: ZarrStoreEAR.decode(EAR_dat=v, ts_fmt=self.ts_fmt, attrs=attrs)
-                for k, v in EAR_dat.items()
-            }
+            indices = self._get_EARs_lookup_arr()[id_lst]
+            id_arr = np.asarray(id_lst)
+            indices_by_task = {}
+            ids_by_task = {}
+            for task_id in np.unique(indices["task_ID"]):
+                mask = indices["task_ID"] == task_id
+                indices_by_task[int(task_id)] = tuple(
+                    indices[name][mask]
+                    for name in (
+                        "element_idx_1",
+                        "element_idx_2",
+                        "iteration_idx",
+                        "action_idx",
+                    )
+                )
+                ids_by_task[task_id] = id_arr[mask]
+
+            new_runs = {}
+            for task_ID, indices_i in indices_by_task.items():
+                arr_i = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
+                ids_i = ids_by_task[task_ID]
+                attrs = arr_i.attrs.asdict()
+                try:
+                    EAR_arr_dat = _zarr_get_coord_selection(arr_i, indices_i, self.logger)
+                except BoundsCheckError:
+                    raise MissingStoreEARError(ids_i) from None
+                EAR_dat = dict(zip(ids_i, EAR_arr_dat))
+                new_runs.update(
+                    {
+                        k: ZarrStoreEAR.decode(EAR_dat=v, ts_fmt=self.ts_fmt, attrs=attrs)
+                        for k, v in EAR_dat.items()
+                    }
+                )
+
             self.EAR_cache.update(new_runs)
             runs.update(new_runs)
 
@@ -2294,8 +2419,8 @@ class ZarrPersistentStore(
         """
         Rechunk the run data to be stored more efficiently.
         """
-        arr = self._get_EARs_arr()
-        return self._rechunk_arr(arr, chunk_size, backup, status)
+        for _, arr in self._get_EARs_group().arrays():
+            self._rechunk_arr(arr, chunk_size, backup, status)
 
     def get_dirs_array(self) -> NDArray:
         """

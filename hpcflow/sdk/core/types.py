@@ -80,6 +80,8 @@ class ElementDescriptor(TypedDict):
     input_sources: Mapping[str, InputSource]
     #: The insertion ID.
     task_insert_ID: int
+    #: Number of element iterations.
+    num_iters: int
 
 
 class _DependentDescriptor(TypedDict):

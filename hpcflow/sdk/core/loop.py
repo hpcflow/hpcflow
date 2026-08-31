@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 import copy
-from pprint import pp
-import pprint
 from typing import Dict, List, Optional, Tuple, Union, Any
 from warnings import warn
 from collections import defaultdict
@@ -829,6 +827,8 @@ class WorkflowLoop(AppAware):
                     data_idx=new_data_idx,
                     schema_parameters=list(schema_params),
                     loop_idx=new_loop_idx,
+                    task_ID=task.insert_ID,
+                    index=cache.elements[elem_ID]["num_iters"],
                 )
                 if cache:
                     cache.add_iteration(

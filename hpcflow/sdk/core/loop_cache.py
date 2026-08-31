@@ -216,6 +216,7 @@ class LoopCache:
         new_iter_idx = len(self.data_idx[element_ID])
         self.data_idx[element_ID][loop_idx] = data_idx
         self.iterations[iter_ID] = (element_ID, new_iter_idx)
+        self.elements[element_ID]["num_iters"] += 1
 
     @classmethod
     @TimeIt.decorator
@@ -239,7 +240,7 @@ class LoopCache:
         iters: dict[int, tuple[int, int]] = {}
 
         # keys: element IDs, values: dict with keys: "input_statues", "input_sources",
-        # "task_insert_ID":
+        # "task_insert_ID", "num_iters":
         elements: dict[int, ElementDescriptor] = {}
 
         zeroth_iters: dict[int, tuple[int, DataIndex]] = {}
@@ -252,6 +253,7 @@ class LoopCache:
                     "input_statuses": inp_statuses,
                     "input_sources": element.input_sources,
                     "task_insert_ID": task.insert_ID,
+                    "num_iters": len(element.iterations),
                 }
                 elem_deps[element.id_] = {
                     de_id: {

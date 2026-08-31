@@ -209,6 +209,9 @@ class StoreTask(Generic[SerFormT]):
     element_IDs: list[int]
     #: Description of the template for the task.
     task_template: Mapping[str, Any] | None = None
+    #: Number of actions in the task, only stored to assist with encoding, not available
+    #: from decode.
+    num_actions: int | None = None
 
     @abstractmethod
     def encode(self) -> tuple[int, SerFormT, dict[str, Any]]:
@@ -376,6 +379,12 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
     schema_parameters: list[str]
     #: What loops are being handled here and where they're up to.
     loop_idx: Mapping[str, int] = field(default_factory=dict)
+    #: Task of the iteration, only stored to assist with encoding, not available from
+    #: decode:
+    task_ID: int | None = None
+    #: Index of the iteration within its parent element, only stored to assist with
+    #: encoding, not available from decode:
+    index: int | None = None
 
     @abstractmethod
     def encode(self, context: ContextT) -> SerFormT:
@@ -554,6 +563,14 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     #: Where this EAR was submitted to run, if known.
     run_hostname: str | None = None
     port_number: int | None = None
+    #: Task of the run, only stored to assist with encoding, not available from decode:
+    task_ID: int | None = None
+    #: Element index of the run, only stored to assist with encoding, not available from
+    #: decode:
+    element_idx: int | None = None
+    #: Element iteration index of the run, only stored to assist with encoding, not
+    #: available from decode:
+    iteration_idx: int | None = None
 
     @staticmethod
     def _encode_datetime(dt: datetime | None, ts_fmt: str) -> str | None:
@@ -658,6 +675,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             exit_code=exit_code,
             run_hostname=run_hn,
             port_number=port_num,
+            task_ID=self.task_ID,
         )
 
 
@@ -1530,7 +1548,9 @@ class PersistentStore(
         if save:
             self.save()
 
-    def add_task(self, idx: int, task_template: Mapping, save: bool = True):
+    def add_task(
+        self, idx: int, task_template: Mapping, num_actions: int, save: bool = True
+    ):
         """Add a new task to the workflow."""
         self.logger.debug("Adding store task.")
         new_ID = self._get_num_total_added_tasks()
@@ -1540,6 +1560,7 @@ class PersistentStore(
             task_template=task_template,
             is_pending=True,
             element_IDs=[],
+            num_actions=num_actions,
         )
         if save:
             self.save()
@@ -1625,6 +1646,8 @@ class PersistentStore(
         element_ID: int,
         data_idx: DataIndex,
         schema_parameters: list[str],
+        task_ID: int,
+        index: int,
         loop_idx: Mapping[str, int] | None = None,
         save: bool = True,
     ) -> int:
@@ -1640,6 +1663,8 @@ class PersistentStore(
             data_idx=data_idx,
             schema_parameters=schema_parameters,
             loop_idx=loop_idx or {},
+            task_ID=task_ID,
+            index=index,
         )
         self._pending.add_elem_iter_IDs[element_ID].append(new_ID)
         if save:
@@ -1653,6 +1678,9 @@ class PersistentStore(
         action_idx: int,
         commands_idx: list[int],
         data_idx: DataIndex,
+        task_ID: int,
+        element_idx: int,
+        iteration_idx: int,
         metadata: Metadata | None = None,
         save: bool = True,
     ) -> int:
@@ -1666,6 +1694,9 @@ class PersistentStore(
             action_idx=action_idx,
             commands_idx=commands_idx,
             data_idx=data_idx,
+            task_ID=task_ID,
+            element_idx=element_idx,
+            iteration_idx=iteration_idx,
             metadata=metadata or {},
         )
         self._pending.add_elem_iter_EAR_IDs[elem_iter_ID][action_idx].append(new_ID)

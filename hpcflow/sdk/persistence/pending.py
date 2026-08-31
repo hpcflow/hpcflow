@@ -293,6 +293,8 @@ class PendingChanges(
         """Commit pending tasks to disk."""
         if self.add_tasks:
             tasks = self.store.get_tasks_by_IDs(self.add_tasks)
+            for task in tasks:
+                task.num_actions = self.add_tasks[task.id_].num_actions
             task_ids = set(self.add_tasks)
             self.logger.debug(f"commit: adding pending tasks with IDs: {task_ids!r}")
             self.store._append_tasks(tasks)
@@ -420,6 +422,10 @@ class PendingChanges(
         """
         if self.add_elem_iters:
             iters = self.store.get_element_iterations(self.add_elem_iters)
+            for iter_i in iters:
+                iter_i.index = self.add_elem_iters[iter_i.id_].index
+                iter_i.task_ID = self.add_elem_iters[iter_i.id_].task_ID
+
             iter_ids = set(self.add_elem_iters)
             self.logger.debug(
                 f"commit: adding pending element iterations with IDs: {iter_ids!r}"
