@@ -1162,7 +1162,7 @@ class PersistentStore(
     @abstractmethod
     def rechunk_parameter_base(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Any: ...
@@ -1170,7 +1170,7 @@ class PersistentStore(
     @abstractmethod
     def rechunk_runs(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Any: ...
