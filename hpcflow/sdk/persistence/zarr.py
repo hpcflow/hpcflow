@@ -1367,7 +1367,6 @@ class ZarrPersistentStore(
 
         lookup_by_run_ID = {}
         run_sub_dat_by_run_ID = {}
-        chunks_by_task = defaultdict(set)
         for task_ID, runs_i in runs_by_task.items():
             arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
 
