@@ -9,6 +9,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+import pprint
 from typing import Any, cast, TYPE_CHECKING
 from typing_extensions import override
 import shutil
@@ -1235,38 +1236,44 @@ class ZarrPersistentStore(
             updates={k: {"data_idx": v} for k, v in run_data_indices.items()}
         )
 
+    @TimeIt.decorator
     def _append_EARs(self, EARs: Sequence[ZarrStoreEAR]):
+        if not EARs:
+            return
 
-        # group by task insert ID:
         runs_by_task = defaultdict(list)
-        for run in EARs:
-            task_ID = run.task_ID
-            assert task_ID is not None
-            assert run.element_idx is not None
-            runs_by_task[task_ID].append(run)
 
-        # lookup entries keyed by run ID:
-        new_run_lookups = {}
+        for run in EARs:
+            assert run.task_ID is not None
+            assert run.element_idx is not None
+            assert run.id_ is not None
+            runs_by_task[run.task_ID].append(run)
+
+        lookup_by_run_ID = {}
 
         for task_ID, runs_i in runs_by_task.items():
             arr = self._get_EARs_task_array(task_ID=task_ID, mode="r+")
 
-            with self.__mutate_attrs(arr) as attrs:
-                for run in runs_i:
-                    run_elem_idx = run.element_idx
-                    assert run_elem_idx is not None
-                    row, col = divmod(run_elem_idx, 1000)
-                    coord = (
-                        row,
-                        col,
-                        run.iteration_idx,
-                        run.action_idx,
-                    )
-                    # seems to be a Zarr bug that prevents `set_coordinate_selection` with
-                    # an object array, so set one-by-one:
-                    arr[coord] = run.encode(self.ts_fmt, attrs)
+            n = len(runs_i)
 
-                    new_run_lookups[run.id_] = (
+            row_idx = np.empty(n, dtype=np.intp)
+            col_idx = np.empty(n, dtype=np.intp)
+            iter_idx = np.empty(n, dtype=np.intp)
+            act_idx = np.empty(n, dtype=np.intp)
+            values = np.empty(n, dtype=object)
+
+            with self.__mutate_attrs(arr) as attrs:
+
+                for i, run in enumerate(runs_i):
+                    row, col = divmod(run.element_idx, 1000)
+
+                    row_idx[i] = row
+                    col_idx[i] = col
+                    iter_idx[i] = run.iteration_idx
+                    act_idx[i] = run.action_idx
+                    values[i] = run.encode(self.ts_fmt, attrs)
+
+                    lookup_by_run_ID[run.id_] = (
                         task_ID,
                         row,
                         col,
@@ -1274,29 +1281,33 @@ class ZarrPersistentStore(
                         run.action_idx,
                     )
 
+            arr.set_coordinate_selection((row_idx, col_idx, iter_idx, act_idx), values)
+
         with self.__mutate_attrs(self._get_EARs_group(mode="r+")) as attrs:
             attrs["num_runs"] += len(EARs)
 
-        # ensure lookup array can be indexed directly by run ID
+        # lookup array is indexed directly by run.id_.
         run_lookup_arr = self._get_EARs_lookup_arr(mode="r+")
 
-        required_size = max(new_run_lookups) + 1
+        max_run_ID = max(lookup_by_run_ID)
+        required_size = max_run_ID + 1
         if required_size > run_lookup_arr.shape[0]:
             run_lookup_arr.resize(required_size)
 
-        run_IDs = np.fromiter(new_run_lookups, dtype=np.uint32)
-        lookup_values = np.array(
-            [new_run_lookups[i] for i in run_IDs],
-            dtype=self._RUN_LOOKUP_DTYPE,
+        run_IDs = np.fromiter(
+            lookup_by_run_ID, dtype=np.uint32, count=len(lookup_by_run_ID)
         )
-        run_lookup_arr[run_IDs] = lookup_values
+        lookup_values = np.empty(len(run_IDs), dtype=self._RUN_LOOKUP_DTYPE)
+        for i, run_ID in enumerate(run_IDs):
+            lookup_values[i] = lookup_by_run_ID[int(run_ID)]
+
+        run_lookup_arr.set_coordinate_selection((run_IDs,), lookup_values)
 
         # add more rows to run dirs array:
         dirs_arr = self._get_dirs_arr(mode="r+")
-        max_run_ID = max(run.id_ for run in EARs)
-        req_dir_rows = max_run_ID + 1
-        if req_dir_rows > dirs_arr.shape[0]:
-            dirs_arr.resize(req_dir_rows)
+        required_size = max_run_ID + 1
+        if required_size > dirs_arr.shape[0]:
+            dirs_arr.resize(required_size)
 
     def _set_run_dirs(self, run_dir_arr: np.ndarray, run_idx: np.ndarray):
         dirs_arr = self._get_dirs_arr(mode="r+")
