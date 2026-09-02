@@ -27,7 +27,6 @@ from hpcflow.sdk.core.utils import (
     flatten,
     get_in_container,
     get_relative_path,
-    remap,
     reshape,
     set_in_container,
     normalise_timestamp,
@@ -2645,17 +2644,24 @@ class PersistentStore(
         """Get user-facing element-iteration data, including that of associated EARs."""
         store_iters = self.get_element_iterations(iter_IDs)
 
-        EARs_dcts = remap(
-            [list((elit.EAR_IDs or {}).values()) for elit in store_iters],
-            lambda ears: [ear.to_dict() for ear in self.get_EARs(ears)],
-        )
+        # retrieve all EARs of all iterations in one go:
+        EAR_IDs_flat = [
+            EAR_ID
+            for iter_i in store_iters
+            for act_EAR_IDs in (iter_i.EAR_IDs or {}).values()
+            for EAR_ID in act_EAR_IDs
+        ]
+        EAR_dcts = {EAR.id_: EAR.to_dict() for EAR in self.get_EARs(EAR_IDs_flat)}
 
         iters: list[dict[str, Any]] = []
-        for idx, i in enumerate(store_iters):
+        for iter_i in store_iters:
             EARs: dict[int, dict[str, Any]] | None = None
-            if i.EAR_IDs is not None:
-                EARs = dict(zip(i.EAR_IDs, cast("Any", EARs_dcts[idx])))
-            iters.append(i.to_dict(EARs))
+            if iter_i.EAR_IDs is not None:
+                EARs = {
+                    act_idx: [EAR_dcts[EAR_ID] for EAR_ID in act_EAR_IDs]
+                    for act_idx, act_EAR_IDs in iter_i.EAR_IDs.items()
+                }
+            iters.append(iter_i.to_dict(EARs))
 
         return iters
 
