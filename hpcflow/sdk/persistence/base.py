@@ -2658,7 +2658,7 @@ class PersistentStore(
             EARs: dict[int, dict[str, Any]] | None = None
             if iter_i.EAR_IDs is not None:
                 EARs = {
-                    act_idx: [EAR_dcts[EAR_ID] for EAR_ID in act_EAR_IDs]
+                    act_idx: cast("Any", [EAR_dcts[EAR_ID] for EAR_ID in act_EAR_IDs])
                     for act_idx, act_EAR_IDs in iter_i.EAR_IDs.items()
                 }
             iters.append(iter_i.to_dict(EARs))
