@@ -1024,30 +1024,24 @@ class WorkflowLoop(AppAware):
         assert orig_inp_src.task_source_type is not None
         key_prefix = orig_inp_src.task_source_type.name.lower()
         prev_dat_idx_key = f"{key_prefix}s.{inp.typ}"
+
+        # `cache.elements` contains only elements that are part of the loop, so this
+        # element may be absent:
+        elem_dat = cache.elements.get(elem_ID)
+        elem_in_task = (
+            elem_dat is not None and elem_dat["task_insert_ID"] == task.insert_ID
+        )
+
         new_sources: list[tuple[int, int]] = []
-        for (tiID, e_idx), _ in all_new_data_idx.items():
-            if tiID == orig_inp_src.task_ref:
-                # find which element in that task `element`
-                # depends on:
-                src_elem_IDs = cache.element_dependents[
-                    self.workflow.tasks.get(insert_ID=tiID).element_IDs[e_idx]
-                ]
-                # `cache.elements` contains only elements that are part of the loop, so
-                # indexing a dependent element may raise:
-                src_elem_IDs_i = []
-                for k, _v in src_elem_IDs.items():
-                    try:
-                        if (
-                            cache.elements[k]["task_insert_ID"] == task.insert_ID
-                            and k == elem_ID
-                            # filter src_elem_IDs_i for matching element IDs
-                        ):
-
-                            src_elem_IDs_i.append(k)
-                    except KeyError:
-                        continue
-
-                if len(src_elem_IDs_i) == 1:
+        if elem_in_task:
+            src_elem_IDs_all = self.workflow.tasks.get(
+                insert_ID=orig_inp_src.task_ref
+            ).element_IDs
+            for tiID, e_idx in all_new_data_idx:
+                if tiID != orig_inp_src.task_ref:
+                    continue
+                # find which element in that task `element` depends on:
+                if elem_ID in cache.element_dependents[src_elem_IDs_all[e_idx]]:
                     new_sources.append((tiID, e_idx))
 
         if is_group:
