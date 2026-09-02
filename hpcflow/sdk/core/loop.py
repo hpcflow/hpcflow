@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self, TypeIs
     from rich.status import Status
     from ..typing import DataIndex, ParamSource
-    from .actions import ElementActionRun
     from .parameters import SchemaInput, InputSource
     from .rule import Rule
     from .task import WorkflowTask
@@ -714,7 +713,7 @@ class WorkflowLoop(AppAware):
                 num_added_iters=child.num_added_iterations,
             )
 
-        new_runs: list[ElementActionRun] = []
+        new_run_meta: dict[int, tuple[int, int]] = {}
         for task in self.task_objects:
             new_loop_idx = LoopIndex(iters_key_dct) + {
                 child.name: 0
@@ -844,13 +843,11 @@ class WorkflowLoop(AppAware):
                 added_iter_IDs.append(iter_ID_i)
 
             init_iter_ids = task.initialise_EARs(iter_IDs=added_iter_IDs)
-            init_iters = self.workflow.get_element_iterations_from_IDs(init_iter_ids)
-            init_run_ids = [
-                run_id for iter_i in init_iters for run_id in iter_i.EAR_IDs_flat
-            ]
-            new_runs.extend(self.workflow.get_EARs_from_IDs(init_run_ids))
+            for store_iter in self.workflow.get_store_element_iterations(init_iter_ids):
+                for run_id in chain.from_iterable((store_iter.EAR_IDs or {}).values()):
+                    new_run_meta[run_id] = (task.insert_ID, store_iter.element_ID)
 
-        cache.add_runs(new_runs)
+        cache.run_meta.update(new_run_meta)
 
         self._increment_pending_added_iters(
             parent_loop_indices_[p_nm] for p_nm in self.parents

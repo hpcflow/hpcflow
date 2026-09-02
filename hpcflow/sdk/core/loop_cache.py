@@ -14,14 +14,13 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.cache import ObjectCache
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
     from typing_extensions import Self
     from ..typing import DataIndex
     from .loop import Loop
     from .task import WorkflowTask
     from .types import DependentDescriptor, ElementDescriptor
     from .workflow import Workflow
-    from hpcflow.sdk.core.actions import ElementActionRun
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -227,11 +226,6 @@ class LoopCache:
         self.data_idx[element_ID][loop_idx] = data_idx
         self.iterations[iter_ID] = (element_ID, new_iter_idx)
         self.elements[element_ID]["num_iters"] += 1
-
-    def add_runs(self, runs: Iterable[ElementActionRun]) -> None:
-        """Update the cache to include newly added runs."""
-        for run in runs:
-            self.run_meta[run.id_] = (run.task.insert_ID, run.element.id_)
 
     def get_latest_data_idx(self, element_ID: int) -> DataIndex:
         """Get the data index of the most recently added iteration of an element."""
