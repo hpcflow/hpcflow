@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self, TypeIs
     from rich.status import Status
     from ..typing import DataIndex, ParamSource
+    from .actions import ElementActionRun
     from .parameters import SchemaInput, InputSource
     from .rule import Rule
     from .task import WorkflowTask
@@ -713,6 +714,7 @@ class WorkflowLoop(AppAware):
                 num_added_iters=child.num_added_iterations,
             )
 
+        new_runs: list[ElementActionRun] = []
         for task in self.task_objects:
             new_loop_idx = LoopIndex(iters_key_dct) + {
                 child.name: 0
@@ -841,7 +843,14 @@ class WorkflowLoop(AppAware):
 
                 added_iter_IDs.append(iter_ID_i)
 
-            task.initialise_EARs(iter_IDs=added_iter_IDs)
+            init_iter_ids = task.initialise_EARs(iter_IDs=added_iter_IDs)
+            init_iters = self.workflow.get_element_iterations_from_IDs(init_iter_ids)
+            init_run_ids = [
+                run_id for iter_i in init_iters for run_id in iter_i.EAR_IDs_flat
+            ]
+            new_runs.extend(self.workflow.get_EARs_from_IDs(init_run_ids))
+
+        cache.add_runs(new_runs)
 
         self._increment_pending_added_iters(
             parent_loop_indices_[p_nm] for p_nm in self.parents
@@ -868,7 +877,7 @@ class WorkflowLoop(AppAware):
                     par_idx[self.name] = cur_loop_idx + 1
                     child.add_iteration(parent_loop_indices=par_idx, cache=cache)
 
-        self.__update_loop_downstream_data_idx(parent_loop_indices_)
+        self.__update_loop_downstream_data_idx(parent_loop_indices_, cache)
 
     def __get_src_ID_and_groups(
         self,
@@ -1063,9 +1072,11 @@ class WorkflowLoop(AppAware):
         else:
             yield from seq
 
+    @TimeIt.decorator
     def __update_loop_downstream_data_idx(
         self,
         parent_loop_indices: Mapping[str, int],
+        cache: LoopCache,
     ):
         # update data indices of loop-downstream tasks that depend on task outputs from
         # this loop:
@@ -1119,28 +1130,30 @@ class WorkflowLoop(AppAware):
                                 iter_old_run_source = [
                                     param_sources[i]["EAR_ID"] for i in iter_old_di
                                 ]
-                                iter_old_run_objs = self.workflow.get_EARs_from_IDs(
-                                    iter_old_run_source
-                                )  # TODO: use cache
+                                iter_old_run_meta = [
+                                    cache.run_meta[run_id]
+                                    for run_id in iter_old_run_source
+                                ]
 
                                 # need to check the run source is actually from the loop
                                 # output task (it could be from a previous iteration of a
                                 # separate loop in this task):
                                 if any(
-                                    i.task.insert_ID != param_out_task_iID
-                                    for i in iter_old_run_objs
+                                    t_iID != param_out_task_iID
+                                    for t_iID, _ in iter_old_run_meta
                                 ):
                                     continue
-
-                                iter_new_iters = [
-                                    i.element.iterations[-1] for i in iter_old_run_objs
-                                ]
 
                                 # note: we can cast to int, because output keys never
                                 # have multiple data indices (unlike input keys):
                                 iter_new_dis = [
-                                    cast("int", i.get_data_idx()[f"outputs.{param_typ}"])
-                                    for i in iter_new_iters
+                                    cast(
+                                        "int",
+                                        cache.get_latest_data_idx(src_elem_ID)[
+                                            f"outputs.{param_typ}"
+                                        ],
+                                    )
+                                    for _, src_elem_ID in iter_old_run_meta
                                 ]
 
                                 # keep track of updates so we can also update task-input
@@ -1169,22 +1182,19 @@ class WorkflowLoop(AppAware):
                                         old_run_source = [
                                             param_sources[i]["EAR_ID"] for i in old_di
                                         ]
-                                        old_run_objs = self.workflow.get_EARs_from_IDs(
-                                            old_run_source
-                                        )  # TODO: use cache
+                                        old_run_meta = [
+                                            cache.run_meta[run_id]
+                                            for run_id in old_run_source
+                                        ]
 
-                                        # need to check the run source is actually from the loop
-                                        # output task (it could be from a previous action in this
-                                        # element-iteration):
+                                        # need to check the run source is actually from
+                                        # the loop output task (it could be from a
+                                        # previous action in this element-iteration):
                                         if any(
-                                            i.task.insert_ID != param_out_task_iID
-                                            for i in old_run_objs
+                                            t_iID != param_out_task_iID
+                                            for t_iID, _ in old_run_meta
                                         ):
                                             continue
-
-                                        new_iters = [
-                                            i.element.iterations[-1] for i in old_run_objs
-                                        ]
 
                                         # note: we can cast to int, because output keys
                                         # never have multiple data indices (unlike input
@@ -1192,9 +1202,11 @@ class WorkflowLoop(AppAware):
                                         new_dis = [
                                             cast(
                                                 "int",
-                                                i.get_data_idx()[f"outputs.{param_typ}"],
+                                                cache.get_latest_data_idx(src_elem_ID)[
+                                                    f"outputs.{param_typ}"
+                                                ],
                                             )
-                                            for i in new_iters
+                                            for _, src_elem_ID in old_run_meta
                                         ]
 
                                         run_new_data_idx[run_j.id_][
