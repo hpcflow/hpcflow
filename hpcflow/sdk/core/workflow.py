@@ -4268,15 +4268,20 @@ class Workflow(AppAware):
         with self._store.cache_ctx():
             cache = ObjectCache.build(self, elements=True, iterations=True, runs=True)
 
-        sub_obj: Submission = self._app.Submission(
-            index=new_idx,
-            workflow=self,
-            jobscripts=self.resolve_jobscripts(cache, tasks, force_array, min_jobscripts),
-            JS_parallelism=JS_parallelism,
-        )
-        if status:
-            status.update("Adding new submission: setting environments...")
-        sub_obj._set_environments()
+            # the store cache must remain in use here so `_resolve_singular_jobscripts`
+            # can pre-cache parameter sources for `EAR.get_EAR_dependencies`:
+            sub_obj: Submission = self._app.Submission(
+                index=new_idx,
+                workflow=self,
+                jobscripts=self.resolve_jobscripts(
+                    cache, tasks, force_array, min_jobscripts
+                ),
+                JS_parallelism=JS_parallelism,
+            )
+            if status:
+                status.update("Adding new submission: setting environments...")
+            sub_obj._set_environments()
+
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
 
         if not all_EAR_ID:
