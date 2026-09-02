@@ -1433,7 +1433,7 @@ class Element(AppAware):
         seq_idx: Mapping[str, int],
         src_idx: Mapping[str, int],
         iteration_IDs: list[int],
-        iterations: list[dict[str, Any]],
+        iterations: list[dict[str, Any]] | None = None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -1546,6 +1546,10 @@ class Element(AppAware):
         """
         # TODO: fix this
         if self._iteration_objs is None:
+            if self._iterations is None:
+                self._iterations = self.workflow._store.get_element_iteration_dicts(
+                    self._iteration_IDs
+                )
             self._iteration_objs = [
                 self._app.ElementIteration(
                     element=self,

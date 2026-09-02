@@ -2639,6 +2639,27 @@ class PersistentStore(
     ) -> dict[int, ParamSource]: ...
 
     @TimeIt.decorator
+    def get_element_iteration_dicts(
+        self, iter_IDs: Iterable[int]
+    ) -> list[dict[str, Any]]:
+        """Get user-facing element-iteration data, including that of associated EARs."""
+        store_iters = self.get_element_iterations(iter_IDs)
+
+        EARs_dcts = remap(
+            [list((elit.EAR_IDs or {}).values()) for elit in store_iters],
+            lambda ears: [ear.to_dict() for ear in self.get_EARs(ears)],
+        )
+
+        iters: list[dict[str, Any]] = []
+        for idx, i in enumerate(store_iters):
+            EARs: dict[int, dict[str, Any]] | None = None
+            if i.EAR_IDs is not None:
+                EARs = dict(zip(i.EAR_IDs, cast("Any", EARs_dcts[idx])))
+            iters.append(i.to_dict(EARs))
+
+        return iters
+
+    @TimeIt.decorator
     def get_task_elements(
         self,
         task_id: int,
@@ -2657,21 +2678,7 @@ class PersistentStore(
         iter_IDs_flat, iter_IDs_lens = flatten(
             [el.iteration_IDs for el in store_elements]
         )
-        store_iters = self.get_element_iterations(iter_IDs_flat)
-
-        # retrieve EARs:
-        EARs_dcts = remap(
-            [list((elit.EAR_IDs or {}).values()) for elit in store_iters],
-            lambda ears: [ear.to_dict() for ear in self.get_EARs(ears)],
-        )
-
-        # add EARs to iterations:
-        iters: list[dict[str, Any]] = []
-        for idx, i in enumerate(store_iters):
-            EARs: dict[int, dict[str, Any]] | None = None
-            if i.EAR_IDs is not None:
-                EARs = dict(zip(i.EAR_IDs, cast("Any", EARs_dcts[idx])))
-            iters.append(i.to_dict(EARs))
+        iters = self.get_element_iteration_dicts(iter_IDs_flat)
 
         # reshape iterations:
         iters_rs = reshape(iters, iter_IDs_lens)

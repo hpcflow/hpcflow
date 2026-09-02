@@ -2235,36 +2235,41 @@ class Workflow(AppAware):
 
         return [elements_by_task[path.task][path.elem] for path in index_paths]
 
-    @dataclass
-    class _IndexPath2:
-        iter: int
-        elem: int
-        task: int
-
     @TimeIt.decorator
     def get_element_iterations_from_IDs(
         self, id_lst: Iterable[int]
     ) -> list[ElementIteration]:
         """Return element iteration objects from a list of IDs."""
 
+        id_lst = list(id_lst)
         store_iters = self.get_store_element_iterations(id_lst)
         store_elems = self.get_store_elements(it.element_ID for it in store_iters)
         store_tasks = self.get_store_tasks(el.task_ID for el in store_elems)
 
-        element_idx_by_task: dict[int, set[int]] = defaultdict(set)
+        # parent elements are built without their iteration data, which is loaded on
+        # demand; this avoids retrieving the full iteration/run history of an element
+        # when only a few of its iterations are requested:
+        elements: dict[int, Element] = {}
+        for elem, task in zip(store_elems, store_tasks):
+            if elem.id_ not in elements:
+                elements[elem.id_] = self._app.Element(
+                    task=self.tasks[task.index],
+                    **{
+                        k: v
+                        for k, v in elem.to_dict(None).items()
+                        if k not in ("task_ID", "iterations")
+                    },
+                )
 
-        index_paths: list[Workflow._IndexPath2] = []
-        for itr, elem, task in zip(store_iters, store_elems, store_tasks):
-            iter_idx = elem.iteration_IDs.index(itr.id_)
-            elem_idx = task.element_IDs.index(elem.id_)
-            index_paths.append(Workflow._IndexPath2(iter_idx, elem_idx, task.index))
-            element_idx_by_task[task.index].add(elem_idx)
-
-        elements_by_task = self.__get_elements_by_task_idx(element_idx_by_task)
+        iter_dicts = self._store.get_element_iteration_dicts(id_lst)
 
         return [
-            elements_by_task[path.task][path.elem].iterations[path.iter]
-            for path in index_paths
+            self._app.ElementIteration(
+                element=(element := elements[itr.element_ID]),
+                index=element.iteration_IDs.index(itr.id_),
+                **{k: v for k, v in iter_dat.items() if k != "element_ID"},
+            )
+            for itr, iter_dat in zip(store_iters, iter_dicts)
         ]
 
     @dataclass
