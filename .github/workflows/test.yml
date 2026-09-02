@@ -63,4 +63,4 @@ jobs:
     permissions:
       id-token: write
       contents: write
-# Ignore this comment...
+# Ignore this comment.
