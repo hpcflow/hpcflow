@@ -1312,19 +1312,26 @@ class ZarrPersistentStore(
             attrs["submission_parts"].update(metadata_i["submission_parts"])
             grp.attrs.put(attrs)
 
-    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]):
-
+    def __update_elem_iters(
+        self,
+        updates: Mapping[int, Any],
+        update_meth: Callable[[ZarrStoreElementIter, Any], ZarrStoreElementIter],
+    ) -> None:
+        """Apply an update method to multiple element iterations in a single write."""
         arr = self._get_iters_arr(mode="r+")
         attrs = self.__as_dict(arr.attrs)
-        iter_IDs = list(loop_indices.keys())
+        iter_IDs = list(updates)
         iter_dat = arr.get_coordinate_selection(iter_IDs)
-        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
 
+        values = np.empty(len(iter_IDs), dtype=object)
         for idx, iter_ID_i in enumerate(iter_IDs):
-            new_iter_i = store_iters[idx].update_loop_idx(loop_indices[iter_ID_i])
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[iter_ID_i] = new_iter_i.encode(attrs)
+            store_iter = ZarrStoreElementIter.decode(iter_dat[idx], attrs)
+            values[idx] = update_meth(store_iter, updates[iter_ID_i]).encode(attrs)
+
+        arr.set_coordinate_selection(np.asarray(iter_IDs), values)
+
+    def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]):
+        self.__update_elem_iters(loop_indices, ZarrStoreElementIter.update_loop_idx)
 
     def _update_loop_num_iters(self, index: int, num_iters: list[list[list[int] | int]]):
         with self.using_resource("attrs", action="update") as attrs:
@@ -1335,18 +1342,7 @@ class ZarrPersistentStore(
             attrs["loops"][index]["parents"] = parents
 
     def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
-
-        arr = self._get_iters_arr(mode="r+")
-        attrs = self.__as_dict(arr.attrs)
-        iter_IDs = list(iter_data_indices.keys())
-        iter_dat = arr.get_coordinate_selection(iter_IDs)
-        store_iters = [ZarrStoreElementIter.decode(i, attrs) for i in iter_dat]
-
-        for idx, iter_ID_i in enumerate(iter_IDs):
-            new_iter_i = store_iters[idx].update_data_idx(iter_data_indices[iter_ID_i])
-            # seems to be a Zarr bug that prevents `set_coordinate_selection` with an
-            # object array, so set one-by-one:
-            arr[iter_ID_i] = new_iter_i.encode(attrs)
+        self.__update_elem_iters(iter_data_indices, ZarrStoreElementIter.update_data_idx)
 
     def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
         self._update_runs(
@@ -1748,7 +1744,13 @@ class ZarrPersistentStore(
         return num
 
     def _get_num_persistent_parameters(self):
-        return len(self._get_parameter_base_array())
+        if self.use_cache and self.num_params_cache is not None:
+            num = self.num_params_cache
+        else:
+            num = len(self._get_parameter_base_array())
+        if self.use_cache and self.num_params_cache is None:
+            self.num_params_cache = num
+        return num
 
     def _get_num_persistent_added_tasks(self):
         with self.using_resource("attrs", "read") as attrs:
