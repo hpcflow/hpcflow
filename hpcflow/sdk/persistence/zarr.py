@@ -95,6 +95,8 @@ if TYPE_CHECKING:
     from ..typing import ParamSource, PathLike, DataIndex
     from rich.status import Status
 
+    _UpdateT = TypeVar("_UpdateT")
+
 #: List of any (Zarr-serializable) value.
 ListAny: TypeAlias = "list[Any]"
 #: Zarr attribute mapping context.
@@ -1311,8 +1313,6 @@ class ZarrPersistentStore(
             attrs = self.__as_dict(grp.attrs)
             attrs["submission_parts"].update(metadata_i["submission_parts"])
             grp.attrs.put(attrs)
-
-    _UpdateT = TypeVar("_UpdateT")
 
     def __update_elem_iters(
         self,
