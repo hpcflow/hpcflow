@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from fsspec import AbstractFileSystem  # type: ignore
     from logging import Logger
-    from typing import ClassVar, TypeAlias
+    from typing import ClassVar, TypeAlias, TypeVar
     from typing_extensions import Self
     from numpy.typing import NDArray
     from zarr import Array, Group  # type: ignore
@@ -1312,10 +1312,12 @@ class ZarrPersistentStore(
             attrs["submission_parts"].update(metadata_i["submission_parts"])
             grp.attrs.put(attrs)
 
+    _UpdateT = TypeVar("_UpdateT")
+
     def __update_elem_iters(
         self,
-        updates: Mapping[int, Any],
-        update_meth: Callable[[ZarrStoreElementIter, Any], ZarrStoreElementIter],
+        updates: Mapping[int, _UpdateT],
+        update_meth: Callable[[ZarrStoreElementIter, _UpdateT], ZarrStoreElementIter],
     ) -> None:
         """Apply an update method to multiple element iterations in a single write."""
         arr = self._get_iters_arr(mode="r+")
@@ -1331,7 +1333,10 @@ class ZarrPersistentStore(
         arr.set_coordinate_selection(np.asarray(iter_IDs), values)
 
     def _update_loop_index(self, loop_indices: dict[int, dict[str, int]]):
-        self.__update_elem_iters(loop_indices, ZarrStoreElementIter.update_loop_idx)
+        self.__update_elem_iters(
+            loop_indices,
+            lambda elem_iter, update: elem_iter.update_loop_idx(update),
+        )
 
     def _update_loop_num_iters(self, index: int, num_iters: list[list[list[int] | int]]):
         with self.using_resource("attrs", action="update") as attrs:
@@ -1342,7 +1347,10 @@ class ZarrPersistentStore(
             attrs["loops"][index]["parents"] = parents
 
     def _update_iter_data_indices(self, iter_data_indices: dict[int, DataIndex]):
-        self.__update_elem_iters(iter_data_indices, ZarrStoreElementIter.update_data_idx)
+        self.__update_elem_iters(
+            iter_data_indices,
+            lambda elem_iter, update: elem_iter.update_data_idx(update),
+        )
 
     def _update_run_data_indices(self, run_data_indices: dict[int, DataIndex]):
         self._update_runs(
