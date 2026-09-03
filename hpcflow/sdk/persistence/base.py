@@ -1504,6 +1504,7 @@ class PersistentStore(
     @abstractmethod
     def _get_num_persistent_parameters(self) -> int: ...
 
+    @TimeIt.decorator
     def _get_num_total_parameters(self) -> int:
         """Get the total number of persistent and pending parameters."""
         return self._get_num_persistent_parameters() + len(self._pending.add_parameters)
@@ -1876,6 +1877,7 @@ class PersistentStore(
             self.save()
 
     @writes_parameter_data
+    @TimeIt.decorator
     def _add_parameter(
         self,
         is_set: bool,
@@ -2037,6 +2039,7 @@ class PersistentStore(
         return self._add_parameter(data=data, is_set=True, source=source, save=save)
 
     @writes_parameter_data
+    @TimeIt.decorator
     def add_unset_parameter(self, source: ParamSource, save: bool = True) -> int:
         """
         Add a parameter that is not set to any value.

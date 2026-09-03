@@ -144,6 +144,7 @@ class TimeIt:
             depth: int = 0,
             depth_final: Sequence[bool] = (),
         ):
+            unit = 1e-3  # ms
             for idx, (k, v) in enumerate(node.items()):
                 is_final_child = idx == len(node) - 1
                 angle = "└ " if is_final_child else "├ "
@@ -151,12 +152,12 @@ class TimeIt:
                 if depth > 0:
                     bars = "".join(f"{'│ ' if not i else '  '}" for i in depth_final)
                 k_str = bars + (angle if depth > 0 else "") + f"{k[depth]}"
-                min_str = f"{v.min:10.6f}" if v.number > 1 else f"{f'-':^12s}"
-                max_str = f"{v.max:10.6f}" if v.number > 1 else f"{f'-':^12s}"
-                stddev_str = f"({v.stddev:8.6f})" if v.number > 1 else f"{f' ':^10s}"
+                min_str = f"{v.min/unit:10.3f}" if v.number > 1 else f"{f'-':^12s}"
+                max_str = f"{v.max/unit:10.3f}" if v.number > 1 else f"{f'-':^12s}"
+                stddev_str = f"({v.stddev:8.3f})" if v.number > 1 else f"{f' ':^10s}"
                 out.append(
-                    f"{k_str:.<80s} {v.sum:12.6f} "
-                    f"{v.mean:10.6f} {stddev_str} {v.number:8d} "
+                    f"{k_str:.<80s} {v.sum/unit:12.3f} "
+                    f"{v.mean/unit:10.3f} {stddev_str} {v.number:8d} "
                     f"{min_str} {max_str} "
                 )
                 depth_final_next = list(depth_final)
@@ -167,8 +168,8 @@ class TimeIt:
         summary = cls._summarise()
 
         out = [
-            f"{'function':^80s} {'sum /s':^12s} {'mean (stddev) /s':^20s} {'N':^8s} "
-            f"{'min /s':^12s} {'max /s':^12s}"
+            f"{'function':^80s} {'sum /ms':^12s} {'mean (stddev) /ms':^20s} {'N':^8s} "
+            f"{'min /ms':^12s} {'max /ms':^12s}"
         ]
         _format_nodes(summary)
         out_str = "\n".join(out)

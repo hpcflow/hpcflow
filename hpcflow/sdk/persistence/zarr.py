@@ -1751,6 +1751,7 @@ class ZarrPersistentStore(
             self.num_EARs_cache = num
         return num
 
+    @TimeIt.decorator
     def _get_num_persistent_parameters(self):
         if self.use_cache and self.num_params_cache is not None:
             num = self.num_params_cache
