@@ -14,6 +14,7 @@ import warnings
 from contextlib import contextmanager
 
 
+from hpcflow.sdk.submission.run_file_resolver import RunMetaDataFileResolver
 from hpcflow.sdk.utils.strings import shorten_list_str
 import numpy as np
 
@@ -1404,3 +1405,9 @@ class Submission(JSONLike):
         self.workflow.list_task_jobscripts(
             sub_idx=self.index, max_js=max_js, task_names=task_names, width=width
         )
+
+    @TimeIt.decorator
+    def get_run_multi_file_lookup(self):
+        resolver = RunMetaDataFileResolver(self.jobscripts)
+        resolver.resolve()
+        return resolver.run_file_lookup

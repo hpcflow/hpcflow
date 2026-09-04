@@ -194,6 +194,8 @@ class ElementActionRun(AppAware):
         metadata: dict[str, Any],
         run_hostname: str | None,
         port_number: int | None,
+        run_file_ID: int | None,
+        run_file_idx: int | None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -213,6 +215,8 @@ class ElementActionRun(AppAware):
         self._metadata = metadata
         self._run_hostname = run_hostname
         self._port_number = port_number
+        self._run_file_ID = run_file_ID
+        self._run_file_idx = run_file_idx
 
         # assigned on first access of corresponding properties:
         self._inputs: ElementInputs | None = None

@@ -4281,6 +4281,7 @@ class Workflow(AppAware):
             if status:
                 status.update("Adding new submission: setting environments...")
             sub_obj._set_environments()
+            run_multi_file_lookup = sub_obj.get_run_multi_file_lookup()
 
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
 
@@ -4330,10 +4331,13 @@ class Workflow(AppAware):
 
         with self._store.cached_load(), self.batch_update():
             for id_ in all_EAR_ID:
+                file_lookup = run_multi_file_lookup[id_]
                 self._store.set_run_submission_data(
                     EAR_ID=id_,
                     cmds_ID=cmd_file_IDs[id_],
                     sub_idx=new_idx,
+                    run_file_ID=file_lookup[0],
+                    run_file_idx=file_lookup[1],
                 )
 
         sub_obj._ensure_JS_parallelism_set()

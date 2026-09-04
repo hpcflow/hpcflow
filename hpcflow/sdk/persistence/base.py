@@ -543,6 +543,10 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     submission_idx: int | None = None
     #: Run ID whose commands can be used for this run (may be this run's ID).
     commands_file_ID: int | None = None
+    #: ID of the file to which execution-time run metadata should be written.
+    run_file_ID: int | None = None
+    #: Index of data within the run file containing the execution-time run metadata.
+    run_file_idx: int | None = None
     #: Whether to skip this EAR.
     skip: int = 0
     #: Whether this EAR was successful, if known.
@@ -605,6 +609,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "data_idx": self.data_idx,
             "submission_idx": self.submission_idx,
             "commands_file_ID": self.commands_file_ID,
+            "run_file_ID": self.run_file_ID,
+            "run_file_idx": self.run_file_idx,
             "success": self.success,
             "skip": self.skip,
             "start_time": _process_datetime(self.start_time),
@@ -622,6 +628,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         self,
         submission_idx: int | None = None,
         commands_file_ID: int | None = None,
+        run_file_ID: int | None = None,
         skip: int | None = None,
         success: bool | None = None,
         start_time: datetime | None = None,
@@ -648,6 +655,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         cmd_file = (
             commands_file_ID if commands_file_ID is not None else self.commands_file_ID
         )
+        run_file_ID = run_file_ID if run_file_ID is not None else self.run_file_ID
         if data_idx is not None:
             new_data_idx = copy.deepcopy(self.data_idx)
             new_data_idx.update(data_idx)
@@ -665,6 +673,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             metadata=self.metadata,
             submission_idx=sub_idx,
             commands_file_ID=cmd_file,
+            run_file_ID=run_file_ID,
             skip=skip,
             success=success,
             start_time=start_time,
@@ -1728,12 +1737,23 @@ class PersistentStore(
 
     @TimeIt.decorator
     def set_run_submission_data(
-        self, EAR_ID: int, cmds_ID: int | None, sub_idx: int, save: bool = True
+        self,
+        EAR_ID: int,
+        cmds_ID: int | None,
+        sub_idx: int,
+        run_file_ID: int,
+        run_file_idx: int,
+        save: bool = True,
     ) -> None:
         """
         Set the run submission data, like the submission index for an element action run.
         """
-        self._pending.set_EAR_submission_data[EAR_ID] = (sub_idx, cmds_ID)
+        self._pending.set_EAR_submission_data[EAR_ID] = (
+            sub_idx,
+            cmds_ID,
+            run_file_ID,
+            run_file_idx,
+        )
         if save:
             self.save()
 
@@ -2747,7 +2767,7 @@ class PersistentStore(
 
     @abstractmethod
     def _update_EAR_submission_data(
-        self, sub_data: Mapping[int, tuple[int, int | None]]
+        self, sub_data: Mapping[int, tuple[int, int | None, int, int]]
     ): ...
 
     @abstractmethod
