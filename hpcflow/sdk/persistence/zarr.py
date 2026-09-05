@@ -8,7 +8,6 @@ import copy
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
 import msgpack
@@ -535,7 +534,7 @@ class ZarrPersistentStore(
         return ZarrStoreParameter
 
     _param_grp_name: ClassVar[str] = "parameters"
-    _param_base_arr_name: ClassVar[str] = "base"
+    _param_multi_process_dir_name: ClassVar[str] = "base_multi"
     _param_sources_arr_name: ClassVar[str] = "sources"
     _param_user_arr_grp_name: ClassVar[str] = "arrays"
     _param_data_arr_grp_name: ClassVar = lambda _, param_idx: f"param_{param_idx}"
@@ -745,17 +744,7 @@ class ZarrPersistentStore(
         )
 
         parameter_data = root.create_group(name=cls._param_grp_name)
-        parameter_data.create_dataset(
-            name=cls._param_base_arr_name,
-            shape=0,
-            dtype=object,
-            object_codec=cls._CODEC,
-            chunks=1,
-            compressor=cmp,
-            write_empty_chunks=False,
-            fill_value=PARAM_DATA_NOT_SET,
-        )
-        parameter_data.create_dataset(
+        param_sources_arr = parameter_data.create_dataset(
             name=cls._param_sources_arr_name,
             shape=0,
             dtype=object,
@@ -763,6 +752,10 @@ class ZarrPersistentStore(
             chunks=1000,  # TODO: check this is a sensible size with many parameters
             compressor=cmp,
         )
+        # track the number of non EAR-output parameter (sources), so we can associate
+        # each with an index (to be used to index the data in the first file of
+        # param_multi):
+        param_sources_arr.attrs["num_non_output_params"] = 0
         parameter_data.create_group(name=cls._param_user_arr_grp_name)
 
         # for storing submission metadata that should not be stored in the root group:
@@ -1446,7 +1439,6 @@ class ZarrPersistentStore(
     def _append_parameters(self, params: Sequence[StoreParameter]):
         """Add new persistent parameters."""
         self._ensure_all_encoders()
-        base_arr = self._get_parameter_base_array(mode="r+", write_empty_chunks=False)
         src_arr = self._get_parameter_sources_array(mode="r+")
         self.logger.debug(
             f"PersistentStore._append_parameters: adding {len(params)} parameters."
@@ -1455,15 +1447,34 @@ class ZarrPersistentStore(
         param_encode_root_group = self._get_parameter_user_array_group(mode="r+")
         param_enc: list[dict[str, Any] | int] = []
         src_enc: list[dict] = []
-        for param_i in params:
-            dat_i = param_i.encode(
-                root_group=param_encode_root_group,
-                arr_path=self._param_data_arr_grp_name(param_i.id_),
-            )
-            param_enc.append(dat_i)
-            src_enc.append(dict(sorted(param_i.source.items())))
+        local_ins_enc: dict[int, Any] = {}
+        with self.__mutate_attrs(src_arr) as attrs:
+            for param_i in params:
+                dat_i = param_i.encode(
+                    root_group=param_encode_root_group,
+                    arr_path=self._param_data_arr_grp_name(param_i.id_),
+                )
+                param_enc.append(dat_i)
 
-        base_arr.append(param_enc)
+                if param_i.source["type"] != "EAR_output":
+                    non_output_idx = attrs["num_non_output_params"]
+                    param_i.source["non_output_idx"] = non_output_idx
+                    attrs["num_non_output_params"] += 1
+                    local_ins_enc[non_output_idx] = dat_i
+                elif param_i.is_set:
+                    raise RuntimeError(
+                        f"Not expected to append an already-set EAR_output parameter: "
+                        f"{param_i!r}"
+                    )
+
+                src_enc.append(dict(sorted(param_i.source.items())))
+
+        # local inputs, for all submissions, can all live in the zeroth file for zeroth
+        # submission:
+        if local_ins_enc:
+            local_write_dat = {0: {0: local_ins_enc}}
+            self.write_param_files(local_write_dat)
+
         src_arr.append(src_enc)
         self.logger.debug(
             f"PersistentStore._append_parameters: finished adding {len(params)} parameters."
@@ -1475,8 +1486,9 @@ class ZarrPersistentStore(
         param_ids = list(set_parameters)
         # the `decode` call in `_get_persistent_parameters` should be quick:
         params = self._get_persistent_parameters(param_ids)
-        new_data: list[dict[str, Any] | int] = []
         param_encode_root_group = self._get_parameter_user_array_group(mode="r+")
+
+        param_updates = defaultdict(list)
         for param_id, (value, is_file) in set_parameters.items():
             param_i = params[param_id]
             if is_file:
@@ -1484,16 +1496,34 @@ class ZarrPersistentStore(
             else:
                 param_i = param_i.set_data(value)
 
-            new_data.append(
-                param_i.encode(
+            src_type = param_i.source["type"]
+            if src_type == "EAR_output":
+                src_run_ID = param_i.source["EAR_ID"]
+                param_updates[src_run_ID] = param_i.encode(
                     root_group=param_encode_root_group,
                     arr_path=self._param_data_arr_grp_name(param_i.id_),
                 )
-            )
+            else:
+                raise RuntimeError("Expected run-output parameters only!")
 
-        # no need to update sources array:
-        base_arr = self._get_parameter_base_array(mode="r+")
-        base_arr.set_coordinate_selection(param_ids, new_data)
+        # sub idx -> file_ID -> run_ID -> file index
+        # file zero is for local inputs, hence the offset from the run metadata file IDs:
+        run_file_lookup = self._get_run_file_lookup(param_updates, file_offset=1)
+
+        param_out_data = defaultdict(lambda: defaultdict(dict))
+        for submission_idx, files in run_file_lookup.items():
+            for file_ID, indices in files.items():
+                for run_id, run_idx in indices.items():
+                    param_out_data[submission_idx][file_ID][run_idx] = param_updates[
+                        run_id
+                    ]
+
+        self.write_param_files(
+            {
+                submission_idx: dict(files)
+                for submission_idx, files in param_out_data.items()
+            }
+        )
 
     def _update_parameter_sources(self, sources: Mapping[int, ParamSource]):
         """Update the sources of multiple persistent parameters."""
@@ -1556,7 +1586,7 @@ class ZarrPersistentStore(
         if self.use_cache and self.num_params_cache is not None:
             num = self.num_params_cache
         else:
-            num = len(self._get_parameter_base_array())
+            num = len(self._get_parameter_sources_array())
         if self.use_cache and self.num_params_cache is None:
             self.num_params_cache = num
         return num
@@ -1588,10 +1618,6 @@ class ZarrPersistentStore(
     def _get_parameter_group(self, mode: str = "r", **kwargs) -> Group:
         return self._get_root_group(mode=mode, **kwargs).get(self._param_grp_name)
 
-    def _get_parameter_base_array(self, mode: str = "r", **kwargs) -> Array:
-        path = f"{self._param_grp_name}/{self._param_base_arr_name}"
-        return zarr.open(self.zarr_store, mode=mode, path=path, **kwargs)
-
     def _get_parameter_sources_array(self, mode: str = "r") -> Array:
         return self._get_parameter_group(mode=mode).get(self._param_sources_arr_name)
 
@@ -1610,7 +1636,7 @@ class ZarrPersistentStore(
     def _get_array_group_and_dataset(
         self, mode: str, param_id: int, data_path: list[int]
     ):
-        base_dat = self._get_parameter_base_array(mode="r")[param_id]
+        base_dat = self._get_base_parameters([param_id])[param_id]
         for arr_dat_path, arr_idx in base_dat["type_lookup"]["arrays"]:
             if arr_dat_path == data_path:
                 break
@@ -1920,6 +1946,14 @@ class ZarrPersistentStore(
             / str(submission_idx)
         )
 
+    def _get_param_multi_dir_path(self, submission_idx: int) -> Path:
+        return (
+            Path(self.workflow.url)
+            / "parameters"
+            / self._param_multi_process_dir_name
+            / str(submission_idx)
+        )
+
     @TimeIt.decorator
     def read_run_files(
         self,
@@ -2019,10 +2053,102 @@ class ZarrPersistentStore(
                 encoded = msgpack.packb(runs)
                 atomic_write(path, encoded)
 
+    @TimeIt.decorator
+    def read_param_files(
+        self,
+        run_file_lookup: dict[int, dict[int, dict[int, int]]],
+    ):
+        """
+        Parameters
+        ----------
+        run_file_lookup
+            Keys are submission indices. Values map file IDs to dictionaries
+            mapping parameter source run IDs to indices within those files.
+        """
+
+        data = {}
+
+        for submission_idx, files in run_file_lookup.items():
+            prefix = self._get_param_multi_dir_path(submission_idx)
+
+            file_IDs = list(files)
+            paths = get_run_multi_chunk_path(idx=file_IDs, prefix=prefix)
+
+            for path, indices in zip(paths, files.values()):
+                if path.exists():
+                    with open(path, "rb") as f:
+                        params = msgpack.unpackb(f.read())
+
+                    for src_run_id, idx in indices.items():
+                        if idx >= len(params):
+                            data[src_run_id] = None
+                        else:
+                            data[src_run_id] = params[idx]
+                else:
+                    for src_run_id in indices:
+                        data[src_run_id] = None
+
+        return data
+
+    @TimeIt.decorator
+    def write_param_files(
+        self,
+        data: dict[int, dict[int, dict[int, Any]]],
+    ):
+        """
+        Parameters
+        ----------
+        data
+            Keys are submission indices.
+
+            Values map file IDs to dictionaries mapping indices within those
+            files to dictionaries of parameter data.
+
+            Structure should be: like
+                dict[
+                    int,  # submission_idx
+                    dict[
+                        int,  # file_ID
+                        dict[
+                            int,  # local index
+                            Any # data of a single parameter
+                        ],
+                    ],
+                ]
+        """
+
+        for submission_idx, files in data.items():
+            prefix = self._get_param_multi_dir_path(submission_idx)
+
+            file_IDs = list(files)
+            paths = get_run_multi_chunk_path(idx=file_IDs, prefix=prefix)
+
+            for path, data_i in zip(paths, files.values()):
+                path.parent.mkdir(exist_ok=True, parents=True)
+
+                if path.exists():
+                    with open(path, "rb") as f:
+                        params = msgpack.unpackb(f.read())
+                else:
+                    params = []
+
+                max_idx = max(data_i)
+
+                if len(params) <= max_idx:
+                    num_new = max_idx + 1 - len(params)
+                    params.extend([None] * num_new)
+
+                for idx, upd_data in data_i.items():
+                    params[idx] = upd_data
+
+                encoded = msgpack.packb(params)
+                atomic_write(path, encoded)
+
     def _get_run_file_lookup(
         self,
         id_lst: Iterable[int],
         submission_metadata: dict[int, tuple[int | None, ...]] | None = None,
+        file_offset: int = 0,
     ) -> dict[int, dict[int, dict[int, int]]]:
         sub_dat = submission_metadata or self._get_run_submission_metadata(id_lst)
 
@@ -2039,14 +2165,11 @@ class ZarrPersistentStore(
             assert submission_idx is not None
             assert file_idx is not None
 
-            run_file_lookup[int(submission_idx)][int(file_ID)][int(run_id)] = int(
-                file_idx
-            )
+            run_file_lookup[int(submission_idx)][int(file_ID) + file_offset][
+                int(run_id)
+            ] = int(file_idx)
 
-        return {
-            submission_idx: dict(files)
-            for submission_idx, files in run_file_lookup.items()
-        }
+        return run_file_lookup
 
     @TimeIt.decorator
     def _get_persistent_EARs(self, id_lst: Iterable[int]) -> dict[int, ZarrStoreEAR]:
@@ -2089,6 +2212,55 @@ class ZarrPersistentStore(
         return runs
 
     @TimeIt.decorator
+    def _get_base_parameters(
+        self, id_lst: Iterable[int]
+    ) -> tuple[dict[int, Any], dict[int, Any]]:
+        # TODO: implement the "parameter_metadata_cache" for zarr stores, which would
+        # keep the src_arr open
+        src_arr = self._get_parameter_sources_array(mode="r")
+
+        try:
+            src_arr_dat = src_arr.get_coordinate_selection(list(id_lst))
+        except BoundsCheckError:
+            raise MissingParameterData(id_lst) from None
+
+        src_dat = dict(zip(id_lst, src_arr_dat))
+
+        # map run param IDs to source run IDs, and inverse:
+        param_id_to_run_id = {}
+        non_output_indices = {}
+        for param_id, param_src in src_dat.items():
+            if param_src["type"] == "EAR_output":
+                param_id_to_run_id[param_id] = param_src["EAR_ID"]
+            else:
+                non_output_indices[param_id] = param_src["non_output_idx"]
+
+        run_id_to_param_id = {
+            src_run_id: param_id for param_id, src_run_id in param_id_to_run_id.items()
+        }
+
+        src_run_id_lst = [
+            param_id_to_run_id[id_i] for id_i in id_lst if id_i in param_id_to_run_id
+        ]
+
+        local_param_file_lookup = {0: {0: non_output_indices}}
+        param_dat = self.read_param_files(local_param_file_lookup)
+
+        param_file_lookup = self._get_run_file_lookup(src_run_id_lst, file_offset=1)
+
+        # keys are source run ID, not parameter ID:
+        param_dat_by_run = self.read_param_files(param_file_lookup)
+
+        for run_id, dat_i in param_dat_by_run.items():
+            param_dat[run_id_to_param_id[run_id]] = dat_i
+
+        # fill in any unset parameters, for which, prior to submission,
+        # `param_file_lookup` will be empty:
+        param_dat.update((k, None) for k in id_lst if k not in param_dat)
+
+        return param_dat, src_dat
+
+    @TimeIt.decorator
     def _get_persistent_parameters(
         self, id_lst: Iterable[int], *, dataset_copy: bool = False, **kwargs
     ) -> dict[int, ZarrStoreParameter]:
@@ -2101,20 +2273,7 @@ class ZarrPersistentStore(
                 f"{shorten_list_str(id_lst)}."
             )
 
-            # TODO: implement the "parameter_metadata_cache" for zarr stores, which would
-            # keep the base_arr and src_arr open
-            base_arr = self._get_parameter_base_array(mode="r")
-            src_arr = self._get_parameter_sources_array(mode="r")
-
-            try:
-                param_arr_dat = base_arr.get_coordinate_selection(list(id_lst))
-                src_arr_dat = src_arr.get_coordinate_selection(list(id_lst))
-            except BoundsCheckError:
-                raise MissingParameterData(id_lst) from None
-
-            param_dat = dict(zip(id_lst, param_arr_dat))
-            src_dat = dict(zip(id_lst, src_arr_dat))
-
+            param_dat, src_dat = self._get_base_parameters(id_lst)
             new_params = {
                 k: ZarrStoreParameter.decode(
                     id_=k,
@@ -2149,18 +2308,11 @@ class ZarrPersistentStore(
     def _get_persistent_parameter_set_status(
         self, id_lst: Iterable[int]
     ) -> dict[int, bool]:
-        base_arr = self._get_parameter_base_array(mode="r")
-        try:
-            param_arr_dat = base_arr.get_coordinate_selection(list(id_lst))
-        except BoundsCheckError:
-            raise MissingParameterData(id_lst) from None
-
-        return dict(zip(id_lst, [i is not None for i in param_arr_dat]))
+        param_dat, _ = self._get_base_parameters(id_lst)
+        return {id_i: dat_i is not None for id_i, dat_i in param_dat.item()}
 
     def _get_persistent_parameter_IDs(self) -> list[int]:
-        # we assume the row index is equivalent to ID, might need to revisit in future
-        base_arr = self._get_parameter_base_array(mode="r")
-        return list(range(len(base_arr)))
+        return list(range(self._get_num_persistent_parameters()))
 
     def get_submission_at_submit_metadata(
         self, sub_idx: int, metadata_attr: dict | None
@@ -2598,8 +2750,7 @@ class ZarrPersistentStore(
         """
         Rechunk the parameter data to be stored more efficiently.
         """
-        arr = self._get_parameter_base_array()
-        return self._rechunk_arr(arr, chunk_size, backup, status)
+        raise NotImplementedError()  # TODO
 
     def rechunk_runs(
         self,
@@ -2610,6 +2761,8 @@ class ZarrPersistentStore(
         """
         Rechunk the run data to be stored more efficiently.
         """
+        # load all metadata chunks; write out a single file; update file_IDs/indices
+
         raise NotImplementedError()  # TODO
 
     def get_dirs_array(self) -> NDArray:
