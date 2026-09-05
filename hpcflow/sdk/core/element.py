@@ -284,6 +284,8 @@ class ElementResources(JSONLike):
         How many threads to request.
     num_nodes: int
         How many compute nodes to request.
+    num_MPI_ranks: int
+        How many MPI ranks to use, defaults to ``num_cores``.
     scheduler: str
         Which scheduler to use.
     shell: str
@@ -352,6 +354,8 @@ class ElementResources(JSONLike):
     num_threads: int | None = None
     #: How many compute nodes to request.
     num_nodes: int | None = None
+    #: How many MPI ranks to use, defaults to ``num_cores``.
+    num_MPI_ranks: int | None = None
 
     #: Which scheduler to use.
     scheduler: str | None = None
@@ -427,6 +431,9 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
+        if self.num_MPI_ranks is None and self.num_cores is not None:
+            self.num_MPI_ranks = self.num_cores
+
         self.scheduler_args = self.scheduler_args or {}
         self.shell_args = self.shell_args or {}
 
@@ -445,6 +452,7 @@ class ElementResources(JSONLike):
             "skip_downstream_on_failure",
             "random_seed",
             "rng_spawn_key",
+            "num_MPI_ranks",
         ]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
@@ -1425,7 +1433,7 @@ class Element(AppAware):
         seq_idx: Mapping[str, int],
         src_idx: Mapping[str, int],
         iteration_IDs: list[int],
-        iterations: list[dict[str, Any]],
+        iterations: list[dict[str, Any]] | None = None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -1538,6 +1546,10 @@ class Element(AppAware):
         """
         # TODO: fix this
         if self._iteration_objs is None:
+            if self._iterations is None:
+                self._iterations = self.workflow._store.get_element_iteration_dicts(
+                    self._iteration_IDs
+                )
             self._iteration_objs = [
                 self._app.ElementIteration(
                     element=self,

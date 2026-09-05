@@ -54,6 +54,8 @@ class ParamSource(TypedDict):
     value_class_method: NotRequired[str]
     #: Import ID/index in the workflow template list
     import_ID: NotRequired[int]
+    #: For non-EAR-output parameters, the index
+    non_output_idx: NotRequired[int]
 
 
 class KnownSubmission(TypedDict):

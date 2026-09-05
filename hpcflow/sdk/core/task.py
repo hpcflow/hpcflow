@@ -8,6 +8,7 @@ import copy
 from dataclasses import dataclass, field
 from itertools import chain
 from pathlib import Path
+import re
 from typing import NamedTuple, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
@@ -745,7 +746,7 @@ class OutputLabel(JSONLike):
         self,
         parameter: str,
         label: str,
-        where: Rule | None = None,
+        where: ElementFilter | None = None,
     ) -> None:
         #: Name of a parameter.
         self.parameter = parameter
@@ -789,6 +790,11 @@ class Task(JSONLike):
         only the intersection of element sub-sets for all parameters are included.
     element_sets: list[ElementSet]
     output_labels: list[OutputLabel]
+    condition: str
+        A string reference to a parameter in a preceding task in the format
+        "task.TASK_NAME.inputs.PARAMETER_NAME" or "task.TASK_NAME.outputs.PARAMETER_NAME",
+        whose value will be evaluated (element-wise) to determine whether or not this task
+        should run. If the value is truthy, this task will run.
     sourceable_elem_iters: list[int]
     merge_envs: bool
         If True, merge environment presets (set via the element set `env_preset` key)
@@ -840,6 +846,7 @@ class Task(JSONLike):
         allow_non_coincident_task_sources: bool = False,
         element_sets: list[ElementSet] | None = None,
         output_labels: list[OutputLabel] | None = None,
+        condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
     ):
@@ -891,6 +898,7 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
+        self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
         self.merge_envs = merge_envs
@@ -1224,10 +1232,10 @@ class Task(JSONLike):
 
             # get possible sources from preceding tasks (mutates `available`):
             get_available_task_sources(
-                self._app,
-                inputs_path,
-                source_tasks,
-                available,
+                app=self._app,
+                req_path=inputs_path,
+                source_tasks=source_tasks,
+                available=available,
                 sourceable_elem_iters=element_set.sourceable_elem_iters,
             )
 
@@ -1537,6 +1545,151 @@ class _ESIdx(NamedTuple):
     uniq: frozenset[int]
 
 
+@dataclass
+class TaskCondition(AppAware):
+    """An element-wise condition on the execution of a task."""
+
+    source_task_ID: int
+    input_or_output: str
+    source_parameter: str
+
+    group_name: str | None = None
+    group_function: str | None = None
+
+    @property
+    def get_path(self) -> str:
+        return f"{self.input_or_output}.{self.source_parameter}"
+
+    def __validate_run(self, run) -> bool:
+        """Return True if the provided run provided this conditions source parameter as
+        either an input or an output, otherwise return False."""
+        if self.input_or_output == "inputs":
+            return self.source_parameter in run.action.get_input_types()
+        elif self.input_or_output == "outputs":
+            return self.source_parameter in run.action.get_output_types()
+        else:
+            raise ValueError(
+                f"'input_or_output' must be 'inputs' or 'outputs', but received "
+                f"{self.input_or_output!r}."
+            )
+
+    def test(self, run, task_ID: int) -> bool | None:
+        """
+        Return True if the condition is met (meaning the task should execute), False if
+        the condition is not met (meaning the task should not execute), and None if the
+        condition is not valid for the provided run (i.e. the run does not belong to the
+        source task referenced by `source_task_ID`).
+
+        Parameters
+        ----------
+        run
+            The run whose `source_parameter` should be tested for truthiness.
+        task_ID
+            The task ID of the task in which this condition is defined.
+
+        """
+        assert not self.group_name
+        self._app.submission_logger.info(
+            f"checking task condition of task {task_ID!r}: {self!r}."
+        )
+
+        # does this condition apply to the specified run's task?
+        if run.task.insert_ID == self.source_task_ID:
+
+            if not self.__validate_run(run):
+                return None
+
+            # does this run output the condition's parameter?
+            src_out_val = run.get(self.get_path)
+            self._app.submission_logger.info(
+                f"task condition source value is {src_out_val!r}"
+            )
+
+            # is the condition met (just support bool for now)?
+            return bool(src_out_val)
+
+        return None
+
+    def test_group(self, runs, task_ID: int) -> bool | None:
+
+        assert self.group_name
+
+        # filter out runs that are not valid for this condition (do not provide the source
+        # parameter as either an input or output):
+        runs_filtered = [run for run in runs if self.__validate_run(run)]
+        if not runs_filtered:
+            return None
+
+        self._app.submission_logger.info(
+            f"checking group task condition of task {task_ID!r}: {self!r}."
+        )
+        # do these runs output the condition's parameter?
+        src_out_vals = [run.get(self.get_path) for run in runs_filtered]
+        if self.group_function == "any":
+            return any(src_out_vals)
+
+        elif self.group_function == "all":
+            return all(src_out_vals)
+
+        return None
+
+    @classmethod
+    def from_string(cls, condition: str, workflow: Workflow):
+        """Generate from a string.
+
+        Examples
+        --------
+        The condition is met if the p1 output from task t1 is truthy:
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1", workflow)
+        TaskCondition(...)
+
+        The condition is met if any values of the p1 output from task t1 in the group
+        "my_group" are truthy:
+
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1:any(my_group)", workflow)
+        TaskCondition(...)
+
+        The condition is met if all values of the p1 output from task t1 in the group
+        "my_group" are truthy:
+
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1:all(my_group)", workflow)
+        TaskCondition(...)
+
+        """
+        cond_s = condition.split(".")
+        src_task_i_name, in_or_out, src_param_info = cond_s[1:4]
+
+        # get source parameter and group info if any:
+        src_param_info_s = src_param_info.split(":", maxsplit=1)
+        src_param, group_info = src_param_info_s[0], src_param_info_s[1:]
+
+        group_function, group_name = None, None
+        if group_info:
+            if match := re.search(r"\b(any|all)\(([^)]+)\)", group_info[0]):
+                group_function = match.group(1)
+                group_name = match.group(2)
+
+        src_task = workflow.tasks.get(src_task_i_name)
+        if in_or_out == "inputs":
+            assert src_param in src_task.template.schema.input_types
+        elif in_or_out == "outputs":
+            assert src_param in src_task.template.schema.output_types
+        else:
+            raise ValueError(
+                f"Task condition is not understood: {condition!r}. Try in the "
+                "format: 'task.TASK_NAME.inputs.PARAMETER_NAME' or "
+                f"'task.TASK_NAME.outputs.PARAMETER_NAME'."
+            )
+
+        return cls(
+            source_task_ID=src_task.insert_ID,
+            input_or_output=in_or_out,
+            source_parameter=src_param,
+            group_function=group_function,
+            group_name=group_name,
+        )
+
+
 class WorkflowTask(AppAware):
     """
     Represents a :py:class:`Task` that is bound to a :py:class:`Workflow`.
@@ -1583,7 +1736,8 @@ class WorkflowTask(AppAware):
     @classmethod
     def new_empty_task(cls, workflow: Workflow, template: Task, index: int) -> Self:
         """
-        Make a new instance without any elements set up yet.
+        Make a new instance without any elements set up yet, validate any task condition,
+        and add any missing parameter dependence required by that condition.
 
         Parameters
         ----------
@@ -1594,12 +1748,43 @@ class WorkflowTask(AppAware):
         index:
             Where in the workflow's list of tasks is this one.
         """
-        return cls(
+        obj = cls(
             workflow=workflow,
             template=template,
             index=index,
             element_IDs=[],
         )
+
+        if parsed_condition := obj.validate_condition():
+            schema = obj.template.schema
+            if parsed_condition.source_parameter not in schema.input_types:
+                schema.add_parameter_dependency(
+                    param=parsed_condition.source_parameter,
+                    group_name=parsed_condition.group_name,
+                )
+            elif group_name := parsed_condition.group_name:
+                # check group exists:
+                src_task = workflow.tasks.get(insert_ID=parsed_condition.source_task_ID)
+                group_found = False
+                for es in src_task.template.element_sets:
+                    for group in es.groups:
+                        if group_name == group.name:
+                            group_found = True
+                if not group_found:
+                    raise ValueError(
+                        f"Group {group_name!r} not found whilst validating the task "
+                        f"condition: {parsed_condition!r}."
+                    )
+
+        return obj
+
+    def validate_condition(self) -> TaskCondition | None:
+        """Validate a task condition string."""
+        if condition := self.template.condition:
+            return self._app.TaskCondition.from_string(
+                condition=condition, workflow=self.workflow
+            )
+        return None
 
     @property
     def workflow(self) -> Workflow:
@@ -2420,6 +2605,9 @@ class WorkflowTask(AppAware):
                 action_idx=act_idx,
                 commands_idx=run["commands_idx"],
                 data_idx=all_data_idx[act_idx, EAR_ID_i],
+                task_ID=self.insert_ID,
+                element_idx=element_iter.element.index,
+                iteration_idx=element_iter.index,
             )
 
         self.workflow._store.update_param_source(param_src_updates)
@@ -2439,7 +2627,7 @@ class WorkflowTask(AppAware):
         # may modify element_set.input_sources:
         padded_elem_iters = self.ensure_input_sources(element_set)
 
-        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
+        input_data_idx, seq_idx, src_idx = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
             padded_elem_iters=padded_elem_iters,
@@ -2465,7 +2653,7 @@ class WorkflowTask(AppAware):
             local_element_idx_range=local_element_idx_range,
         )
 
-        (element_data_idx, element_seq_idx, element_src_idx) = self.generate_new_elements(
+        element_data_idx, element_seq_idx, element_src_idx = self.generate_new_elements(
             input_data_idx,
             output_data_idx,
             element_inp_data_idx,
@@ -2487,6 +2675,8 @@ class WorkflowTask(AppAware):
                 element_ID=elem_ID_i,
                 data_idx=data_idx,
                 schema_parameters=list(schema_params),
+                task_ID=self.insert_ID,
+                index=0,
             )
             iter_IDs.append(iter_ID_i)
             elem_IDs.append(elem_ID_i)

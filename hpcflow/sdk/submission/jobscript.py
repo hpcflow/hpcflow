@@ -226,6 +226,18 @@ def resolve_jobscript_dependencies(
     """
     Discover concrete dependencies between jobscripts.
     """
+    # map each run ID to its (first) jobscript element index, so we do not have to scan
+    # the full `EAR_ID` array for every dependency:
+    js_elem_idx_by_run: dict[int, dict[int, int]] = {}
+    for js_k_idx, js_k in jobscripts.items():
+        EAR_ID_arr = js_k["EAR_ID"]
+        col_idx = np.repeat(np.arange(EAR_ID_arr.shape[1]), EAR_ID_arr.shape[0])
+        lookup: dict[int, int] = {}
+        for run_ID, col in zip(EAR_ID_arr.ravel(order="F").tolist(), col_idx.tolist()):
+            if run_ID >= 0:
+                lookup.setdefault(run_ID, col)
+        js_elem_idx_by_run[js_k_idx] = lookup
+
     # first pass is to find the mappings between jobscript elements:
     jobscript_deps: dict[int, dict[int, ResolvedJobscriptBlockDependencies]] = {}
     for js_idx, elem_deps in element_deps.items():
@@ -236,33 +248,24 @@ def resolve_jobscript_dependencies(
         for js_elem_idx_i, EAR_deps_i in elem_deps.items():
             # locate which jobscript elements this jobscript element depends on:
             for EAR_dep_j in EAR_deps_i:
-                for js_k_idx, js_k in jobscripts.items():
+                for js_k_idx in jobscripts:
                     if js_k_idx == js_idx:
                         break
 
-                    if EAR_dep_j in js_k["EAR_ID"]:
-                        if js_k_idx not in jobscript_deps[js_idx]:
-                            jobscript_deps[js_idx][js_k_idx] = {"js_element_mapping": {}}
+                    # retrieve column index, which is the JS-element index:
+                    js_elem_idx_k = js_elem_idx_by_run[js_k_idx].get(EAR_dep_j)
+                    if js_elem_idx_k is None:
+                        continue
 
-                        jobscript_deps[js_idx][js_k_idx]["js_element_mapping"].setdefault(
-                            js_elem_idx_i, []
-                        )
+                    if js_k_idx not in jobscript_deps[js_idx]:
+                        jobscript_deps[js_idx][js_k_idx] = {"js_element_mapping": {}}
 
-                        # retrieve column index, which is the JS-element index:
-                        js_elem_idx_k: int = np.where(
-                            np.any(js_k["EAR_ID"] == EAR_dep_j, axis=0)
-                        )[0][0].item()
+                    elem_map = jobscript_deps[js_idx][js_k_idx]["js_element_mapping"]
+                    elem_map.setdefault(js_elem_idx_i, [])
 
-                        # add js dependency element-mapping:
-                        if (
-                            js_elem_idx_k
-                            not in jobscript_deps[js_idx][js_k_idx]["js_element_mapping"][
-                                js_elem_idx_i
-                            ]
-                        ):
-                            jobscript_deps[js_idx][js_k_idx]["js_element_mapping"][
-                                js_elem_idx_i
-                            ].append(js_elem_idx_k)
+                    # add js dependency element-mapping:
+                    if js_elem_idx_k not in elem_map[js_elem_idx_i]:
+                        elem_map[js_elem_idx_i].append(js_elem_idx_k)
 
     # next we can determine if two jobscripts have a one-to-one element mapping, which
     # means they can be submitted with a "job array" dependency relationship:
@@ -2075,6 +2078,7 @@ class Jobscript(JSONLike):
             import {app_module} as app
 
             from hpcflow.sdk.core.errors import UnsetParameterDataErrorBase
+            from hpcflow.sdk.core.skip_reason import SkipReason
 
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
@@ -2131,6 +2135,12 @@ class Jobscript(JSONLike):
                 get_all_runs_tic = time.perf_counter()
                 run_IDs_flat = [j for i in run_IDs for j in i]
                 runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
+
+                for run_id, run in runs.items():
+                    if not wk._Workflow__apply_group_task_conditions(run):                    
+                        # run was set to skip due to task condition not being met:                        
+                        run._skip = SkipReason.TASK_CONDITION_NOT_MET.value                
+                
                 run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
                 get_all_runs_toc = time.perf_counter()
 
@@ -2409,7 +2419,10 @@ class Jobscript(JSONLike):
                         # set run end for all elements of this action
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
-                        wk.set_multi_run_ends(run_end_dat)
+                        new_skips = wk.set_multi_run_ends(run_end_dat)
+                        run_skips.update(new_skips)
+                        for run_id, skip_i in new_skips.items():
+                            runs[run_id]._skip = skip_i
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
                         app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")

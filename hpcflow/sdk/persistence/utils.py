@@ -4,7 +4,10 @@ Miscellaneous persistence-related helpers.
 
 from __future__ import annotations
 from getpass import getpass
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
+import uuid
 
 from hpcflow.sdk.core.errors import WorkflowNotFoundError
 
@@ -71,3 +74,36 @@ def infer_store(path: str, fs: AbstractFileSystem) -> str:
             raise WorkflowNotFoundError(path, fs)
 
     return store_fmt
+
+
+def atomic_write(path: Path, data: bytes) -> None:
+    """
+    Defensively write the provided bytes to the specified path.
+
+    This includes calling fsync on the file and its parent directory. On the Lustre file
+    system for example, it is recommended to call flush (see
+    https://wiki.lustre.org/Lustre_Common_Mistakes#Not_Checking_Write_Return_Codes).
+
+    """
+    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.partial")
+    try:
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(tmp_path, path)
+
+        if hasattr(os, "O_DIRECTORY"):
+            # not on Windows
+            dir_fd = os.open(path.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass

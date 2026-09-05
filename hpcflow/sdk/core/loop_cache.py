@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 from typing_extensions import Generic, TypeVar
 
+
 from hpcflow.sdk.core.utils import nth_key
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.cache import ObjectCache
@@ -148,6 +149,9 @@ class LoopCache:
     task_iterations:
         Keys are task insert IDs, values are list of all iteration IDs associated with
         that task.
+    run_meta:
+        Keys are run IDs, values are tuples of the task insert ID and element ID of that
+        run.
     """
 
     #: Keys are element IDs, values are dicts whose keys are element IDs that depend on
@@ -171,6 +175,11 @@ class LoopCache:
     #: Keys are task insert IDs, values are list of all iteration IDs associated with
     #: that task.
     task_iterations: dict[int, list[int]]
+    #: Keys are run IDs, values are tuples of the task insert ID and element ID of that
+    #: run. Only immutable data is stored here, because run objects retrieved at cache
+    #: build time would hold stale parent elements/iterations once new iterations are
+    #: added.
+    run_meta: dict[int, tuple[int, int]]
 
     @TimeIt.decorator
     def get_iter_IDs(self, loop: Loop) -> list[int]:
@@ -216,13 +225,20 @@ class LoopCache:
         new_iter_idx = len(self.data_idx[element_ID])
         self.data_idx[element_ID][loop_idx] = data_idx
         self.iterations[iter_ID] = (element_ID, new_iter_idx)
+        self.elements[element_ID]["num_iters"] += 1
+
+    def get_latest_data_idx(self, element_ID: int) -> DataIndex:
+        """Get the data index of the most recently added iteration of an element."""
+        return next(reversed(self.data_idx[element_ID].values()))
 
     @classmethod
     @TimeIt.decorator
     def build(cls, workflow: Workflow, loops: list[Loop] | None = None) -> Self:
         """Build a cache of data for use in adding loops and iterations."""
 
-        deps_cache = ObjectCache.build(workflow, dependencies=True, elements=True)
+        deps_cache = ObjectCache.build(
+            workflow, dependencies=True, elements=True, runs=True
+        )
 
         loops = [*workflow.template.loops, *(loops or ())]
         task_iIDs = {t_id for loop in loops for t_id in loop.task_insert_IDs}
@@ -239,7 +255,7 @@ class LoopCache:
         iters: dict[int, tuple[int, int]] = {}
 
         # keys: element IDs, values: dict with keys: "input_statues", "input_sources",
-        # "task_insert_ID":
+        # "task_insert_ID", "num_iters":
         elements: dict[int, ElementDescriptor] = {}
 
         zeroth_iters: dict[int, tuple[int, DataIndex]] = {}
@@ -252,6 +268,7 @@ class LoopCache:
                     "input_statuses": inp_statuses,
                     "input_sources": element.input_sources,
                     "task_insert_ID": task.insert_ID,
+                    "num_iters": len(element.iterations),
                 }
                 elem_deps[element.id_] = {
                     de_id: {
@@ -279,4 +296,7 @@ class LoopCache:
             data_idx=data_idx_cache,
             iterations=iters,
             task_iterations=task_iterations,
+            run_meta={
+                run.id_: (run.task.insert_ID, run.element.id_) for run in deps_cache.runs
+            },
         )

@@ -10,6 +10,7 @@ from collections import defaultdict
 import contextlib
 import copy
 from dataclasses import dataclass, field
+from datetime import datetime
 import enum
 from logging import Logger
 from functools import wraps
@@ -26,7 +27,6 @@ from hpcflow.sdk.core.utils import (
     flatten,
     get_in_container,
     get_relative_path,
-    remap,
     reshape,
     set_in_container,
     normalise_timestamp,
@@ -53,7 +53,6 @@ from hpcflow.sdk.persistence.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
-    from datetime import datetime
     from typing import Any, ClassVar, Final, Literal
     from typing_extensions import Self, TypeIs
     from fsspec import AbstractFileSystem  # type: ignore
@@ -209,6 +208,9 @@ class StoreTask(Generic[SerFormT]):
     element_IDs: list[int]
     #: Description of the template for the task.
     task_template: Mapping[str, Any] | None = None
+    #: Number of actions in the task, only stored to assist with encoding, not available
+    #: from decode.
+    num_actions: int | None = None
 
     @abstractmethod
     def encode(self) -> tuple[int, SerFormT, dict[str, Any]]:
@@ -376,6 +378,12 @@ class StoreElementIter(Generic[SerFormT, ContextT]):
     schema_parameters: list[str]
     #: What loops are being handled here and where they're up to.
     loop_idx: Mapping[str, int] = field(default_factory=dict)
+    #: Task of the iteration, only stored to assist with encoding, not available from
+    #: decode:
+    task_ID: int | None = None
+    #: Index of the iteration within its parent element, only stored to assist with
+    #: encoding, not available from decode:
+    index: int | None = None
 
     @abstractmethod
     def encode(self, context: ContextT) -> SerFormT:
@@ -535,6 +543,10 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     submission_idx: int | None = None
     #: Run ID whose commands can be used for this run (may be this run's ID).
     commands_file_ID: int | None = None
+    #: ID of the file to which execution-time run metadata should be written.
+    run_file_ID: int | None = None
+    #: Index of data within the run file containing the execution-time run metadata.
+    run_file_idx: int | None = None
     #: Whether to skip this EAR.
     skip: int = 0
     #: Whether this EAR was successful, if known.
@@ -554,6 +566,14 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     #: Where this EAR was submitted to run, if known.
     run_hostname: str | None = None
     port_number: int | None = None
+    #: Task of the run, only stored to assist with encoding, not available from decode:
+    task_ID: int | None = None
+    #: Element index of the run, only stored to assist with encoding, not available from
+    #: decode:
+    element_idx: int | None = None
+    #: Element iteration index of the run, only stored to assist with encoding, not
+    #: available from decode:
+    iteration_idx: int | None = None
 
     @staticmethod
     def _encode_datetime(dt: datetime | None, ts_fmt: str) -> str | None:
@@ -561,7 +581,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
 
     @staticmethod
     def _decode_datetime(dt_str: str | None, ts_fmt: str) -> datetime | None:
-        return parse_timestamp(dt_str, ts_fmt) if dt_str else None
+        return datetime.strptime(dt_str, ts_fmt) if dt_str else None
 
     @abstractmethod
     def encode(self, ts_fmt: str, context: ContextT) -> SerFormT:
@@ -589,6 +609,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "data_idx": self.data_idx,
             "submission_idx": self.submission_idx,
             "commands_file_ID": self.commands_file_ID,
+            "run_file_ID": self.run_file_ID,
+            "run_file_idx": self.run_file_idx,
             "success": self.success,
             "skip": self.skip,
             "start_time": _process_datetime(self.start_time),
@@ -606,6 +628,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         self,
         submission_idx: int | None = None,
         commands_file_ID: int | None = None,
+        run_file_ID: int | None = None,
         skip: int | None = None,
         success: bool | None = None,
         start_time: datetime | None = None,
@@ -632,6 +655,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         cmd_file = (
             commands_file_ID if commands_file_ID is not None else self.commands_file_ID
         )
+        run_file_ID = run_file_ID if run_file_ID is not None else self.run_file_ID
         if data_idx is not None:
             new_data_idx = copy.deepcopy(self.data_idx)
             new_data_idx.update(data_idx)
@@ -649,6 +673,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             metadata=self.metadata,
             submission_idx=sub_idx,
             commands_file_ID=cmd_file,
+            run_file_ID=run_file_ID,
             skip=skip,
             success=success,
             start_time=start_time,
@@ -658,6 +683,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             exit_code=exit_code,
             run_hostname=run_hn,
             port_number=port_num,
+            task_ID=self.task_ID,
         )
 
 
@@ -1144,7 +1170,7 @@ class PersistentStore(
     @abstractmethod
     def rechunk_parameter_base(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Any: ...
@@ -1152,7 +1178,7 @@ class PersistentStore(
     @abstractmethod
     def rechunk_runs(
         self,
-        chunk_size: int | None = None,
+        chunk_size: int | tuple[int, ...] | None = None,
         backup: bool = True,
         status: bool = True,
     ) -> Any: ...
@@ -1487,6 +1513,7 @@ class PersistentStore(
     @abstractmethod
     def _get_num_persistent_parameters(self) -> int: ...
 
+    @TimeIt.decorator
     def _get_num_total_parameters(self) -> int:
         """Get the total number of persistent and pending parameters."""
         return self._get_num_persistent_parameters() + len(self._pending.add_parameters)
@@ -1530,7 +1557,9 @@ class PersistentStore(
         if save:
             self.save()
 
-    def add_task(self, idx: int, task_template: Mapping, save: bool = True):
+    def add_task(
+        self, idx: int, task_template: Mapping, num_actions: int, save: bool = True
+    ):
         """Add a new task to the workflow."""
         self.logger.debug("Adding store task.")
         new_ID = self._get_num_total_added_tasks()
@@ -1540,6 +1569,7 @@ class PersistentStore(
             task_template=task_template,
             is_pending=True,
             element_IDs=[],
+            num_actions=num_actions,
         )
         if save:
             self.save()
@@ -1625,6 +1655,8 @@ class PersistentStore(
         element_ID: int,
         data_idx: DataIndex,
         schema_parameters: list[str],
+        task_ID: int,
+        index: int,
         loop_idx: Mapping[str, int] | None = None,
         save: bool = True,
     ) -> int:
@@ -1640,6 +1672,8 @@ class PersistentStore(
             data_idx=data_idx,
             schema_parameters=schema_parameters,
             loop_idx=loop_idx or {},
+            task_ID=task_ID,
+            index=index,
         )
         self._pending.add_elem_iter_IDs[element_ID].append(new_ID)
         if save:
@@ -1653,6 +1687,9 @@ class PersistentStore(
         action_idx: int,
         commands_idx: list[int],
         data_idx: DataIndex,
+        task_ID: int,
+        element_idx: int,
+        iteration_idx: int,
         metadata: Metadata | None = None,
         save: bool = True,
     ) -> int:
@@ -1666,6 +1703,9 @@ class PersistentStore(
             action_idx=action_idx,
             commands_idx=commands_idx,
             data_idx=data_idx,
+            task_ID=task_ID,
+            element_idx=element_idx,
+            iteration_idx=iteration_idx,
             metadata=metadata or {},
         )
         self._pending.add_elem_iter_EAR_IDs[elem_iter_ID][action_idx].append(new_ID)
@@ -1697,12 +1737,23 @@ class PersistentStore(
 
     @TimeIt.decorator
     def set_run_submission_data(
-        self, EAR_ID: int, cmds_ID: int | None, sub_idx: int, save: bool = True
+        self,
+        EAR_ID: int,
+        cmds_ID: int | None,
+        sub_idx: int,
+        run_file_ID: int,
+        run_file_idx: int,
+        save: bool = True,
     ) -> None:
         """
         Set the run submission data, like the submission index for an element action run.
         """
-        self._pending.set_EAR_submission_data[EAR_ID] = (sub_idx, cmds_ID)
+        self._pending.set_EAR_submission_data[EAR_ID] = (
+            sub_idx,
+            cmds_ID,
+            run_file_ID,
+            run_file_idx,
+        )
         if save:
             self.save()
 
@@ -1846,6 +1897,7 @@ class PersistentStore(
             self.save()
 
     @writes_parameter_data
+    @TimeIt.decorator
     def _add_parameter(
         self,
         is_set: bool,
@@ -2007,6 +2059,7 @@ class PersistentStore(
         return self._add_parameter(data=data, is_set=True, source=source, save=save)
 
     @writes_parameter_data
+    @TimeIt.decorator
     def add_unset_parameter(self, source: ParamSource, save: bool = True) -> int:
         """
         Add a parameter that is not set to any value.
@@ -2608,6 +2661,34 @@ class PersistentStore(
     ) -> dict[int, ParamSource]: ...
 
     @TimeIt.decorator
+    def get_element_iteration_dicts(
+        self, iter_IDs: Iterable[int]
+    ) -> list[dict[str, Any]]:
+        """Get user-facing element-iteration data, including that of associated EARs."""
+        store_iters = self.get_element_iterations(iter_IDs)
+
+        # retrieve all EARs of all iterations in one go:
+        EAR_IDs_flat = [
+            EAR_ID
+            for iter_i in store_iters
+            for act_EAR_IDs in (iter_i.EAR_IDs or {}).values()
+            for EAR_ID in act_EAR_IDs
+        ]
+        EAR_dcts = {EAR.id_: EAR.to_dict() for EAR in self.get_EARs(EAR_IDs_flat)}
+
+        iters: list[dict[str, Any]] = []
+        for iter_i in store_iters:
+            EARs: dict[int, dict[str, Any]] | None = None
+            if iter_i.EAR_IDs is not None:
+                EARs = {
+                    act_idx: cast("Any", [EAR_dcts[EAR_ID] for EAR_ID in act_EAR_IDs])
+                    for act_idx, act_EAR_IDs in iter_i.EAR_IDs.items()
+                }
+            iters.append(iter_i.to_dict(EARs))
+
+        return iters
+
+    @TimeIt.decorator
     def get_task_elements(
         self,
         task_id: int,
@@ -2626,21 +2707,7 @@ class PersistentStore(
         iter_IDs_flat, iter_IDs_lens = flatten(
             [el.iteration_IDs for el in store_elements]
         )
-        store_iters = self.get_element_iterations(iter_IDs_flat)
-
-        # retrieve EARs:
-        EARs_dcts = remap(
-            [list((elit.EAR_IDs or {}).values()) for elit in store_iters],
-            lambda ears: [ear.to_dict() for ear in self.get_EARs(ears)],
-        )
-
-        # add EARs to iterations:
-        iters: list[dict[str, Any]] = []
-        for idx, i in enumerate(store_iters):
-            EARs: dict[int, dict[str, Any]] | None = None
-            if i.EAR_IDs is not None:
-                EARs = dict(zip(i.EAR_IDs, cast("Any", EARs_dcts[idx])))
-            iters.append(i.to_dict(EARs))
+        iters = self.get_element_iteration_dicts(iter_IDs_flat)
 
         # reshape iterations:
         iters_rs = reshape(iters, iter_IDs_lens)
@@ -2700,7 +2767,7 @@ class PersistentStore(
 
     @abstractmethod
     def _update_EAR_submission_data(
-        self, sub_data: Mapping[int, tuple[int, int | None]]
+        self, sub_data: Mapping[int, tuple[int, int | None, int, int]]
     ): ...
 
     @abstractmethod

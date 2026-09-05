@@ -471,6 +471,39 @@ def test_task_get_available_task_input_sources_one_parameter_extravaganza(
     assert available == available_exp
 
 
+def test_output_labels_on_two_tasks(tmp_path: Path):
+    s1, s2 = make_schemas(
+        ({"p1": None}, ("p2",), "t1"),
+        ({"p2[coarse]": NullDefault.NULL, "p2[fine]": None}, ("p4",), "t2"),
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="test_output_labels",
+        workflow_name="test_output_labels",
+        overwrite=True,
+        path=tmp_path,
+        tasks=[
+            hf.Task(
+                schema=s1,
+                inputs={"p1": 100},
+                output_labels=[hf.OutputLabel("p2", label="coarse")],
+            ),
+            hf.Task(
+                schema=s1,
+                inputs={"p1": 100},
+                output_labels=[hf.OutputLabel("p2", label="fine")],
+            ),
+            hf.Task(schema=s2),
+        ],
+    )
+    inp_sources = wk.tasks.t2.template.element_sets[0].input_sources
+    assert inp_sources["p2[coarse]"] == [
+        hf.InputSource.task(task_ref=0, task_source_type="output", element_iters=[0])
+    ]
+    assert inp_sources["p2[fine]"] == [
+        hf.InputSource.task(task_ref=1, task_source_type="output", element_iters=[1])
+    ]
+
+
 def test_task_input_sources_output_label(tmp_path: Path):
     ts1 = hf.TaskSchema(
         objective="t1",
@@ -530,7 +563,9 @@ def test_task_input_sources_output_label_filtered(tmp_path: Path):
                 hf.OutputLabel(
                     parameter="p1",
                     label="one",
-                    where=hf.Rule(path="inputs.p1", condition={"value.equal_to": 2}),
+                    where=hf.ElementFilter(
+                        rules=[hf.Rule(path="inputs.p1", condition={"value.equal_to": 2})]
+                    ),
                 ),
             ],
         ),

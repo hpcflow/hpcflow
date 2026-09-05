@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 from dataclasses import dataclass
+from datetime import timedelta
 import json
 import contextlib
 from collections import defaultdict
@@ -45,7 +46,7 @@ from hpcflow.sdk.core.utils import (
     JSONLikeDirSnapShot,
     split_param_label,
     swap_nested_dict_keys,
-    get_relative_path,
+    timedelta_format,
 )
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
@@ -193,6 +194,8 @@ class ElementActionRun(AppAware):
         metadata: dict[str, Any],
         run_hostname: str | None,
         port_number: int | None,
+        run_file_ID: int | None,
+        run_file_idx: int | None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -212,6 +215,8 @@ class ElementActionRun(AppAware):
         self._metadata = metadata
         self._run_hostname = run_hostname
         self._port_number = port_number
+        self._run_file_ID = run_file_ID
+        self._run_file_idx = run_file_idx
 
         # assigned on first access of corresponding properties:
         self._inputs: ElementInputs | None = None
@@ -330,6 +335,18 @@ class ElementActionRun(AppAware):
         When the EAR finished.
         """
         return self._end_time
+
+    @property
+    def run_time(self) -> timedelta | None:
+        if self.start_time and self.end_time:
+            return self.end_time - self.start_time
+        return None
+
+    @property
+    def run_time_str(self) -> str | None:
+        if run_time := self.run_time:
+            return timedelta_format(run_time)
+        return None
 
     @property
     def submission_idx(self) -> int | None:
@@ -2262,7 +2279,7 @@ class Action(JSONLike):
         if not data_fmt:
             return {}
 
-        param_names = self.get_parameter_names(f"{direction}puts")
+        param_names = self.get_parameter_names(f"{direction}puts", param_deps=False)
         if isinstance(data_fmt, str):
             all_params = self.__process_action_data_str(data_fmt, direction, param_names)
         else:
@@ -3155,7 +3172,9 @@ class Action(JSONLike):
         else:
             return self.get_jinja_template_inputs(path, include_prefix=False)
 
-    def get_input_types(self, sub_parameters: bool = False) -> tuple[str, ...]:
+    def get_input_types(
+        self, sub_parameters: bool = False, param_deps: bool = True
+    ) -> tuple[str, ...]:
         """Get the input types that are consumed by commands and input file generators of
         this action.
 
@@ -3165,6 +3184,10 @@ class Action(JSONLike):
             If True, sub-parameters (i.e. dot-delimited parameter types) in command line
             inputs will be returned untouched. If False (default), only return the root
             parameter type and disregard the sub-parameter part.
+        param_deps:
+            If True, include the parent task schema's parameter dependencies, if the
+            parent task schema is assigned.
+
         """
         if self.has_main_script_or_program:
             # TODO: refine this according to `script_data_in/program_data_in`, since this
@@ -3186,6 +3209,14 @@ class Action(JSONLike):
 
         if self.jinja_template:
             params.update(self._get_jinja_template_input_types())
+
+        if self.task_schema:
+            if param_deps:
+                params.update(self.task_schema.parameter_dependencies)
+            else:
+                for p_type in self.task_schema.parameter_dependencies:
+                    params.discard(p_type)
+
         return tuple(params)
 
     def get_output_types(self) -> tuple[str, ...]:
@@ -3406,6 +3437,10 @@ class Action(JSONLike):
             if typ in self._get_jinja_template_input_types():
                 return True
 
+        # typ is required if provided in the task schema's parameter_dependencies list:
+        if typ in self.task_schema.parameter_dependencies:
+            return True
+
         # typ is required if used in any output file parser
         return any(
             typ in in_lab_map[inp_typ]
@@ -3559,7 +3594,7 @@ class Action(JSONLike):
 
         return out
 
-    def get_parameter_names(self, prefix: str) -> list[str]:
+    def get_parameter_names(self, prefix: str, param_deps: bool = False) -> list[str]:
         """Get parameter types associated with a given prefix.
 
         For example, with the prefix "inputs", this would return `['p1', 'p2']` for an
@@ -3576,11 +3611,17 @@ class Action(JSONLike):
         ----------
         prefix
             One of "inputs", "outputs", "input_files", "output_files".
+        param_deps:
+            If True, and `prefix` is "inputs", include the parent task schema's parameter
+            dependencies.
 
         """
         if prefix == "inputs":
             single_lab_lookup = self.task_schema._get_single_label_lookup()
-            return [single_lab_lookup.get(i, i) for i in self.get_input_types()]
+            return [
+                single_lab_lookup.get(i, i)
+                for i in self.get_input_types(param_deps=param_deps)
+            ]
         elif prefix == "outputs":
             return list(self.get_output_types())
         elif prefix == "input_files":

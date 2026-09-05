@@ -106,7 +106,7 @@ class ImportParameter(JSONLike):
         # mutates `available`:
         get_available_task_sources(
             self._app,
-            inputs_path=avail_key,
+            req_path=avail_key,
             source_tasks=sorted(self.workflow.tasks, key=lambda x: x.index, reverse=True),
             available=available,
         )
@@ -265,8 +265,9 @@ class Import(JSONLike):
         # retrieve data from the input source in the source workflow:
         src_elem_iters = get_task_source_element_iters(
             in_or_out=in_out,
-            src_task=self.workflow.tasks.get(insert_ID=src.task_ref).template,
+            src_task=self.workflow.tasks.get(insert_ID=src.task_ref),
             labelled_path=input_type,
+            output_label=None,
             sourceable_elem_iters=src.element_iters,
         )
         src_elem_iter_objs = self.workflow.get_element_iterations_from_IDs(src_elem_iters)
