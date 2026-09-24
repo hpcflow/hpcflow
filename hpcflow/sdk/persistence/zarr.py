@@ -1986,8 +1986,8 @@ class ZarrPersistentStore(
                 f"Could not find array path {data_path} in the base data for parameter "
                 f"ID {param_id}."
             )
-        group = self._get_parameter_user_array_group(mode=mode).get(
-            f"{self._param_data_arr_grp_name(param_id)}"
+        group = self._get_or_create_parameter_data_array_inner_group(param_id, mode).get(
+            self._param_data_arr_grp_name(param_id)
         )
         return group, f"arr_{arr_idx}"
 
