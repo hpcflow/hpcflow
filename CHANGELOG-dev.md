@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a7"></a>
+## [v0.3.0a7](https://github.com/hpcflow/hpcflow/compare/v0.3.0a6...v0.3.0a7) - 2026.09.24
+
+### 🐛 Bug Fixes
+
+* zarr method `_get_array_group_and_dataset`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a6"></a>
 ## [v0.3.0a6](https://github.com/hpcflow/hpcflow/compare/v0.3.0a5...v0.3.0a6) - 2026.09.12
 
