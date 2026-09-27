@@ -15,7 +15,7 @@ from typing import Any, Generic, ParamSpec, TypeVar, TYPE_CHECKING
 
 import numpy as np
 
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.submission import SUBMISSION_SUBMIT_TIME_KEYS
 from hpcflow.sdk.typing import DataIndex
 from hpcflow.sdk.utils.strings import shorten_list_str
