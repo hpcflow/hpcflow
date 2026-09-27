@@ -123,7 +123,9 @@ class PendingChanges(
         #: IDs of EARs to mark as initialised.
         self.set_EARs_initialised: set[int] = set()
         #: Submission IDs and commands file IDs to attach to EARs.
-        self.set_EAR_submission_data: dict[int, tuple[int, int | None, int, int]] = {}
+        self.set_EAR_submission_data: dict[int, tuple[int, int, int | None, int, int]] = (
+            {}
+        )
         #: IDs of EARs to mark as skipped.
         self.set_EAR_skips: dict[int, int] = {}
         #: Keys are EAR IDs and values are tuples of start time, start dir snapshot, run

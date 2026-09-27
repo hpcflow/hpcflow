@@ -80,6 +80,7 @@ from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
+from hpcflow.sdk.wait.run_wait import RunWaitEvent
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -631,6 +632,20 @@ def _make_workflow_CLI(app: BaseApp):
     def wait(wf: Workflow, jobscripts: str | None, quiet: bool):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
         wf.wait(sub_js=js_spec, quiet=quiet)
+
+    @workflow.command("wait-run-start")
+    @click.argument("runs", nargs=-1, type=click.INT)
+    @wait_quiet_opt
+    @_pass_workflow
+    def wait_run_start(wf: Workflow, runs, quiet: bool):
+        wf.wait_for_runs(run_ids=runs, quiet=quiet, event=RunWaitEvent.START)
+
+    @workflow.command("wait-run-end")
+    @click.argument("runs", nargs=-1, type=click.INT)
+    @wait_quiet_opt
+    @_pass_workflow
+    def wait_run_start(wf: Workflow, runs, quiet: bool):
+        wf.wait_for_runs(run_ids=runs, quiet=quiet, event=RunWaitEvent.END)
 
     @workflow.command(name="abort-run")
     @click.option("--submission", type=click.INT, default=-1)
