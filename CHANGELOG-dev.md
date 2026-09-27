@@ -1,4 +1,41 @@
 
+<a name="v0.3.0a7"></a>
+## [v0.3.0a7](https://github.com/hpcflow/hpcflow/compare/v0.3.0a6...v0.3.0a7) - 2026.09.24
+
+### 🐛 Bug Fixes
+
+* zarr method `_get_array_group_and_dataset`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a6"></a>
+## [v0.3.0a6](https://github.com/hpcflow/hpcflow/compare/v0.3.0a5...v0.3.0a6) - 2026.09.12
+
+### ⚡ Performance Improvements
+
+* use store cache_ctx when preparing script inputs to reduce number of base-param file reads
+* add more timers
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a5"></a>
+## [v0.3.0a5](https://github.com/hpcflow/hpcflow/compare/v0.3.0a4...v0.3.0a5) - 2026.09.11
+
+### 🐛 Bug Fixes
+
+* race condition in creating zarr array-parameter groups
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a4"></a>
 ## [v0.3.0a4](https://github.com/hpcflow/hpcflow/compare/v0.3.0a3...v0.3.0a4) - 2026.09.10
 
