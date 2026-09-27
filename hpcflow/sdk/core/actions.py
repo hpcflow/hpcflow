@@ -3612,8 +3612,6 @@ class Action(JSONLike):
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )
-                print(f"{{app.config.log_file_level=!r}}")
-                print(f"{{app.config.log_file_path=!r}}")
                 wk = app.Workflow(wk_path, load_config=True)
 
             with wk._store.cache_ctx():
