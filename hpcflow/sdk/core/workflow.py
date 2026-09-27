@@ -17,10 +17,8 @@ import random
 import shutil
 import string
 import sys
-from threading import Thread
 import time
-from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
-from typing_extensions import Concatenate
+from typing import overload, cast, TYPE_CHECKING
 
 from uuid import uuid4
 from warnings import warn
@@ -38,6 +36,8 @@ import rich.box
 
 
 from hpcflow.sdk import app
+from hpcflow.sdk.execution.client import JobscriptClient
+from hpcflow.sdk.execution.jobscript_executor import JobscriptExecutor
 from hpcflow.sdk.typing import WorkflowTemplateFromFileCommonArgs, hydrate
 from hpcflow.sdk.config.errors import (
     ConfigNonConfigurableError,
@@ -57,11 +57,11 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
-from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
+from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write, infer_store
 from hpcflow.sdk.submission.jobscript import (
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
@@ -74,6 +74,7 @@ from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.utils.async_utils import run_coroutine_sync
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.core.utils import (
     read_JSON_file,
@@ -96,6 +97,10 @@ from hpcflow.sdk.core.errors import (
     UnsetParameterDataErrorBase,
     WorkflowSubmissionFailure,
 )
+from hpcflow.sdk.config.config import load_workflow_config
+from hpcflow.sdk.wait.completion import JobscriptCompletion
+from hpcflow.sdk.wait.run_wait import RunWaitEvent, RunWaitState
+from hpcflow.sdk.wait.wait_server import WaitServer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -140,10 +145,6 @@ if TYPE_CHECKING:
 
     #: Convenience alias
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
-
-P = ParamSpec("P")
-T = TypeVar("T")
-S = TypeVar("S", bound="Workflow")
 
 
 @dataclass
@@ -1002,25 +1003,6 @@ class _IterationData:
     idx: int
 
 
-def load_workflow_config(
-    func: Callable[Concatenate[S, P], T],
-) -> Callable[Concatenate[S, P], T]:
-    """Decorator to apply workflow-level config items during execution of a Workflow
-    method."""
-
-    @wraps(func)
-    def wrapped(self: S, *args: P.args, **kwargs: P.kwargs) -> T:
-
-        updates = self.template.config
-        if updates:
-            with self._app.config._with_updates(updates):
-                return func(self, *args, **kwargs)
-        else:
-            return func(self, *args, **kwargs)
-
-    return wrapped
-
-
 class Workflow(AppAware):
     """
     A concrete workflow.
@@ -1035,6 +1017,8 @@ class Workflow(AppAware):
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:
         Additional arguments to pass when resolving a virtual workflow reference.
+    load_config:
+        Load any configuration items defined in the workflow template.
     kwargs:
         For compatibility during pre-stable development phase.
     """
@@ -1049,6 +1033,7 @@ class Workflow(AppAware):
         workflow_ref: str | Path | int,
         store_fmt: str | None = None,
         fs_kwargs: dict[str, Any] | None = None,
+        load_config: bool = False,
         **kwargs,
     ):
         if isinstance(workflow_ref, int):
@@ -1091,6 +1076,10 @@ class Workflow(AppAware):
         # reassigned within `ElementActionRun.raise_on_failure_threshold` context manager:
         self._is_tracking_unset: bool = False
         self._tracked_unset: dict[str, UnsetParamTracker] | None = None
+
+        if load_config and (to_load := self.template.config):
+            for k, v in to_load.items():
+                self._app.config.set(k, v)
 
     def reload(self) -> Self:
         """Reload the workflow from disk."""
@@ -3989,120 +3978,245 @@ class Workflow(AppAware):
             return submitted_js
         return None
 
-    @staticmethod
-    def __wait_for_direct_jobscripts(jobscripts: list[Jobscript], quiet: bool = False):
-        """Wait for the passed direct (i.e. non-scheduled) jobscripts to finish."""
-
-        def callback(proc: psutil.Process) -> None:
-            js = js_pids[proc.pid]
-            assert hasattr(proc, "returncode")
-            # TODO sometimes proc.returncode is None; maybe because multiple wait
-            # calls?
-            if not quiet:
-                print(
-                    f"Jobscript {js.index} from submission {js.submission.index} "
-                    f"finished with exit code {proc.returncode}."
-                )
-
-        js_pids = {js.process_ID: js for js in jobscripts}
-        process_refs = [
-            (js.process_ID, js.submit_cmdline)
-            for js in jobscripts
-            if js.process_ID and js.submit_cmdline
-        ]
-        DirectScheduler.wait_for_jobscripts(process_refs, callback=callback)
-
-    def __wait_for_scheduled_jobscripts(self, jobscripts: list[Jobscript]):
-        """Wait for the passed scheduled jobscripts to finish."""
-        schedulers = self._app.Submission.get_unique_schedulers_of_jobscripts(jobscripts)
-        threads: list[Thread] = []
-        for js_indices, sched in schedulers:
-            jobscripts_gen = (
-                self.submissions[sub_idx].jobscripts[js_idx]
-                for sub_idx, js_idx in js_indices
-            )
-            job_IDs = [
-                js.scheduler_job_ID
-                for js in jobscripts_gen
-                if js.scheduler_job_ID is not None
-            ]
-            threads.append(Thread(target=sched.wait_for_jobscripts, args=(job_IDs,)))
-
-        for thr in threads:
-            thr.start()
-
-        for thr in threads:
-            thr.join()
+    def _is_jobscript_complete(
+        self,
+        submission_idx: int,
+        jobscript_idx: int,
+    ) -> bool:
+        return (
+            self.submissions[submission_idx]
+            .jobscripts[jobscript_idx]
+            .completion_obj.is_complete()
+        )
 
     def wait(
-        self, sub_js: Mapping[int, Sequence[int]] | None = None, quiet: bool = False
-    ):
+        self,
+        sub_js: Mapping[int, Sequence[int]] | None = None,
+        quiet: bool = False,
+    ) -> None:
         """Wait for the completion of specified/all submitted jobscripts."""
+        try:
+            run_coroutine_sync(self._wait(sub_js=sub_js, quiet=quiet))
+        except KeyboardInterrupt:
+            if not quiet:
+                print("No longer waiting (workflow execution will continue).")
 
-        # TODO: think about how this might work with remote workflow submission (via SSH)
+    #: Interval between checking the filesystem for jobscript completion, in the event
+    #: we are not notified/woken up by ZeroMQ:
+    WAIT_STATE_CHECK_INTERVAL = 5 * 60
 
-        # TODO: add a log file to the submission dir where we can log stuff (e.g starting
-        # a thread...)
+    async def _wait(
+        self,
+        sub_js: Mapping[int, Sequence[int]] | None = None,
+        quiet: bool = False,
+    ) -> None:
+        """Asynchronously wait for specified/all submitted jobscripts."""
 
         if not sub_js:
-            # find any active jobscripts first:
-            sub_js_: dict[int, list[int]] = defaultdict(list)
+            sub_js_ = defaultdict(list)
             for sub in self.submissions:
                 sub_js_[sub.index].extend(sub.get_active_jobscripts())
             sub_js = sub_js_
 
-        js_direct: list[Jobscript] = []
-        js_sched: list[Jobscript] = []
-        for sub_idx, all_js_idx in sub_js.items():
-            for js_idx in all_js_idx:
+        # validate and flatten the requested jobscripts:
+        pending: set[tuple[int, int]] = set()
+
+        for sub_idx, js_indices in sub_js.items():
+            for js_idx in js_indices:
                 try:
                     js = self.submissions[sub_idx].jobscripts[js_idx]
                 except IndexError:
                     raise ValueError(
-                        f"No jobscript with submission index {sub_idx!r} and/or "
-                        f"jobscript index {js_idx!r}."
+                        f"Jobscript index {js_idx!r} does not exist for submission "
+                        f"{sub_idx!r}."
                     )
-                if js.process_ID is not None:
-                    js_direct.append(js)
-                elif js.scheduler_job_ID is not None:
-                    js_sched.append(js)
-                else:
+                if js.process_ID is None and js.scheduler_job_ID is None:
                     raise RuntimeError(
-                        f"Process ID nor scheduler job ID is set for {js!r}."
+                        f"Jobscript {js_idx!r} of submission {sub_idx!r} has not been "
+                        f"submitted (it has no process or scheduler job ID)."
                     )
+                pending.add((sub_idx, js_idx))
 
-        if js_direct or js_sched:
-            # TODO: use a rich console status? how would that appear in stdout though?
-            if not quiet:
-                print("Waiting for workflow submissions to finish...")
-        else:
+        if not pending:
             if not quiet:
                 print("No running jobscripts.")
             return
 
+        if not quiet:
+            print("Waiting for workflow submissions to finish...")
+
+        server = WaitServer()
+        waiter_id = WaitServer.get_new_waiter_id()
+        registered_paths: list[Path] = []
+
         try:
-            t_direct = Thread(
-                target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
+            endpoint = await server.start()
+
+            # register this waiter with every jobscript before checking whether any of
+            # them have completed:
+            for sub_idx, js_idx in pending:
+                endpoint_path = self._register_wait_endpoint(
+                    submission_idx=sub_idx,
+                    jobscript_idx=js_idx,
+                    waiter_id=waiter_id,
+                    endpoint=endpoint,
+                )
+                registered_paths.append(endpoint_path)
+
+            # registration and completion can race, so check completion only after all
+            # registrations are visible:
+            pending = {key for key in pending if not self._is_jobscript_complete(*key)}
+
+            while pending:
+                # ZMQ is only a wake-up mechanism; the completion marker on the shared
+                # filesystem is authoritative, so we update pending whenever server wait
+                # times out, or when we receive any message from the server:
+                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+                pending = {
+                    key for key in pending if not self._is_jobscript_complete(*key)
+                }
+
+        finally:
+            # stop advertising the endpoint before shutting down the server:
+            for path in registered_paths:
+                path.unlink(missing_ok=True)
+            await server.stop()
+
+        if not quiet:
+            print("Specified submissions have finished.")
+
+    def _register_wait_endpoint(
+        self,
+        submission_idx: int,
+        jobscript_idx: int,
+        waiter_id: str,
+        endpoint: str,
+    ) -> Path:
+        endpoints_path = JobscriptExecutor.get_wait_endpoints_path(
+            self.submissions_path,
+            submission_idx,
+            jobscript_idx,
+        )
+        endpoints_path.mkdir(parents=True, exist_ok=True)
+        endpoint_path = endpoints_path / waiter_id
+        atomic_write(endpoint_path, endpoint.encode("utf-8"))
+        return endpoint_path
+
+    def _get_run_wait_state(self, run: ElementActionRun) -> RunWaitState:
+        return RunWaitState(
+            submissions_path=self.submissions_path,
+            submission_idx=run.submission_idx,
+            jobscript_idx=run.jobscript_idx,
+        )
+
+    def _is_run_wait_event_complete(
+        self, run: ElementActionRun, event: RunWaitEvent
+    ) -> bool:
+        if event is RunWaitEvent.START:
+            return (
+                run.status == EARStatus.running
+                or run.status in EARStatus.get_terminal_states()
             )
-            t_sched = Thread(
-                target=self.__wait_for_scheduled_jobscripts, args=(js_sched,)
+        elif event is RunWaitEvent.END:
+            return run.status in EARStatus.get_terminal_states()
+        else:
+            raise ValueError(f"Unknown run wait event: {event!r}")
+
+    async def _wait_for_runs(
+        self,
+        run_ids: Sequence[int],
+        *,
+        event: RunWaitEvent = RunWaitEvent.END,
+        quiet: bool = False,
+    ) -> None:
+        """Wait for the specified runs to reach a given event."""
+
+        run_ids = tuple(dict.fromkeys(run_ids))
+        if not run_ids:
+            return
+
+        runs = self.get_EARs_from_IDs(run_ids, as_dict=True)
+
+        server = WaitServer()
+        waiter_id = WaitServer.get_new_waiter_id()
+
+        endpoint_paths: list[Path] = []
+        registrations: list[tuple[RunWaitState, int]] = []
+
+        try:
+            endpoint = await server.start()
+
+            # register this waiter's endpoint once for each jobscript containing one or
+            # more of the requested runs:
+            jobscripts = {
+                (run.submission_idx, run.jobscript_idx) for run in runs.values()
+            }
+
+            for submission_idx, jobscript_idx in jobscripts:
+                endpoint_path = self._register_wait_endpoint(
+                    submission_idx=submission_idx,
+                    jobscript_idx=jobscript_idx,
+                    waiter_id=waiter_id,
+                    endpoint=endpoint,
+                )
+                endpoint_paths.append(endpoint_path)
+
+            # register interest in each run event:
+            pending: dict[int, RunWaitState] = {}
+            for run_id, run in runs.items():
+                state = self._get_run_wait_state(run)
+                registrations.append((state, run_id))
+                if not state.register(run_id=run_id, event=event, waiter_id=waiter_id):
+                    pending[run_id] = state
+
+            # registration above closes the "completion after registration" side of the
+            # race; now consult durable run state once to handle runs that reached the
+            # requested event before registration:
+            for run_id in tuple(pending):
+                run = runs[run_id]
+
+                if self._is_run_wait_event_complete(run, event):
+                    state = pending.pop(run_id)
+                    state.complete(run_id, event)
+
+            # from this point onward the lightweight run-wait state is enough. ZMQ is only
+            # a fast wake-up; the filesystem markers are authoritative:
+            while pending:
+                pending = {
+                    run_id: state
+                    for run_id, state in pending.items()
+                    if not state.is_complete(run_id, event)
+                }
+
+                if not pending:
+                    break
+
+                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+
+        finally:
+            for state, run_id in registrations:
+                state.unregister(run_id=run_id, event=event, waiter_id=waiter_id)
+
+            for endpoint_path in endpoint_paths:
+                endpoint_path.unlink(missing_ok=True)
+
+            await server.stop()
+
+    def wait_for_runs(
+        self,
+        run_ids: Sequence[int],
+        *,
+        event: RunWaitEvent = RunWaitEvent.END,
+        quiet: bool = False,
+    ) -> None:
+        """Wait for the specified runs to start or end."""
+        try:
+            run_coroutine_sync(
+                self._wait_for_runs(run_ids=run_ids, event=event, quiet=quiet)
             )
-            t_direct.start()
-            t_sched.start()
-
-            # without these, KeyboardInterrupt seems to not be caught:
-            while t_direct.is_alive():
-                t_direct.join(timeout=1)
-
-            while t_sched.is_alive():
-                t_sched.join(timeout=1)
-
         except KeyboardInterrupt:
             if not quiet:
                 print("No longer waiting (workflow execution will continue).")
-        else:
-            if not quiet:
-                print("Specified submissions have finished.")
 
     def get_running_elements(
         self,
@@ -4171,10 +4285,16 @@ class Workflow(AppAware):
         return out
 
     def _abort_run(self, run: ElementActionRun):
-        # connect to the ZeroMQ server on the worker node:
-        self._app.logger.info(f"abort run: {run!r}")
-        self._app.Executor.send_abort(
-            hostname=run.run_hostname, port_number=run.port_number
+        self._app.logger.info(f"aborting run: {run!r}")
+        if run.run_hostname is None or run.port_number is None:
+            raise RuntimeError(
+                f"Cannot abort run {run.id_}: no jobscript server connection "
+                "information is available."
+            )
+        JobscriptClient.send_abort(
+            hostname=run.run_hostname,
+            port_number=run.port_number,
+            run_id=run.id_,
         )
 
     def abort_run(
@@ -4320,6 +4440,11 @@ class Workflow(AppAware):
 
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
 
+        runs_by_js = defaultdict(list)
+        for js in sub_obj.jobscripts:
+            for run_id in js.all_EAR_IDs:
+                runs_by_js[run_id] = js.index
+
         if not all_EAR_ID:
             print(
                 "There are no pending element action runs, so a new submission was not "
@@ -4340,7 +4465,6 @@ class Workflow(AppAware):
         sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
         sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
         sub_obj.js_funcs_path.mkdir(exist_ok=True)
-        sub_obj.js_run_ids_path.mkdir(exist_ok=True)
         sub_obj.scripts_path.mkdir(exist_ok=True)
         sub_obj.commands_path.mkdir(exist_ok=True)
 
@@ -4371,6 +4495,7 @@ class Workflow(AppAware):
                     EAR_ID=id_,
                     cmds_ID=cmd_file_IDs[id_],
                     sub_idx=new_idx,
+                    js_idx=runs_by_js[id_],
                     run_file_ID=file_lookup[0],
                     run_file_idx=file_lookup[1],
                 )
@@ -4570,27 +4695,9 @@ class Workflow(AppAware):
 
         return submission_jobscripts, all_element_deps
 
-    @staticmethod
-    def _timeit_run_end(
-        run_ID: int, run_wall_start: float, jobscript_std=None, status: str = "completed"
-    ) -> None:
-        if not TimeIt.active:
-            return
-
-        elapsed = time.perf_counter() - run_wall_start
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        print(
-            f"[TIMEIT] run-end {timestamp} "
-            f"run_id={run_ID} "
-            f"status={status} "
-            f"elapsed={elapsed:.3f}s",
-            file=jobscript_std,
-            flush=True,
-        )
-
     @TimeIt.decorator
     @load_workflow_config
-    def execute_run(
+    def execute_run_OLD(
         self,
         submission_idx: int,
         block_act_key: BlockActionKey,
@@ -4600,11 +4707,11 @@ class Workflow(AppAware):
         cache."""
         # parameter sources do not change during execution:
         with self._store.parameters_metadata_cache():
-            return self._execute_run(submission_idx, block_act_key, run_ID)
+            return self._execute_run_OLD(submission_idx, block_act_key, run_ID)
 
     @TimeIt.decorator
     @load_workflow_config
-    def _execute_run(
+    def _execute_run_OLD(
         self,
         submission_idx: int,
         block_act_key: BlockActionKey,
@@ -4894,33 +5001,6 @@ class Workflow(AppAware):
             )
             TimeIt.child_work_time = sum(exe.child_work_times) if exe is not None else 0.0
 
-    @TimeIt.decorator
-    def _check_loop_termination(self, run: ElementActionRun) -> set[int]:
-        """Check if we need to terminate a loop if this is the last action of the loop
-        iteration for this element, and set downstream iteration runs to skip."""
-
-        elem_iter = run.element_iteration
-        task = elem_iter.task
-        check_loops = []
-        to_skip = set()
-        for loop_name in elem_iter.loop_idx:
-            self._app.logger.info(f"checking loop termination of loop {loop_name!r}.")
-            loop = self.loops.get(loop_name)
-            if (
-                loop.template.termination
-                and task.insert_ID == loop.template.termination_task_insert_ID
-                and run.element_action.action_idx == max(elem_iter.actions)
-            ):
-                check_loops.append(loop_name)
-                # TODO: test with condition actions
-                if loop.test_termination(elem_iter):
-                    self._app.logger.info(
-                        f"loop {loop_name!r} termination condition met for run "
-                        f"ID {run.id_!r}."
-                    )
-                    to_skip.update(loop.skip_downstream_iterations(elem_iter))
-        return to_skip
-
     @load_workflow_config
     def execute_combined_runs(self, submission_idx: int, jobscript_idx: int) -> None:
         """Execute a combined script (multiple runs) via a subprocess."""
@@ -4965,52 +5045,6 @@ class Workflow(AppAware):
         exe = self._app.Executor(cmd, env, self._app.package_name)
         exe.start_zmq_server()  # start the server
         exe.run()  # this also shuts down the server
-
-    @TimeIt.decorator
-    def ensure_commands_file(
-        self,
-        submission_idx: int,
-        js_idx: int,
-        run: ElementActionRun,
-    ) -> Path | bool:
-        """Ensure a commands file exists for the specified run."""
-        self._app.persistence_logger.debug("Workflow.ensure_commands_file")
-
-        if run.commands_file_ID is None:
-            # no commands to write
-            return False
-
-        with self._store.cached_load():
-            sub = self.submissions[submission_idx]
-            jobscript = sub.jobscripts[js_idx]
-
-            # check if a commands file already exists, first checking using the run ID:
-            cmd_file_name = f"{run.id_}{jobscript.shell.JS_EXT}"  # TODO: refactor
-            cmd_file_path = jobscript.submission.commands_path / cmd_file_name
-
-            if not cmd_file_path.is_file():
-                # then check for a file from the "root" run ID (the run ID of a run that
-                # shares the same commands file):
-
-                cmd_file_name = (
-                    f"{run.commands_file_ID}{jobscript.shell.JS_EXT}"  # TODO: refactor
-                )
-                cmd_file_path = jobscript.submission.commands_path / cmd_file_name
-
-            if not cmd_file_path.is_file():
-                # no file available, so write (using the run ID):
-                try:
-                    cmd_file_path = run.try_write_commands(
-                        jobscript=jobscript,
-                        environments=sub.environments,
-                        raise_on_unset=True,
-                        timeit=sub.timeit,
-                    )
-                except OutputFileParserNoOutputError:
-                    # no commands to write, might be used just for saving files
-                    return False
-
-        return cmd_file_path
 
     @TimeIt.decorator
     def process_shell_parameter_output(

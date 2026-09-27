@@ -51,8 +51,43 @@ class WindowsPowerShell(Shell):
         }}
     """
     )
+    #: Template for enabling writing of the jobscript log.
+    JS_LOG_PATH_ENABLE: ClassVar[str] = 'Join-Path $SUB_LOG_DIR "js_$JS_IDX.log"'
+    #: Template for disabling writing of the jobscript log.
+    JS_LOG_PATH_DISABLE: ClassVar[str] = '" "'
     #: Template for the common part of the jobscript header.
     JS_HEADER: ClassVar[str] = dedent(
+        """\
+        $ErrorActionPreference = 'Stop'
+        
+        function JoinMultiPath {{
+            $numArgs = $args.Length
+            $path = $args[0]
+            for ($i = 1; $i -lt $numArgs; $i++) {{
+                $path = Join-Path $path $args[$i]
+            }}
+            return $path
+        }}
+                
+        $WK_PATH = $(Get-Location)
+        $WK_PATH_ARG = $WK_PATH
+        $SUB_IDX = {sub_idx}
+        $JS_IDX = {js_idx}
+
+        $SUB_DIR = JoinMultiPath $WK_PATH artifacts submissions $SUB_IDX
+        $SUB_LOG_DIR = Join-Path $SUB_DIR {log_dir_name}
+        $JS_FUNCS_PATH = JoinMultiPath $SUB_DIR {jobscript_functions_dir} {jobscript_functions_name}
+
+        . $JS_FUNCS_PATH                
+
+        $env:{app_caps}_WK_PATH_ARG = $WK_PATH_ARG
+        $env:{app_caps}_SUB_LOG_DIR = $SUB_LOG_DIR
+        $env:{app_caps}_LOG_PATH = {jobscript_log_path}
+        $env:{app_caps}_JS_FUNCS_PATH = $JS_FUNCS_PATH
+    """
+    )
+    #: Template for the common part of the jobscript header.
+    JS_HEADER_OLD: ClassVar[str] = dedent(
         """\
         $ErrorActionPreference = 'Stop'
 
@@ -110,6 +145,16 @@ class WindowsPowerShell(Shell):
         """\
         $env:{app_caps}_APP_LAUNCH_START = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
     """
+    )
+    #: Template for converting the scheduler array item environment variable to a
+    #: zero-indexed jobscript array index:
+    JS_SCHEDULER_ARRAY_IDX_OPT: ClassVar[str] = (
+        " --array-idx $({scheduler_array_item_var} - 1)"
+    )
+    #: Template for the jobscript execution command.
+    JS_EXECUTE_CMD: ClassVar[str] = (
+        "{workflow_app_alias} {timeit}internal workflow $WK_PATH execute-jobscript "
+        "$SUB_IDX $JS_IDX{array_idx_opt}\n"
     )
     #: Template for the run execution command.
     JS_RUN_CMD: ClassVar[str] = (

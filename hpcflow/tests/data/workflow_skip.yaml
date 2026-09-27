@@ -1,0 +1,21 @@
+template_components:
+  task_schemas:
+    - objective: t1
+      inputs: 
+        - parameter: p1
+      outputs:
+        - parameter: p2
+        - parameter: p3
+      actions:
+        - commands:
+            - command: echo <<parameter:p1>>
+              stdout: <<parameter:p2>>
+            - command: exit 1 # should cause the next action to skip
+        - commands:
+            - command: echo <<parameter:p2>>
+              stdout: <<parameter:p3>>
+            - command: exit 0 # exit code should be ignored
+tasks:
+  - schema: t1
+    inputs:
+      p1: 101

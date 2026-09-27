@@ -18,7 +18,7 @@ from hpcflow import __version__, _app_name
 from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
-from hpcflow.sdk.core.execute import Executor
+from hpcflow.sdk.execution.client import JobscriptClient
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
 from hpcflow.sdk.cli_common import (
     format_option,
@@ -74,7 +74,7 @@ from hpcflow.sdk.cli_common import (
     timeit_exec_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
@@ -935,9 +935,9 @@ def _make_internal_CLI(app: BaseApp):
         run_id: int,
     ):
         app.CLI_logger.info(f"execute commands for EAR ID {run_id!r}.")
-        if TimeIt.active:
+        if TimeIt.is_active():
             TimeIt.title = ctx.command_path
-        wf.execute_run(
+        wf.execute_run_OLD(
             submission_idx=submission_idx,
             block_act_key=(jobscript_idx, block_idx, block_action_idx),
             run_ID=run_id,
@@ -963,6 +963,36 @@ def _make_internal_CLI(app: BaseApp):
     @workflow.command()
     @_pass_workflow
     @click.pass_context
+    @click.argument("submission_idx", type=click.INT)
+    @click.argument("jobscript_idx", type=click.INT)
+    @click.option("array_idx", "--array-idx", type=click.INT)
+    def execute_jobscript(
+        ctx: click.Context,
+        wf: Workflow,
+        submission_idx: int,
+        jobscript_idx: int,
+        array_idx: int,
+    ):
+        app.CLI_logger.info(
+            f"execute command for jobscript {jobscript_idx} (element index: "
+            f"{array_idx})."
+        )
+        executor = app.JobscriptExecutor(
+            workflow=wf,
+            submission_idx=submission_idx,
+            jobscript_idx=jobscript_idx,
+            array_idx=array_idx,
+        )
+        if timeit_session := TimeIt.current():
+            timeit_session.title = ctx.command_path
+            timeit_session.file_path = executor.jobscript_std_path
+            timeit_session.file_mode = "a"
+
+        executor.execute()
+
+    @workflow.command()
+    @_pass_workflow
+    @click.pass_context
     @click.argument("name")
     @click.argument("value")
     @click.argument("ear_id", type=click.INT)
@@ -982,8 +1012,8 @@ def _make_internal_CLI(app: BaseApp):
             f"{cmd_idx!r} (stderr={stderr!r})"
         )
         app.CLI_logger.debug(f"save parameter value is: {value!r}")
-        if TimeIt.active:
-            TimeIt.title = ctx.command_path
+        if timeit := TimeIt.current():
+            timeit.title = ctx.command_path
         with wf._store.cached_load():
             # TODO: load EAR once.
             value = wf.process_shell_parameter_output(
@@ -1949,6 +1979,7 @@ def make_cli(app: BaseApp):
         ctx.ensure_object(dict)
 
         app_caps = app.package_name.upper()
+        app_launch_time = None
         if launch_start := os.environ.get(f"{app_caps}_APP_LAUNCH_START"):
             start_time = datetime.fromisoformat(launch_start.replace("Z", "+00:00"))
             app_launch_time = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -1958,12 +1989,14 @@ def make_cli(app: BaseApp):
             ctx.with_resource(redirect_std_to_file_click(std_stream))
 
         app.run_time_info.from_CLI = True
-        TimeIt.active = timeit or timeit_file
-        TimeIt.file_path = timeit_file
-        if TimeIt.active:
-            TimeIt.CLI_start = time.perf_counter()
-            if launch_start:
-                TimeIt.app_launch_time = app_launch_time
+
+        if timeit or timeit_file:
+            timeit_session = TimeIt(file_path=timeit_file)
+            timeit_session.CLI_start = time.perf_counter()
+            timeit_session.app_launch_time = app_launch_time
+            ctx.obj["timeit"] = timeit_session
+            # keep it active for config loading, command dispatch, etc.:
+            ctx.with_resource(timeit_session.activate())
 
         if ctx.invoked_subcommand != "manage":
             # load the config
@@ -1979,20 +2012,24 @@ def make_cli(app: BaseApp):
                 ctx.exit(1)
 
     @new_CLI.result_callback()
-    def post_execution(*args, **kwargs):
-        if TimeIt.active:
-            TimeIt.CLI_end = time.perf_counter()
-            if (orchestration_time := TimeIt.get_orchestration_time()) is not None and (
-                run_port := os.environ.get(f"{app.package_name.upper()}_RUN_PORT")
+    @click.pass_context
+    def post_execution(ctx: click.Context, *args, **kwargs):
+
+        if timeit := TimeIt.current():
+            timeit.CLI_end = time.perf_counter()
+            app_caps = app.package_name.upper()
+            if (run_port := os.environ.get(f"{app_caps}_JS_CONTROL_PORT")) and (
+                run_id := os.environ.get(f"{app_caps}_RUN_ID")
             ):
-                # send child process orchestration time back to the main process:
-                Executor.send_timeit(
+                JobscriptClient.send_timeit(
                     hostname="localhost",
                     port_number=int(run_port),
-                    orchestration_time=orchestration_time,
+                    run_id=int(run_id),
+                    orchestration_time=timeit.get_orchestration_time(),
+                    work_time=timeit.get_command_work_time(),
                 )
 
-            TimeIt.summarise_string()
+            timeit.summarise_string()
 
     new_CLI.context_class = ErrorPropagatingClickContext
 

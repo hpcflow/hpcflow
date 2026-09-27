@@ -1,0 +1,22 @@
+doc: |
+  A workflow to sleep a specified number of seconds.
+
+template_components:
+  task_schemas:
+    - objective: sleep
+      inputs:
+        - parameter: sleep_time_seconds
+          default_value: 10
+      actions:
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: posix }
+          commands:
+            - command: sleep <<parameter:sleep_time_seconds>>
+        - rules:
+            - path: resources.os_name
+              condition: { value.equal_to: nt }
+          commands:
+            - command: Start-Sleep <<parameter:sleep_time_seconds>>
+tasks:
+  - schema: sleep

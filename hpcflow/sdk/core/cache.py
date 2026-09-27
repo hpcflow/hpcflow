@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import TYPE_CHECKING
 
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

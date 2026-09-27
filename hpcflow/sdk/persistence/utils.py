@@ -81,7 +81,7 @@ def atomic_write(path: Path, data: bytes) -> None:
     Defensively write the provided bytes to the specified path.
 
     This includes calling fsync on the file and its parent directory. On the Lustre file
-    system for example, it is recommended to call flush (see
+    system for example, it is recommended to call fsync (see
     https://wiki.lustre.org/Lustre_Common_Mistakes#Not_Checking_Write_Return_Codes).
 
     """

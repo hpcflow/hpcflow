@@ -40,7 +40,7 @@ from hpcflow.sdk.submission.submission import (
     SUBMISSION_SUBMIT_TIME_KEYS,
 )
 from hpcflow.sdk.utils.strings import shorten_list_str
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.persistence.pending import PendingChanges
 from hpcflow.sdk.persistence.types import (
@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     from ..core.parameters import ParameterValue
     from ..core.workflow import Workflow
     from ..submission.types import VersionInfo, ResolvedJobscriptBlockDependencies
+    from hpcflow.sdk.execution.jobscript_executor import FinalizedRun
 
 T = TypeVar("T")
 #: Type of the serialized form.
@@ -501,6 +502,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         Maps parameter names within this EAR to parameter data indices.
     submission_idx:
         Which submission contained this EAR, if known.
+    jobscript_idx:
+        Which jobscript contained this EAR, if known.
     skip:
         Whether to skip this EAR.
     success:
@@ -543,6 +546,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     data_idx: DataIndex
     #: Which submission contained this EAR, if known.
     submission_idx: int | None = None
+    #: Which jobscripts contained this EAR, if known.
+    jobscript_idx: int | None = None
     #: Run ID whose commands can be used for this run (may be this run's ID).
     commands_file_ID: int | None = None
     #: ID of the file to which execution-time run metadata should be written.
@@ -610,6 +615,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "commands_idx": self.commands_idx,
             "data_idx": self.data_idx,
             "submission_idx": self.submission_idx,
+            "jobscript_idx": self.jobscript_idx,
             "commands_file_ID": self.commands_file_ID,
             "run_file_ID": self.run_file_ID,
             "run_file_idx": self.run_file_idx,
@@ -629,6 +635,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     def update(
         self,
         submission_idx: int | None = None,
+        jobscript_idx: int | None = None,
         commands_file_ID: int | None = None,
         run_file_ID: int | None = None,
         run_file_idx: int | None = None,
@@ -646,6 +653,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         """Return a shallow copy, with specified data updated."""
 
         sub_idx = submission_idx if submission_idx is not None else self.submission_idx
+        js_idx = jobscript_idx if jobscript_idx is not None else self.jobscript_idx
         skip = skip if skip is not None else self.skip
         success = success if success is not None else self.success
         start_time = start_time if start_time is not None else self.start_time
@@ -676,6 +684,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             data_idx=data_idx,
             metadata=self.metadata,
             submission_idx=sub_idx,
+            jobscript_idx=js_idx,
             commands_file_ID=cmd_file,
             run_file_ID=run_file_ID,
             run_file_idx=run_file_idx_,
@@ -1819,6 +1828,7 @@ class PersistentStore(
         EAR_ID: int,
         cmds_ID: int | None,
         sub_idx: int,
+        js_idx: int,
         run_file_ID: int,
         run_file_idx: int,
         save: bool = True,
@@ -1828,6 +1838,7 @@ class PersistentStore(
         """
         self._pending.set_EAR_submission_data[EAR_ID] = (
             sub_idx,
+            js_idx,
             cmds_ID,
             run_file_ID,
             run_file_idx,
@@ -1911,6 +1922,17 @@ class PersistentStore(
             self.save()
         self.logger.info("PersistentStore.set_multi_run_ends finished.")
         return dt
+
+    def set_run_ends(
+        self,
+        runs: Sequence[FinalizedRun],
+    ):
+        return self.set_multi_run_ends(
+            [run.run_id for run in runs],
+            [run.run_dir for run in runs],
+            [run.exit_code for run in runs],
+            [run.success for run in runs],
+        )
 
     def set_EAR_skip(self, skip_reasons: dict[int, int], save: bool = True) -> None:
         """
@@ -2875,7 +2897,7 @@ class PersistentStore(
 
     @abstractmethod
     def _update_EAR_submission_data(
-        self, sub_data: Mapping[int, tuple[int, int | None, int, int]]
+        self, sub_data: Mapping[int, tuple[int, int, int | None, int, int]]
     ): ...
 
     @abstractmethod

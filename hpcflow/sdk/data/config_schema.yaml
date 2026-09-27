@@ -9,6 +9,7 @@ rules:
         - linux_release_file
         - log_file_path
         - log_file_level
+        - log_file_levels
         - log_console_level
         - task_schema_sources
         - parameter_sources
@@ -103,6 +104,12 @@ rules:
       value.is_instance: [str, path]
 
   - path: [log_file_level]
+    condition:
+      and:
+        - value.type.equal_to: str
+        - value.in: [notset, debug, info, warning, error, critical]
+
+  - path: [log_file_levels, { type: map_value }]
     condition:
       and:
         - value.type.equal_to: str

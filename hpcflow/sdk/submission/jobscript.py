@@ -5,6 +5,7 @@ Model of information submitted to a scheduler.
 from __future__ import annotations
 from collections import defaultdict
 
+from dataclasses import dataclass
 import os
 import logging
 import subprocess
@@ -24,10 +25,11 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
 from hpcflow.sdk.utils.strings import extract_py_from_future_imports
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.shells import get_shell, DEFAULT_SHELL_NAMES
+from hpcflow.sdk.wait.completion import JobscriptCompletion
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -597,6 +599,13 @@ def resolve_jobscript_blocks(
     return js_new_
 
 
+@dataclass(frozen=True)
+class PreparedJobscriptSubmission:
+    deps: dict[int, tuple[str, bool]]
+    js_path: Path
+    submit_cmd: list[str]
+
+
 @hydrate
 class JobscriptBlock(JSONLike):
     """A rectangular block of element-actions to run within a jobscript.
@@ -1141,6 +1150,13 @@ class Jobscript(JSONLike):
         return self._is_array
 
     @property
+    def array_indices(self) -> tuple[int, ...] | None:
+        """The set of array indices, if this jobscript is an array jobscript."""
+        if self.is_array:
+            return tuple(range(self.blocks[0].num_elements))
+        return None
+
+    @property
     def os_name(self) -> str:
         """
         The name of the OS to use.
@@ -1536,6 +1552,94 @@ class Jobscript(JSONLike):
         os_name: str | None = None,
         scheduler_name: str | None = None,
         scheduler_args: dict[str, Any] | None = None,
+    ):
+        """Prepare the jobscript file contents as a string."""
+        scheduler_name = scheduler_name or self.scheduler_name
+        assert scheduler_name
+        assert os_name
+        scheduler = self._app.get_scheduler(
+            scheduler_name=scheduler_name,
+            os_name=os_name,
+            scheduler_args=scheduler_args or self._get_submission_scheduler_args(),
+        )
+
+        if self.resources.write_app_logs:
+            js_log_enable_disable = shell.JS_LOG_PATH_ENABLE
+        else:
+            js_log_enable_disable = shell.JS_LOG_PATH_DISABLE
+
+        app_caps = self._app.package_name.upper()
+        header_args = {
+            "app_caps": app_caps,
+            "sub_idx": self.submission.index,
+            "js_idx": self.index,
+            "jobscript_functions_name": self.jobscript_functions_name,
+            "jobscript_functions_dir": self.submission.JS_FUNCS_DIR_NAME,
+            "log_dir_name": self.submission.LOG_DIR_NAME,
+            "jobscript_log_path": js_log_enable_disable,
+        }
+        shebang = shell.JS_SHEBANG.format(
+            shebang=" ".join(scheduler.shebang_executable or shell.shebang_executable)
+        )
+        header = shell.JS_HEADER.format(**header_args)
+        array_idx_opt = ""
+        if isinstance(scheduler, QueuedScheduler):
+            header = shell.JS_SCHEDULER_HEADER.format(
+                shebang=shebang,
+                scheduler_options=scheduler.format_directives(
+                    resources=self.resources,
+                    num_elements=self.blocks[0].num_elements,  # only used for array jobs
+                    is_array=self.is_array,
+                    sub_idx=self.submission.index,
+                    js_idx=self.index,
+                ),
+                header=header,
+            )
+            if self.is_array:
+                array_idx_opt = shell.JS_SCHEDULER_ARRAY_IDX_OPT.format(
+                    scheduler_array_item_var=scheduler.array_item_var
+                )
+        else:
+            # direct submission
+            assert isinstance(scheduler, DirectScheduler)
+            wait_cmd = shell.get_wait_command(
+                workflow_app_alias=self.workflow_app_alias,
+                sub_idx=self.submission.index,
+                deps=deps or {},
+            )
+            header = shell.JS_DIRECT_HEADER.format(
+                shebang=shebang,
+                header=header,
+                workflow_app_alias=self.workflow_app_alias,
+                wait_command=wait_cmd,
+            )
+            if self.is_array:
+                # this will only be the case when the Submission object was created with
+                # `force_array=True`, in which case we expect the array index to be passed
+                # via a shell variable injected during testing:
+                array_idx_var = shell.format_env_var_get(f"{app_caps}_ARRAY_IDX")
+                array_idx_opt = f" --array-idx {array_idx_var}"
+
+        return (
+            header
+            + shell.JS_APP_START_TIMER.format(app_caps=app_caps)
+            + shell.JS_EXECUTE_CMD.format(
+                workflow_app_alias=self.workflow_app_alias,
+                timeit="--timeit " if self.submission.timeit else "",
+                app_caps=app_caps,
+                array_idx_opt=array_idx_opt,
+            )
+            + shell.JS_FOOTER
+        )
+
+    @TimeIt.decorator
+    def compose_jobscript_OLD(
+        self,
+        shell,
+        deps: dict[int, tuple[str, bool]] | None = None,
+        os_name: str | None = None,
+        scheduler_name: str | None = None,
+        scheduler_args: dict[str, Any] | None = None,
     ) -> str:
         """Prepare the jobscript file contents as a string."""
         scheduler_name = scheduler_name or self.scheduler_name
@@ -1554,7 +1658,6 @@ class Jobscript(JSONLike):
             "sub_idx": self.submission.index,
             "js_idx": self.index,
             "run_IDs_file_name": self.EAR_ID_file_name,
-            "run_IDs_file_dir": self.submission.JS_RUN_IDS_DIR_NAME,
             "tmp_dir_name": self.submission.TMP_DIR_NAME,
             "log_dir_name": self.submission.LOG_DIR_NAME,
             "app_std_dir_name": self.submission.APP_STD_DIR_NAME,
@@ -1738,8 +1841,13 @@ class Jobscript(JSONLike):
         return self.jobscript_path
 
     @TimeIt.decorator
-    def _launch_direct_js_win(self, submit_cmd: list[str]) -> int:
-        # this is a "trick" to ensure we always get a fully detached new process (with no
+    def _launch_direct_js_win(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
+        # this is a trick to ensure we always get a fully detached new process (with no
         # parent); the `powershell.exe -Command` process exits after running the inner
         # `Start-Process`, which is where the jobscript is actually invoked. I could not
         # find a way using `subprocess.Popen()` to ensure the new process was fully
@@ -1759,8 +1867,8 @@ class Jobscript(JSONLike):
             "-Command",
             f"$JS_proc = Start-Process "
             f'-Passthru -NoNewWindow -FilePath "{exe_path}" '
-            f'-RedirectStandardOutput "{self.direct_stdout_path}" '
-            f'-RedirectStandardError "{self.direct_stderr_path}" '
+            f'-RedirectStandardOutput "{self.get_stdout_path(array_idx)}" '
+            f'-RedirectStandardError "{self.get_stderr_path(array_idx)}" '
             f'-WorkingDirectory "{self.workflow.path}" '
             f"-ArgumentList {arg_list_str}; "
             f'Set-Content -Path "{self.direct_win_pid_file_path}" -Value $JS_proc.Id',
@@ -1774,12 +1882,18 @@ class Jobscript(JSONLike):
             args=args,
             cwd=self.workflow.path,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=env,
         )
         init_proc.wait()  # wait for the process ID file to be written
         return int(self.direct_win_pid_file_path.read_text())
 
     @TimeIt.decorator
-    def _launch_direct_js_posix(self, submit_cmd: list[str]) -> int:
+    def _launch_direct_js_posix(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
         # direct submission; submit jobscript asynchronously:
         # detached process, avoid interrupt signals propagating to the subprocess:
 
@@ -1791,17 +1905,29 @@ class Jobscript(JSONLike):
                 stderr=fp_stderr,
                 cwd=str(self.workflow.path),
                 start_new_session=True,
+                env=env,
             )
             return proc.pid
 
         if self.resources.combine_jobscript_std:
-            with self.direct_std_out_err_path.open("wt") as fp_std:
+            with self.get_std_out_err_path(array_idx).open("wt") as fp_std:
                 return _launch(fp_std, fp_std)
         else:
-            with self.direct_stdout_path.open(
-                "wt"
-            ) as fp_stdout, self.direct_stderr_path.open("wt") as fp_stderr:
+            with (
+                self.get_stdout_path(array_idx).open("wt") as fp_stdout,
+                self.get_stderr_path(array_idx).open("wt") as fp_stderr,
+            ):
                 return _launch(fp_stdout, fp_stderr)
+
+    def _launch_direct(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
+        if os.name == "nt":
+            return self._launch_direct_js_win(submit_cmd, env=env, array_idx=array_idx)
+        return self._launch_direct_js_posix(submit_cmd, env=env, array_idx=array_idx)
 
     @TimeIt.decorator
     def _launch_queued(
@@ -1822,17 +1948,11 @@ class Jobscript(JSONLike):
             print(stderr)
         return stdout, stderr
 
-    @TimeIt.decorator
-    def submit(
-        self,
-        scheduler_refs: dict[int, tuple[str, bool]],
-        print_stdout: bool = False,
-    ) -> str:
-        """
-        Submit the jobscript to the scheduler.
-        """
-        # map each dependency jobscript index to the JS ref (job/process ID) and if the
-        # dependency is an array dependency:
+    def _get_submission_dependencies(
+        self, scheduler_refs: dict[int, tuple[str, bool]]
+    ) -> dict[int, tuple[str, bool]]:
+        """Map each dependency jobscript index to the JS ref (job/process ID) and if the
+        # dependency is an array dependency"""
         deps: dict[int, tuple[str, bool]] = {}
         for (js_idx, _), deps_i in self.dependencies.items():
             dep_js_ref, dep_js_is_arr = scheduler_refs[js_idx]
@@ -1854,49 +1974,61 @@ class Jobscript(JSONLike):
                 for js_idx, (js_ref, _) in scheduler_refs.items():
                     if js_idx not in deps:
                         deps[js_idx] = (js_ref, False)
+        return deps
 
-        # make directory for jobscripts stdout/err stream files:
+    def prepare_submit(
+        self, scheduler_refs: dict[int, tuple[str, bool]]
+    ) -> PreparedJobscriptSubmission:
+        """Prepare this jobscript for submission without submitting it."""
+
+        deps = self._get_submission_dependencies(scheduler_refs)
         self.std_path.mkdir(exist_ok=True)
-
-        with self.EAR_ID_file_path.open(mode="wt", newline="\n") as ID_fp:
-            for block in self.blocks:
-                block.write_EAR_ID_file(ID_fp)
-
         js_path = self.shell.prepare_JS_path(self.write_jobscript(deps=deps))
-        submit_cmd = self.scheduler.get_submit_command(self.shell, js_path, deps)
-        self._app.submission_logger.info(
-            f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"
+        submit_cmd = self.scheduler.get_submit_command(
+            self.shell,
+            js_path,
+            deps,
+        )
+        return PreparedJobscriptSubmission(
+            deps=deps,
+            js_path=js_path,
+            submit_cmd=submit_cmd,
         )
 
+    def _submit_prepared(
+        self, prepared: PreparedJobscriptSubmission, *, print_stdout: bool
+    ) -> str:
+        """Submit prepared jobscripts."""
         err_args: JobscriptSubmissionFailureArgs = {
-            "submit_cmd": submit_cmd,
+            "submit_cmd": prepared.submit_cmd,
             "js_idx": self.index,
-            "js_path": js_path,
+            "js_path": prepared.js_path,
         }
-        job_ID: str | None = None
-        process_ID: int | None = None
         try:
             if isinstance(self.scheduler, QueuedScheduler):
-                # scheduled submission, wait for submission so we can parse the job ID:
-                stdout, stderr = self._launch_queued(submit_cmd, print_stdout)
+                stdout, stderr = self._launch_queued(prepared.submit_cmd, print_stdout)
                 err_args["stdout"] = stdout
                 err_args["stderr"] = stderr
+
             else:
-                if os.name == "nt":
-                    process_ID = self._launch_direct_js_win(submit_cmd)
-                else:
-                    process_ID = self._launch_direct_js_posix(submit_cmd)
+                if self.is_array:
+                    raise ValueError(
+                        "Cannot submit an array jobscript to the direct scheduler."
+                    )
+                process_ID = self._launch_direct(prepared.submit_cmd)
+
         except Exception as subprocess_exc:
             err_args["subprocess_exc"] = subprocess_exc
             raise JobscriptSubmissionFailure(
-                "Failed to execute submit command.", **err_args
+                "Failed to execute submit command.",
+                **err_args,
             )
 
         if isinstance(self.scheduler, QueuedScheduler):
-            # scheduled submission
             if stderr:
                 raise JobscriptSubmissionFailure(
-                    "Non-empty stderr from submit command.", **err_args
+                    "Non-empty stderr from submit command.",
+                    **err_args,
                 )
 
             try:
@@ -1913,19 +2045,30 @@ class Jobscript(JSONLike):
                 )
 
             self._set_scheduler_job_ID(job_ID)
-            ref = job_ID
+            return job_ID
 
-        else:
-            # direct submission
-            assert process_ID is not None
-            self._set_process_ID(process_ID)
-            ref = str(process_ID)
+        self._set_process_ID(process_ID)
+        return str(process_ID)
 
-        self._set_submit_cmdline(submit_cmd)
+    @TimeIt.decorator
+    def submit(
+        self,
+        scheduler_refs: dict[int, tuple[str, bool]],
+        print_stdout: bool = False,
+    ) -> str:
+        """Prepare and submit this jobscript."""
+
+        prepared = self.prepare_submit(scheduler_refs)
+        self._app.submission_logger.info(
+            f"submitting jobscript {self.index!r} with command: {prepared.submit_cmd!r}"
+        )
+        ref = self._submit_prepared(prepared, print_stdout=print_stdout)
+
+        self._set_submit_cmdline(prepared.submit_cmd)
         self._set_submit_time(current_timestamp())
 
-        # a downstream direct jobscript might need to wait for this jobscript, which
-        # means this jobscript's process ID must be committed:
+        # a downstream direct jobscript might need to wait for this jobscript, which means
+        # this jobscript's process ID must be committed.
         self.workflow._store._pending.commit_all()
 
         return ref
@@ -1969,7 +2112,7 @@ class Jobscript(JSONLike):
                 "states."
             )
 
-            not_run_states = EARStatus.get_non_running_submitted_states()
+            not_run_states = EARStatus.get_terminal_states()
             all_EAR_states = set(ear.status for ear in self.all_EARs)
             self._app.submission_logger.debug(
                 f"Unique EAR states are: {tuple(i.name for i in all_EAR_states)!r}"
@@ -2506,3 +2649,13 @@ class Jobscript(JSONLike):
             self.submission.index,
         )
         return std_dir / f"js_{self.index}.txt"  # TODO: refactor
+
+    @property
+    def completion_obj(self) -> JobscriptCompletion:
+        return JobscriptCompletion(
+            self.submission.workflow.submissions_path,
+            self.submission.index,
+            self.index,
+            num_jobscripts=len(self.submission.jobscripts),
+            array_indices=self.array_indices,
+        )

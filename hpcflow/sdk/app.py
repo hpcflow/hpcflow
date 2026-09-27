@@ -61,7 +61,8 @@ from hpcflow.sdk.utils.errors import get_with_index, StoredIndexError
 from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as Environment_cls
 from .core.errors import SecretExistsError, SecretNotFoundError
-from hpcflow.sdk.log import AppLog, TimeIt
+from hpcflow.sdk.log import AppLog
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.runtime import RunTimeInfo
@@ -1911,11 +1912,12 @@ class BaseApp(metaclass=Singleton):
         """
         Whether the timing analysis system is active.
         """
-        return TimeIt.active
+        return TimeIt.is_active()
 
     @timeit.setter
     def timeit(self, value: bool):
-        TimeIt.active = bool(value)
+        if value:
+            TimeIt.activate()
 
     @property
     def template_components(self) -> TemplateComponents:
@@ -2165,6 +2167,13 @@ class BaseApp(metaclass=Singleton):
         The logger for job submission messages.
         """
         return self.logger.getChild("submission")
+
+    @property
+    def execution_logger(self) -> Logger:
+        """
+        The logger for job execution messages.
+        """
+        return self.logger.getChild("execution")
 
     @property
     def runtime_info_logger(self) -> Logger:
@@ -2453,13 +2462,14 @@ class BaseApp(metaclass=Singleton):
             variables={"app_name": self.name, "app_version": self.version},
             overrides=overrides,
         )
+        # configure logging from the newly loaded configuration.
         self.log.update_console_level(self.config.get("log_console_level"))
+        self.log.update_file_level(self.config.get("log_file_level"))
+        self.log.update_file_logger_levels(self.config.get("log_file_levels"))
         log_file_path = self.config.get("log_file_path")
         if log_file_path:
-            self.log.add_file_logger(
-                path=log_file_path,
-                level=self.config.get("log_file_level"),
-            )
+            self.log.add_file_logger(path=log_file_path)
+
         self.logger.info(f"Configuration loaded from: {self.config.config_file_path}")
         self._ensure_user_data_hostname_dir()
 

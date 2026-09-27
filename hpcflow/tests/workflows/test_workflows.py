@@ -15,10 +15,9 @@ from hpcflow.sdk.core.test_utils import (
 
 
 @pytest.mark.integration
-def test_workflow_1(tmp_path: Path):
-    wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
-    wk.submit(wait=True, add_to_known=False)
-    p2 = wk.tasks[0].elements[0].outputs.p2
+def test_workflow_1(workflow_1):
+    workflow_1.submit(wait=True, add_to_known=False)
+    p2 = workflow_1.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
     assert p2.value == "201"
 

@@ -8,7 +8,11 @@ from hpcflow.sdk.core.actions import EARStatus
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_run_status_fail_when_missing_script_output_data_file(tmp_path, combine_scripts):
 
     s1 = hf.TaskSchema(
@@ -47,7 +51,11 @@ def test_run_status_fail_when_missing_script_output_data_file(tmp_path, combine_
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
     tmp_path, combine_scripts
 ):
@@ -101,7 +109,11 @@ def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
@@ -158,7 +170,11 @@ def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_run_status_fail_when_action_save_file(tmp_path, combine_scripts):
 
     my_file = hf.FileSpec(label="my_file", name="my_file.txt")

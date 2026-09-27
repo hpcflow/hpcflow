@@ -10,7 +10,7 @@ from typing_extensions import Generic, TypeVar
 
 
 from hpcflow.sdk.core.utils import nth_key
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.enums import EARStatus
 
