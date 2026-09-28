@@ -1223,8 +1223,6 @@ class JobscriptExecutor(AppAware):
         if not (endpoints := self._get_wait_endpoints(waiter_ids)):
             return
 
-        print(f"_notify_waiters: {endpoints=!r}")
-
         self.logger.debug("Notifying jobscript wait endpoints: %r", endpoints)
         notification = WaitWakeup(self.submission_idx, self.jobscript_idx)
         results = await asyncio.gather(
