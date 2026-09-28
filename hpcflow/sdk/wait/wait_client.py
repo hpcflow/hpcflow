@@ -35,7 +35,7 @@ class WaitClient:
 
             try:
                 response = await asyncio.wait_for(recv_json(socket), timeout=self.timeout)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 return False
 
             return response.get("ok") is True
