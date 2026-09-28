@@ -356,13 +356,11 @@ class Bash(Shell):
         return shlex.quote(str(value))
 
     def format_config_overrides(self, overrides: dict[str, Any]) -> str:
-        return indent(
-            "".join(
-                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}`\n"
-                for key, value in overrides.items()
-            ),
-            8,
+        lines = "".join(
+            f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}\\\n"
+            for key, value in overrides.items()
         )
+        return indent(lines, " " * 8)
 
     @override
     def format_save_parameter(
