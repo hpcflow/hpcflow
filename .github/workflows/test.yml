@@ -55,7 +55,7 @@ jobs:
       CLI_path: hpcflow/cli.py
       CLI_path_win: hpcflow\cli.py
       executable_name: hpcflow
-      pytest_args: k "not combine-scripts-true" -m "not combine_scripts" # TEMP: TODO: remove!
+      pytest_args: -k "not combine-scripts-true" -m "not combine_scripts" # TEMP: TODO: remove!
       python-versions: |
         ["3.10", "3.11", "3.12", "3.13"]
     secrets:
