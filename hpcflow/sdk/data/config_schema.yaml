@@ -30,6 +30,7 @@ rules:
         - workflow_name_add_timestamp
         - show_tracebacks
         - use_rich_tracebacks
+        - wait_server_hostname
   - path: []
     condition:
       value.required_keys:
@@ -312,3 +313,11 @@ rules:
       If True, use the Rich library to format exception tracebacks.
     condition:
       value.is_instance: [bool]
+
+  - path: [wait_server_hostname]
+    doc: >
+      The default wait server host string used to construct the wait endpoint, which 
+      wait clients connect to. By default, not set, meaning the wait server discovers
+      the host name via `socket.gethostname()`.
+    condition:
+      value.is_instance: [str]

@@ -4045,7 +4045,7 @@ class Workflow(AppAware):
         if not quiet:
             print("Waiting for workflow submissions to finish...")
 
-        server = WaitServer()
+        server = WaitServer(advertise_host=self._app.config.wait_server_hostname)
         waiter_id = WaitServer.get_new_waiter_id()
         registered_paths: list[Path] = []
 
@@ -4137,7 +4137,7 @@ class Workflow(AppAware):
 
         runs = self.get_EARs_from_IDs(run_ids, as_dict=True)
 
-        server = WaitServer()
+        server = WaitServer(advertise_host=self._app.config.wait_server_hostname)
         waiter_id = WaitServer.get_new_waiter_id()
 
         endpoint_paths: list[Path] = []

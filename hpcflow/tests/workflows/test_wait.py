@@ -5,7 +5,7 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
-
+from hpcflow.app import app as hf
 from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.test_utils import (
     almost_submit,
@@ -48,7 +48,7 @@ def assert_no_wait_endpoints(
 
 @pytest.mark.asyncio
 async def test_wait_server_start():
-    server = WaitServer()
+    server = WaitServer(advertise_host=hf.config.wait_server_hostname)
     try:
         endpoint = await asyncio.wait_for(server.start(), timeout=1)
         assert endpoint

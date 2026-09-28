@@ -605,6 +605,17 @@ class Config:
         )
         self._set("demo_data_dir", value)
 
+    @property
+    def wait_server_hostname(self) -> str | None:
+        """
+        The hostname used to construct the wait server endpoint.
+        """
+        return self._get("wait_server_hostname")
+
+    @wait_server_hostname.setter
+    def wait_server_hostname(self, value: str | None):
+        self._set("wait_server_hostname", value)
+
     def __getattr__(self, name: str):
         if name.startswith("__"):
             raise AttributeError(f"Attribute not known: {name!r}.")
