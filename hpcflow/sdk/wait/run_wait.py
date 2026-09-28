@@ -1,11 +1,13 @@
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 
 from hpcflow.sdk.wait.utils import remove_superseded_directory
 
 
-class RunWaitEvent(StrEnum):
+class RunWaitEvent(Enum):
+    # TODO: can be a StrEnum in Python 3.11+, at which point the enum instance can be
+    # inserted into e.g. paths without `.value`
     START = "start"
     END = "end"
 
@@ -26,7 +28,7 @@ class RunWaitState:
         )
 
     def get_event_path(self, run_id: int, event: RunWaitEvent) -> Path:
-        return self.state_path / "runs" / event / str(run_id)
+        return self.state_path / "runs" / event.value / str(run_id)
 
     def get_completion_path(self, run_id: int, event: RunWaitEvent) -> Path:
         event_path = self.get_event_path(run_id, event)
