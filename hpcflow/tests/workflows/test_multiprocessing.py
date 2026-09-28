@@ -6,6 +6,10 @@ import pytest
 
 from hpcflow.sdk.wait.completion import JobscriptCompletion
 
+# use spawn for all platforms; fork on linux complains about possible deadlocks from
+# multiple threads:
+MP = multiprocessing.get_context("spawn")
+
 
 def _mark_array_item(
     submissions_path,
@@ -108,10 +112,10 @@ def test_concurrent_array_items_complete_jobscript(tmp_path):
     assert not completion.is_complete()
 
     # two workers + this process.
-    barrier = multiprocessing.Barrier(3)
+    barrier = MP.Barrier(3)
 
     processes = [
-        multiprocessing.Process(
+        MP.Process(
             target=_mark_array_item,
             args=(tmp_path, array_indices, idx, barrier),
         )
@@ -159,10 +163,10 @@ def test_array_completion_concurrent_stress(tmp_path, num_items, num_processes):
     for i, chunk in enumerate(chunks):
         random.Random(i).shuffle(chunk)
 
-    barrier = multiprocessing.Barrier(num_processes + 1)
+    barrier = MP.Barrier(num_processes + 1)
 
     processes = [
-        multiprocessing.Process(
+        MP.Process(
             target=_mark_array_items,
             args=(tmp_path, array_indices, chunk, barrier),
         )
@@ -221,14 +225,14 @@ def test_concurrent_array_item_consolidation_race(tmp_path):
     assert not completion.is_complete()
 
     # Parent participates so we know both processes have started.
-    start_barrier = multiprocessing.Barrier(3)
+    start_barrier = MP.Barrier(3)
 
     # Only the two workers participate here.
-    consolidation_barrier = multiprocessing.Barrier(2)
+    consolidation_barrier = MP.Barrier(2)
 
-    events = multiprocessing.Queue()
+    events = MP.Queue()
     processes = [
-        multiprocessing.Process(
+        MP.Process(
             target=_mark_array_item_with_consolidation_barrier,
             args=(
                 tmp_path,
