@@ -16,6 +16,7 @@ from hpcflow.sdk.submission.jobscript import Jobscript, PreparedJobscriptSubmiss
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.wait.completion import JobscriptCompletion
+from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -629,7 +630,7 @@ async def wait_for_array_item_completion(
     *,
     timeout: float = 10,
 ) -> None:
-    async with asyncio.timeout(timeout):
+    async with asyncio_timeout(timeout):
         while not completion.is_array_item_complete(array_idx):
             await asyncio.sleep(0.01)
 
@@ -639,6 +640,6 @@ async def wait_for_jobscript_completion(
     *,
     timeout: float = 10,
 ) -> None:
-    async with asyncio.timeout(timeout):
+    async with asyncio_timeout(timeout):
         while not completion.is_complete():
             await asyncio.sleep(0.01)
