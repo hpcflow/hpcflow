@@ -400,7 +400,7 @@ version = "1.2.0"
 description = "Backport of asyncio.Runner, a context manager that controls event loop life cycle."
 optional = false
 python-versions = "<3.11,>=3.8"
-groups = ["dev"]
+groups = ["test"]
 markers = "python_version == \"3.10\""
 files = [
     {file = "backports_asyncio_runner-1.2.0-py3-none-any.whl", hash = "sha256:0da0a936a8aeb554eccb426dc55af3ba63bcdc69fa1a600b5bb305413a4477b5"},
@@ -3818,7 +3818,7 @@ version = "1.4.0"
 description = "Pytest support for asyncio"
 optional = false
 python-versions = ">=3.10"
-groups = ["dev"]
+groups = ["test"]
 files = [
     {file = "pytest_asyncio-1.4.0-py3-none-any.whl", hash = "sha256:933ca923a23075a87fb7070c0ec272a6848489824d887c85c812670932835aa1"},
     {file = "pytest_asyncio-1.4.0.tar.gz", hash = "sha256:c6c0d2259945122819f171a32ecea2c349ead889ee28176caaf492143424be42"},
@@ -6288,4 +6288,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "77a11ef9f93de737da1761f2f8b40f10d2c23cd86dc8a882881f41a471fb0828"
+content-hash = "ee1ebe44b6818eb70d623bf5ccbbb53cf7619de4e5a807dedd706ef4879d58b5"

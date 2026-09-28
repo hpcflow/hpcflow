@@ -68,11 +68,11 @@ myst-nb = [
     {version = "0.17.2", python = "<3.9"},
     {version = "1.1.1", python = ">=3.9"}
 ]
-pytest-asyncio = "^1.4.0"
 sphinx-jinja = "^2.0.2"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=9.0.3,<10.0"
+pytest-asyncio = "^1.4.0"
 pexpect = "^4.8.0"
 papermill = "^2.7.0"
 ipykernel = "^7.2.0"
