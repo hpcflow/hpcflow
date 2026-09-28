@@ -1859,6 +1859,13 @@ class PersistentStore(
         dt = current_timestamp()
         ss_js = self._app.RunDirAppFiles.take_snapshot() if run_dir else None
         run_hostname = self._app.config.server_advertise_host or socket.gethostname()
+        print(
+            f"store.set_EAR_start: set_run_start: self._app.config.server_advertise_host={self._app.config.server_advertise_host!r}"
+        )
+        print(
+            f"store.set_EAR_start: set_run_start: socket.gethostname()={socket.gethostname()!r}"
+        )
+        print(f"store.set_EAR_start: set_run_start: run_hostname={run_hostname!r}")
         self._pending.set_EAR_starts[EAR_ID] = (dt, ss_js, run_hostname, port_number)
         if save:
             self.save()

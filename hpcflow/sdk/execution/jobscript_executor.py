@@ -288,6 +288,10 @@ class JobscriptExecutor(AppAware):
         self.logger.debug(f"Setting start for EAR ID {run_id!r}")
         with self.store.cached_load(), self.workflow.batch_update():
             self.store.set_EAR_start(run_id, run_dir, port_number)
+            print(
+                f"JobscriptExecutor: set_run_start: run_id={run_id!r}, "
+                f"JobscriptExecutor: port_number={self.jobscript_server.port_number!r}"
+            )
 
         waiter_ids = self.run_wait_state.complete(run_id, RunWaitEvent.START)
         await self._notify_waiters(waiter_ids)
