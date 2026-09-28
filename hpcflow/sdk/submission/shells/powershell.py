@@ -4,8 +4,8 @@ Shell models based on Microsoft PowerShell.
 
 from __future__ import annotations
 import subprocess
-from textwrap import dedent
-from typing import TYPE_CHECKING
+from textwrap import dedent, indent
+from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.submission.shells.base import Shell
@@ -40,7 +40,7 @@ class WindowsPowerShell(Shell):
             & {{
         {env_setup}{app_invoc} `
                     --with-config log_file_path "$env:{app_caps}_LOG_PATH" `
-                    --config-dir "{config_dir}" `
+        {config_overrides}            --config-dir "{config_dir}" `
                     --config-key "{config_invoc_key}" `
                     $args
             }} @args
@@ -387,6 +387,20 @@ class WindowsPowerShell(Shell):
             self.format_source_functions_file(app_name, commands)
             + commands
             + "\nexit $LASTEXITCODE\n"
+        )
+
+    @staticmethod
+    def quote_arg(value: Any) -> str:
+        value = str(value)
+        return "'" + value.replace("'", "''") + "'"
+
+    def format_config_overrides(self, overrides: dict[str, Any]) -> str:
+        return indent(
+            "".join(
+                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}`\n"
+                for key, value in overrides.items()
+            ),
+            " " * 12,
         )
 
     @override

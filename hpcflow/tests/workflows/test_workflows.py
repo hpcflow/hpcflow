@@ -36,6 +36,8 @@ def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path):
 
 @pytest.mark.integration
 def test_run_abort(tmp_path: Path):
+    print(f"{hf.config.server_advertise_host=!r}")
+    print(f"{hf.config._overrides=!r}")
     wk = make_test_data_YAML_workflow("workflow_test_run_abort.yaml", path=tmp_path)
     wk.submit(add_to_known=False)
 

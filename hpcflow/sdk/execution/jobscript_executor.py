@@ -289,6 +289,7 @@ class JobscriptExecutor(AppAware):
         with self.store.cached_load(), self.workflow.batch_update():
             self.store.set_EAR_start(run_id, run_dir, port_number)
             print(
+                f"JobscriptExecutor: self._app.config.server_advertise_host: {self._app.config.server_advertise_host!r}"
                 f"JobscriptExecutor: set_run_start: run_id={run_id!r}, "
                 f"JobscriptExecutor: port_number={self.jobscript_server.port_number!r}"
             )

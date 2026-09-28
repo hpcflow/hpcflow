@@ -1182,6 +1182,7 @@ class Submission(JSONLike):
         app_invoc = list(self._app.run_time_info.invocation_command)
 
         app_caps = self._app.package_name.upper()
+        overrides = shell.format_config_overrides(self._app._config._overrides)
         func_file_args = shell.process_JS_header_args(  # TODO: rename?
             {
                 "workflow_app_alias": self.WORKFLOW_APP_ALIAS,
@@ -1190,6 +1191,7 @@ class Submission(JSONLike):
                 "app_caps": app_caps,
                 "config_dir": str(self._app.config.config_directory),
                 "config_invoc_key": self._app.config.config_key,
+                "config_overrides": overrides,
             }
         )
         out = shell.JS_FUNCS.format(**func_file_args)

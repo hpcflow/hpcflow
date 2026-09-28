@@ -4,6 +4,7 @@ Shell models based on the GNU Bourne-Again Shell.
 
 from __future__ import annotations
 from pathlib import Path
+import shlex
 import subprocess
 import shutil
 from textwrap import dedent, indent
@@ -47,7 +48,7 @@ class Bash(Shell):
         (
         {env_setup}{app_invoc}\\
                 --with-config log_file_path "${app_caps}_LOG_PATH"\\
-                --config-dir "{config_dir}"\\
+        {config_overrides}        --config-dir "{config_dir}"\\
                 --config-key "{config_invoc_key}"\\
                 "$@"
         )
@@ -349,6 +350,19 @@ class Bash(Shell):
         Format the commands file.
         """
         return self.format_source_functions_file(app_name, commands) + commands
+
+    @staticmethod
+    def quote_arg(value: Any) -> str:
+        return shlex.quote(str(value))
+
+    def format_config_overrides(self, overrides: dict[str, Any]) -> str:
+        return indent(
+            "".join(
+                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}`\n"
+                for key, value in overrides.items()
+            ),
+            8,
+        )
 
     @override
     def format_save_parameter(
