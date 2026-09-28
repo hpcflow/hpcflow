@@ -49,8 +49,9 @@ def test_run_abort(tmp_path: Path):
         # wait for the second action to run:
         wk.wait()
 
-    except:
+    except BaseException:
         wk.cancel()
+        raise
 
     assert wk.tasks[0].outputs.is_finished[0].value == "true"
 
