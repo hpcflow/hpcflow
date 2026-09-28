@@ -100,7 +100,13 @@ class AppLog:
     def _get_level(level: str) -> int:
         """Convert a logging level name to its integer value."""
         level = level.upper()
-        level_number = logging.getLevelNamesMapping().get(level)
+        try:
+            level_number = logging.getLevelNamesMapping().get(level)
+        except AttributeError:
+            # TODO: remove fallback when minimum Python version is >= 3.11.
+            level_number = logging.getLevelName(level)
+            if not isinstance(level_number, int):
+                level_number = None
         if level_number is None:
             raise ValueError(f"Invalid logging level {level!r}.")
         return level_number
