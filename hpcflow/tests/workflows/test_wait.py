@@ -48,7 +48,7 @@ def assert_no_wait_endpoints(
 
 @pytest.mark.asyncio
 async def test_wait_server_start():
-    server = WaitServer(advertise_host=hf.config.wait_server_hostname)
+    server = WaitServer(advertise_host=hf.config.server_advertise_host)
     try:
         endpoint = await asyncio.wait_for(server.start(), timeout=1)
         assert endpoint

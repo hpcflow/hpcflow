@@ -1858,7 +1858,7 @@ class PersistentStore(
         """
         dt = current_timestamp()
         ss_js = self._app.RunDirAppFiles.take_snapshot() if run_dir else None
-        run_hostname = socket.gethostname()
+        run_hostname = self._app.config.server_advertise_host or socket.gethostname()
         self._pending.set_EAR_starts[EAR_ID] = (dt, ss_js, run_hostname, port_number)
         if save:
             self.save()
@@ -1872,7 +1872,7 @@ class PersistentStore(
         save: bool = True,
     ) -> datetime:
         dt = current_timestamp()
-        run_hostname = socket.gethostname()
+        run_hostname = self._app.config.server_advertise_host or socket.gethostname()
         run_start_data: dict[int, tuple] = {}
         for id_i, dir_i in zip(run_ids, run_dirs):
             ss_js_i = self._app.RunDirAppFiles.take_snapshot(dir_i) if dir_i else None

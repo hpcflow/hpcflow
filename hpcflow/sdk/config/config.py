@@ -606,15 +606,16 @@ class Config:
         self._set("demo_data_dir", value)
 
     @property
-    def wait_server_hostname(self) -> str | None:
+    def server_advertise_host(self) -> str | None:
         """
-        The hostname used to construct the wait server endpoint.
+        The hostname or IP address app servers advertise to clients; defaults to
+        ``socket.gethostname()``.
         """
-        return self._get("wait_server_hostname")
+        return self._get("server_advertise_host ")
 
-    @wait_server_hostname.setter
-    def wait_server_hostname(self, value: str | None):
-        self._set("wait_server_hostname", value)
+    @server_advertise_host.setter
+    def server_advertise_host(self, value: str | None):
+        self._set("server_advertise_host ", value)
 
     def __getattr__(self, name: str):
         if name.startswith("__"):
