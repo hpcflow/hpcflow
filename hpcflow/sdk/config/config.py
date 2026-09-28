@@ -611,11 +611,11 @@ class Config:
         The hostname or IP address app servers advertise to clients; defaults to
         ``socket.gethostname()``.
         """
-        return self._get("server_advertise_host ")
+        return self._get("server_advertise_host")
 
     @server_advertise_host.setter
     def server_advertise_host(self, value: str | None):
-        self._set("server_advertise_host ", value)
+        self._set("server_advertise_host", value)
 
     def __getattr__(self, name: str):
         if name.startswith("__"):
