@@ -22,6 +22,7 @@ from hpcflow.tests.workflows.conftest import (
     assert_wk_1_repeats_success,
     assert_workflow_1_success,
 )
+from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 if TYPE_CHECKING:
     from hpcflow.sdk.submission.jobscript import Jobscript
@@ -77,7 +78,7 @@ async def wait_for_endpoint(
         js_idx,
     )
 
-    async with asyncio.timeout(timeout):
+    async with asyncio_timeout(timeout):
         while True:
             if wait_task is not None and wait_task.done():
                 await wait_task
@@ -145,7 +146,7 @@ async def test_wait_completion_marker_fallback(workflow_1_add_sub, monkeypatch):
     # marker:
     js.completion_obj.mark_complete()
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert_no_wait_endpoints(workflow_1_add_sub, sub.index, js.index)
@@ -187,7 +188,7 @@ async def test_wait_zmq_notification(
     )
     assert await WaitClient(endpoint).notify(notification)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert_no_wait_endpoints(workflow_1_add_sub, sub.index, js.index)
@@ -273,7 +274,7 @@ async def test_wait_multiple_jobscripts(workflow_2_sub):
         WaitWakeup(submission_idx=sub.index, jobscript_idx=js_1.index)
     )
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert_no_wait_endpoints(workflow, sub.index, js_0.index)
@@ -297,7 +298,7 @@ async def test_multiple_waiters(workflow_1_add_sub):
         js.index,
     )
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         while not endpoints_path.exists() or len(list(endpoints_path.iterdir())) != 2:
             await asyncio.sleep(0.01)
 
@@ -310,7 +311,7 @@ async def test_multiple_waiters(workflow_1_add_sub):
     for endpoint in endpoints:
         assert await WaitClient(endpoint).notify(notification)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await asyncio.gather(wait_task_1, wait_task_2)
 
     assert_no_wait_endpoints(workflow_1_add_sub, sub.index, js.index)
@@ -520,7 +521,7 @@ async def test_wait_for_runs_completion_marker_fallback(workflow_1_add_sub, monk
     # completion marker:
     run_wait_state.complete(run.id_, RunWaitEvent.END)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert run_wait_state.get_waiter_ids(run.id_, RunWaitEvent.END) == ()
@@ -574,7 +575,7 @@ async def test_wait_for_runs_zmq_notification(workflow_1_add_sub, monkeypatch):
     notification = WaitWakeup(submission_idx=sub.index, jobscript_idx=js.index)
     assert await WaitClient(endpoint).notify(notification)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert_no_wait_endpoints(workflow_1_add_sub, sub.index, js.index)
@@ -614,7 +615,7 @@ async def test_wait_for_multiple_runs(wk_1_reps_2_add_sub, monkeypatch):
     # once the second run completes, the wait can finish.
     states[1].complete(runs[1].id_, RunWaitEvent.END)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
 
@@ -652,7 +653,7 @@ async def test_wait_for_run_start(workflow_1_add_sub, monkeypatch):
     # the fallback filesystem check must discover it.
     run_wait_state.complete(run.id_, RunWaitEvent.START)
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task
 
     assert run_wait_state.get_waiter_ids(run.id_, RunWaitEvent.START) == ()
@@ -738,7 +739,7 @@ async def test_wait_for_runs_cancellation_does_not_affect_other_waiter(
     run_wait_state = workflow_1_add_sub._get_run_wait_state(run)
 
     # wait until both waiters have registered for the run:
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         while len(run_wait_state.get_waiter_ids(run.id_, RunWaitEvent.END)) < 2:
             if wait_task_1.done():
                 await wait_task_1
@@ -774,7 +775,7 @@ async def test_wait_for_runs_cancellation_does_not_affect_other_waiter(
 
     assert completed_waiter_ids == remaining_waiter_ids
 
-    async with asyncio.timeout(1):
+    async with asyncio_timeout(1):
         await wait_task_2
 
     assert run_wait_state.get_waiter_ids(run.id_, RunWaitEvent.END) == ()

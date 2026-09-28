@@ -57,7 +57,7 @@ class WaitServer:
                 data = await recv_json(self.socket)
             else:
                 data = await asyncio.wait_for(recv_json(self.socket), timeout=timeout)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             return None
 
         try:
