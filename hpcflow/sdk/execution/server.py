@@ -72,13 +72,6 @@ class JobscriptServer(AppAware):
 
         self.socket = self.context.socket(zmq.REP)
         self.port_number = self.socket.bind_to_random_port(self.bind_address)
-
-        print(
-            f"JobscriptServer started: "
-            f"bind_address={self.bind_address!r}, "
-            f"port_number={self.port_number!r}"
-        )
-
         self._run_task = asyncio.create_task(self.run())
         self.logger.info(f"JobscriptServer started on port {self.port_number}")
 
@@ -106,10 +99,7 @@ class JobscriptServer(AppAware):
 
         try:
             while True:
-
-                print("JobscriptServer waiting for request")
                 data = await recv_json(self.socket)
-                print(f"JobscriptServer received: {data!r}")
                 try:
                     request = JobscriptRequest.from_dict(data)
                     response = self._handle_request(request)
@@ -121,9 +111,7 @@ class JobscriptServer(AppAware):
                     self.logger.exception("Error handling jobscript control request.")
                     response = ErrorResponse(error="Internal server error")
 
-                print(f"JobscriptServer sending response: {response!r}")
                 await self.socket.send_json(response.to_dict())
-                print("JobscriptServer sent response")
 
         except asyncio.CancelledError:
             raise
