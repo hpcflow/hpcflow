@@ -15,7 +15,6 @@ from importlib import resources, import_module
 import os
 from contextlib import contextmanager
 from pathlib import Path
-import sys
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, Generic, cast, TYPE_CHECKING, Literal
 import warnings
