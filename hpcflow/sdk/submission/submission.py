@@ -1175,7 +1175,7 @@ class Submission(JSONLike):
         app_invoc = list(self._app.run_time_info.invocation_command)
 
         app_caps = self._app.package_name.upper()
-        overrides = shell.format_config_overrides(self._app._config._overrides)
+        overrides = shell.format_config_overrides(self._app.config._overrides)
         func_file_args = shell.process_JS_header_args(  # TODO: rename?
             {
                 "workflow_app_alias": self.WORKFLOW_APP_ALIAS,

@@ -2622,12 +2622,13 @@ class PersistentStore(
                 updates["skip"] = True
             (
                 updates["submission_idx"],
+                updates["jobscript_idx"],
                 updates["commands_file_ID"],
                 updates["run_file_ID"],
                 updates["run_file_idx"],
             ) = self._pending.set_EAR_submission_data.get(
                 EAR_i.id_,
-                (None, None, None, None),
+                (None, None, None, None, None),
             )
             (
                 updates["start_time"],

@@ -120,7 +120,6 @@ DEFAULT_CONFIG: DefaultConfiguration = {
 
 
 P = ParamSpec("P")
-T = TypeVar("T")
 S = TypeVar("S", bound="Workflow")
 
 

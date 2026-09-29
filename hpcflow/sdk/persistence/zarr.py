@@ -1548,7 +1548,7 @@ class ZarrPersistentStore(
     @TimeIt.decorator
     def _update_EAR_submission_data(
         self,
-        sub_data: Mapping[int, int, tuple[int, int | None, int, int]],
+        sub_data: Mapping[int, tuple[int, int, int | None, int, int]],
     ):
         encoded_sub_data = {
             run_ID: (
@@ -2259,7 +2259,7 @@ class ZarrPersistentStore(
     @TimeIt.decorator
     def _get_run_submission_metadata(
         self, id_lst: Iterable[int]
-    ) -> dict[int, tuple[int | None, int | None, int | None, int | None]]:
+    ) -> dict[int, tuple[int | None, int | None, int | None, int | None, int | None]]:
         """Get the run file IDs for the provided runs."""
         runs, id_lst = self._get_cached_persistent_EARs(id_lst)
         sub_dat: dict[

@@ -165,6 +165,7 @@ class JobscriptExecutor(AppAware):
     async def _start_server(self) -> None:
         self.jobscript_server = JobscriptServer(self)
         port_number = await self.jobscript_server.start()
+        assert self.jobscript_server.port_number
         # TODO: save port number to `js_at_exec_md` data?
 
     async def _stop_server(self) -> None:
@@ -174,7 +175,7 @@ class JobscriptExecutor(AppAware):
         await self.jobscript_server.stop()
         self.jobscript_server = None
 
-    def _update_cached_run_skips(self, run_skips: dict[int, str]) -> None:
+    def _update_cached_run_skips(self, run_skips: dict[int, int]) -> None:
         """Update cached runs with newly persisted skip reasons."""
         for run_id, skip_reason in run_skips.items():
             self.runs[run_id]._skip = skip_reason
@@ -220,7 +221,7 @@ class JobscriptExecutor(AppAware):
             block_run_ids = block.EAR_ID
 
             if self.array_idx is None:
-                element_indices = range(block.num_elements)
+                element_indices = tuple(range(block.num_elements))
             else:
                 element_indices = (self.array_idx,)
 
@@ -440,7 +441,7 @@ class JobscriptExecutor(AppAware):
 
             if commands_file_path:
                 has_commands = True
-
+                assert commands_file_path
                 try:
                     exit_code, command_time = await self._execute_run_commands(
                         action=action,

@@ -353,14 +353,13 @@ class Bash(Shell):
 
     @staticmethod
     def quote_arg(value: Any) -> str:
+        """Quote an argument for inclusion in a shell command."""
         return shlex.quote(str(value))
 
     def format_config_overrides(self, overrides: dict[str, Any]) -> str:
-        lines = "".join(
-            f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}\\\n"
-            for key, value in overrides.items()
-        )
-        return indent(lines, " " * 8)
+        """Format a dictionary of configuration overrides for inclusion in a shell script
+        app invocation command."""
+        return super().format_config_overrides(overrides=overrides, indent_str=" " * 8)
 
     @override
     def format_save_parameter(

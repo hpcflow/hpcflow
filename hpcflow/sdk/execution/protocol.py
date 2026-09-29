@@ -20,6 +20,8 @@ class JobscriptRequest:
             raise InvalidRequestError("Request must be a JSON object.")
 
         command = data.get("command")
+        if not isinstance(command, str):
+            raise InvalidRequestError(f"Unknown command {command!r}.")
 
         request_cls = REQUEST_TYPES.get(command)
         if request_cls is None:

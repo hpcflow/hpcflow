@@ -101,6 +101,8 @@ class ConfigDescriptor(TypedDict):
     show_tracebacks: NotRequired[bool]
     #: Use Rich to render tracebacks.
     use_rich_tracebacks: NotRequired[bool]
+    #: Log file levels for specific loggers.
+    log_file_levels: NotRequired[dict[str, str]]
 
 
 class InvocationDescriptor(TypedDict):
