@@ -79,22 +79,3 @@ def pytest_configure(config: pytest.Config):
         "integration: mark test as an integration-like workflow submission test to run",
     )
     hf.run_time_info.in_pytest = True
-
-
-def pytest_sessionstart(session):
-    import os
-    import sys
-
-    print("=== pytest_sessionstart ===")
-    print("cwd:", os.getcwd())
-    print("rootpath:", session.config.rootpath)
-    print("args:", session.config.args)
-    print("sys.path:")
-    for path in sys.path:
-        print(" ", path)
-
-
-def pytest_collect_file(file_path, parent):
-    path = str(file_path)
-    if "D:\\a\\hpcflow\\hpcflow" in path:
-        print("COLLECT SOURCE:", path)

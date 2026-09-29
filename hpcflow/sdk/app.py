@@ -3748,21 +3748,6 @@ class BaseApp(metaclass=Singleton):
             *test_dirs_,
         ]
         self.logger.info(f"running Pytest with args: {cmd!r}.")
-        print("cwd:", os.getcwd())
-        print("sys.path:", sys.path)
-        print("_MEIPASS:", getattr(sys, "_MEIPASS", None))
-
-        for name, module in sorted(sys.modules.items()):
-            path = getattr(module, "__file__", None)
-            if path and (
-                "\\hpcflow\\tests\\" in path.lower()
-                or "\\hpcflow\\sdk\\core\\test_utils.py" in path.lower()
-            ):
-                print("PRELOADED:", name, path)
-        print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
-        print("PYTEST_ADDOPTS:", os.environ.get("PYTEST_ADDOPTS"))
-        print("PYTEST_PLUGINS:", os.environ.get("PYTEST_PLUGINS"))
-        print(f"cmd: {cmd!r}")
         return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
