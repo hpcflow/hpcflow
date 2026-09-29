@@ -4112,8 +4112,8 @@ class Workflow(AppAware):
         return endpoint_path
 
     def _get_run_wait_state(self, run: ElementActionRun) -> RunWaitState:
-        assert run.submission_idx
-        assert run.jobscript_idx
+        assert run.submission_idx is not None
+        assert run.jobscript_idx is not None
         return RunWaitState(
             submissions_path=self.submissions_path,
             submission_idx=run.submission_idx,
