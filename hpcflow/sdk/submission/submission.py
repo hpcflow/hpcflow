@@ -599,13 +599,6 @@ class Submission(JSONLike):
         return self.get_js_std_path(self.workflow.submissions_path, self.index)
 
     @property
-    def js_run_ids_path(self) -> Path:
-        """
-        The path to the directory containing jobscript run IDs, for this submission.
-        """
-        return self.get_js_run_ids_path(self.workflow.submissions_path, self.index)
-
-    @property
     def js_funcs_path(self) -> Path:
         """
         The path to the directory containing the shell functions that are invoked within
