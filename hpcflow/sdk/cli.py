@@ -644,7 +644,7 @@ def _make_workflow_CLI(app: BaseApp):
     @click.argument("runs", nargs=-1, type=click.INT)
     @wait_quiet_opt
     @_pass_workflow
-    def wait_run_start(wf: Workflow, runs, quiet: bool):
+    def wait_run_end(wf: Workflow, runs, quiet: bool):
         wf.wait_for_runs(run_ids=runs, quiet=quiet, event=RunWaitEvent.END)
 
     @workflow.command(name="abort-run")

@@ -4291,8 +4291,6 @@ class Workflow(AppAware):
                 f"Cannot abort run {run.id_}: no jobscript server connection "
                 "information is available."
             )
-        print(f"run.run_hostname: {run.run_hostname!r}")
-        print(f"run.port_number: {run.port_number!r}")
         JobscriptClient.send_abort(
             hostname=run.run_hostname,
             port_number=run.port_number,
