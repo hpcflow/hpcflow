@@ -3720,7 +3720,7 @@ class BaseApp(metaclass=Singleton):
             root_dir = str(root_test_dir)
             test_dirs_ = []
             if not test_dirs:
-                test_dirs_.append(str(root_test_dir))
+                test_dirs_.append(root_dir)
             else:
                 for dir_i in test_dirs:
                     if not (dir_i_path := Path(dir_i)).is_absolute():
@@ -3730,24 +3730,24 @@ class BaseApp(metaclass=Singleton):
                     else:
                         test_dirs_.append(str(dir_i_path))
 
-        # note: the `--ignore` is required for Pyinstaller-built "one-file" executables on
-        # Windows, where Pytest will try to collect tests from C:\ for some reason.
-        # `C:\Documents and Settings` is a hidden/protected compatibility link which
-        # we don't have permission to traverse; so without this ignore, Pytest will raise
-        # a PermissionError on test collection.
-        cmd = [
-            "--rootdir",
-            root_dir,
-            "-p",
-            f"{self.package_name}.pytest_plugin",
-            "--ignore",
-            "C:\\Documents and Settings",
-            *(self.pytest_args or ()),
-            *(pytest_args or ()),
-            *test_dirs_,
-        ]
-        self.logger.info(f"running Pytest with args: {cmd!r}.")
-        return pytest.main(cmd)
+            # note: the `--ignore` is required for Pyinstaller-built "one-file"
+            # executables on Windows, where Pytest will try to collect tests from C:\ for
+            # some reason. `C:\Documents and Settings` is a hidden/protected compatibility
+            # link which we don't have permission to traverse; so without this ignore,
+            # Pytest will raise a PermissionError on test collection.
+            cmd = [
+                "--rootdir",
+                root_dir,
+                "-p",
+                f"{self.package_name}.pytest_plugin",
+                "--ignore",
+                "C:\\Documents and Settings",
+                *(self.pytest_args or ()),
+                *(pytest_args or ()),
+                *test_dirs_,
+            ]
+            self.logger.info(f"running Pytest with args: {cmd!r}.")
+            return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""
