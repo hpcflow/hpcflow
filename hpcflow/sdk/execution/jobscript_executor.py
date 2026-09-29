@@ -295,8 +295,6 @@ class JobscriptExecutor(AppAware):
     def _timeit_run_start(
         self, run: ElementActionRun, run_timeit: TimeIt | None
     ) -> float:
-        if run_timeit is None:
-            return
         run_wall_start = time.perf_counter()
         timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         run_pars = run.parents()
@@ -368,7 +366,8 @@ class JobscriptExecutor(AppAware):
 
         with redirect_std_to_file(js_run.run_std_path, preamble=run_std_preamble):
 
-            run_wall_start = self._timeit_run_start(run, run_timeit)
+            if run_timeit:
+                run_wall_start = self._timeit_run_start(run, run_timeit)
 
             # A scheduler may have requeued the job after this run had already
             # started or completed. A skipped run is an exception: its skipped
@@ -476,6 +475,7 @@ class JobscriptExecutor(AppAware):
                 new_run_skips.update(self._check_loop_termination(run))
 
             if run_timeit is not None:
+                assert run_wall_start is not None
                 self._timeit_run_end(run_ID=run.id_, run_wall_start=run_wall_start)
                 run_timeit.run_command_time = command_time
 

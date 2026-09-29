@@ -163,5 +163,7 @@ class WorkflowConfigurable(Protocol):
     Protocol for classes whose methods can be decorated with `load_config`.
     """
 
-    template: WorkflowTemplate
     _app: ClassVar[BaseApp]
+
+    @property
+    def template(self) -> WorkflowTemplate: ...

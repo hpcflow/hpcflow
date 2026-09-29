@@ -1214,7 +1214,7 @@ class Submission(JSONLike):
         # get scheduler, shell and OS version information (also an opportunity to fail
         # before trying to submit jobscripts):
         js_vers_info: dict[int, dict[str, str | list[str]]] = {}
-        for js_indices, sched in self._unique_schedulers:
+        for js_indices_sched, sched in self._unique_schedulers:
             try:
                 vers_info = sched.get_version_info()
             except Exception:
@@ -1222,12 +1222,12 @@ class Submission(JSONLike):
                     raise
                 vers_info = {}
 
-            for _, js_idx in js_indices:
+            for _, js_idx in js_indices_sched:
                 if js_idx in outstanding:
                     js_vers_info.setdefault(js_idx, {}).update(vers_info)
 
         js_shell_indices = {}
-        for shell_idx, (js_indices, shell) in enumerate(self.get_unique_shells()):
+        for shell_idx, (js_indices_sh, shell) in enumerate(self.get_unique_shells()):
             try:
                 vers_info = shell.get_version_info()
             except Exception:
@@ -1235,7 +1235,7 @@ class Submission(JSONLike):
                     raise
                 vers_info = {}
 
-            for js_idx in js_indices:
+            for js_idx in js_indices_sh:
                 if js_idx in outstanding:
                     js_vers_info.setdefault(js_idx, {}).update(vers_info)
                     js_shell_indices[js_idx] = shell_idx

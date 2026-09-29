@@ -134,6 +134,7 @@ class AppLog:
     def update_console_level(self, new_level: str | None = None) -> None:
         """Set the logging level for console messages."""
         new_level = new_level if new_level is not None else self.DEFAULT_LOG_CONSOLE_LEVEL
+        assert self.console_handler
         self.console_handler.setLevel(new_level.upper())
         self._ensure_logger_level()
 

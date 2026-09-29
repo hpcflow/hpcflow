@@ -142,10 +142,12 @@ class JobscriptCompletion:
         # create a separate marker for it:
         for node in nodes[1:]:
             marker = parent / f"{node.name}_complete"
-            child_dir = None if node.is_leaf else parent / node.name
-            paths.append((marker, child_dir))
-            if not node.is_leaf:
+            if node.is_leaf:
+                child_dir = None
+            else:
+                child_dir = parent / node.name
                 parent = child_dir
+            paths.append((marker, child_dir))
 
         return tuple(paths)
 

@@ -4164,6 +4164,8 @@ class Workflow(AppAware):
             }
 
             for submission_idx, jobscript_idx in jobscripts:
+                assert submission_idx is not None
+                assert jobscript_idx is not None
                 endpoint_path = self._register_wait_endpoint(
                     submission_idx=submission_idx,
                     jobscript_idx=jobscript_idx,
@@ -4451,7 +4453,7 @@ class Workflow(AppAware):
 
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
 
-        runs_by_js: DefaultDict[int, list[int]] = defaultdict(list)
+        runs_by_js: dict[int, int] = {}
         for js in sub_obj.jobscripts:
             for run_id in js.all_EAR_IDs:
                 runs_by_js[run_id] = js.index
