@@ -3759,6 +3759,10 @@ class BaseApp(metaclass=Singleton):
                 or "\\hpcflow\\sdk\\core\\test_utils.py" in path.lower()
             ):
                 print("PRELOADED:", name, path)
+        print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
+        print("PYTEST_ADDOPTS:", os.environ.get("PYTEST_ADDOPTS"))
+        print("PYTEST_PLUGINS:", os.environ.get("PYTEST_PLUGINS"))
+        print(f"cmd: {cmd!r}")
         return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
