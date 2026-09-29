@@ -1908,18 +1908,6 @@ class BaseApp(metaclass=Singleton):
         return self._log
 
     @property
-    def timeit(self) -> bool:
-        """
-        Whether the timing analysis system is active.
-        """
-        return TimeIt.is_active()
-
-    @timeit.setter
-    def timeit(self, value: bool):
-        if value:
-            TimeIt.activate()
-
-    @property
     def template_components(self) -> TemplateComponents:
         """
         The template component data.
