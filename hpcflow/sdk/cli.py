@@ -7,6 +7,7 @@ import contextlib
 from datetime import datetime, timezone
 import json
 import os
+import sys
 import time
 import click
 from colorama import init as colorama_init
@@ -915,8 +916,9 @@ def _make_internal_CLI(app: BaseApp):
     @click.pass_context
     @click.option("--raise", "raise_opt", is_flag=True)
     @click.option("--click-exit-code", type=click.INT)
+    @click.option("--exit-code", type=click.INT)
     @click.option("--sleep", type=click.INT)
-    def noop(ctx, raise_opt, click_exit_code, sleep):
+    def noop(ctx, raise_opt, click_exit_code, exit_code, sleep):
         """Used only in CLI tests."""
         if raise_opt:
             raise ValueError("internal noop raised!")
@@ -924,6 +926,8 @@ def _make_internal_CLI(app: BaseApp):
             ctx.exit(click_exit_code)
         elif sleep:
             time.sleep(sleep)
+        if exit_code is not None:
+            sys.exit(exit_code)
 
     @internal.group()
     @click.argument("path", type=click.Path(exists=True))

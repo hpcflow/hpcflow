@@ -26,11 +26,7 @@ from hpcflow.sdk.execution.protocol import (
 
 @pytest.mark.asyncio
 async def test_executor_success():
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "pass"],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd()
     return_code = await executor.run()
 
     assert return_code == 0
@@ -40,15 +36,7 @@ async def test_executor_success():
 
 @pytest.mark.asyncio
 async def test_executor_nonzero_exit():
-    executor = hf.RunExecutor(
-        cmd=[
-            sys.executable,
-            "-c",
-            "import sys; sys.exit(7)",
-        ],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--exit-code", "7")
     return_code = await executor.run()
 
     assert return_code == 7
@@ -58,15 +46,7 @@ async def test_executor_nonzero_exit():
 
 @pytest.mark.asyncio
 async def test_executor_abort():
-    executor = hf.RunExecutor(
-        cmd=[
-            sys.executable,
-            "-c",
-            "import time; time.sleep(60)",
-        ],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     task = asyncio.create_task(executor.run())
 
     while executor.pid is None:
@@ -199,10 +179,7 @@ async def test_server_survives_invalid_request(jobscript_server):
 async def test_status_running_executor(jobscript_server):
     _, execution, port = jobscript_server
     run_id = 8
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
-        env=os.environ.copy(),
-    )
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     execution.active_executors[run_id] = executor
     executor_task = asyncio.create_task(executor.run())
     try:
@@ -233,11 +210,7 @@ async def test_status_running_executor(jobscript_server):
 async def test_abort_running_executor(jobscript_server):
     _, execution, port = jobscript_server
     run_id = 2348
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     execution.active_executors[run_id] = executor
     executor_task = asyncio.create_task(executor.run())
 
@@ -266,11 +239,7 @@ async def test_abort_running_executor(jobscript_server):
 async def test_timeit_running_executor(jobscript_server):
     _, execution, port = jobscript_server
     run_id = 9834
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     execution.active_executors[run_id] = executor
     executor_task = asyncio.create_task(executor.run())
 
@@ -298,11 +267,7 @@ async def test_timeit_running_executor(jobscript_server):
 async def test_timeit_orchestration_time_only(jobscript_server):
     _, execution, port = jobscript_server
     run_id = 445
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     execution.active_executors[run_id] = executor
     executor_task = asyncio.create_task(executor.run())
 
@@ -330,11 +295,7 @@ async def test_timeit_orchestration_time_only(jobscript_server):
 async def test_timeit_work_time_only(jobscript_server):
     _, execution, port = jobscript_server
     run_id = 755
-    executor = hf.RunExecutor(
-        cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
-        env=os.environ.copy(),
-    )
-
+    executor = hf.RunExecutor._from_noop_cmd("--sleep", "60")
     execution.active_executors[run_id] = executor
     executor_task = asyncio.create_task(executor.run())
 

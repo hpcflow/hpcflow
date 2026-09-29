@@ -182,6 +182,10 @@ if TYPE_CHECKING:
     from .submission.shells.base import VersionInfo
     from .core.json_like import JSONDocument
     from .compact_errors import CompactProblemFormatter
+    from .execution.jobscript_executor import JobscriptExecutor
+    from .execution.server import JobscriptServer
+    from .execution.client import JobscriptClient
+    from .execution.run_executor import RunExecutor
 
     # Complex types for SDK functions
     class _MakeWorkflow(Protocol):
@@ -1360,6 +1364,42 @@ class BaseApp(metaclass=Singleton):
         :meta private:
         """
         return self._get_app_core_class("RepeatsDescriptor")
+
+    @property
+    def RunExecutor(self) -> type[RunExecutor]:
+        """
+        The :class:`RunExecutor` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("RunExecutor")
+
+    @property
+    def JobscriptExecutor(self) -> type[JobscriptExecutor]:
+        """
+        The :class:`JobscriptExecutor` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("JobscriptExecutor")
+
+    @property
+    def JobscriptServer(self) -> type[JobscriptServer]:
+        """
+        The :class:`JobscriptServer` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("JobscriptServer")
+
+    @property
+    def JobscriptClient(self) -> type[JobscriptClient]:
+        """
+        The :class:`JobscriptClient` class.
+
+        :meta private:
+        """
+        return self._get_app_core_class("JobscriptClient")
 
     @property
     def make_workflow(self) -> _MakeWorkflow:

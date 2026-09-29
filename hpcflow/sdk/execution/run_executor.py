@@ -136,3 +136,22 @@ class RunExecutor(AppAware):
             return struct.unpack("i", struct.pack("I", return_code))[0]
 
         return return_code
+
+    @classmethod
+    def _from_noop_cmd(
+        cls,
+        *args: str,
+        env: dict[str, str] | None = None,
+    ):
+        """For testing only: generate a run executor that executes the app's internal
+        noop command, which takes various arguments."""
+        cmd = [
+            *cls._app.run_time_info.invocation_command,
+            "internal",
+            "noop",
+            *args,
+        ]
+        return cls(
+            cmd=cmd,
+            env=env or os.environ.copy(),
+        )
