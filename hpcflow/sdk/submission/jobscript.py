@@ -10,6 +10,7 @@ import os
 import logging
 import subprocess
 from textwrap import dedent, indent
+import threading
 from typing import TextIO, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
@@ -57,6 +58,14 @@ if TYPE_CHECKING:
     )
     from ..core.cache import ObjectCache
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
+
+
+def _reap_process(proc: subprocess.Popen) -> None:
+    """Wait for a detached child process so that it is reaped on exit.
+
+    This is used by ``_launch_direct_js_posix``.
+    """
+    proc.wait()
 
 
 def is_jobscript_array(
@@ -1898,7 +1907,9 @@ class Jobscript(JSONLike):
         # detached process, avoid interrupt signals propagating to the subprocess:
 
         def _launch(fp_stdout: TextIO, fp_stderr: TextIO) -> int:
-            # note: Popen copies the file objects, so this works!
+            # note: the child has its own stdout/stderr file descriptors after Popen
+            # returns, so the parent can close these file objects immediately after
+            # _launch().
             proc = subprocess.Popen(
                 args=submit_cmd,
                 stdout=fp_stdout,
@@ -1907,6 +1918,14 @@ class Jobscript(JSONLike):
                 start_new_session=True,
                 env=env,
             )
+
+            # retain the Popen object and reap the child when it exits. This prevents
+            # zombie processes when HPCFlow is running in a long-lived process (e.g.
+            # a Jupyter kernel). If the HPCFlow process exits first (e.g. after CLI
+            # submission), the daemon thread exits with it and the detached jobscript
+            # is orphaned and subsequently adopted by the system's child reaper.
+            threading.Thread(target=_reap_process, args=(proc,), daemon=True).start()
+
             return proc.pid
 
         if self.resources.combine_jobscript_std:
