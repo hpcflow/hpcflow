@@ -88,11 +88,6 @@ class TimeIt:
         self._activation_token: Token[TimeIt | None] | None = None
 
     @classmethod
-    def is_active(cls) -> bool:
-        """Return whether an instrumentation session is currently active."""
-        return cls.current() is not None
-
-    @classmethod
     def current(cls) -> TimeIt | None:
         """Return the currently active instrumentation session."""
         return _current_timeit.get()
