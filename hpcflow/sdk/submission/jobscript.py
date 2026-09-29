@@ -4,7 +4,7 @@ Model of information submitted to a scheduler.
 
 from __future__ import annotations
 from collections import defaultdict
-
+from pathlib import Path
 from dataclasses import dataclass
 import os
 import logging
@@ -35,7 +35,6 @@ from hpcflow.sdk.wait.completion import JobscriptCompletion
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from datetime import datetime
-    from pathlib import Path
     from typing import Any, ClassVar, Literal
     from typing_extensions import TypeIs
     from numpy.typing import NDArray, ArrayLike

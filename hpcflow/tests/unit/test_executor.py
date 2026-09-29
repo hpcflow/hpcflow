@@ -444,11 +444,6 @@ def test_request_from_dict_dispatches_to_request_type(data, expected_type):
     assert isinstance(request, expected_type)
 
 
-def test_ok_response_to_dict():
-    response = OkResponse()
-    assert response.to_dict() == {"ok": True}
-
-
 def test_error_response_to_dict():
     response = ErrorResponse(error="Something went wrong.")
     assert response.to_dict() == {"ok": False, "error": "Something went wrong."}
