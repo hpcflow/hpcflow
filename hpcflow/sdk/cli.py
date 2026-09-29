@@ -934,32 +934,6 @@ def _make_internal_CLI(app: BaseApp):
 
     @workflow.command()
     @_pass_workflow
-    @click.pass_context
-    @click.argument("submission_idx", type=click.INT)
-    @click.argument("jobscript_idx", type=click.INT)
-    @click.argument("block_idx", type=click.INT)
-    @click.argument("block_action_idx", type=click.INT)
-    @click.argument("run_id", type=click.INT)
-    def execute_run(
-        ctx: click.Context,
-        wf: Workflow,
-        submission_idx: int,
-        jobscript_idx: int,
-        block_idx: int,
-        block_action_idx: int,
-        run_id: int,
-    ):
-        app.CLI_logger.info(f"execute commands for EAR ID {run_id!r}.")
-        if TimeIt.is_active():
-            TimeIt.title = ctx.command_path
-        wf.execute_run_OLD(
-            submission_idx=submission_idx,
-            block_act_key=(jobscript_idx, block_idx, block_action_idx),
-            run_ID=run_id,
-        )
-
-    @workflow.command()
-    @_pass_workflow
     @click.argument("submission_idx", type=click.INT)
     @click.argument("jobscript_idx", type=click.INT)
     def execute_combined_runs(

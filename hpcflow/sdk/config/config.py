@@ -88,10 +88,10 @@ if TYPE_CHECKING:
         SetterCallback,
         UnsetterCallback,
         T,
+        WorkflowConfigurable,
     )
     from ..app import BaseApp
     from ..core.types import AbstractFileSystem
-    from ..core.workflow import Workflow
 
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
 
 
 P = ParamSpec("P")
-S = TypeVar("S", bound="Workflow")
+S = TypeVar("S", bound="WorkflowConfigurable")
 
 
 def load_workflow_config(

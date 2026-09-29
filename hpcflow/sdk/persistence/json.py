@@ -537,7 +537,7 @@ class JSONPersistentStore(
 
     def _update_EAR_submission_data(
         self,
-        sub_data: Mapping[int, int, tuple[int, int | None, int, int]],
+        sub_data: Mapping[int, tuple[int, int, int | None, int, int]],
     ):
         with self.using_resource("runs", action="update") as md:
             assert "runs" in md

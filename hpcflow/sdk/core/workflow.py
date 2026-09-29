@@ -2275,10 +2275,19 @@ class Workflow(AppAware):
         task: int
 
     @overload
-    def get_EARs_from_IDs(self, ids: Iterable[int]) -> list[ElementActionRun]: ...
+    def get_EARs_from_IDs(
+        self, ids: Iterable[int], as_dict: Literal[False] = False
+    ) -> list[ElementActionRun]: ...
 
     @overload
-    def get_EARs_from_IDs(self, ids: int) -> ElementActionRun: ...
+    def get_EARs_from_IDs(
+        self, ids: Iterable[int], as_dict: Literal[True]
+    ) -> dict[int, ElementActionRun]: ...
+
+    @overload
+    def get_EARs_from_IDs(
+        self, ids: int, as_dict: Literal[False] = False
+    ) -> ElementActionRun: ...
 
     @TimeIt.decorator
     def get_EARs_from_IDs(
@@ -4013,7 +4022,7 @@ class Workflow(AppAware):
         """Asynchronously wait for specified/all submitted jobscripts."""
 
         if not sub_js:
-            sub_js_ = defaultdict(list)
+            sub_js_: DefaultDict[int, list[int]] = defaultdict(list)
             for sub in self.submissions:
                 sub_js_[sub.index].extend(sub.get_active_jobscripts())
             sub_js = sub_js_
@@ -4103,6 +4112,8 @@ class Workflow(AppAware):
         return endpoint_path
 
     def _get_run_wait_state(self, run: ElementActionRun) -> RunWaitState:
+        assert run.submission_idx
+        assert run.jobscript_idx
         return RunWaitState(
             submissions_path=self.submissions_path,
             submission_idx=run.submission_idx,
@@ -4440,7 +4451,7 @@ class Workflow(AppAware):
 
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
 
-        runs_by_js = defaultdict(list)
+        runs_by_js: DefaultDict[int, list[int]] = defaultdict(list)
         for js in sub_obj.jobscripts:
             for run_id in js.all_EAR_IDs:
                 runs_by_js[run_id] = js.index

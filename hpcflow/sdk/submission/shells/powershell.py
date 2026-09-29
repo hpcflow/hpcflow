@@ -395,10 +395,12 @@ class WindowsPowerShell(Shell):
         value = str(value)
         return "'" + value.replace("'", "''") + "'"
 
-    def format_config_overrides(self, overrides: dict[str, Any]) -> str:
+    def format_config_overrides(
+        self, overrides: dict[str, Any], indent_str=" " * 12
+    ) -> str:
         """Format a dictionary of configuration overrides for inclusion in a shell script
         app invocation command."""
-        return super().format_config_overrides(overrides=overrides, indent_str=" " * 12)
+        return super().format_config_overrides(overrides, indent_str)
 
     @override
     def format_save_parameter(

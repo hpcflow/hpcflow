@@ -356,10 +356,12 @@ class Bash(Shell):
         """Quote an argument for inclusion in a shell command."""
         return shlex.quote(str(value))
 
-    def format_config_overrides(self, overrides: dict[str, Any]) -> str:
+    def format_config_overrides(
+        self, overrides: dict[str, Any], indent_str: str = " " * 8
+    ) -> str:
         """Format a dictionary of configuration overrides for inclusion in a shell script
         app invocation command."""
-        return super().format_config_overrides(overrides=overrides, indent_str=" " * 8)
+        return super().format_config_overrides(overrides, indent_str)
 
     @override
     def format_save_parameter(

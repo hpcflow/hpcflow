@@ -165,7 +165,6 @@ class JobscriptExecutor(AppAware):
     async def _start_server(self) -> None:
         self.jobscript_server = JobscriptServer(self)
         port_number = await self.jobscript_server.start()
-        assert self.jobscript_server.port_number
         # TODO: save port number to `js_at_exec_md` data?
 
     async def _stop_server(self) -> None:
@@ -425,6 +424,8 @@ class JobscriptExecutor(AppAware):
                     )
 
             except UnsetParameterDataErrorBase:
+                assert self.jobscript_server is not None
+                assert self.jobscript_server.port_number is not None
                 await self.set_run_start(
                     run.id_,
                     run_dir,
@@ -441,7 +442,7 @@ class JobscriptExecutor(AppAware):
 
             if commands_file_path:
                 has_commands = True
-                assert commands_file_path
+                assert isinstance(commands_file_path, Path)
                 try:
                     exit_code, command_time = await self._execute_run_commands(
                         action=action,

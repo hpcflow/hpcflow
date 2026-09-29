@@ -1235,13 +1235,6 @@ class Jobscript(JSONLike):
         return self._scheduler_obj
 
     @property
-    def EAR_ID_file_name(self) -> str:
-        """
-        The name of a file containing EAR IDs.
-        """
-        return f"js_{self.index}_EAR_IDs.txt"
-
-    @property
     def combined_script_indices_file_name(self) -> str:
         return f"js_{self.index}_script_indices.txt"
 
@@ -1259,13 +1252,6 @@ class Jobscript(JSONLike):
     def jobscript_functions_name(self):
         assert self.shell_idx is not None
         return self.submission.get_jobscript_functions_name(self.shell, self.shell_idx)
-
-    @property
-    def EAR_ID_file_path(self) -> Path:
-        """
-        The path to the file containing EAR IDs for this jobscript.
-        """
-        return self.submission.js_run_ids_path / self.EAR_ID_file_name
 
     @property
     def combined_script_indices_file_path(self) -> Path:
@@ -1642,177 +1628,6 @@ class Jobscript(JSONLike):
         )
 
     @TimeIt.decorator
-    def compose_jobscript_OLD(
-        self,
-        shell,
-        deps: dict[int, tuple[str, bool]] | None = None,
-        os_name: str | None = None,
-        scheduler_name: str | None = None,
-        scheduler_args: dict[str, Any] | None = None,
-    ) -> str:
-        """Prepare the jobscript file contents as a string."""
-        scheduler_name = scheduler_name or self.scheduler_name
-        assert scheduler_name
-        assert os_name
-        scheduler = self._app.get_scheduler(
-            scheduler_name=scheduler_name,
-            os_name=os_name,
-            scheduler_args=scheduler_args or self._get_submission_scheduler_args(),
-        )
-        app_caps = self._app.package_name.upper()
-        header_args = {
-            "app_caps": app_caps,
-            "jobscript_functions_name": self.jobscript_functions_name,
-            "jobscript_functions_dir": self.submission.JS_FUNCS_DIR_NAME,
-            "sub_idx": self.submission.index,
-            "js_idx": self.index,
-            "run_IDs_file_name": self.EAR_ID_file_name,
-            "tmp_dir_name": self.submission.TMP_DIR_NAME,
-            "log_dir_name": self.submission.LOG_DIR_NAME,
-            "app_std_dir_name": self.submission.APP_STD_DIR_NAME,
-            "scripts_dir_name": self.submission.SCRIPTS_DIR_NAME,
-        }
-
-        shebang = shell.JS_SHEBANG.format(
-            shebang=" ".join(scheduler.shebang_executable or shell.shebang_executable)
-        )
-        header = shell.JS_HEADER.format(**header_args)
-
-        if isinstance(scheduler, QueuedScheduler):
-            header = shell.JS_SCHEDULER_HEADER.format(
-                shebang=shebang,
-                scheduler_options=scheduler.format_directives(
-                    resources=self.resources,
-                    num_elements=self.blocks[0].num_elements,  # only used for array jobs
-                    is_array=self.is_array,
-                    sub_idx=self.submission.index,
-                    js_idx=self.index,
-                ),
-                header=header,
-            )
-        else:
-            # the Scheduler (direct submission)
-            assert isinstance(scheduler, DirectScheduler)
-            wait_cmd = shell.get_wait_command(
-                workflow_app_alias=self.workflow_app_alias,
-                sub_idx=self.submission.index,
-                deps=deps or {},
-            )
-            header = shell.JS_DIRECT_HEADER.format(
-                shebang=shebang,
-                header=header,
-                workflow_app_alias=self.workflow_app_alias,
-                wait_command=wait_cmd,
-            )
-
-        out = header
-
-        if self.resources.combine_scripts:
-            run_cmd = shell.JS_RUN_CMD_COMBINED.format(
-                workflow_app_alias=self.workflow_app_alias
-            )
-            out += run_cmd + "\n"
-        else:
-            run_cmd = shell.JS_APP_START_TIMER.format(
-                app_caps=app_caps
-            ) + shell.JS_RUN_CMD.format(
-                workflow_app_alias=self.workflow_app_alias,
-                timeit="--timeit " if self.submission.timeit else "",
-                app_caps=app_caps,
-            )
-
-            if self.resources.write_app_logs:
-                run_log_enable_disable = shell.JS_RUN_LOG_PATH_ENABLE.format(
-                    run_log_file_name=self.submission.get_app_log_file_name(
-                        run_ID=shell.format_env_var_get(f"{app_caps}_RUN_ID")
-                    )
-                )
-            else:
-                run_log_enable_disable = shell.JS_RUN_LOG_PATH_DISABLE
-
-            block_run = shell.JS_RUN.format(
-                EAR_files_delimiter=self._EAR_files_delimiter,
-                app_caps=app_caps,
-                run_cmd=run_cmd,
-                sub_tmp_dir=self.submission.tmp_path,
-                run_log_enable_disable=run_log_enable_disable,
-            )
-            if len(self.blocks) == 1:
-                # forgo element and action loops if not necessary:
-                block = self.blocks[0]
-                if block.num_actions > 1:
-                    block_act = shell.JS_ACT_MULTI.format(
-                        num_actions=block.num_actions,
-                        run_block=indent(block_run, shell.JS_INDENT),
-                    )
-                else:
-                    block_act = shell.JS_ACT_SINGLE.format(run_block=block_run)
-
-                main = shell.JS_MAIN.format(
-                    action=block_act,
-                    app_caps=app_caps,
-                    block_start_elem_idx=0,
-                )
-
-                out += shell.JS_BLOCK_HEADER.format(app_caps=app_caps)
-                if self.is_array:
-                    if not isinstance(scheduler, QueuedScheduler):
-                        raise Exception("can only schedule arrays of jobs to a queue")
-                    out += shell.JS_ELEMENT_MULTI_ARRAY.format(
-                        scheduler_command=scheduler.js_cmd,
-                        scheduler_array_switch=scheduler.array_switch,
-                        scheduler_array_item_var=scheduler.array_item_var,
-                        num_elements=block.num_elements,
-                        main=main,
-                    )
-                elif block.num_elements == 1:
-                    out += shell.JS_ELEMENT_SINGLE.format(
-                        block_start_elem_idx=0,
-                        main=main,
-                    )
-                else:
-                    out += shell.JS_ELEMENT_MULTI_LOOP.format(
-                        block_start_elem_idx=0,
-                        num_elements=block.num_elements,
-                        main=indent(main, shell.JS_INDENT),
-                    )
-
-            else:
-                # use a shell loop for blocks, so always write the inner element and action
-                # loops:
-                block_act = shell.JS_ACT_MULTI.format(
-                    num_actions=shell.format_array_get_item("num_actions", "$block_idx"),
-                    run_block=indent(block_run, shell.JS_INDENT),
-                )
-                main = shell.JS_MAIN.format(
-                    action=block_act,
-                    app_caps=app_caps,
-                    block_start_elem_idx="$block_start_elem_idx",
-                )
-
-                # only non-array jobscripts will have multiple blocks:
-                element_loop = shell.JS_ELEMENT_MULTI_LOOP.format(
-                    block_start_elem_idx="$block_start_elem_idx",
-                    num_elements=shell.format_array_get_item(
-                        "num_elements", "$block_idx"
-                    ),
-                    main=indent(main, shell.JS_INDENT),
-                )
-                out += shell.JS_BLOCK_LOOP.format(
-                    num_elements=shell.format_array(
-                        [i.num_elements for i in self.blocks]
-                    ),
-                    num_actions=shell.format_array([i.num_actions for i in self.blocks]),
-                    num_blocks=len(self.blocks),
-                    app_caps=app_caps,
-                    element_loop=indent(element_loop, shell.JS_INDENT),
-                )
-
-        out += shell.JS_FOOTER
-
-        return out
-
-    @TimeIt.decorator
     def write_jobscript(
         self,
         os_name: str | None = None,
@@ -2010,7 +1825,7 @@ class Jobscript(JSONLike):
         )
         return PreparedJobscriptSubmission(
             deps=deps,
-            js_path=js_path,
+            js_path=Path(js_path),
             submit_cmd=submit_cmd,
         )
 

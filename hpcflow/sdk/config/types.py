@@ -3,16 +3,18 @@ Types used in configuration.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Protocol
 from typing_extensions import TypedDict, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
-    from typing import Any, TypeAlias
+    from typing import Any, TypeAlias, ClassVar
     from typing_extensions import NotRequired
     from .config import Config
     from ..core.validation import Schema
+    from ..app import BaseApp
+    from ..core.workflow import WorkflowTemplate
 
 
 T = TypeVar("T")
@@ -154,3 +156,12 @@ class ConfigMetadata(TypedDict):
     host_user_id: str
     #: Path to file holding description of :attr:``host_user_id``.
     host_user_id_file_path: Path
+
+
+class WorkflowConfigurable(Protocol):
+    """
+    Protocol for classes whose methods can be decorated with `load_config`.
+    """
+
+    template: WorkflowTemplate
+    _app: ClassVar[BaseApp]

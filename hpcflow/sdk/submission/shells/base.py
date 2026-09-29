@@ -187,7 +187,9 @@ class Shell(ABC):
     def quote_arg(value: Any) -> str:
         """Quote an argument for inclusion in a shell command."""
 
-    def format_config_overrides(self, overrides: dict[str, Any], indent_str="") -> str:
+    def format_config_overrides(
+        self, overrides: dict[str, Any], indent_str: str = ""
+    ) -> str:
         """Format a dictionary of configuration overrides for inclusion in a shell script
         app invocation command."""
         return indent(
