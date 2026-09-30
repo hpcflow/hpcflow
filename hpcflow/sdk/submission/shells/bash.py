@@ -351,6 +351,10 @@ class Bash(Shell):
         """
         return self.format_source_functions_file(app_name, commands) + commands
 
+    @property
+    def line_continuation(self) -> str:
+        return "\\"
+
     @staticmethod
     def quote_arg(value: Any) -> str:
         """Quote an argument for inclusion in a shell command."""

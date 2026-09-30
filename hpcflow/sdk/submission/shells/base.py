@@ -187,6 +187,10 @@ class Shell(ABC):
     def quote_arg(value: Any) -> str:
         """Quote an argument for inclusion in a shell command."""
 
+    @property
+    def line_continuation(self) -> str:
+        raise NotImplementedError
+
     def format_config_overrides(
         self, overrides: dict[str, Any], indent_str: str = ""
     ) -> str:
@@ -194,7 +198,8 @@ class Shell(ABC):
         app invocation command."""
         return indent(
             "".join(
-                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}`\n"
+                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}"
+                f"{self.line_continuation}\n"
                 for key, value in overrides.items()
             ),
             indent_str,

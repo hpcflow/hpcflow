@@ -389,6 +389,10 @@ class WindowsPowerShell(Shell):
             + "\nexit $LASTEXITCODE\n"
         )
 
+    @property
+    def line_continuation(self) -> str:
+        return "`"
+
     @staticmethod
     def quote_arg(value: Any) -> str:
         """Quote an argument for inclusion in a shell command."""
