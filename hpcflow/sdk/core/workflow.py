@@ -4099,7 +4099,7 @@ class Workflow(AppAware):
                 print(f"WAIT: pending after wake={new_pending}", flush=True)
 
                 for submission_idx, jobscript_idx in new_pending:
-                    js = self.submissions[submission_idx].jobscript[jobscript_idx]
+                    js = self.submissions[submission_idx].jobscripts[jobscript_idx]
                     completion = js.completion_obj
                     print(
                         f"WAIT: {completion.completion_path=} "
