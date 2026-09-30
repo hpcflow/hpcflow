@@ -406,10 +406,12 @@ class JobscriptExecutor(AppAware):
                 run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
 
         executed = False
+
         if run.skip:
             exit_code = SKIPPED_EXIT_CODE
 
         else:
+            commands_file_path = None
             try:
                 with redirect_std_to_file(
                     js_run.run_std_path,
@@ -421,6 +423,8 @@ class JobscriptExecutor(AppAware):
                         run=run,
                         run_dir=run_dir,
                     )
+                    if not run.use_script_worker:
+                        commands_file_path = self.ensure_commands_file(run)
 
             except UnsetParameterDataErrorBase:
                 assert self.jobscript_server is not None
@@ -431,7 +435,6 @@ class JobscriptExecutor(AppAware):
                     port_number=self.jobscript_server.port_number,
                 )
                 new_run_skips.update(self._check_loop_termination(run))
-
                 return JobscriptRunResult(
                     js_run=js_run,
                     exit_code=1,
@@ -449,31 +452,27 @@ class JobscriptExecutor(AppAware):
                     unset_params=unset_params,
                 )
 
+            elif commands_file_path:
+                executed = True
+                try:
+                    exit_code, command_time = await self._execute_run_commands(
+                        action=action,
+                        js_run=js_run,
+                        run=run,
+                        run_dir=run_dir,
+                        commands_file_path=commands_file_path,
+                    )
+                except ValueError:
+                    return JobscriptRunResult(
+                        js_run=js_run,
+                        exit_code=NO_PROGRAM_EXIT_CODE,
+                        timeit=run_timeit,
+                    )
+
+            elif run.action.jinja_template:
+                exit_code = 0
             else:
-                commands_file_path = self.ensure_commands_file(run)
-                if commands_file_path:
-                    executed = True
-                    assert isinstance(commands_file_path, Path)
-                    try:
-                        exit_code, command_time = await self._execute_run_commands(
-                            action=action,
-                            js_run=js_run,
-                            run=run,
-                            run_dir=run_dir,
-                            commands_file_path=commands_file_path,
-                        )
-                    except ValueError:
-                        return JobscriptRunResult(
-                            js_run=js_run,
-                            exit_code=NO_PROGRAM_EXIT_CODE,
-                            timeit=run_timeit,
-                        )
-
-                elif run.action.jinja_template:
-                    exit_code = 0
-
-                else:
-                    exit_code = NO_COMMANDS_EXIT_CODE
+                exit_code = NO_COMMANDS_EXIT_CODE
 
         with redirect_std_to_file(
             js_run.run_std_path,
