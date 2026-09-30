@@ -4012,7 +4012,7 @@ class Workflow(AppAware):
 
     #: Interval between checking the filesystem for jobscript completion, in the event
     #: we are not notified/woken up by ZeroMQ:
-    WAIT_STATE_CHECK_INTERVAL = 10  # TEMP 5 * 60
+    WAIT_STATE_CHECK_INTERVAL = 5 * 60
 
     async def _wait(
         self,
@@ -4054,15 +4054,12 @@ class Workflow(AppAware):
         if not quiet:
             print("Waiting for workflow submissions to finish...")
 
-        print(f"WAIT: {self._app.config.server_advertise_host=!r}", flush=True)
         server = WaitServer(advertise_host=self._app.config.server_advertise_host)
         waiter_id = WaitServer.get_new_waiter_id()
         registered_paths: list[Path] = []
 
         try:
             endpoint = await server.start()
-            print(f"WAIT: endpoint={endpoint}", flush=True)
-            print(f"WAIT: pending before registration={pending}", flush=True)
 
             # register this waiter with every jobscript before checking whether any of
             # them have completed:
@@ -4074,44 +4071,19 @@ class Workflow(AppAware):
                     endpoint=endpoint,
                 )
                 registered_paths.append(endpoint_path)
-                print(f"WAIT: registered {waiter_id=} {endpoint_path=}", flush=True)
 
             # registration and completion can race, so check completion only after all
             # registrations are visible:
             pending = {key for key in pending if not self._is_jobscript_complete(*key)}
-            print(f"WAIT: pending after marker check={pending}", flush=True)
 
             while pending:
                 # ZMQ is only a wake-up mechanism; the completion marker on the shared
                 # filesystem is authoritative, so we update pending whenever server wait
                 # times out, or when we receive any message from the server:
-                print("WAIT: waiting for wakeup", flush=True)
-                notification = await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
-                print(f"WAIT: woke: {notification=}", flush=True)
-                # pending = {
-                #     key for key in pending if not self._is_jobscript_complete(*key)
-                # }
-
-                new_pending = {
+                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+                pending = {
                     key for key in pending if not self._is_jobscript_complete(*key)
                 }
-
-                print(f"WAIT: pending after wake={new_pending}", flush=True)
-
-                for submission_idx, jobscript_idx in new_pending:
-                    js = self.submissions[submission_idx].jobscripts[jobscript_idx]
-                    completion = js.completion_obj
-                    print(
-                        f"WAIT: {completion.completion_path=} "
-                        f"exists={completion.completion_path.exists()}",
-                        flush=True,
-                    )
-                    print(f"\nWAIT: js stdout:")
-                    js.print_stdout(flush=True)
-                    print(f"\nWAIT: js stderr:")
-                    js.print_stderr(flush=True)
-
-                pending = new_pending
 
         finally:
             # stop advertising the endpoint before shutting down the server:

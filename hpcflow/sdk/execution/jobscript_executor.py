@@ -204,8 +204,6 @@ class JobscriptExecutor(AppAware):
 
         finally:
 
-            print("JS: marking jobscript completion", flush=True)
-
             if TimeIt.is_active():
                 self._write_to_jobscript_app_std("")  # newline before summary tree
 
@@ -219,15 +217,8 @@ class JobscriptExecutor(AppAware):
                 self.completion.mark_complete()
             else:
                 self.completion.mark_array_item_complete(self.array_idx)
-            print(
-                "JS: completion marked; "
-                f"complete={self.completion.is_complete()} "
-                f"submission_complete={self.completion.is_submission_complete()}",
-                flush=True,
-            )
-            print("JS: notifying jobscript waiters", flush=True)
+
             await self._notify_waiters()
-            print("JS: finished notifying jobscript waiters", flush=True)
 
     def _iter_actions(self) -> Iterator[JobscriptAction]:
 

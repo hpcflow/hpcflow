@@ -26,7 +26,6 @@ class WaitServer:
     ) -> None:
         self.bind_address = bind_address
         self.advertise_host = advertise_host or socket.gethostname()
-        print(f"WAITSERVER: {self.advertise_host=!r}", flush=True)
 
         self.context = zmq.asyncio.Context.instance()
         self.socket: zmq.asyncio.Socket | None = None
