@@ -146,7 +146,7 @@ class RunExecutor(AppAware):
         """For testing only: generate a run executor that executes the app's internal
         noop command, which takes various arguments."""
         cmd = [
-            *cls._app.run_time_info.invocation_command,
+            *cls._app.run_time_info.app_invocation_command,
             "internal",
             "noop",
             *args,
