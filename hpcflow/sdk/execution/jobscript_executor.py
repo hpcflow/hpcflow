@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from hpcflow.sdk.core import (
     ABORT_EXIT_CODE,
@@ -624,7 +624,7 @@ class JobscriptExecutor(AppAware):
 
         return unset_params
 
-    def ensure_commands_file(self, run: ElementActionRun) -> Path | bool:
+    def ensure_commands_file(self, run: ElementActionRun) -> Path | Literal[False]:
         """Ensure a commands file exists for the specified run."""
 
         self._app.persistence_logger.debug("JobscriptExecutor.ensure_commands_file")
