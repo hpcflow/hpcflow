@@ -4012,7 +4012,7 @@ class Workflow(AppAware):
 
     #: Interval between checking the filesystem for jobscript completion, in the event
     #: we are not notified/woken up by ZeroMQ:
-    WAIT_STATE_CHECK_INTERVAL = 5 * 60
+    WAIT_STATE_CHECK_INTERVAL = 10  # TEMP 5 * 60
 
     async def _wait(
         self,
@@ -4088,9 +4088,30 @@ class Workflow(AppAware):
                 print("WAIT: waiting for wakeup", flush=True)
                 notification = await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
                 print(f"WAIT: woke: {notification=}", flush=True)
-                pending = {
+                # pending = {
+                #     key for key in pending if not self._is_jobscript_complete(*key)
+                # }
+
+                new_pending = {
                     key for key in pending if not self._is_jobscript_complete(*key)
                 }
+
+                print(f"WAIT: pending after wake={new_pending}", flush=True)
+
+                for submission_idx, jobscript_idx in new_pending:
+                    js = self.submissions[submission_idx].jobscript[jobscript_idx]
+                    completion = js.completion_obj
+                    print(
+                        f"WAIT: {completion.completion_path=} "
+                        f"exists={completion.completion_path.exists()}",
+                        flush=True,
+                    )
+                    print(f"\nWAIT: js stdout:")
+                    js.print_stdout(flush=True)
+                    print(f"\nWAIT: js stderr:")
+                    js.print_stderr(flush=True)
+
+                pending = new_pending
 
         finally:
             # stop advertising the endpoint before shutting down the server:

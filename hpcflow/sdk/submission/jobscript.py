@@ -1425,7 +1425,7 @@ class Jobscript(JSONLike):
         """
         return self.workflow.get_text_file(self.get_stderr_path(array_idx))
 
-    def print_stdout(self, array_idx: int | None = None) -> None:
+    def print_stdout(self, array_idx: int | None = None, **kwargs) -> None:
         """Print the contents of the standard output stream file.
 
         Notes
@@ -1434,9 +1434,9 @@ class Jobscript(JSONLike):
         even if that includes multiple elements/actions.
 
         """
-        print(self.get_stdout(array_idx))
+        print(self.get_stdout(array_idx), **kwargs)
 
-    def print_stderr(self, array_idx: int | None = None) -> None:
+    def print_stderr(self, array_idx: int | None = None, **kwargs) -> None:
         """Print the contents of the standard error stream file.
 
         Notes
@@ -1445,7 +1445,7 @@ class Jobscript(JSONLike):
         even if that includes multiple elements/actions.
 
         """
-        print(self.get_stderr(array_idx))
+        print(self.get_stderr(array_idx), **kwargs)
 
     @property
     def direct_win_pid_file_path(self) -> Path:
