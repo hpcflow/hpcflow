@@ -39,6 +39,7 @@ from hpcflow.sdk.wait.wait_client import WaitClient
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.types import BlockActionKey
+    from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
 
 # TODO: add a `hpcflow manage test-compute-connectivity` to check which if
 # any directions are communicable between host (i.e. login node) and
@@ -122,6 +123,10 @@ class JobscriptExecutor(AppAware):
         self.array_idx = array_idx
 
         self.active_executors: dict[int, RunExecutor] = {}
+
+        # Persistent Python interpreters used to execute snippet scripts; eventually keyed
+        # by the interpreter/environment they belong to:
+        self.script_workers: dict[int, ScriptWorkerExecutor] = {}
 
         self.jobscript_server: JobscriptServer | None = None
 
@@ -399,13 +404,7 @@ class JobscriptExecutor(AppAware):
             if not self._apply_group_task_conditions(run):
                 run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
 
-        #
-        # Prepare and execute
-        #
-
-        has_commands = False
-        commands_file_path = None
-
+        executed = False
         if run.skip:
             exit_code = SKIPPED_EXIT_CODE
 
@@ -416,7 +415,7 @@ class JobscriptExecutor(AppAware):
                     preamble=run_std_preamble,
                     ignore=_ignore_unset_parameter_data,
                 ):
-                    commands_file_path = self._ensure_run_files(
+                    unset_params = self._prepare_run_files(
                         action=action,
                         run=run,
                         run_dir=run_dir,
@@ -439,39 +438,47 @@ class JobscriptExecutor(AppAware):
                     timeit=run_timeit,
                 )
 
-            if commands_file_path:
-                has_commands = True
-                assert isinstance(commands_file_path, Path)
-                try:
-                    exit_code, command_time = await self._execute_run_commands(
-                        action=action,
-                        js_run=js_run,
-                        run=run,
-                        run_dir=run_dir,
-                        commands_file_path=commands_file_path,
-                    )
-                except ValueError:
-                    return JobscriptRunResult(
-                        js_run=js_run,
-                        exit_code=NO_PROGRAM_EXIT_CODE,
-                        timeit=run_timeit,
-                    )
-
-            elif run.action.jinja_template:
-                exit_code = 0
+            if run.use_script_worker:
+                executed = True
+                exit_code, command_time = await self._execute_script_run(
+                    action=action,
+                    js_run=js_run,
+                    run=run,
+                    run_dir=run_dir,
+                    unset_params=unset_params,
+                )
 
             else:
-                exit_code = NO_COMMANDS_EXIT_CODE
+                commands_file_path = self.ensure_commands_file(run)
+                if commands_file_path:
+                    executed = True
+                    assert isinstance(commands_file_path, Path)
+                    try:
+                        exit_code, command_time = await self._execute_run_commands(
+                            action=action,
+                            js_run=js_run,
+                            run=run,
+                            run_dir=run_dir,
+                            commands_file_path=commands_file_path,
+                        )
+                    except ValueError:
+                        return JobscriptRunResult(
+                            js_run=js_run,
+                            exit_code=NO_PROGRAM_EXIT_CODE,
+                            timeit=run_timeit,
+                        )
 
-        #
-        # Finalise
-        #
+                elif run.action.jinja_template:
+                    exit_code = 0
+
+                else:
+                    exit_code = NO_COMMANDS_EXIT_CODE
 
         with redirect_std_to_file(
             js_run.run_std_path,
             preamble=run_std_preamble,
         ):
-            if has_commands:
+            if executed:
                 new_run_skips.update(self._check_loop_termination(run))
 
             if run_timeit is not None:
@@ -587,34 +594,20 @@ class JobscriptExecutor(AppAware):
 
         return env
 
-    def _ensure_run_files(
+    def _prepare_run_files(
         self,
         action: JobscriptAction,
         run: ElementActionRun,
         run_dir: Path | None,
-    ) -> Path | bool:
-        """Ensure files required to execute a run have been written."""
+    ):
+        """Prepare files required to execute a run."""
 
-        commands_file_path = None
-        try:
-            with run.raise_on_failure_threshold() as unset_params:
-                if run.action.script:
-                    run.write_script_data_in_files(action.block_action_key)
+        with run.raise_on_failure_threshold() as unset_params:
+            if run.action.script:
+                run.write_script_data_in_files(action.block_action_key)
 
-                if run.action.has_program:
-                    run.write_program_data_in_files(action.block_action_key)
-
-                commands_file_path = self.ensure_commands_file(run)
-
-        except UnsetParameterDataErrorBase:
-            self.logger.debug(
-                "Unset parameter threshold satisfied (or unset parameters found "
-                "while writing the commands file), so not attempting run %s. "
-                "unset_params=%r.",
-                run.id_,
-                unset_params,
-            )
-            raise
+            if run.action.has_program:
+                run.write_program_data_in_files(action.block_action_key)
 
         # Sufficient parameter data exists to execute the run, but there may still
         # be unset parameters below the configured failure threshold.
@@ -626,12 +619,10 @@ class JobscriptExecutor(AppAware):
                 unset_params,
             )
 
-        # TODO: pass unset_params to the script environment where required.
-
         if run.action.jinja_template_or_template_path:
             run.write_jinja_template()
 
-        return commands_file_path
+        return unset_params
 
     def ensure_commands_file(self, run: ElementActionRun) -> Path | bool:
         """Ensure a commands file exists for the specified run."""
@@ -734,6 +725,17 @@ class JobscriptExecutor(AppAware):
         )
 
         return exit_code, command_time
+
+    async def _execute_script_run(
+        self,
+        action: JobscriptAction,
+        js_run: JobscriptRun,
+        run: ElementActionRun,
+        run_dir: Path | None,
+        unset_params,
+    ) -> tuple[int, float | None]:
+        """Execute a Python snippet in a persistent script worker."""
+        raise NotImplementedError
 
     async def _finish_action(
         self,

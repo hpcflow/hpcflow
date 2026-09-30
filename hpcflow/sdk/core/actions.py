@@ -1283,6 +1283,13 @@ class ElementActionRun(AppAware):
         except AttributeError:
             return False
 
+    @property
+    def use_script_worker(self) -> bool:
+        """Returns True is a script worker process is to be used to execute this
+        action."""
+        return False  # TEMP
+        # return self.action.script_is_python_snippet and self.is_snippet_script
+
     @TimeIt.decorator
     def get_script_artifact_name(self) -> str:
         """Return the script name that is used when writing the script to the artifacts
