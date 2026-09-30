@@ -35,7 +35,7 @@ from hpcflow.sdk.core.utils import (
     get_enum_by_name_or_val,
     split_param_label,
 )
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.shells import get_shell
 from hpcflow.sdk.utils.hashing import get_hash
 

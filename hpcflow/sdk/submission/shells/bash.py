@@ -4,6 +4,7 @@ Shell models based on the GNU Bourne-Again Shell.
 
 from __future__ import annotations
 from pathlib import Path
+import shlex
 import subprocess
 import shutil
 from textwrap import dedent, indent
@@ -47,15 +48,39 @@ class Bash(Shell):
         (
         {env_setup}{app_invoc}\\
                 --with-config log_file_path "${app_caps}_LOG_PATH"\\
-                --config-dir "{config_dir}"\\
+        {config_overrides}        --config-dir "{config_dir}"\\
                 --config-key "{config_invoc_key}"\\
                 "$@"
         )
         }}
     """
     )
+    #: Template for enabling writing of the jobscript log.
+    JS_LOG_PATH_ENABLE: ClassVar[str] = '"$SUB_LOG_DIR/js_$JS_IDX.log"'
+    #: Template for disabling writing of the jobscript log.
+    JS_LOG_PATH_DISABLE: ClassVar[str] = '" "'
     #: Template for the common part of the jobscript header.
     JS_HEADER: ClassVar[str] = dedent(
+        """\
+        WK_PATH=`pwd`
+        WK_PATH_ARG="$WK_PATH"
+        SUB_IDX={sub_idx}
+        JS_IDX={js_idx}
+        
+        SUB_DIR="$WK_PATH/artifacts/submissions/${{SUB_IDX}}"
+        SUB_LOG_DIR="$SUB_DIR/{log_dir_name}"                
+        JS_FUNCS_PATH="$SUB_DIR/{jobscript_functions_dir}/{jobscript_functions_name}"
+
+        . "$JS_FUNCS_PATH"
+
+        export {app_caps}_WK_PATH_ARG=$WK_PATH_ARG
+        export {app_caps}_SUB_LOG_DIR=$SUB_LOG_DIR        
+        export {app_caps}_LOG_PATH={jobscript_log_path}
+        export {app_caps}_JS_FUNCS_PATH=$JS_FUNCS_PATH
+    """
+    )
+    #: Template for the common part of the jobscript header.
+    JS_HEADER_OLD: ClassVar[str] = dedent(
         """\
         WK_PATH=`pwd`
         WK_PATH_ARG="$WK_PATH"
@@ -117,6 +142,17 @@ class Bash(Shell):
         fi
     """
     )
+    #: Template for converting the scheduler array item environment variable to a
+    #: zero-indexed jobscript array index:
+    JS_SCHEDULER_ARRAY_IDX_OPT: ClassVar[str] = (
+        " --array-idx $(({scheduler_array_item_var} - 1))"
+    )
+    #: Template for the jobscript execution command.
+    JS_EXECUTE_CMD: ClassVar[str] = (
+        '{workflow_app_alias} {timeit}internal workflow "$WK_PATH_ARG" '
+        "execute-jobscript $SUB_IDX $JS_IDX{array_idx_opt}\n"
+    )
+
     #: Template for the run execution command.
     JS_RUN_CMD: ClassVar[str] = (
         '{workflow_app_alias} {timeit}internal workflow "$WK_PATH_ARG" '
@@ -314,6 +350,22 @@ class Bash(Shell):
         Format the commands file.
         """
         return self.format_source_functions_file(app_name, commands) + commands
+
+    @property
+    def line_continuation(self) -> str:
+        return "\\"
+
+    @staticmethod
+    def quote_arg(value: Any) -> str:
+        """Quote an argument for inclusion in a shell command."""
+        return shlex.quote(str(value))
+
+    def format_config_overrides(
+        self, overrides: dict[str, Any], indent_str: str = " " * 8
+    ) -> str:
+        """Format a dictionary of configuration overrides for inclusion in a shell script
+        app invocation command."""
+        return super().format_config_overrides(overrides, indent_str)
 
     @override
     def format_save_parameter(

@@ -18,7 +18,7 @@ from rich.panel import Panel
 from rich.markup import escape as rich_esc
 from rich.text import Text
 
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import ParameterPropagationMode
 from hpcflow.sdk.core.errors import (

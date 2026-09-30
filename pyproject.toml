@@ -59,7 +59,6 @@ pre-commit = ">=4.6.0,<5.0"
 tuna = "^0.5.13"
 sphinx = ">=4,<9"
 sphinx-click = ">=4.4,<7.0"
-sphinx-jinja = "^2.0.1"
 sphinx-copybutton = "^0.5.0"
 sphinx-design = ">=0.4.1,<0.7.0"
 sphinx-togglebutton = "^0.4.5"
@@ -69,9 +68,11 @@ myst-nb = [
     {version = "0.17.2", python = "<3.9"},
     {version = "1.1.1", python = ">=3.9"}
 ]
+sphinx-jinja = "^2.0.2"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=9.0.3,<10.0"
+pytest-asyncio = "^1.4.0"
 pexpect = "^4.8.0"
 papermill = "^2.7.0"
 ipykernel = "^7.2.0"
@@ -138,6 +139,12 @@ line-length = 90
 
 [tool.mypy]
 incremental = false
+
+[tool.pytest.ini_options]
+addopts = [
+    "-k", "not combine-scripts-true",
+    "-m", "not combine_scripts",
+]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

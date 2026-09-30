@@ -24,7 +24,7 @@ from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.enums import InputSourceType, TaskSourceType
 from hpcflow.sdk.core.utils import check_valid_py_identifier, nth_key, nth_value
 from hpcflow.sdk.utils.strings import shorten_list_str
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence

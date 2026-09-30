@@ -15,10 +15,12 @@ import socket
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast, overload, TYPE_CHECKING
+from typing import cast, overload, TYPE_CHECKING, ParamSpec, TypeVar
+
 import fsspec  # type: ignore
 import warnings
 
+from typing_extensions import Concatenate
 from rich.console import Console, Group
 from rich.table import Table
 from rich.pretty import Pretty
@@ -48,7 +50,9 @@ from hpcflow.sdk.config.callbacks import (
     set_scheduler_invocation_match,
     callback_update_log_file_path,
     callback_update_log_file_level,
+    callback_update_log_file_levels,
     callback_unset_log_file_level,
+    callback_unset_log_file_levels,
     callback_unset_log_file_path,
     callback_log_file_path,
     callback_deprecation_demo_data_dir,
@@ -84,6 +88,7 @@ if TYPE_CHECKING:
         SetterCallback,
         UnsetterCallback,
         T,
+        WorkflowConfigurable,
     )
     from ..app import BaseApp
     from ..core.types import AbstractFileSystem
@@ -109,8 +114,32 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "user_affiliations": [],
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
+        "log_file_levels": {},
     },
 }
+
+
+P = ParamSpec("P")
+S = TypeVar("S", bound="WorkflowConfigurable")
+
+
+def load_workflow_config(
+    func: Callable[Concatenate[S, P], T],
+) -> Callable[Concatenate[S, P], T]:
+    """Decorator to apply workflow-level config items during execution of a Workflow
+    method."""
+
+    @functools.wraps(func)
+    def wrapped(self: S, *args: P.args, **kwargs: P.kwargs) -> T:
+
+        updates = self.template.config
+        if updates:
+            with self._app.config._with_updates(updates):
+                return func(self, *args, **kwargs)
+        else:
+            return func(self, *args, **kwargs)
+
+    return wrapped
 
 
 @dataclass
@@ -304,6 +333,7 @@ class Config:
             "schedulers": (callback_supported_schedulers, callback_scheduler_set_up),
             "log_file_path": (callback_update_log_file_path,),
             "log_file_level": (callback_update_log_file_level,),
+            "log_file_levels": (callback_update_log_file_levels,),
             "log_console_level": (callback_update_log_console_level,),
             "demo_data_manifest_file": (callback_deprecation_demo_data_manifest_file,),
             "demo_data_dir": (callback_deprecation_demo_data_dir,),
@@ -318,6 +348,7 @@ class Config:
         self._unset_callbacks: dict[str, tuple[UnsetterCallback, ...]] = {
             "log_console_level": (callback_unset_log_console_level,),
             "log_file_level": (callback_unset_log_file_level,),
+            "log_file_levels": (callback_unset_log_file_levels,),
             "log_file_path": (callback_unset_log_file_path,),
         }
 
@@ -573,6 +604,18 @@ class Config:
         )
         self._set("demo_data_dir", value)
 
+    @property
+    def server_advertise_host(self) -> str | None:
+        """
+        The hostname or IP address app servers advertise to clients; defaults to
+        ``socket.gethostname()``.
+        """
+        return self._get("server_advertise_host")
+
+    @server_advertise_host.setter
+    def server_advertise_host(self, value: str | None):
+        self._set("server_advertise_host", value)
+
     def __getattr__(self, name: str):
         if name.startswith("__"):
             raise AttributeError(f"Attribute not known: {name!r}.")
@@ -813,7 +856,6 @@ class Config:
         default_value=None,
     ):
         """Get a configuration item."""
-
         if self._use_cache:
             # note: we default_value is not necessarily hashable, so we can't cache on it!
             key = (

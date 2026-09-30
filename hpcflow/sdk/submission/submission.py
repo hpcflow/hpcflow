@@ -4,6 +4,7 @@ A collection of submissions to a scheduler, generated from a workflow.
 
 from __future__ import annotations
 from collections import defaultdict
+from dataclasses import dataclass
 import shutil
 from pathlib import Path
 import socket
@@ -33,7 +34,7 @@ from hpcflow.sdk.core.object_list import ObjectListMultipleMatchError
 from hpcflow.sdk.core.utils import parse_timestamp, current_timestamp
 from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.core import RUN_DIR_ARR_DTYPE
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
     from typing import ClassVar, Literal
     from rich.status import Status
     from numpy.typing import NDArray
-    from .jobscript import Jobscript
+    from .jobscript import Jobscript, PreparedJobscriptSubmission
     from .enums import JobscriptElementState
     from .schedulers import Scheduler
     from .shells import Shell
@@ -67,6 +68,11 @@ JOBSCRIPT_SUBMIT_TIME_KEYS = (
 SUBMISSION_SUBMIT_TIME_KEYS = {
     "submission_parts": dict,
 }
+
+
+@dataclass(frozen=True)
+class PreparedSubmission:
+    jobscripts: dict[int, PreparedJobscriptSubmission]
 
 
 @hydrate
@@ -108,7 +114,6 @@ class Submission(JSONLike):
     APP_STD_DIR_NAME = "app_std"
     JS_DIR_NAME = "jobscripts"
     JS_STD_DIR_NAME = "js_std"
-    JS_RUN_IDS_DIR_NAME = "js_run_ids"
     JS_FUNCS_DIR_NAME = "js_funcs"
     JS_WIN_PIDS_DIR_NAME = "js_pids"
     JS_SCRIPT_INDICES_DIR_NAME = "js_script_indices"
@@ -512,14 +517,6 @@ class Submission(JSONLike):
         return cls.get_path(submissions_path, sub_idx) / cls.JS_STD_DIR_NAME
 
     @classmethod
-    def get_js_run_ids_path(cls, submissions_path: Path, sub_idx: int) -> Path:
-        """
-        The path to the directory containing jobscript run IDs, for the specified
-        submission.
-        """
-        return cls.get_path(submissions_path, sub_idx) / cls.JS_RUN_IDS_DIR_NAME
-
-    @classmethod
     def get_js_funcs_path(cls, submissions_path: Path, sub_idx: int) -> Path:
         """
         The path to the directory containing the shell functions that are invoked within
@@ -600,13 +597,6 @@ class Submission(JSONLike):
         submission.
         """
         return self.get_js_std_path(self.workflow.submissions_path, self.index)
-
-    @property
-    def js_run_ids_path(self) -> Path:
-        """
-        The path to the directory containing jobscript run IDs, for this submission.
-        """
-        return self.get_js_run_ids_path(self.workflow.submissions_path, self.index)
 
     @property
     def js_funcs_path(self) -> Path:
@@ -1185,6 +1175,7 @@ class Submission(JSONLike):
         app_invoc = list(self._app.run_time_info.invocation_command)
 
         app_caps = self._app.package_name.upper()
+        overrides = shell.format_config_overrides(self._app.config._overrides)
         func_file_args = shell.process_JS_header_args(  # TODO: rename?
             {
                 "workflow_app_alias": self.WORKFLOW_APP_ALIAS,
@@ -1193,6 +1184,7 @@ class Submission(JSONLike):
                 "app_caps": app_caps,
                 "config_dir": str(self._app.config.config_directory),
                 "config_invoc_key": self._app.config.config_key,
+                "config_overrides": overrides,
             }
         )
         out = shell.JS_FUNCS.format(**func_file_args)
@@ -1214,6 +1206,56 @@ class Submission(JSONLike):
             fp.write(js_funcs_str)
 
     @TimeIt.decorator
+    def prepare_submit(self, *, ignore_errors: bool = False) -> None:
+        """Prepare submission metadata and shared files required by jobscripts."""
+
+        outstanding = self.outstanding_jobscripts
+
+        # get scheduler, shell and OS version information (also an opportunity to fail
+        # before trying to submit jobscripts):
+        js_vers_info: dict[int, dict[str, str | list[str]]] = {}
+        for js_indices_sched, sched in self._unique_schedulers:
+            try:
+                vers_info = sched.get_version_info()
+            except Exception:
+                if not ignore_errors:
+                    raise
+                vers_info = {}
+
+            for _, js_idx in js_indices_sched:
+                if js_idx in outstanding:
+                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
+
+        js_shell_indices = {}
+        for shell_idx, (js_indices_sh, shell) in enumerate(self.get_unique_shells()):
+            try:
+                vers_info = shell.get_version_info()
+            except Exception:
+                if not ignore_errors:
+                    raise
+                vers_info = {}
+
+            for js_idx in js_indices_sh:
+                if js_idx in outstanding:
+                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
+                    js_shell_indices[js_idx] = shell_idx
+
+            # write a file containing useful shell functions:
+            self._write_functions_file(shell, shell_idx)
+
+        hostname = socket.gethostname()
+        machine = self._app.config.get("machine")
+
+        for js_idx, vers_info in js_vers_info.items():
+            js = self.jobscripts[js_idx]
+            js._set_version_info(vers_info)
+            js._set_submit_hostname(hostname)
+            js._set_submit_machine(machine)
+            js._set_shell_idx(js_shell_indices[js_idx])
+
+        self.workflow._store._pending.commit_all()
+
+    @TimeIt.decorator
     def submit(
         self,
         status: Status | None,
@@ -1228,48 +1270,8 @@ class Submission(JSONLike):
         # to test a submision with multiple "submission parts". would also need to check
         # dependencies if this customised list is passed
 
+        self.prepare_submit(ignore_errors=ignore_errors)
         outstanding = self.outstanding_jobscripts
-
-        # get scheduler, shell and OS version information (also an opportunity to fail
-        # before trying to submit jobscripts):
-        js_vers_info: dict[int, dict[str, str | list[str]]] = {}
-        for js_indices, sched in self._unique_schedulers:
-            try:
-                vers_info = sched.get_version_info()
-            except Exception:
-                if not ignore_errors:
-                    raise
-                vers_info = {}
-            for _, js_idx in js_indices:
-                if js_idx in outstanding:
-                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
-
-        js_shell_indices = {}
-        for shell_idx, (js_indices_2, shell) in enumerate(self.get_unique_shells()):
-            try:
-                vers_info = shell.get_version_info()
-            except Exception:
-                if not ignore_errors:
-                    raise
-                vers_info = {}
-            for js_idx in js_indices_2:
-                if js_idx in outstanding:
-                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
-                    js_shell_indices[js_idx] = shell_idx
-
-            # write a file containing useful shell functions:
-            self._write_functions_file(shell, shell_idx)
-
-        hostname = socket.gethostname()
-        machine = self._app.config.get("machine")
-        for js_idx, vers_info_i in js_vers_info.items():
-            js = self.jobscripts[js_idx]
-            js._set_version_info(vers_info_i)
-            js._set_submit_hostname(hostname)
-            js._set_submit_machine(machine)
-            js._set_shell_idx(js_shell_indices[js_idx])
-
-        self.workflow._store._pending.commit_all()
 
         # map jobscript `index` to (scheduler job ID or process ID, is_array):
         scheduler_refs: dict[int, tuple[str, bool]] = {}
