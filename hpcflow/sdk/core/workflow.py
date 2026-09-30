@@ -4054,12 +4054,15 @@ class Workflow(AppAware):
         if not quiet:
             print("Waiting for workflow submissions to finish...")
 
+        print(f"WAIT: {self._app.config.server_advertise_host=!r}", flush=True)
         server = WaitServer(advertise_host=self._app.config.server_advertise_host)
         waiter_id = WaitServer.get_new_waiter_id()
         registered_paths: list[Path] = []
 
         try:
             endpoint = await server.start()
+            print(f"WAIT: endpoint={endpoint}", flush=True)
+            print(f"WAIT: pending before registration={pending}", flush=True)
 
             # register this waiter with every jobscript before checking whether any of
             # them have completed:
@@ -4071,16 +4074,20 @@ class Workflow(AppAware):
                     endpoint=endpoint,
                 )
                 registered_paths.append(endpoint_path)
+                print(f"WAIT: registered {waiter_id=} {endpoint_path=}", flush=True)
 
             # registration and completion can race, so check completion only after all
             # registrations are visible:
             pending = {key for key in pending if not self._is_jobscript_complete(*key)}
+            print(f"WAIT: pending after marker check={pending}", flush=True)
 
             while pending:
                 # ZMQ is only a wake-up mechanism; the completion marker on the shared
                 # filesystem is authoritative, so we update pending whenever server wait
                 # times out, or when we receive any message from the server:
-                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+                print("WAIT: waiting for wakeup", flush=True)
+                notification = await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+                print(f"WAIT: woke: {notification=}", flush=True)
                 pending = {
                     key for key in pending if not self._is_jobscript_complete(*key)
                 }
