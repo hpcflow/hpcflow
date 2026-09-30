@@ -896,8 +896,6 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    time.sleep(10)
-
     # v1 and v2 scripts output different values:
     e1, e2 = wk.tasks.t1.elements
     e1_p2 = e1.outputs.p2
