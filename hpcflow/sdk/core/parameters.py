@@ -2622,6 +2622,8 @@ class ResourceSpec(JSONLike):
     max_concurrency: int
         If using array jobs, up to how many items should be permitted to execute
         concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -2675,6 +2677,7 @@ class ResourceSpec(JSONLike):
         "shell",
         "use_job_array",
         "max_concurrency",
+        "max_array_size",
         "write_app_logs",
         "combine_jobscript_std",
         "combine_scripts",
@@ -2740,6 +2743,7 @@ class ResourceSpec(JSONLike):
         shell: str | None = None,
         use_job_array: bool | None = None,
         max_concurrency: int | None = None,
+        max_array_size: int | None = None,
         write_app_logs: bool | None = None,
         combine_jobscript_std: bool | None = None,
         combine_scripts: bool | None = None,
@@ -2787,6 +2791,7 @@ class ResourceSpec(JSONLike):
         self._rng_spawn_key = self._process_rng_spawn_key(rng_spawn_key)
         self._use_job_array = use_job_array
         self._max_concurrency = max_concurrency
+        self._max_array_size = max_array_size
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
         self._combine_scripts = combine_scripts
@@ -2925,6 +2930,7 @@ class ResourceSpec(JSONLike):
             self._shell = None
             self._use_job_array = None
             self._max_concurrency = None
+            self._max_array_size = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
             self._combine_scripts = None
@@ -3064,6 +3070,13 @@ class ResourceSpec(JSONLike):
         concurrently.
         """
         return self._get_value("max_concurrency")
+
+    @property
+    def max_array_size(self) -> int | None:
+        """
+        If using array jobs, what is the maximum permitted size of a job array.
+        """
+        return self._get_value("max_array_size")
 
     @property
     def write_app_logs(self) -> bool:

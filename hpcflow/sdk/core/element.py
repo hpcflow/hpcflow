@@ -296,6 +296,8 @@ class ElementResources(JSONLike):
     max_concurrency: int
         If using array jobs, up to how many items should be permitted to execute
         concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -368,6 +370,8 @@ class ElementResources(JSONLike):
     #: If using array jobs, up to how many items should be permitted to execute
     #: concurrently.
     max_concurrency: int | None = None
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: int | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.

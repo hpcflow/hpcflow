@@ -168,6 +168,8 @@ class ResourceSpecArgs(TypedDict):
     #: If using array jobs, up to how many items should be permitted to execute
     #: concurrently.
     max_concurrency: NotRequired[int]
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: NotRequired[int]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.
