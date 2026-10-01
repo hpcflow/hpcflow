@@ -63,6 +63,7 @@ from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.submission.jobscript import (
+    ensure_max_array_size,
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
     is_jobscript_array,
@@ -4426,6 +4427,9 @@ class Workflow(AppAware):
             # for direct or (non-array scheduled), combine into jobscripts of multiple
             # blocks for dependent jobscripts that have the same resource hashes
             js_ = resolve_jobscript_blocks(js)
+
+            # stack actions within the same jobscript elements if required:
+            js_ = ensure_max_array_size(js_)
 
             return [self._app.Jobscript(**i, index=idx) for idx, i in enumerate(js_)]
 

@@ -23,6 +23,7 @@ from hpcflow.sdk.core.errors import (
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
+from hpcflow.sdk.utils.arrays import reshape_max_width
 from hpcflow.sdk.utils.strings import extract_py_from_future_imports
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
@@ -428,9 +429,7 @@ def merge_jobscripts_across_tasks(
                         f"merging jobscript {js_idx!r} into jobscript {js_j_idx}."
                     )
 
-                num_loop_idx = len(
-                    js_j["task_loop_idx"]
-                )  # TODO: should this be: `js_j["task_loop_idx"][0]`?
+                num_loop_idx = len(js_j["task_loop_idx"])
 
                 # append task_insert_IDs
                 js_j["task_insert_IDs"].append(js["task_insert_IDs"][0])
@@ -595,6 +594,59 @@ def resolve_jobscript_blocks(
         )
 
     return js_new_
+
+
+def ensure_max_array_size(js_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For array jobscripts, if the array size is greater than the permitted size,
+    stack actions on top of each other.
+    """
+    for js_idx, js_dat_i in enumerate(js_data):
+        if not js_dat_i["is_array"]:
+            continue
+
+        blocks = js_dat_i["blocks"]
+        assert len(blocks) == 1  # array jobscripts have a single block
+        block = blocks[0]
+        js_size = len(block["task_elements"])
+
+        max_size = js_dat_i["resources"].max_array_size
+        if max_size is not None and js_size > max_size:
+
+            if js_size % max_size != 0:
+                raise NotImplementedError(
+                    f"`max_array_size` ({max_size!r}) must be a factor of jobscript "
+                    f"array size: {js_size!r}."
+                )
+
+            dtype = block["EAR_ID"].dtype
+            EAR_ID_rs, n_blocks, col_map = reshape_max_width(
+                block["EAR_ID"],
+                max_width=max_size,
+                dtype=dtype,
+                fill=np.iinfo(dtype).max,
+            )
+
+            task_IDs_rs = np.tile(block["task_insert_IDs"], n_blocks).tolist()
+            task_actions_rs = [
+                acts for acts in block["task_actions"] for _ in range(n_blocks)
+            ]
+            task_elements_rs = {}
+            for js_elem, task_elems in block["task_elements"].items():
+                if js_elem in col_map:
+                    task_elements_rs[col_map[js_elem]].extend(task_elems)
+                else:
+                    task_elements_rs[js_elem] = list(task_elems)
+
+            js_data[js_idx]["blocks"][0].update(
+                {
+                    "task_insert_IDs": task_IDs_rs,
+                    "task_actions": task_actions_rs,
+                    "task_elements": task_elements_rs,
+                    "EAR_ID": EAR_ID_rs,
+                }
+            )
+
+    return js_data
 
 
 @hydrate

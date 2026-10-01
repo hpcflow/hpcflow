@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, overload
+
+import numpy as np
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -67,3 +70,20 @@ def split_arr(arr: NDArray, metadata_size: int) -> list[tuple[NDArray, NDArray]]
         count += size + 1
         block_start = end
     return sub_arrs
+
+
+def reshape_max_width(arr, max_width, *, dtype, fill) -> tuple[NDArray, int]:
+    arr = np.asarray(arr, dtype=dtype)
+    rows, cols = arr.shape
+    n_blocks = math.ceil(cols / max_width)
+
+    # pad columns so they're divisible by max_width
+    padded_cols = n_blocks * max_width
+    out = np.full((rows, padded_cols), fill, dtype=dtype)
+    out[:, :cols] = arr
+
+    # old -> new column index
+    column_map = {col: col % max_width for col in range(cols) if col >= max_width}
+
+    # split each row into max_width-sized blocks
+    return out.reshape(rows * n_blocks, max_width), n_blocks, column_map
