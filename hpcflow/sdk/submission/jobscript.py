@@ -630,7 +630,7 @@ def ensure_max_array_size(js_data: list[dict[str, Any]]) -> list[dict[str, Any]]
             task_actions_rs = [
                 acts for acts in block["task_actions"] for _ in range(n_blocks)
             ]
-            task_elements_rs = {}
+            task_elements_rs: dict[int, list[int]] = {}
             for js_elem, task_elems in block["task_elements"].items():
                 if js_elem in col_map:
                     task_elements_rs[col_map[js_elem]].extend(task_elems)
