@@ -293,8 +293,9 @@ class ElementResources(JSONLike):
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_array_items: int
-        If using array jobs, up to how many items should be in the job array.
+    max_concurrency: int
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -364,8 +365,9 @@ class ElementResources(JSONLike):
     shell: str | None = None
     #: Whether to use array jobs.
     use_job_array: bool | None = None
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: int | None = None
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_concurrency: int | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
