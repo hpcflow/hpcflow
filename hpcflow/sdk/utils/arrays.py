@@ -72,7 +72,9 @@ def split_arr(arr: NDArray, metadata_size: int) -> list[tuple[NDArray, NDArray]]
     return sub_arrs
 
 
-def reshape_max_width(arr, max_width, *, dtype, fill) -> tuple[NDArray, int]:
+def reshape_max_width(
+    arr, max_width: int, *, dtype, fill
+) -> tuple[NDArray, int, dict[int, int]]:
     arr = np.asarray(arr, dtype=dtype)
     rows, cols = arr.shape
     n_blocks = math.ceil(cols / max_width)
