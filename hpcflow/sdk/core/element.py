@@ -21,6 +21,7 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+from typing_extensions import Self
 
 from hpcflow.sdk.core.enums import ParallelMode
 from hpcflow.sdk.core.skip_reason import SkipReason
@@ -443,6 +444,16 @@ class ElementResources(JSONLike):
 
         self.scheduler_args = self.scheduler_args or {}
         self.shell_args = self.shell_args or {}
+
+    @classmethod
+    def _json_like_constructor(cls, json_like) -> Self:
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+
+        # compatibility for redefinition of `max_array_items` to `max_concurrency`
+        if "max_array_items" in json_like:
+            json_like["max_concurrency"] = json_like.pop("max_array_items")
+
+        return cls(**json_like)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):
