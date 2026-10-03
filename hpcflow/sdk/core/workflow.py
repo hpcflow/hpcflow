@@ -4558,18 +4558,22 @@ class Workflow(AppAware):
                         EAR_ID_arr[js_act_idx][js_elem_idx] = EAR_ID_i
 
                     # get indices of EARs that this element depends on:
-                    EAR_deps_EAR_idx = [
+                    EAR_deps_EAR_idx = set(
                         dep_ear_id
                         for main_ear_id in all_EAR_IDs
                         for dep_ear_id in all_EAR_objs[main_ear_id].get_EAR_dependencies()
                         if dep_ear_id not in EAR_ID_arr
-                    ]
+                    )
                     if EAR_deps_EAR_idx:
-                        all_element_deps.setdefault(new_js_idx, {})[
-                            js_elem_idx
-                        ] = EAR_deps_EAR_idx
+                        all_element_deps.setdefault(new_js_idx, {})[js_elem_idx] = list(
+                            EAR_deps_EAR_idx
+                        )
 
-                js_i = ensure_max_array_size(js_i)
+                js_i, deps_new = ensure_max_array_size(
+                    js_i, all_element_deps.get(new_js_idx, {})
+                )
+                if deps_new:
+                    all_element_deps[new_js_idx] = deps_new
 
                 submission_jobscripts[new_js_idx] = js_i
 

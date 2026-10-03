@@ -601,6 +601,7 @@ def resolve_jobscript_blocks(
 
 def ensure_max_array_size(
     js_data: JobScriptCreationArguments,
+    element_deps: dict[int, list[int]],
 ) -> JobScriptCreationArguments:
     """For array jobscripts, if the array size is greater than the permitted size,
     stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
@@ -641,6 +642,10 @@ def ensure_max_array_size(
     for col_idx, pad_len in count_differences.items():
         task_elements_rs[col_idx].extend([JS_BLK_TASK_ELEMENTS_FILL_VALUE] * pad_len)
 
+    for col_idx, new_col in col_map.items():
+        if (deps_i := element_deps.pop(col_idx, None)) is not None:
+            element_deps.setdefault(new_col, []).extend(deps_i)
+
     js_data.update(
         {
             "task_insert_IDs": task_IDs_rs,
@@ -650,7 +655,7 @@ def ensure_max_array_size(
         }
     )
 
-    return js_data
+    return js_data, element_deps
 
 
 @hydrate
