@@ -103,6 +103,7 @@ def test_inapplicable_jobscript_action(tmp_path):
     wk = hf.Workflow.from_template_data(
         tasks=[t1],
         template_name="input_file_generator_test",
+        path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
