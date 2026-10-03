@@ -609,11 +609,11 @@ def ensure_max_array_size(
     """
 
     if not js_data["is_array"]:
-        return js_data
+        return js_data, element_deps
 
     max_size = js_data["resources"].max_array_size
     if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
-        return js_data
+        return js_data, element_deps
 
     dtype = js_data["EAR_ID"].dtype
     EAR_ID_rs, n_blocks, col_map = reshape_max_width(
