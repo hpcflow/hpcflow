@@ -602,7 +602,7 @@ def resolve_jobscript_blocks(
 def ensure_max_array_size(
     js_data: JobScriptCreationArguments,
     element_deps: dict[int, list[int]],
-) -> JobScriptCreationArguments:
+) -> tuple[JobScriptCreationArguments, dict[int, list[int]]]:
     """For array jobscripts, if the array size is greater than the permitted size,
     stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
     compliance.
