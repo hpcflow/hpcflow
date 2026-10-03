@@ -435,7 +435,7 @@ def merge_jobscripts_across_tasks(
                 num_loop_idx = len(js_j["task_loop_idx"])
 
                 # append task_insert_IDs
-                js_j["task_insert_IDs"].append(js["task_insert_IDs"][0])
+                js_j["task_insert_IDs"].extend(js["task_insert_IDs"])
                 js_j["task_loop_idx"].append(js["task_loop_idx"][0])
 
                 add_acts = [(a, b, num_loop_idx) for a, b, _ in js["task_actions"]]
@@ -630,7 +630,9 @@ def ensure_max_array_size(
         value: count_max - count for value, count in col_map_counts.items()
     }
 
+    print(f"ens: {n_blocks=!r}")
     task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
+    print(f"ens: {task_IDs_rs=!r}")
     task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
     task_elements_rs: dict[int, list[int]] = {}
     for js_elem, task_elems in js_data["task_elements"].items():
