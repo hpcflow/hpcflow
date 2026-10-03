@@ -57,6 +57,70 @@ def test_input_file_generator_creates_file(tmp_path):
 
 
 @pytest.mark.integration
+def test_inapplicable_jobscript_action(tmp_path):
+
+    inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
+
+    if os.name == "nt":
+        cmd = "Get-Content <<file:my_input_file>>"
+    else:
+        cmd = "cat <<file:my_input_file>>"
+
+    # generate an existing input file for the second element, where we provide in the input
+    # file; this allows us to test inapplicable jobscript actions (the input file generator
+    # only needs to run for one element, not both):
+    existing_inp_file_path = tmp_path / "my_input_file_2.txt"
+    existing_inp_file_value = str(201)
+    existing_inp_file_path.write_text(existing_inp_file_value)
+
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        actions=[
+            hf.Action(
+                commands=[hf.Command(cmd)],
+                input_file_generators=[
+                    hf.InputFileGenerator(
+                        input_file=inp_file,
+                        inputs=[hf.Parameter("p1")],
+                        script="<<script:input_file_generator_basic.py>>",
+                    ),
+                ],
+                environments=[hf.ActionEnvironment(environment={"name": "python_env"})],
+            )
+        ],
+    )
+    p1_val = 101
+    t1 = hf.Task(
+        schema=s1,
+        element_sets=[
+            hf.ElementSet(inputs={"p1": p1_val}),
+            hf.ElementSet(
+                input_files=[hf.InputFile(inp_file, path=existing_inp_file_path)],
+            ),
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        template_name="input_file_generator_test",
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    # check the input files are written
+    run_e0 = wk.get_all_EARs()[0]
+    exec_path = run_e0.get_directory()
+    existing_inp_file_path = exec_path.joinpath(inp_file.name.name)
+    inp_file_contents = existing_inp_file_path.read_text()
+    assert inp_file_contents.strip() == str(p1_val)
+
+    run_e1 = wk.get_all_EARs()[2]
+    exec_path = run_e1.get_directory()
+    existing_inp_file_path = exec_path.joinpath(inp_file.name.name)
+    inp_file_contents = existing_inp_file_path.read_text()
+    assert inp_file_contents.strip() == existing_inp_file_value
+
+
+@pytest.mark.integration
 def test_IFG_std_stream_redirect_on_exception(tmp_path, reload_template_components):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
