@@ -630,9 +630,7 @@ def ensure_max_array_size(
         value: count_max - count for value, count in col_map_counts.items()
     }
 
-    print(f"ens: {n_blocks=!r}")
     task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
-    print(f"ens: {task_IDs_rs=!r}")
     task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
     task_elements_rs: dict[int, list[int]] = {}
     for js_elem, task_elems in js_data["task_elements"].items():
