@@ -2847,7 +2847,7 @@ class ZarrPersistentStore(
                 for blk_idx_j, blk_shape_j in enumerate(js_blk_shapes):
                     arr_i = arr_dat[arr_idx, : blk_shape_j[1], : blk_shape_j[0] + 1]
                     self._jobscript_task_element_maps[sub_idx][(js_idx_i, blk_idx_j)] = {
-                        k[0]: list(k[1:]) for k in arr_i
+                        k[0].item(): k[1:].tolist() for k in arr_i
                     }
                     arr_idx += 1
 
