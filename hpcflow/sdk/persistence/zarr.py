@@ -1132,8 +1132,8 @@ class ZarrPersistentStore(
 
         combined_task_elems = np.full(
             (len(arrs), max_y, max_x),
-            dtype=np.uint32,
-            fill_value=np.iinfo(np.uint32).max,
+            dtype=np.int32,
+            fill_value=np.iinfo(np.int32).max,
         )
         for arr_idx, arr in enumerate(arrs):
             combined_task_elems[arr_idx][: arr.shape[0], : arr.shape[1]] = arr

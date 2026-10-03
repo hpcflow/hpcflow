@@ -63,6 +63,7 @@ from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
 from hpcflow.sdk.submission.jobscript import (
+    JS_BLK_EAR_ID_FILL_VALUE,
     ensure_max_array_size,
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
@@ -4125,9 +4126,7 @@ class Workflow(AppAware):
                 states = block_states[block_idx]
                 for js_elem_idx, state in states.items():
                     if state is JobscriptElementState.running:
-                        for task_iID, elem_idx in zip(
-                            block.task_insert_IDs, block.task_elements[js_elem_idx]
-                        ):
+                        for task_iID, elem_idx in block.task_element_indices(js_elem_idx):
                             active_elems[task_iID].add(int(elem_idx))
 
         # retrieve Element objects:
@@ -4428,9 +4427,6 @@ class Workflow(AppAware):
             # blocks for dependent jobscripts that have the same resource hashes
             js_ = resolve_jobscript_blocks(js)
 
-            # stack actions within the same jobscript elements if required:
-            js_ = ensure_max_array_size(js_)
-
             return [self._app.Jobscript(**i, index=idx) for idx, i in enumerate(js_)]
 
     def __EAR_obj_map(
@@ -4522,8 +4518,11 @@ class Workflow(AppAware):
                     len(task_actions),
                     len(js_dat["elements"]),
                 )
-                EAR_ID_arr = np.empty(EAR_idx_arr_shape, dtype=np.int32)
-                EAR_ID_arr[:] = -1
+                EAR_ID_arr = np.full(
+                    EAR_idx_arr_shape,
+                    fill_value=JS_BLK_EAR_ID_FILL_VALUE,
+                    dtype=np.int32,
+                )
 
                 new_js_idx = len(submission_jobscripts)
 
@@ -4569,6 +4568,8 @@ class Workflow(AppAware):
                         all_element_deps.setdefault(new_js_idx, {})[
                             js_elem_idx
                         ] = EAR_deps_EAR_idx
+
+                js_i = ensure_max_array_size(js_i)
 
                 submission_jobscripts[new_js_idx] = js_i
 

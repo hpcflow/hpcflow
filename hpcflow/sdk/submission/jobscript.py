@@ -3,7 +3,7 @@ Model of information submitted to a scheduler.
 """
 
 from __future__ import annotations
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import os
 import logging
@@ -56,6 +56,9 @@ if TYPE_CHECKING:
     )
     from ..core.cache import ObjectCache
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
+
+JS_BLK_TASK_ELEMENTS_FILL_VALUE = -1
+JS_BLK_EAR_ID_FILL_VALUE = -1
 
 
 def is_jobscript_array(
@@ -596,55 +599,56 @@ def resolve_jobscript_blocks(
     return js_new_
 
 
-def ensure_max_array_size(js_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def ensure_max_array_size(
+    js_data: JobScriptCreationArguments,
+) -> JobScriptCreationArguments:
     """For array jobscripts, if the array size is greater than the permitted size,
-    stack actions on top of each other.
+    stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
+    compliance.
     """
-    for js_idx, js_dat_i in enumerate(js_data):
-        if not js_dat_i["is_array"]:
-            continue
 
-        blocks = js_dat_i["blocks"]
-        assert len(blocks) == 1  # array jobscripts have a single block
-        block = blocks[0]
-        js_size = len(block["task_elements"])
+    if not js_data["is_array"]:
+        return js_data
 
-        max_size = js_dat_i["resources"].max_array_size
-        if max_size is not None and js_size > max_size:
+    max_size = js_data["resources"].max_array_size
+    if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
+        return js_data
 
-            if js_size % max_size != 0:
-                raise NotImplementedError(
-                    f"`max_array_size` ({max_size!r}) must be a factor of jobscript "
-                    f"array size: {js_size!r}."
-                )
+    dtype = js_data["EAR_ID"].dtype
+    EAR_ID_rs, n_blocks, col_map = reshape_max_width(
+        js_data["EAR_ID"],
+        max_width=max_size,
+        dtype=dtype,
+        fill=JS_BLK_EAR_ID_FILL_VALUE,
+    )
 
-            dtype = block["EAR_ID"].dtype
-            EAR_ID_rs, n_blocks, col_map = reshape_max_width(
-                block["EAR_ID"],
-                max_width=max_size,
-                dtype=dtype,
-                fill=np.iinfo(dtype).max,
-            )
+    col_map_counts = Counter(range(max_size))
+    col_map_counts.update(col_map.values())
+    count_max = max(col_map_counts.values())
+    count_differences = {
+        value: count_max - count for value, count in col_map_counts.items()
+    }
 
-            task_IDs_rs = np.tile(block["task_insert_IDs"], n_blocks).tolist()
-            task_actions_rs = [
-                acts for acts in block["task_actions"] for _ in range(n_blocks)
-            ]
-            task_elements_rs: dict[int, list[int]] = {}
-            for js_elem, task_elems in block["task_elements"].items():
-                if js_elem in col_map:
-                    task_elements_rs[col_map[js_elem]].extend(task_elems)
-                else:
-                    task_elements_rs[js_elem] = list(task_elems)
+    task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
+    task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
+    task_elements_rs: dict[int, list[int]] = {}
+    for js_elem, task_elems in js_data["task_elements"].items():
+        if js_elem in col_map:
+            task_elements_rs[col_map[js_elem]].extend(task_elems)
+        else:
+            task_elements_rs[js_elem] = list(task_elems)
 
-            js_data[js_idx]["blocks"][0].update(
-                {
-                    "task_insert_IDs": task_IDs_rs,
-                    "task_actions": task_actions_rs,
-                    "task_elements": task_elements_rs,
-                    "EAR_ID": EAR_ID_rs,
-                }
-            )
+    for col_idx, pad_len in count_differences.items():
+        task_elements_rs[col_idx].extend([JS_BLK_TASK_ELEMENTS_FILL_VALUE] * pad_len)
+
+    js_data.update(
+        {
+            "task_insert_IDs": task_IDs_rs,
+            "task_actions": task_actions_rs,
+            "task_elements": task_elements_rs,
+            "EAR_ID": EAR_ID_rs,
+        }
+    )
 
     return js_data
 
@@ -873,6 +877,18 @@ class JobscriptBlock(JSONLike):
             fmt="%.0f",
             delimiter=self.jobscript._EAR_files_delimiter,
         )
+
+    def task_element_indices(self, js_elem_idx: int) -> Iterator[tuple[int, int]]:
+        """Yield tuples of task insert ID and task element index for a given jobscript
+        element index."""
+        for task_iID, elem_idx in zip(
+            self.task_insert_IDs, self.task_elements[js_elem_idx]
+        ):
+            if elem_idx == JS_BLK_TASK_ELEMENTS_FILL_VALUE:
+                # this can arise when we enforce a maximum array size, and need to wrap
+                # jobscript elements around to the next action line.
+                continue
+            yield task_iID, int(elem_idx)
 
 
 @hydrate
