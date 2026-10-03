@@ -2619,7 +2619,7 @@ class ResourceSpec(JSONLike):
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_concurrency: int
+    max_scheduler_concurrency: int
         If using array jobs, up to how many items should be permitted to execute
         concurrently.
     max_array_size: int
@@ -2676,7 +2676,7 @@ class ResourceSpec(JSONLike):
         "scheduler",
         "shell",
         "use_job_array",
-        "max_concurrency",
+        "max_scheduler_concurrency",
         "max_array_size",
         "write_app_logs",
         "combine_jobscript_std",
@@ -2742,7 +2742,7 @@ class ResourceSpec(JSONLike):
         scheduler: str | None = None,
         shell: str | None = None,
         use_job_array: bool | None = None,
-        max_concurrency: int | None = None,
+        max_scheduler_concurrency: int | None = None,
         max_array_size: int | None = None,
         write_app_logs: bool | None = None,
         combine_jobscript_std: bool | None = None,
@@ -2790,7 +2790,7 @@ class ResourceSpec(JSONLike):
         self._random_seed = random_seed
         self._rng_spawn_key = self._process_rng_spawn_key(rng_spawn_key)
         self._use_job_array = use_job_array
-        self._max_concurrency = max_concurrency
+        self._max_scheduler_concurrency = max_scheduler_concurrency
         self._max_array_size = max_array_size
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
@@ -2929,7 +2929,7 @@ class ResourceSpec(JSONLike):
             self._scheduler = None
             self._shell = None
             self._use_job_array = None
-            self._max_concurrency = None
+            self._max_scheduler_concurrency = None
             self._max_array_size = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
@@ -3064,12 +3064,12 @@ class ResourceSpec(JSONLike):
         return self._get_value("use_job_array")
 
     @property
-    def max_concurrency(self) -> int | None:
+    def max_scheduler_concurrency(self) -> int | None:
         """
         If using array jobs, up to how many items should be permitted to execute
         concurrently.
         """
-        return self._get_value("max_concurrency")
+        return self._get_value("max_scheduler_concurrency")
 
     @property
     def max_array_size(self) -> int | None:

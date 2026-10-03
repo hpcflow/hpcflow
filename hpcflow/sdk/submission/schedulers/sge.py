@@ -191,8 +191,8 @@ class SGEPosix(QueuedScheduler):
     def __format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
         if resources.num_cores and resources.num_cores > 1:
             yield f"{self.js_cmd} -pe {resources.SGE_parallel_env} {resources.num_cores}"
-        if resources.max_concurrency:
-            yield f"{self.js_cmd} -tc {resources.max_concurrency}"
+        if resources.max_scheduler_concurrency:
+            yield f"{self.js_cmd} -tc {resources.max_scheduler_concurrency}"
 
     def __format_array_request(self, num_elements: int) -> str:
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}"

@@ -294,7 +294,7 @@ class ElementResources(JSONLike):
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_concurrency: int
+    max_scheduler_concurrency: int
         If using array jobs, up to how many items should be permitted to execute
         concurrently.
     max_array_size: int
@@ -370,7 +370,7 @@ class ElementResources(JSONLike):
     use_job_array: bool | None = None
     #: If using array jobs, up to how many items should be permitted to execute
     #: concurrently.
-    max_concurrency: int | None = None
+    max_scheduler_concurrency: int | None = None
     #: If using array jobs, what is the maximum permitted size of a job array.
     max_array_size: int | None = None
     #: Whether an app log file should be written.
@@ -449,9 +449,9 @@ class ElementResources(JSONLike):
     def _json_like_constructor(cls, json_like) -> Self:
         """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
 
-        # compatibility for redefinition of `max_array_items` to `max_concurrency`
+        # compatibility for redefinition of `max_array_items` to `max_scheduler_concurrency`
         if "max_array_items" in json_like:
-            json_like["max_concurrency"] = json_like.pop("max_array_items")
+            json_like["max_scheduler_concurrency"] = json_like.pop("max_array_items")
 
         return cls(**json_like)
 
