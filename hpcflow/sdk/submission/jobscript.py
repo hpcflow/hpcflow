@@ -634,10 +634,8 @@ def ensure_max_array_size(
     task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
     task_elements_rs: dict[int, list[int]] = {}
     for js_elem, task_elems in js_data["task_elements"].items():
-        if js_elem in col_map:
-            task_elements_rs[col_map[js_elem]].extend(task_elems)
-        else:
-            task_elements_rs[js_elem] = list(task_elems)
+        new_elem = col_map.get(js_elem, js_elem)
+        task_elements_rs.setdefault(new_elem, []).extend(task_elems)
 
     for col_idx, pad_len in count_differences.items():
         task_elements_rs[col_idx].extend([JS_BLK_TASK_ELEMENTS_FILL_VALUE] * pad_len)
