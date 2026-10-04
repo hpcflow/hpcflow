@@ -18,7 +18,11 @@ def test_set_get_delete_secret():
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_secret_in_env(tmp_path: Path, reload_template_components, combine_scripts: bool):
     key, value = "TOP_SECRET_KEY", "TOP_SECRET_VALUE"
     hf.set_secret(key, value)

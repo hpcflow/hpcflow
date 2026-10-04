@@ -3,19 +3,26 @@ Utilities for making data to use in testing.
 """
 
 from __future__ import annotations
+import asyncio
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Any, ClassVar, TypeAlias, TYPE_CHECKING
+from typing import Any, ClassVar, Literal, TypeAlias, TYPE_CHECKING
+
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.utils import get_file_context, split_param_label
+from hpcflow.sdk.submission.jobscript import Jobscript, PreparedJobscriptSubmission
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.wait.completion import JobscriptCompletion
+from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
+    from rich.status import Status
     from .actions import Action
     from .element import ElementGroup
     from .loop import Loop
@@ -577,3 +584,62 @@ def command_line_test(
         EAR=run, shell=shell, env=run.get_environment()
     )
     assert cmd_line == expected
+
+
+def almost_submit(
+    workflow,
+    tasks: Sequence[int] | None = None,
+    JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+    force_array: bool = False,
+    min_jobscripts: bool = True,
+    status: Status | None = None,
+    timeit: bool = False,
+    jobscript_idx: int = 0,
+    deps: dict[int, tuple[str, bool]] | None = None,
+) -> PreparedJobscriptSubmission:
+    """Generate a submission and prepare a jobscript without submitting it."""
+    sub = workflow.add_submission(
+        tasks=tasks,
+        JS_parallelism=JS_parallelism,
+        force_array=force_array,
+        min_jobscripts=min_jobscripts,
+        status=status,
+        timeit=timeit,
+    )
+    assert sub is not None
+
+    sub.prepare_submit()
+
+    js = sub.jobscripts[jobscript_idx]
+    return js.prepare_submit({} if deps is None else deps)
+
+
+def launch_forced_array_item(
+    js: Jobscript,
+    prepared: PreparedJobscriptSubmission,
+    array_idx: int,
+) -> int:
+    env = os.environ.copy()
+    env[f"{js._app.package_name.upper()}_ARRAY_IDX"] = str(array_idx)
+    return js._launch_direct(prepared.submit_cmd, env=env, array_idx=array_idx)
+
+
+async def wait_for_array_item_completion(
+    completion: JobscriptCompletion,
+    array_idx: int,
+    *,
+    timeout: float = 10,
+) -> None:
+    async with asyncio_timeout(timeout):
+        while not completion.is_array_item_complete(array_idx):
+            await asyncio.sleep(0.01)
+
+
+async def wait_for_jobscript_completion(
+    completion: JobscriptCompletion,
+    *,
+    timeout: float = 10,
+) -> None:
+    async with asyncio_timeout(timeout):
+        while not completion.is_complete():
+            await asyncio.sleep(0.01)

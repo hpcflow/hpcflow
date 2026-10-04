@@ -108,33 +108,6 @@ class DirectScheduler(Scheduler[DirectRef]):
                 procs.append(proc_i)
         return procs
 
-    @overload
-    @override
-    @classmethod
-    def wait_for_jobscripts(cls, js_refs: list[DirectRef]) -> None: ...
-
-    @overload
-    @classmethod
-    def wait_for_jobscripts(
-        cls,
-        js_refs: list[DirectRef],
-        *,
-        callback: Callable[[psutil.Process], None],
-    ) -> list[psutil.Process]: ...
-
-    @classmethod
-    def wait_for_jobscripts(
-        cls,
-        js_refs: list[DirectRef],
-        *,
-        callback: Callable[[psutil.Process], None] | None = None,
-    ) -> list[psutil.Process] | None:
-        """Wait until the specified jobscripts have completed."""
-        procs = cls.__get_jobscript_processes(js_refs)
-        (gone, alive) = psutil.wait_procs(procs, callback=callback)
-        assert not alive
-        return gone if callback else None
-
     @override
     def get_job_state_info(
         self, *, js_refs: Sequence[DirectRef] | None = None

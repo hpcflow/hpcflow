@@ -2619,8 +2619,11 @@ class ResourceSpec(JSONLike):
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_array_items: int
-        If using array jobs, up to how many items should be in the job array.
+    max_scheduler_concurrency: int
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -2673,7 +2676,8 @@ class ResourceSpec(JSONLike):
         "scheduler",
         "shell",
         "use_job_array",
-        "max_array_items",
+        "max_scheduler_concurrency",
+        "max_array_size",
         "write_app_logs",
         "combine_jobscript_std",
         "combine_scripts",
@@ -2738,7 +2742,8 @@ class ResourceSpec(JSONLike):
         scheduler: str | None = None,
         shell: str | None = None,
         use_job_array: bool | None = None,
-        max_array_items: int | None = None,
+        max_scheduler_concurrency: int | None = None,
+        max_array_size: int | None = None,
         write_app_logs: bool | None = None,
         combine_jobscript_std: bool | None = None,
         combine_scripts: bool | None = None,
@@ -2785,7 +2790,8 @@ class ResourceSpec(JSONLike):
         self._random_seed = random_seed
         self._rng_spawn_key = self._process_rng_spawn_key(rng_spawn_key)
         self._use_job_array = use_job_array
-        self._max_array_items = max_array_items
+        self._max_scheduler_concurrency = max_scheduler_concurrency
+        self._max_array_size = max_array_size
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
         self._combine_scripts = combine_scripts
@@ -2923,7 +2929,8 @@ class ResourceSpec(JSONLike):
             self._scheduler = None
             self._shell = None
             self._use_job_array = None
-            self._max_array_items = None
+            self._max_scheduler_concurrency = None
+            self._max_array_size = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
             self._combine_scripts = None
@@ -3057,11 +3064,19 @@ class ResourceSpec(JSONLike):
         return self._get_value("use_job_array")
 
     @property
-    def max_array_items(self) -> int | None:
+    def max_scheduler_concurrency(self) -> int | None:
         """
-        If using array jobs, up to how many items should be in the job array.
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
         """
-        return self._get_value("max_array_items")
+        return self._get_value("max_scheduler_concurrency")
+
+    @property
+    def max_array_size(self) -> int | None:
+        """
+        If using array jobs, what is the maximum permitted size of a job array.
+        """
+        return self._get_value("max_array_size")
 
     @property
     def write_app_logs(self) -> bool:

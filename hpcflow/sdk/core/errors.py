@@ -17,7 +17,7 @@ from hpcflow.sdk.utils.web_docs import get_docs_url_how_to
 
 if TYPE_CHECKING:
     from logging import Logger
-
+    from pathlib import Path
     from rich.text import Text
 
     from .enums import ParallelMode
@@ -401,7 +401,7 @@ class JobscriptSubmissionFailure(RuntimeError):
         *,
         submit_cmd: list[str],
         js_idx: int,
-        js_path: str,
+        js_path: Path,
         stdout: str | None = None,
         stderr: str | None = None,
         subprocess_exc: Exception | None = None,

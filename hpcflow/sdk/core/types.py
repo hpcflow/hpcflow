@@ -3,6 +3,7 @@ Types to support the core SDK.
 """
 
 from __future__ import annotations
+from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 
@@ -58,7 +59,7 @@ class JobscriptSubmissionFailureArgs(TypedDict):
     #: The jobscript index.
     js_idx: int
     #: The jobscript path.
-    js_path: str
+    js_path: Path
     #: Where to write stdout.
     stdout: NotRequired[str]
     #: Where to write stderr.
@@ -165,8 +166,11 @@ class ResourceSpecArgs(TypedDict):
     shell: NotRequired[str]
     #: Whether to use array jobs.
     use_job_array: NotRequired[bool]
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: NotRequired[int]
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_scheduler_concurrency: NotRequired[int]
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: NotRequired[int]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.

@@ -21,6 +21,7 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+from typing_extensions import Self
 
 from hpcflow.sdk.core.enums import ParallelMode
 from hpcflow.sdk.core.skip_reason import SkipReason
@@ -35,7 +36,7 @@ from hpcflow.sdk.core.utils import (
     get_enum_by_name_or_val,
     split_param_label,
 )
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.shells import get_shell
 from hpcflow.sdk.utils.hashing import get_hash
 
@@ -293,8 +294,11 @@ class ElementResources(JSONLike):
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_array_items: int
-        If using array jobs, up to how many items should be in the job array.
+    max_scheduler_concurrency: int
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -364,8 +368,11 @@ class ElementResources(JSONLike):
     shell: str | None = None
     #: Whether to use array jobs.
     use_job_array: bool | None = None
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: int | None = None
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_scheduler_concurrency: int | None = None
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: int | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
@@ -437,6 +444,16 @@ class ElementResources(JSONLike):
 
         self.scheduler_args = self.scheduler_args or {}
         self.shell_args = self.shell_args or {}
+
+    @classmethod
+    def _json_like_constructor(cls, json_like) -> Self:
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+
+        # compatibility for redefinition of `max_array_items` to `max_scheduler_concurrency`
+        if "max_array_items" in json_like:
+            json_like["max_scheduler_concurrency"] = json_like.pop("max_array_items")
+
+        return cls(**json_like)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):
