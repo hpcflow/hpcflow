@@ -235,6 +235,8 @@ class JobscriptExecutor(AppAware):
                 runs = []
                 for element_idx in element_indices:
                     run_id = block_run_ids[action_idx, element_idx]
+                    if run_id == -1:
+                        continue
                     run = self.runs[run_id]
                     runs.append(
                         JobscriptRun(
