@@ -63,6 +63,8 @@ from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write, infer_store
 from hpcflow.sdk.submission.jobscript import (
+    JS_BLK_EAR_ID_FILL_VALUE,
+    ensure_max_array_size,
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
     is_jobscript_array,
@@ -4251,9 +4253,7 @@ class Workflow(AppAware):
                 states = block_states[block_idx]
                 for js_elem_idx, state in states.items():
                     if state is JobscriptElementState.running:
-                        for task_iID, elem_idx in zip(
-                            block.task_insert_IDs, block.task_elements[js_elem_idx]
-                        ):
+                        for task_iID, elem_idx in block.task_element_indices(js_elem_idx):
                             active_elems[task_iID].add(int(elem_idx))
 
         # retrieve Element objects:
@@ -4656,8 +4656,11 @@ class Workflow(AppAware):
                     len(task_actions),
                     len(js_dat["elements"]),
                 )
-                EAR_ID_arr = np.empty(EAR_idx_arr_shape, dtype=np.int32)
-                EAR_ID_arr[:] = -1
+                EAR_ID_arr = np.full(
+                    EAR_idx_arr_shape,
+                    fill_value=JS_BLK_EAR_ID_FILL_VALUE,
+                    dtype=np.int32,
+                )
 
                 new_js_idx = len(submission_jobscripts)
 
@@ -4693,16 +4696,22 @@ class Workflow(AppAware):
                         EAR_ID_arr[js_act_idx][js_elem_idx] = EAR_ID_i
 
                     # get indices of EARs that this element depends on:
-                    EAR_deps_EAR_idx = [
+                    EAR_deps_EAR_idx = set(
                         dep_ear_id
                         for main_ear_id in all_EAR_IDs
                         for dep_ear_id in all_EAR_objs[main_ear_id].get_EAR_dependencies()
                         if dep_ear_id not in EAR_ID_arr
-                    ]
+                    )
                     if EAR_deps_EAR_idx:
-                        all_element_deps.setdefault(new_js_idx, {})[
-                            js_elem_idx
-                        ] = EAR_deps_EAR_idx
+                        all_element_deps.setdefault(new_js_idx, {})[js_elem_idx] = list(
+                            EAR_deps_EAR_idx
+                        )
+
+                js_i, deps_new = ensure_max_array_size(
+                    js_i, all_element_deps.get(new_js_idx, {})
+                )
+                if deps_new:
+                    all_element_deps[new_js_idx] = deps_new
 
                 submission_jobscripts[new_js_idx] = js_i
 

@@ -365,7 +365,11 @@ class SlurmPosix(QueuedScheduler):
     def __format_array_request(self, num_elements: int, resources: ElementResources):
         # TODO: Slurm docs start indices at zero, why are we starting at one?
         #   https://slurm.schedmd.com/sbatch.html#OPT_array
-        max_str = f"%{resources.max_array_items}" if resources.max_array_items else ""
+        max_str = (
+            f"%{resources.max_scheduler_concurrency}"
+            if resources.max_scheduler_concurrency
+            else ""
+        )
         return f"{self.js_cmd} {self.array_switch} 1-{num_elements}{max_str}"
 
     def get_stdout_filename(

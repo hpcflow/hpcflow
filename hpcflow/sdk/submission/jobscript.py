@@ -3,9 +3,10 @@ Model of information submitted to a scheduler.
 """
 
 from __future__ import annotations
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from dataclasses import dataclass
+
 import os
 import logging
 import subprocess
@@ -25,6 +26,7 @@ from hpcflow.sdk.core.errors import (
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
+from hpcflow.sdk.utils.arrays import reshape_max_width
 from hpcflow.sdk.utils.strings import extract_py_from_future_imports
 from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
@@ -57,6 +59,9 @@ if TYPE_CHECKING:
     )
     from ..core.cache import ObjectCache
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
+
+JS_BLK_TASK_ELEMENTS_FILL_VALUE = -1
+JS_BLK_EAR_ID_FILL_VALUE = -1
 
 
 def _reap_process(proc: subprocess.Popen) -> None:
@@ -438,12 +443,10 @@ def merge_jobscripts_across_tasks(
                         f"merging jobscript {js_idx!r} into jobscript {js_j_idx}."
                     )
 
-                num_loop_idx = len(
-                    js_j["task_loop_idx"]
-                )  # TODO: should this be: `js_j["task_loop_idx"][0]`?
+                num_loop_idx = len(js_j["task_loop_idx"])
 
                 # append task_insert_IDs
-                js_j["task_insert_IDs"].append(js["task_insert_IDs"][0])
+                js_j["task_insert_IDs"].extend(js["task_insert_IDs"])
                 js_j["task_loop_idx"].append(js["task_loop_idx"][0])
 
                 add_acts = [(a, b, num_loop_idx) for a, b, _ in js["task_actions"]]
@@ -612,6 +615,63 @@ class PreparedJobscriptSubmission:
     deps: dict[int, tuple[str, bool]]
     js_path: Path
     submit_cmd: list[str]
+
+
+def ensure_max_array_size(
+    js_data: JobScriptCreationArguments,
+    element_deps: dict[int, list[int]],
+) -> tuple[JobScriptCreationArguments, dict[int, list[int]]]:
+    """For array jobscripts, if the array size is greater than the permitted size,
+    stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
+    compliance.
+    """
+
+    if not js_data["is_array"]:
+        return js_data, element_deps
+
+    max_size = js_data["resources"].max_array_size
+    if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
+        return js_data, element_deps
+
+    dtype = js_data["EAR_ID"].dtype
+    EAR_ID_rs, n_blocks, col_map = reshape_max_width(
+        js_data["EAR_ID"],
+        max_width=max_size,
+        dtype=dtype,
+        fill=JS_BLK_EAR_ID_FILL_VALUE,
+    )
+
+    col_map_counts = Counter(range(max_size))
+    col_map_counts.update(col_map.values())
+    count_max = max(col_map_counts.values())
+    count_differences = {
+        value: count_max - count for value, count in col_map_counts.items()
+    }
+
+    task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
+    task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
+    task_elements_rs: dict[int, list[int]] = {}
+    for js_elem, task_elems in js_data["task_elements"].items():
+        new_elem = col_map.get(js_elem, js_elem)
+        task_elements_rs.setdefault(new_elem, []).extend(task_elems)
+
+    for col_idx, pad_len in count_differences.items():
+        task_elements_rs[col_idx].extend([JS_BLK_TASK_ELEMENTS_FILL_VALUE] * pad_len)
+
+    for col_idx, new_col in col_map.items():
+        if (deps_i := element_deps.pop(col_idx, None)) is not None:
+            element_deps.setdefault(new_col, []).extend(deps_i)
+
+    js_data.update(
+        {
+            "task_insert_IDs": task_IDs_rs,
+            "task_actions": task_actions_rs,
+            "task_elements": task_elements_rs,
+            "EAR_ID": EAR_ID_rs,
+        }
+    )
+
+    return js_data, element_deps
 
 
 @hydrate
@@ -838,6 +898,18 @@ class JobscriptBlock(JSONLike):
             fmt="%.0f",
             delimiter=self.jobscript._EAR_files_delimiter,
         )
+
+    def task_element_indices(self, js_elem_idx: int) -> Iterator[tuple[int, int]]:
+        """Yield tuples of task insert ID and task element index for a given jobscript
+        element index."""
+        for task_iID, elem_idx in zip(
+            self.task_insert_IDs, self.task_elements[js_elem_idx]
+        ):
+            if elem_idx == JS_BLK_TASK_ELEMENTS_FILL_VALUE:
+                # this can arise when we enforce a maximum array size, and need to wrap
+                # jobscript elements around to the next action line.
+                continue
+            yield task_iID, int(elem_idx)
 
 
 @hydrate
