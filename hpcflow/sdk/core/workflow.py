@@ -3780,6 +3780,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
@@ -3801,6 +3802,10 @@ class Workflow(AppAware):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -3844,6 +3849,7 @@ class Workflow(AppAware):
                 sub_js_idx = sub.submit(
                     status=status,
                     ignore_errors=ignore_errors,
+                    modify_js=modify_js,
                     print_stdout=print_stdout,
                     add_to_known=add_to_known,
                     quiet=quiet,
@@ -3861,6 +3867,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3879,6 +3886,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3896,6 +3904,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3924,6 +3933,10 @@ class Workflow(AppAware):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         print_stdout
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
@@ -3970,6 +3983,7 @@ class Workflow(AppAware):
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
                     min_jobscripts=min_jobscripts,
+                    modify_js=modify_js,
                     print_stdout=print_stdout,
                     status=status_,
                     add_to_known=add_to_known,

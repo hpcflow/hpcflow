@@ -1897,6 +1897,7 @@ class Jobscript(JSONLike):
     def submit(
         self,
         scheduler_refs: dict[int, tuple[str, bool]],
+        modify_js: bool = False,
         print_stdout: bool = False,
     ) -> str:
         """
@@ -1935,6 +1936,16 @@ class Jobscript(JSONLike):
 
         js_path = self.shell.prepare_JS_path(self.write_jobscript(deps=deps))
         submit_cmd = self.scheduler.get_submit_command(self.shell, js_path, deps)
+
+        if modify_js:
+            msg = (
+                f"Jobscript {self.index} written to the following path: {str(js_path)}. "
+                f"You may now modify this file. Ready to continue submission? [y|N]"
+            )
+            answer = input(msg)
+            while answer.lower() != "y":
+                answer = input(msg)
+
         self._app.submission_logger.info(
             f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"
         )
