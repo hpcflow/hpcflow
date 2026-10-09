@@ -29,6 +29,7 @@ from hpcflow.sdk.cli_common import (
     cancel_opt,
     submit_status_opt,
     submit_quiet_opt,
+    containerised_opt,
     make_status_opt,
     add_sub_opt,
     template_updates_opt,
@@ -208,6 +209,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @cancel_opt
     @submit_status_opt
     @submit_quiet_opt
+    @containerised_opt
     @timeit_exec_opt
     def make_and_submit_demo_workflow(
         workflow_name: str,
@@ -234,6 +236,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ):
         out = app.make_and_submit_demo_workflow(
             workflow_name=workflow_name,
@@ -260,6 +263,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            containerised=containerised,
         )
         if print_idx:
             assert isinstance(out, tuple)

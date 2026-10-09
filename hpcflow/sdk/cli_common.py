@@ -222,6 +222,16 @@ submit_quiet_opt = click.option(
     is_flag=True,
 )
 #: Standard option
+containerised_opt = click.option(
+    "--containerised",
+    help=(
+        "Reserve submission for the host when running in a container. "
+        "Currently a no-op; jobscripts are still submitted normally."
+    ),
+    is_flag=True,
+    default=False,
+)
+#: Standard option
 wait_quiet_opt = click.option(
     "--quiet",
     help="If True, do not print anything (e.g. when jobscripts have completed).",
@@ -486,6 +496,7 @@ _add_doc_from_help(
     cancel_opt,
     submit_status_opt,
     submit_quiet_opt,
+    containerised_opt,
     wait_quiet_opt,
     cancel_quiet_opt,
     force_arr_opt,

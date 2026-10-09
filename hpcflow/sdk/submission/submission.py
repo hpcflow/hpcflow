@@ -1221,8 +1221,16 @@ class Submission(JSONLike):
         print_stdout: bool = False,
         add_to_known: bool = True,
         quiet: bool = False,
+        containerised: bool = False,
     ) -> list[int]:
-        """Generate and submit the jobscripts of this submission."""
+        """Generate and submit the jobscripts of this submission.
+
+        Parameters
+        ----------
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
+        """
 
         # TODO: support passing list of jobscript indices to submit; this will allow us
         # to test a submision with multiple "submission parts". would also need to check

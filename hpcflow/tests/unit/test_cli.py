@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 import pytest
 
 from click.testing import CliRunner
@@ -26,6 +27,47 @@ def test_BoolOrString_convert():
     assert param_type.convert("a", None, None) == "a"
     with pytest.raises(click.exceptions.BadParameter):
         param_type.convert("b", None, None)
+
+
+@pytest.fixture(params=["go", "demo-go", "submit"])
+def submission_command(request):
+    if request.param == "go":
+        return hf.cli.commands["go"], ["template.yaml"]
+    if request.param == "demo-go":
+        return hf.cli.commands["demo-workflow"].commands["go"], ["workflow_1"]
+    return hf.cli.commands["workflow"].commands["submit"], []
+
+
+def test_containerised_help(submission_command):
+    command, _ = submission_command
+    result = CliRunner().invoke(command, ["--help"])
+    assert result.exit_code == 0
+    assert "--containerised" in result.output
+    assert "Currently a no-op" in result.output
+
+
+@pytest.mark.parametrize("containerised", [False, True])
+def test_containerised_passed_to_submission_api(
+    submission_command, monkeypatch, containerised
+):
+    command, args = submission_command
+    submit = Mock()
+    workflow = hf.Workflow.__new__(hf.Workflow)
+    if command.name == "submit":
+        monkeypatch.setattr(hf.Workflow, "submit", submit)
+    else:
+        api_name = (
+            "make_and_submit_workflow"
+            if args == ["template.yaml"]
+            else "make_and_submit_demo_workflow"
+        )
+        monkeypatch.setattr(type(hf), api_name, property(lambda self: submit))
+    result = CliRunner().invoke(
+        command, [*args, *(["--containerised"] if containerised else [])], obj=workflow
+    )
+    assert result.exit_code == 0
+    submit.assert_called_once()
+    assert submit.call_args.kwargs["containerised"] is containerised
 
 
 def test_error_propagated_with_custom_context_class():

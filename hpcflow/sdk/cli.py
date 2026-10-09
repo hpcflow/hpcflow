@@ -39,6 +39,7 @@ from hpcflow.sdk.cli_common import (
     cancel_opt,
     submit_status_opt,
     submit_quiet_opt,
+    containerised_opt,
     wait_quiet_opt,
     cancel_quiet_opt,
     force_arr_opt,
@@ -276,6 +277,7 @@ def _make_API_CLI(app: BaseApp):
     @cancel_opt
     @submit_status_opt
     @submit_quiet_opt
+    @containerised_opt
     @timeit_exec_opt
     def make_and_submit_workflow(
         template_file_or_str: str,
@@ -303,6 +305,7 @@ def _make_API_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -337,6 +340,7 @@ def _make_API_CLI(app: BaseApp):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            containerised=containerised,
         )
         if print_idx:
             assert isinstance(out, tuple)
@@ -558,6 +562,7 @@ def _make_workflow_CLI(app: BaseApp):
     @cancel_opt
     @submit_status_opt
     @submit_quiet_opt
+    @containerised_opt
     @timeit_exec_opt
     @_pass_workflow
     def submit_workflow(
@@ -571,6 +576,7 @@ def _make_workflow_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
@@ -583,6 +589,7 @@ def _make_workflow_CLI(app: BaseApp):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            containerised=containerised,
         )
         if print_idx:
             click.echo(out)

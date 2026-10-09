@@ -3783,6 +3783,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -3803,6 +3804,9 @@ class Workflow(AppAware):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
         """
 
         # generate a new submission if there are no pending submissions:
@@ -3845,6 +3849,7 @@ class Workflow(AppAware):
                     print_stdout=print_stdout,
                     add_to_known=add_to_known,
                     quiet=quiet,
+                    containerised=containerised,
                 )
                 submitted_js[sub.index] = sub_js_idx
             except SubmissionFailure as exc:
@@ -3868,6 +3873,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -3886,6 +3892,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> None: ...
 
     def submit(
@@ -3903,6 +3910,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -3946,6 +3954,9 @@ class Workflow(AppAware):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
         """
 
         # Type hint for mypy
@@ -3974,6 +3985,7 @@ class Workflow(AppAware):
                     tasks=tasks,
                     quiet=quiet,
                     timeit=timeit,
+                    containerised=containerised,
                 )
 
         if exceptions:

@@ -270,6 +270,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
+            containerised: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
@@ -303,6 +304,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
+            containerised: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
@@ -319,6 +321,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             quiet: bool = False,
             timeit: bool = False,
+            containerised: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
@@ -1598,6 +1601,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -1691,6 +1697,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -1727,6 +1736,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -3196,6 +3208,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3285,6 +3298,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -3326,6 +3342,7 @@ class BaseApp(metaclass=Singleton):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            containerised=containerised,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3499,6 +3516,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3584,6 +3602,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -3624,6 +3645,7 @@ class BaseApp(metaclass=Singleton):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            containerised=containerised,
         )
         if return_idx:
             return (wk, submitted_js)
@@ -3640,6 +3662,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        containerised: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
@@ -3672,6 +3695,9 @@ class BaseApp(metaclass=Singleton):
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
+        containerised: bool
+            Reserved for host-side submission when running in a container. Currently a
+            no-op; jobscripts are still submitted normally.
 
         Returns
         -------
@@ -3690,8 +3716,14 @@ class BaseApp(metaclass=Singleton):
                 tasks=tasks,
                 quiet=quiet,
                 timeit=timeit,
+                containerised=containerised,
             )
-        wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
+        wk.submit(
+            JS_parallelism=JS_parallelism,
+            wait=wait,
+            tasks=tasks,
+            containerised=containerised,
+        )
         return None
 
     def _run_hpcflow_tests(
