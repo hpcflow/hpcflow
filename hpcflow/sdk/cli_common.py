@@ -226,7 +226,7 @@ containerised_opt = click.option(
     "--containerised",
     help=(
         "Write jobscripts without submitting and print a JSON host submission plan. "
-        "Cannot be combined with --wait or --cancel."
+        "Cannot be combined with --wait, --cancel, or --modify-js."
     ),
     is_flag=True,
     default=False,
@@ -458,6 +458,16 @@ timeit_exec_opt = click.option(
     ),
     is_flag=True,
 )
+#: Standard option
+modify_js_opt = click.option(
+    "--modify-js",
+    help=(
+        "If True, pause before submitting each jobscript, print the new jobscript's "
+        "path and await confirmation before continuing submission. This allows ad hoc "
+        "modifications to the jobscript to be made."
+    ),
+    is_flag=True,
+)
 
 
 def _add_doc_from_help(*args):
@@ -528,4 +538,5 @@ _add_doc_from_help(
     template_config_opt,
     timeit_opt,
     timeit_exec_opt,
+    modify_js_opt,
 )

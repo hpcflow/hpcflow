@@ -1286,6 +1286,7 @@ class Submission(JSONLike):
         quiet: bool = False,
         *,
         containerised: Literal[True],
+        modify_js: bool = False,
     ) -> list[ContainerisedJobscript]: ...
 
     @overload
@@ -1297,6 +1298,7 @@ class Submission(JSONLike):
         add_to_known: bool = True,
         quiet: bool = False,
         containerised: Literal[False] = False,
+        modify_js: bool = False,
     ) -> list[int]: ...
 
     @overload
@@ -1308,6 +1310,7 @@ class Submission(JSONLike):
         add_to_known: bool = True,
         quiet: bool = False,
         containerised: bool = False,
+        modify_js: bool = False,
     ) -> list[int] | list[ContainerisedJobscript]: ...
 
     @TimeIt.decorator
@@ -1319,6 +1322,7 @@ class Submission(JSONLike):
         add_to_known: bool = True,
         quiet: bool = False,
         containerised: bool = False,
+        modify_js: bool = False,
     ) -> list[int] | list[ContainerisedJobscript]:
         """Generate and submit the jobscripts of this submission.
 
@@ -1330,6 +1334,10 @@ class Submission(JSONLike):
         """
 
         if containerised:
+            if modify_js:
+                raise ValueError(
+                    "Containerised submission cannot modify jobscripts interactively."
+                )
             return self._prepare_containerised()
 
         # TODO: support passing list of jobscript indices to submit; this will allow us
@@ -1401,10 +1409,20 @@ class Submission(JSONLike):
 
             try:
                 if status:
-                    status.update(
-                        f"Submitting jobscript {js.index + 1}/{len(self.jobscripts)}..."
-                    )
-                js_ref_i = js.submit(scheduler_refs, print_stdout=print_stdout)
+                    if modify_js:
+                        status.stop()
+                    else:
+                        status.update(
+                            f"Submitting jobscript {js.index + 1}/"
+                            f"{len(self.jobscripts)}..."
+                        )
+                js_ref_i = js.submit(
+                    scheduler_refs, modify_js=modify_js, print_stdout=print_stdout
+                )
+                if status and modify_js:
+                    status.start()
+                    status.update("Continuing submission...")
+
                 scheduler_refs[js.index] = (js_ref_i, js.is_array)
                 submitted_js_idx.append(js.index)
 

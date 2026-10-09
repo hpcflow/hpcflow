@@ -12,14 +12,16 @@ if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
 
 
-@pytest.mark.parametrize("containerised", [False, True])
+@pytest.mark.parametrize(
+    ("containerised", "modify_js"), [(False, False), (False, True), (True, False)]
+)
 @pytest.mark.parametrize("return_idx", [False, True])
 @pytest.mark.parametrize(
     "api_name",
     ["make_and_submit_workflow", "make_and_submit_demo_workflow", "submit_workflow"],
 )
 def test_containerised_passed_to_workflow_submit(
-    tmp_path, monkeypatch, api_name, return_idx, containerised
+    tmp_path, monkeypatch, api_name, return_idx, containerised, modify_js
 ):
     workflow = hf.Workflow.from_template(hf.WorkflowTemplate(name="w1"), path=tmp_path)
     indices = {0: [0]}
@@ -40,10 +42,11 @@ def test_containerised_passed_to_workflow_submit(
             else {"workflow_name": "workflow_1"}
         )
     result = getattr(hf, api_name)(
-        **args, containerised=containerised, return_idx=return_idx
+        **args, containerised=containerised, return_idx=return_idx, modify_js=modify_js
     )
     submit.assert_called_once()
     assert submit.call_args.kwargs["containerised"] is containerised
+    assert submit.call_args.kwargs["modify_js"] is modify_js
     if api_name == "submit_workflow":
         assert result == (indices if return_idx or containerised else None)
     else:

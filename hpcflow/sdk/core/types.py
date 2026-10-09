@@ -165,8 +165,11 @@ class ResourceSpecArgs(TypedDict):
     shell: NotRequired[str]
     #: Whether to use array jobs.
     use_job_array: NotRequired[bool]
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: NotRequired[int]
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_scheduler_concurrency: NotRequired[int]
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: NotRequired[int]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.

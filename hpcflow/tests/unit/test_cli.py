@@ -47,9 +47,11 @@ def test_containerised_help(submission_command):
     assert "JSON host submission plan" in result.output
 
 
-@pytest.mark.parametrize("containerised", [False, True])
+@pytest.mark.parametrize(
+    ("containerised", "modify_js"), [(False, False), (False, True), (True, False)]
+)
 def test_containerised_passed_to_submission_api(
-    submission_command, monkeypatch, containerised
+    submission_command, monkeypatch, containerised, modify_js
 ):
     command, args = submission_command
     plan = {"schema_version": 1, "workflow_path": "workflow", "jobscripts": []}
@@ -65,11 +67,18 @@ def test_containerised_passed_to_submission_api(
         )
         monkeypatch.setattr(type(hf), api_name, property(lambda self: submit))
     result = CliRunner().invoke(
-        command, [*args, *(["--containerised"] if containerised else [])], obj=workflow
+        command,
+        [
+            *args,
+            *(["--containerised"] if containerised else []),
+            *(["--modify-js"] if modify_js else []),
+        ],
+        obj=workflow,
     )
     assert result.exit_code == 0
     submit.assert_called_once()
     assert submit.call_args.kwargs["containerised"] is containerised
+    assert submit.call_args.kwargs["modify_js"] is modify_js
     if containerised:
         assert json.loads(result.stdout) == plan
 
@@ -111,7 +120,7 @@ def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command):
     launch.assert_not_called()
 
 
-@pytest.mark.parametrize("option", ["--wait", "--cancel"])
+@pytest.mark.parametrize("option", ["--wait", "--cancel", "--modify-js"])
 def test_containerised_rejects_host_only_options(tmp_path, cli_runner, option):
     result = cli_runner(
         [

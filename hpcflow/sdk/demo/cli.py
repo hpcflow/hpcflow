@@ -41,6 +41,7 @@ from hpcflow.sdk.cli_common import (
     force_arr_opt,
     min_jobscripts_opt,
     timeit_exec_opt,
+    modify_js_opt,
 )
 from hpcflow.sdk.submission.submission import Submission
 
@@ -214,6 +215,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @submit_quiet_opt
     @containerised_opt
     @timeit_exec_opt
+    @modify_js_opt
     def make_and_submit_demo_workflow(
         workflow_name: str,
         format: Literal["json", "yaml"] | None,
@@ -231,6 +233,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
@@ -264,6 +267,7 @@ def get_demo_workflow_CLI(app: BaseApp):
                 config=dict(config) if config is not None else None,
                 JS_parallelism=js_parallelism,
                 min_jobscripts=min_jobscripts,
+                modify_js=modify_js,
                 wait=wait,
                 add_to_known=add_to_known,
                 return_idx=print_idx,

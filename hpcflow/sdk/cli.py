@@ -74,6 +74,7 @@ from hpcflow.sdk.cli_common import (
     template_config_opt,
     timeit_opt,
     timeit_exec_opt,
+    modify_js_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -280,6 +281,7 @@ def _make_API_CLI(app: BaseApp):
     @submit_quiet_opt
     @containerised_opt
     @timeit_exec_opt
+    @modify_js_opt
     def make_and_submit_workflow(
         template_file_or_str: str,
         string: bool,
@@ -298,6 +300,7 @@ def _make_API_CLI(app: BaseApp):
         config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
@@ -339,6 +342,7 @@ def _make_API_CLI(app: BaseApp):
                 config=dict(config) if config is not None else None,
                 JS_parallelism=js_parallelism,
                 min_jobscripts=min_jobscripts,
+                modify_js=modify_js,
                 wait=wait,
                 add_to_known=add_to_known,
                 return_idx=print_idx,
@@ -574,12 +578,14 @@ def _make_workflow_CLI(app: BaseApp):
     @submit_quiet_opt
     @containerised_opt
     @timeit_exec_opt
+    @modify_js_opt
     @_pass_workflow
     def submit_workflow(
         wf: Workflow,
         js_parallelism: bool | None = None,
         wait: bool = False,
         add_to_known: bool = True,
+        modify_js: bool = False,
         print_idx: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
@@ -596,6 +602,7 @@ def _make_workflow_CLI(app: BaseApp):
         ):
             out = wf.submit(
                 JS_parallelism=js_parallelism,
+                modify_js=modify_js,
                 wait=wait,
                 add_to_known=add_to_known,
                 return_idx=True,
