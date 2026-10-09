@@ -3330,10 +3330,6 @@ class BaseApp(metaclass=Singleton):
         self.API_logger.info("make_and_submit_workflow called")
         if containerised and (wait or cancel):
             raise ValueError("Containerised submission cannot wait for or cancel jobs.")
-        if containerised and modify_js:
-            raise ValueError(
-                "Containerised submission cannot modify jobscripts interactively."
-            )
 
         wk = self._make_workflow(
             template_file_or_str=template_file_or_str,
@@ -3650,10 +3646,6 @@ class BaseApp(metaclass=Singleton):
         self.API_logger.info("make_and_submit_demo_workflow called")
         if containerised and (wait or cancel):
             raise ValueError("Containerised submission cannot wait for or cancel jobs.")
-        if containerised and modify_js:
-            raise ValueError(
-                "Containerised submission cannot modify jobscripts interactively."
-            )
 
         wk = self._make_demo_workflow(
             workflow_name=workflow_name,

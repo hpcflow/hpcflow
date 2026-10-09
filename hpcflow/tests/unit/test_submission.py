@@ -196,7 +196,8 @@ def test_containerised_natural_dependencies(tmp_path):
     assert not workflow.submissions[0].submitted_jobscripts
 
 
-def test_containerised_multiple_submissions(tmp_path):
+@pytest.mark.parametrize("modify_js", [False, True])
+def test_containerised_multiple_submissions(tmp_path, monkeypatch, capsys, modify_js):
     workflow = hf.Workflow.from_template(
         hf.WorkflowTemplate(
             name="multiple",
@@ -209,9 +210,59 @@ def test_containerised_multiple_submissions(tmp_path):
     )
     workflow.add_submission(tasks=[0], status=False)
     workflow.add_submission(tasks=[1], status=False)
-    plan = workflow.submit(containerised=True, status=False)
+    edited_paths = []
+
+    def confirm():
+        for sub in workflow.submissions:
+            for js in sub.jobscripts:
+                assert js.jobscript_path.is_file()
+                with js.jobscript_path.open("a", newline="\n") as handle:
+                    handle.write("\n# edited before returning the plan\n")
+                edited_paths.append(js.jobscript_path)
+        return "y"
+
+    prompt = Mock(side_effect=confirm)
+    monkeypatch.setattr("builtins.input", prompt)
+    plan = workflow.submit(containerised=True, status=False, modify_js=modify_js)
     assert [job["submission_index"] for job in plan["jobscripts"]] == [0, 1]
     assert all(not sub.submitted_jobscripts for sub in workflow.submissions)
+    assert prompt.call_count == (1 if modify_js else 0)
+    for path in edited_paths:
+        assert path.read_text().endswith("# edited before returning the plan\n")
+    output = capsys.readouterr()
+    assert not output.out
+    for path in edited_paths:
+        assert str(path) in output.err
+
+
+def test_containerised_modify_js_direct_submission(tmp_path, monkeypatch):
+    workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+    sub = workflow.add_submission(status=False)
+    prompt = Mock(return_value="y")
+    monkeypatch.setattr("builtins.input", prompt)
+    prepared = sub.submit(status=None, containerised=True, modify_js=True)
+    assert len(prepared) == 1
+    prompt.assert_called_once()
+    assert not sub.submitted_jobscripts
+
+
+@pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt])
+def test_containerised_modify_js_interrupted(tmp_path, cli_runner, monkeypatch, error):
+    monkeypatch.setattr("builtins.input", Mock(side_effect=error))
+    result = cli_runner(
+        [
+            "demo-workflow",
+            "go",
+            "workflow_1",
+            "--path",
+            str(tmp_path),
+            "--containerised",
+            "--modify-js",
+        ],
+        input="",
+    )
+    assert result.exit_code != 0
+    assert not result.stdout
 
 
 class _Example(TypedDict):

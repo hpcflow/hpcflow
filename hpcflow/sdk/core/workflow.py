@@ -3856,9 +3856,7 @@ class Workflow(AppAware):
                 if status:
                     status.update(f"Preparing submission {sub.index}...")
                 if containerised:
-                    prepared_js.extend(
-                        sub.submit(status=status, containerised=True, modify_js=modify_js)
-                    )
+                    prepared_js.extend(sub.submit(status=status, containerised=True))
                     continue
                 sub_js_idx = sub.submit(
                     status=status,
@@ -4021,15 +4019,12 @@ class Workflow(AppAware):
         containerised: bool
             Write jobscripts without launching them and return a versioned host
             submission plan, regardless of `return_idx`. Cannot be combined with
-            `wait`, `cancel`, or `modify_js`.
+            `wait` or `cancel`. With `modify_js`, prompt after all jobscripts are
+            written and before returning the plan.
         """
 
         if containerised and (wait or cancel):
             raise ValueError("Containerised submission cannot wait for or cancel jobs.")
-        if containerised and modify_js:
-            raise ValueError(
-                "Containerised submission cannot modify jobscripts interactively."
-            )
 
         # Type hint for mypy
         status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
@@ -4065,6 +4060,8 @@ class Workflow(AppAware):
             raise WorkflowSubmissionFailure(exceptions)
 
         if containerised:
+            if modify_js:
+                Submission._confirm_prepared_jobscripts(self.path, prepared_js)
             return {
                 "schema_version": 1,
                 "workflow_path": str(Path(self.path).resolve()),

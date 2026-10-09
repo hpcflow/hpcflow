@@ -7,8 +7,11 @@ Preparing jobscripts for host submission
 The ``--containerised`` option on ``go``, ``demo-workflow go``, and
 ``workflow ... submit`` writes jobscripts without launching them. Standard output
 contains a single JSON submission plan; progress and other messages go to standard
-error. ``--wait``, ``--cancel``, and ``--modify-js`` are not supported in this mode.
-Edit prepared jobscripts on the host before submitting them instead.
+error. ``--wait`` and ``--cancel`` are not supported in this mode.
+With ``--modify-js``, all jobscripts are generated first, then their paths and a
+confirmation prompt are written to standard error. Edit the files and answer
+``y`` to return the JSON plan. Interactive use requires standard input to be
+available to the container; jobscripts are never launched by this prompt.
 
 The plan contains ``schema_version`` (currently ``1``), ``workflow_path`` (the
 absolute workflow directory as seen by hpcflow), and a ``jobscripts`` list in

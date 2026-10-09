@@ -7,6 +7,7 @@ from collections import defaultdict
 import shutil
 from pathlib import Path
 import socket
+import sys
 from textwrap import indent
 from typing import Any, Literal, overload, TYPE_CHECKING
 from typing_extensions import override
@@ -1276,6 +1277,24 @@ class Submission(JSONLike):
             )
         return prepared
 
+    @staticmethod
+    def _confirm_prepared_jobscripts(
+        workflow_path: str, jobscripts: Sequence[ContainerisedJobscript]
+    ) -> None:
+        if not jobscripts:
+            return
+        print("Jobscripts written to the following paths:", file=sys.stderr)
+        for jobscript in jobscripts:
+            print(Path(workflow_path) / jobscript["path"], file=sys.stderr)
+        msg = (
+            "You may now modify these files. "
+            "Ready to return the host submission plan? [y|N]"
+        )
+        while True:
+            print(msg, file=sys.stderr, flush=True)
+            if input().lower() == "y":
+                break
+
     @overload
     def submit(
         self,
@@ -1334,11 +1353,12 @@ class Submission(JSONLike):
         """
 
         if containerised:
+            prepared = self._prepare_containerised()
             if modify_js:
-                raise ValueError(
-                    "Containerised submission cannot modify jobscripts interactively."
-                )
-            return self._prepare_containerised()
+                if status:
+                    status.stop()
+                self._confirm_prepared_jobscripts(self.workflow.path, prepared)
+            return prepared
 
         # TODO: support passing list of jobscript indices to submit; this will allow us
         # to test a submision with multiple "submission parts". would also need to check

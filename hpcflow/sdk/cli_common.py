@@ -226,7 +226,7 @@ containerised_opt = click.option(
     "--containerised",
     help=(
         "Write jobscripts without submitting and print a JSON host submission plan. "
-        "Cannot be combined with --wait, --cancel, or --modify-js."
+        "Cannot be combined with --wait or --cancel."
     ),
     is_flag=True,
     default=False,
@@ -465,6 +465,8 @@ modify_js_opt = click.option(
         "If True, pause before submitting each jobscript, print the new jobscript's "
         "path and await confirmation before continuing submission. This allows ad hoc "
         "modifications to the jobscript to be made."
+        " With --containerised, generate all jobscripts first, then await confirmation "
+        "before returning the host submission plan."
     ),
     is_flag=True,
 )

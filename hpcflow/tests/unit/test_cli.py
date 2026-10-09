@@ -48,7 +48,8 @@ def test_containerised_help(submission_command):
 
 
 @pytest.mark.parametrize(
-    ("containerised", "modify_js"), [(False, False), (False, True), (True, False)]
+    ("containerised", "modify_js"),
+    [(False, False), (False, True), (True, False), (True, True)],
 )
 def test_containerised_passed_to_submission_api(
     submission_command, monkeypatch, containerised, modify_js
@@ -84,7 +85,8 @@ def test_containerised_passed_to_submission_api(
 
 
 @pytest.mark.parametrize("command", ["go", "demo-go", "submit"])
-def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command):
+@pytest.mark.parametrize("modify_js", [False, True])
+def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command, modify_js):
     launch = Mock(side_effect=AssertionError("Container must not launch jobscripts"))
     monkeypatch.setattr(hf.Jobscript, "submit", launch)
     if command == "submit":
@@ -109,7 +111,10 @@ def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command):
             "--path",
             str(tmp_path),
         ]
-    result = cli_runner([*args, "--containerised"])
+    result = cli_runner(
+        [*args, "--containerised", *(["--modify-js"] if modify_js else [])],
+        input="n\ny\n" if modify_js else None,
+    )
     assert result.exit_code == 0, result.output
     plan = json.loads(result.stdout)
     assert plan["schema_version"] == 1
@@ -118,9 +123,10 @@ def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command):
     assert (workflow_path / plan["jobscripts"][0]["path"]).is_file()
     assert not hf.Workflow(workflow_path).submissions[0].submitted_jobscripts
     launch.assert_not_called()
+    assert ("Ready to return the host submission plan?" in result.stderr) is modify_js
 
 
-@pytest.mark.parametrize("option", ["--wait", "--cancel", "--modify-js"])
+@pytest.mark.parametrize("option", ["--wait", "--cancel"])
 def test_containerised_rejects_host_only_options(tmp_path, cli_runner, option):
     result = cli_runner(
         [

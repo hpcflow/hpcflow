@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize(
-    ("containerised", "modify_js"), [(False, False), (False, True), (True, False)]
+    ("containerised", "modify_js"),
+    [(False, False), (False, True), (True, False), (True, True)],
 )
 @pytest.mark.parametrize("return_idx", [False, True])
 @pytest.mark.parametrize(
