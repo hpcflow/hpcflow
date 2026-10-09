@@ -82,6 +82,7 @@ def test_containerised_passed_to_submission_submit(tmp_path, monkeypatch, contai
     if containerised:
         assert indices == {
             "schema_version": 1,
+            "workflow_id": workflow.id_,
             "workflow_path": str(Path(workflow.path).resolve()),
             "jobscripts": [],
         }

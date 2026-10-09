@@ -141,8 +141,28 @@ class ContainerisedSubmissionPlan(TypedDict):
     """Versioned, JSON-serialisable handoff to the host."""
 
     schema_version: Literal[1]
+    workflow_id: str
     workflow_path: str
     jobscripts: list[ContainerisedJobscript]
+
+
+class HostSubmissionResult(TypedDict):
+    """Acknowledgement of one successful host-side jobscript submission."""
+
+    schema_version: Literal[1]
+    workflow_id: str
+    submission_index: int
+    jobscript_index: int
+    submit_command: list[str]
+    #: ISO 8601 timestamp including a timezone.
+    submit_time: str
+    submit_hostname: str
+    submit_machine: str
+    #: Required for queued jobs; omit for direct execution.
+    scheduler_job_ID: NotRequired[str]
+    #: Required for direct execution; omit for queued jobs.
+    process_ID: NotRequired[int]
+    version_info: NotRequired[VersionInfo]
 
 
 # This needs PEP 728 for a better type, alas

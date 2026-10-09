@@ -1,6 +1,46 @@
+from datetime import datetime, timezone
+import os
+from pathlib import Path
+import socket
 import pytest
 from hpcflow.sdk.core.utils import get_file_context
 from hpcflow.app import app as hf
+from hpcflow.sdk.submission.types import HostSubmissionResult
+
+
+@pytest.mark.integration
+def test_api_host_submission_round_trip(tmp_path):
+    workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+    plan = workflow.submit(containerised=True, status=False)
+    job = plan["jobscripts"][0]
+    js = workflow.submissions[0].jobscripts[0]
+    path = js.shell.prepare_JS_path(Path(workflow.path) / job["path"])
+    command = [
+        arg.replace("__HPCFLOW_JOBSCRIPT_PATH__", str(path))
+        for arg in job["submit_command"]
+    ]
+    submit_time = datetime.now(timezone.utc).isoformat()
+    if os.name == "nt":
+        process_id = js._launch_direct_js_win(command)
+    else:
+        process_id = js._launch_direct_js_posix(command)
+    result: HostSubmissionResult = {
+        "schema_version": 1,
+        "workflow_id": plan["workflow_id"],
+        "submission_index": job["submission_index"],
+        "jobscript_index": job["jobscript_index"],
+        "process_ID": process_id,
+        "submit_command": command,
+        "submit_time": submit_time,
+        "submit_hostname": socket.gethostname(),
+        "submit_machine": hf.config.get("machine"),
+    }
+    reloaded = hf.Workflow(workflow.path)
+    assert reloaded._record_host_submission(result, add_to_known=False) is True
+    assert reloaded.submissions[0].jobscripts[0].process_ID == process_id
+    reloaded.wait()
+    output = hf.Workflow(workflow.path).tasks[0].elements[0].outputs.p2
+    assert output.value == "201"
 
 
 @pytest.mark.integration

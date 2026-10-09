@@ -2001,23 +2001,31 @@ class Jobscript(JSONLike):
                     "Failed to parse job ID from stdout.", **err_args
                 )
 
-            self._set_scheduler_job_ID(job_ID)
             ref = job_ID
 
         else:
             # direct submission
             assert process_ID is not None
-            self._set_process_ID(process_ID)
             ref = str(process_ID)
 
-        self._set_submit_cmdline(submit_cmd)
-        self._set_submit_time(current_timestamp())
+        self._record_submission(ref, submit_cmd, current_timestamp())
 
         # a downstream direct jobscript might need to wait for this jobscript, which
         # means this jobscript's process ID must be committed:
         self.workflow._store._pending.commit_all()
 
         return ref
+
+    def _record_submission(
+        self, reference: str, submit_command: list[str], submit_time: datetime
+    ) -> None:
+        """Record a successful launch, whether performed here or on the host."""
+        if self.is_scheduled:
+            self._set_scheduler_job_ID(reference)
+        else:
+            self._set_process_ID(int(reference))
+        self._set_submit_cmdline(submit_command)
+        self._set_submit_time(submit_time)
 
     @property
     def is_submitted(self) -> bool:

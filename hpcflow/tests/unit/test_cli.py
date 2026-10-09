@@ -55,7 +55,12 @@ def test_containerised_passed_to_submission_api(
     submission_command, monkeypatch, containerised, modify_js
 ):
     command, args = submission_command
-    plan = {"schema_version": 1, "workflow_path": "workflow", "jobscripts": []}
+    plan = {
+        "schema_version": 1,
+        "workflow_id": "workflow-id",
+        "workflow_path": "workflow",
+        "jobscripts": [],
+    }
     submit = Mock(return_value=plan if command.name == "submit" else (None, plan))
     workflow = hf.Workflow.__new__(hf.Workflow)
     if command.name == "submit":
@@ -118,6 +123,7 @@ def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command, mod
     assert result.exit_code == 0, result.output
     plan = json.loads(result.stdout)
     assert plan["schema_version"] == 1
+    assert plan["workflow_id"] == hf.Workflow(plan["workflow_path"]).id_
     assert len(plan["jobscripts"]) == 1
     workflow_path = Path(plan["workflow_path"])
     assert (workflow_path / plan["jobscripts"][0]["path"]).is_file()
@@ -141,6 +147,67 @@ def test_containerised_rejects_host_only_options(tmp_path, cli_runner, option):
     )
     assert result.exit_code != 0
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("stdin", [False, True])
+def test_record_host_submission_cli(tmp_path, cli_runner, stdin):
+    workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+    plan = workflow.submit(containerised=True, status=False)
+    payload = json.dumps(
+        {
+            "schema_version": 1,
+            "workflow_id": plan["workflow_id"],
+            "submission_index": 0,
+            "jobscript_index": 0,
+            "process_ID": 12345,
+            "submit_command": ["host-shell", "/host/workflow/script"],
+            "submit_time": "2026-10-09T13:00:00+00:00",
+            "submit_hostname": "host-login",
+            "submit_machine": "host-cluster",
+        }
+    )
+    result_file = tmp_path / "host-result.json"
+    result_file.write_text(payload, encoding="utf-8", newline="\n")
+    args = [
+        "internal",
+        "workflow",
+        str(workflow.path),
+        "record-host-submission",
+        "-" if stdin else str(result_file),
+        "--no-add-to-known",
+    ]
+    hf.unload_config()
+    result = cli_runner(args, input=payload if stdin else None)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {"recorded": True}
+    assert hf.Workflow(workflow.path).submissions[0].submitted_jobscripts == (0,)
+    hf.unload_config()
+    retry = cli_runner(args, input=payload if stdin else None)
+    assert retry.exit_code == 0, retry.output
+    assert json.loads(retry.stdout) == {"recorded": False}
+
+
+@pytest.mark.parametrize("payload", ["not-json", "[]", "{}"])
+def test_record_host_submission_cli_invalid(tmp_path, cli_runner, payload):
+    workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+    workflow.submit(containerised=True, status=False)
+    hf.unload_config()
+    result = cli_runner(
+        ["internal", "workflow", str(workflow.path), "record-host-submission", "-"],
+        input=payload,
+    )
+    assert result.exit_code != 0
+    assert not result.stdout
+    assert "Error:" in result.stderr
+    assert not hf.Workflow(workflow.path).submissions[0].submitted_jobscripts
+
+
+def test_record_host_submission_is_internal():
+    assert "record-host-submission" not in hf.cli.commands["workflow"].commands
+    internal_workflow = hf.cli.commands["internal"].commands["workflow"]
+    assert "record-host-submission" in internal_workflow.commands
+    assert not hasattr(hf.Workflow, "record_host_submission")
+    assert hasattr(hf.Workflow, "_record_host_submission")
 
 
 def test_error_propagated_with_custom_context_class():

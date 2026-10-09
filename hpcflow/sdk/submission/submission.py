@@ -1153,7 +1153,9 @@ class Submission(JSONLike):
         self._submission_parts_lst = None
 
     def _append_submission_part(self, submit_time: str, submitted_js_idx: list[int]):
-        self._update_at_submit_metadata(submission_parts={submit_time: submitted_js_idx})
+        indices = list(self._submission_parts.get(submit_time, []))
+        indices.extend(idx for idx in submitted_js_idx if idx not in indices)
+        self._update_at_submit_metadata(submission_parts={submit_time: indices})
 
     def get_jobscript_functions_name(self, shell: Shell, shell_idx: int) -> str:
         """Get the name of the jobscript functions file for the specified shell."""

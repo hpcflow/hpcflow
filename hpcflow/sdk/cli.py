@@ -85,6 +85,7 @@ from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
 
 if TYPE_CHECKING:
+    from typing import TextIO
     from pathlib import Path
     from typing import Literal
     from .app import BaseApp
@@ -947,6 +948,28 @@ def _make_internal_CLI(app: BaseApp):
     def workflow(ctx: click.Context, path: Path):
         """"""
         ctx.obj = app.Workflow(path)
+
+    @workflow.command(name="record-host-submission")
+    @click.argument("result_file", type=click.File("r", encoding="utf-8"))
+    @add_to_known_opt
+    @_pass_workflow
+    def record_host_submission(wf: Workflow, result_file: TextIO, add_to_known: bool):
+        """Record one successful host submission from a JSON file (or - for stdin).
+
+        This command records metadata only; it never launches a jobscript.
+        """
+        try:
+            result = json.load(result_file)
+        except json.JSONDecodeError as exc:
+            raise click.BadParameter(
+                f"Invalid JSON: {exc}", param_hint="RESULT_FILE"
+            ) from exc
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                recorded = wf._record_host_submission(result, add_to_known=add_to_known)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(json.dumps({"recorded": recorded}))
 
     @workflow.command()
     @_pass_workflow

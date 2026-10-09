@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 from unittest.mock import Mock
@@ -17,6 +17,7 @@ from hpcflow.sdk.core.utils import timedelta_format, timedelta_parse
 from hpcflow.sdk.submission.jobscript import group_resource_map_into_jobscripts
 from hpcflow.sdk.submission.schedulers.slurm import SlurmPosix
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
+from hpcflow.sdk.submission.types import HostSubmissionResult
 
 
 @pytest.mark.parametrize("scheduler", ["direct", "slurm", "sge"])
@@ -68,6 +69,7 @@ def test_containerised_preparation(
         )
     plan = workflow.submit(containerised=True, status=False)
     assert plan["schema_version"] == 1
+    assert plan["workflow_id"] == workflow.id_
     assert plan["workflow_path"] == str(Path(workflow.path).resolve())
     assert len(plan["jobscripts"]) == 2
     for job in plan["jobscripts"]:
@@ -263,6 +265,286 @@ def test_containerised_modify_js_interrupted(tmp_path, cli_runner, monkeypatch, 
     )
     assert result.exit_code != 0
     assert not result.stdout
+
+
+@pytest.fixture(params=["zarr", "json"])
+def host_submission(tmp_path, request):
+    workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(
+            name="host acknowledgement",
+            tasks=[
+                hf.Task(
+                    schema=hf.task_schemas.test_t1_conditional_OS,
+                    inputs={"p1": 1},
+                    resources={"any": {"num_cores": cores}},
+                )
+                for cores in (1, 2)
+            ],
+        ),
+        path=tmp_path,
+        store=request.param,
+    )
+    plan = workflow.submit(
+        containerised=True, status=False, JS_parallelism=False, min_jobscripts=False
+    )
+    assert len(plan["jobscripts"]) == 2
+    job = plan["jobscripts"][0]
+    result: HostSubmissionResult = {
+        "schema_version": 1,
+        "workflow_id": plan["workflow_id"],
+        "submission_index": job["submission_index"],
+        "jobscript_index": job["jobscript_index"],
+        "process_ID": 12345,
+        "submit_command": [
+            arg.replace("__HPCFLOW_JOBSCRIPT_PATH__", "/host/workflow/first script")
+            for arg in job["submit_command"]
+        ],
+        "submit_time": "2026-10-09T14:00:00.123456+01:00",
+        "submit_hostname": "host-login",
+        "submit_machine": "host-cluster",
+        "version_info": {"host_os": ["host", "version"], "shell": "host-shell"},
+    }
+    return workflow, plan, result
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_record_host_submission_persistence(host_submission, monkeypatch, scheduled):
+    workflow, _, result = host_submission
+    if scheduled:
+        monkeypatch.setattr(hf.Jobscript, "is_scheduled", property(lambda self: True))
+        del result["process_ID"]
+        result["scheduler_job_ID"] = "12345.cluster"
+        result["submit_command"] = ["sbatch", "--parsable", "/host/first script"]
+    forbidden = Mock(side_effect=AssertionError("Host acknowledgement must not launch"))
+    monkeypatch.setattr(hf.Jobscript, "submit", forbidden)
+    sub = workflow.submissions[0]
+    for _, scheduler in sub.get_unique_schedulers().items():
+        monkeypatch.setattr(scheduler, "get_version_info", forbidden)
+    for _, shell in sub.get_unique_shells():
+        monkeypatch.setattr(shell, "get_version_info", forbidden)
+    assert workflow._record_host_submission(result, add_to_known=False) is True
+    reloaded = hf.Workflow(workflow.path)
+    sub = reloaded.submissions[0]
+    js = sub.jobscripts[0]
+    assert sub.submitted_jobscripts == (0,)
+    assert sub.outstanding_jobscripts == (1,)
+    assert js.is_submitted
+    assert js.scheduler_job_ID == result.get("scheduler_job_ID")
+    assert js.process_ID == result.get("process_ID")
+    assert js.submit_cmdline == result["submit_command"]
+    assert js.submit_hostname == "host-login"
+    assert js.submit_machine == "host-cluster"
+    assert js.version_info == result["version_info"]
+    assert js.submit_time == datetime(2026, 10, 9, 13, 0, 0, 123456, timezone.utc)
+    assert reloaded._record_host_submission(result, add_to_known=False) is False
+    assert len(hf.Workflow(workflow.path).submissions[0].submission_parts) == 1
+    forbidden.assert_not_called()
+
+
+def test_record_host_submission_partial_plan_and_timestamp_collision(host_submission):
+    workflow, _, result = host_submission
+    workflow._record_host_submission(result, add_to_known=False)
+    reloaded = hf.Workflow(workflow.path)
+    remaining = reloaded.submit(containerised=True, status=False)
+    assert len(remaining["jobscripts"]) == 1
+    assert remaining["jobscripts"][0]["jobscript_index"] == 1
+    assert remaining["jobscripts"][0]["dependencies"][0]["reference"] == "12345"
+    result["jobscript_index"] = 1
+    result["process_ID"] = 12346
+    result["submit_command"] = ["host-shell", "/host/second script"]
+    reloaded._record_host_submission(result, add_to_known=False)
+    sub = hf.Workflow(workflow.path).submissions[0]
+    assert set(sub.submitted_jobscripts) == {0, 1}
+    assert not sub.needs_submit
+    assert sub.submission_parts[0]["jobscripts"] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"schema_version": 2},
+        {"schema_version": True},
+        {"workflow_id": "another-workflow"},
+        {"submission_index": -1},
+        {"submission_index": True},
+        {"submission_index": 99},
+        {"jobscript_index": -1},
+        {"jobscript_index": 99},
+        {"jobscript_index": 0.0},
+        {"process_ID": False},
+        {"process_ID": 0},
+        {"process_ID": "12345"},
+        {"scheduler_job_ID": "12345"},
+        {"submit_command": []},
+        {"submit_command": "shell script"},
+        {"submit_command": [""]},
+        {"submit_command": ["shell", 123]},
+        {"submit_command": ["shell", "__HPCFLOW_JOB_0_0__"]},
+        {"submit_command": ["shell", "__HPCFLOW_JOBSCRIPT_PATH__"]},
+        {"submit_command": ["shell", "\0"]},
+        {"submit_time": "not-a-time"},
+        {"submit_time": "2026-10-09T13:00:00"},
+        {"submit_hostname": ""},
+        {"submit_machine": None},
+        {"version_info": None},
+        {"version_info": {"shell": 123}},
+        {"version_info": {"shell": ["valid", 123]}},
+        {"unknown_field": "typo"},
+    ],
+)
+def test_record_host_submission_rejects_invalid_results(host_submission, updates):
+    workflow, _, result = host_submission
+    result.update(updates)
+    with pytest.raises(ValueError):
+        workflow._record_host_submission(result, add_to_known=False)
+    js = hf.Workflow(workflow.path).submissions[0].jobscripts[0]
+    assert not js.is_submitted
+    assert js.process_ID is None
+    assert js.submit_time is None
+    assert js.submit_hostname is None
+
+
+@pytest.mark.parametrize("job_id", [None, "", False, "123 456", "__HPCFLOW_JOB_0_0__"])
+def test_record_host_submission_invalid_queued_id(host_submission, monkeypatch, job_id):
+    workflow, _, result = host_submission
+    monkeypatch.setattr(hf.Jobscript, "is_scheduled", property(lambda self: True))
+    del result["process_ID"]
+    result["scheduler_job_ID"] = job_id
+    with pytest.raises(ValueError, match="scheduler_job_ID"):
+        workflow._record_host_submission(result, add_to_known=False)
+    assert not hf.Workflow(workflow.path).submissions[0].submitted_jobscripts
+
+
+def test_record_host_submission_missing_fields_and_unprepared(tmp_path, host_submission):
+    workflow, _, result = host_submission
+    with pytest.raises(ValueError, match="JSON object"):
+        workflow._record_host_submission([], add_to_known=False)
+    missing = result.copy()
+    del missing["submit_time"]
+    with pytest.raises(ValueError, match="Missing"):
+        workflow._record_host_submission(missing, add_to_known=False)
+    unprepared = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+    unprepared.add_submission(status=False)
+    result["workflow_id"] = unprepared.id_
+    with pytest.raises(ValueError, match="not been prepared"):
+        unprepared._record_host_submission(result, add_to_known=False)
+    assert not hf.Workflow(unprepared.path).submissions[0].submitted_jobscripts
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("process_ID", 54321),
+        ("submit_command", ["another", "command"]),
+        ("submit_time", "2026-10-09T13:00:01+00:00"),
+        ("submit_hostname", "another-host"),
+        ("submit_machine", "another-machine"),
+        ("version_info", {"shell": "different"}),
+        ("version_info", {}),
+    ],
+)
+def test_record_host_submission_rejects_conflicting_retry(host_submission, key, value):
+    workflow, _, result = host_submission
+    workflow._record_host_submission(result, add_to_known=False)
+    result[key] = value
+    with pytest.raises(ValueError, match="Conflicting"):
+        hf.Workflow(workflow.path)._record_host_submission(result, add_to_known=False)
+    sub = hf.Workflow(workflow.path).submissions[0]
+    assert sub.jobscripts[0].process_ID == 12345
+    assert sub.submission_parts[0]["jobscripts"] == [0]
+
+
+def test_record_host_submission_known_record_retry(host_submission, monkeypatch):
+    workflow, _, result = host_submission
+    known = Mock(side_effect=[OSError("known-submissions unavailable"), 0])
+    monkeypatch.setattr(hf, "_add_to_known_submissions", known)
+    with pytest.raises(OSError, match="known-submissions unavailable"):
+        workflow._record_host_submission(result)
+    reloaded = hf.Workflow(workflow.path)
+    assert reloaded.submissions[0].submitted_jobscripts == (0,)
+    assert reloaded._record_host_submission(result) is False
+    assert known.call_count == 2
+    assert known.call_args.kwargs["sub_time"] == "2026-10-09 13:00:00.123456"
+
+
+def test_record_host_submission_retry_missing_version_info(host_submission):
+    workflow, _, result = host_submission
+    workflow._record_host_submission(result, add_to_known=False)
+    del result["version_info"]
+    with pytest.raises(ValueError, match="Conflicting"):
+        hf.Workflow(workflow.path)._record_host_submission(result, add_to_known=False)
+
+
+def test_record_host_submission_known_record(host_submission, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        type(hf), "known_subs_file_path", property(lambda self: tmp_path / "known.txt")
+    )
+    workflow, _, result = host_submission
+    assert workflow._record_host_submission(result) is True
+    assert hf.Workflow(workflow.path)._record_host_submission(result) is False
+    known = hf.read_known_submissions_file()
+    assert len(known) == 1
+    assert known[0]["path"] == workflow.path
+    assert known[0]["sub_idx"] == 0
+    assert known[0]["submit_time"] == "2026-10-09 13:00:00.123456"
+
+
+def test_record_host_submission_multiple_submissions(tmp_path):
+    workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(
+            name="multiple acknowledgements",
+            tasks=[
+                hf.Task(schema=hf.task_schemas.test_t1_conditional_OS, inputs={"p1": i})
+                for i in (1, 2)
+            ],
+        ),
+        path=tmp_path,
+    )
+    workflow.add_submission(tasks=[0], status=False)
+    workflow.add_submission(tasks=[1], status=False)
+    plan = workflow.submit(containerised=True, status=False)
+    for job in plan["jobscripts"]:
+        result: HostSubmissionResult = {
+            "schema_version": 1,
+            "workflow_id": workflow.id_,
+            "submission_index": job["submission_index"],
+            "jobscript_index": job["jobscript_index"],
+            "process_ID": 12345 + job["submission_index"],
+            "submit_command": ["host-shell", job["path"]],
+            "submit_time": "2026-10-09T13:00:00+00:00",
+            "submit_hostname": "host",
+            "submit_machine": "host-machine",
+        }
+        hf.Workflow(workflow.path)._record_host_submission(result, add_to_known=False)
+    reloaded = hf.Workflow(workflow.path)
+    assert [sub.submitted_jobscripts for sub in reloaded.submissions] == [(0,), (0,)]
+
+
+@pytest.mark.parametrize("version_info", [None, {}])
+def test_record_host_submission_optional_version_info(host_submission, version_info):
+    workflow, _, result = host_submission
+    if version_info is None:
+        del result["version_info"]
+    else:
+        result["version_info"] = version_info
+    assert workflow._record_host_submission(result, add_to_known=False) is True
+    assert (
+        hf.Workflow(workflow.path)._record_host_submission(result, add_to_known=False)
+        is False
+    )
+
+
+def test_record_host_submission_argument_boundaries(host_submission):
+    workflow, _, result = host_submission
+    result["submit_command"] = [
+        "host-shell",
+        "",
+        "/host/__HPCFLOW_JOB_application/path with spaces",
+    ]
+    workflow._record_host_submission(result, add_to_known=False)
+    assert hf.Workflow(workflow.path).submissions[0].jobscripts[0].submit_cmdline == (
+        result["submit_command"]
+    )
 
 
 class _Example(TypedDict):

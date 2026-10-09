@@ -13,8 +13,9 @@ confirmation prompt are written to standard error. Edit the files and answer
 ``y`` to return the JSON plan. Interactive use requires standard input to be
 available to the container; jobscripts are never launched by this prompt.
 
-The plan contains ``schema_version`` (currently ``1``), ``workflow_path`` (the
-absolute workflow directory as seen by hpcflow), and a ``jobscripts`` list in
+The plan contains ``schema_version`` (currently ``1``), ``workflow_id``,
+``workflow_path`` (the absolute workflow directory as seen by hpcflow), and a
+``jobscripts`` list in
 submission order. Each entry includes ``submission_index``, ``jobscript_index``,
 ``path`` (relative to the workflow directory, with slash separators), ``scheduler``,
 ``shell``, ``is_array``, ``dependencies``, and ``submit_command`` (argument words,
@@ -36,8 +37,66 @@ without marking them submitted. In Python, ``Workflow.submit(containerised=True)
 returns the plan regardless of ``return_idx``; the app's ``make_and_submit_*``
 functions return ``(workflow, plan)``.
 
-This is the preparation protocol only. Container installation, the host wrapper,
-recording host submission results, and host-side ``execute-run`` integration are
+Recording host submission results
+#################################
+
+The host wrapper acknowledges each successful host-side launch before launching
+the next jobscript, using the internal CLI (not an end-user command):
+
+.. code-block:: console
+
+    hpcflow internal workflow WORKFLOW_PATH record-host-submission result.json
+
+Use ``-`` instead of a filename to read JSON from standard input. The command
+returns ``{"recorded": true}`` for a new acknowledgement and
+``{"recorded": false}`` for an identical retry. Retrying does not launch jobs or
+append another submission part. Conflicting acknowledgements fail without
+overwriting the recorded job. Keep the result until acknowledgement succeeds;
+if recording fails, retry recording, not the host launch.
+
+Each result is a JSON object, for example for a queued job:
+
+.. code-block:: json
+
+    {
+      "schema_version": 1,
+      "workflow_id": "ID_FROM_THE_PLAN",
+      "submission_index": 0,
+      "jobscript_index": 0,
+      "scheduler_job_ID": "12345",
+      "submit_command": ["sbatch", "--parsable", "/host/workflow/jobscripts/js.sh"],
+      "submit_time": "2026-10-09T13:30:00.123456+00:00",
+      "submit_hostname": "login-node",
+      "submit_machine": "my-cluster"
+    }
+
+For direct execution, omit ``scheduler_job_ID`` and supply ``process_ID`` as a
+positive integer. This must be the host process ID used by the direct scheduler
+(not the container process ID). Queued job IDs must be parsed from the scheduler's
+successful submission output. Never acknowledge a failed launch.
+``submit_command`` is the actual host command's argument list, with paths and
+dependency placeholders already resolved. ``submit_time`` must include a timezone;
+it is stored in UTC. ``submit_hostname`` and ``submit_machine`` describe the host,
+not the container. The machine name should match the hpcflow ``machine``
+configuration used to monitor or cancel these jobs. Optional ``version_info``
+maps strings to strings or lists of strings collected on the host; acknowledgement
+does not probe host-only schedulers or shells inside the container.
+
+The corresponding private method is
+``workflow._record_host_submission(result, add_to_known=True)``.
+This uses the same jobscript metadata and submission-part storage as normal
+submission and commits the record before returning. The default also updates the
+known-submissions file; use ``--no-add-to-known`` (or ``add_to_known=False``) to
+disable that update. If this update fails after the workflow record is committed,
+an identical retry repairs it.
+
+Only acknowledge jobscripts already prepared by hpcflow. Acknowledging some of
+the jobscripts leaves the rest pending; subsequent containerised preparation
+excludes acknowledged jobs and uses their real IDs for dependencies. Host
+acknowledgements must be serialised, not made concurrently against the same
+workflow. This protocol does not coordinate concurrent host submitters.
+
+Container installation, the host wrapper, and host-side ``execute-run`` integration are
 not yet implemented. The generated scripts are not yet a complete container
 execution solution.
 

@@ -14,6 +14,7 @@ from functools import wraps
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import string
 import sys
@@ -125,7 +126,11 @@ if TYPE_CHECKING:
         BlockActionKey,
     )
     from ..submission.submission import Submission
-    from ..submission.types import ContainerisedJobscript, ContainerisedSubmissionPlan
+    from ..submission.types import (
+        ContainerisedJobscript,
+        ContainerisedSubmissionPlan,
+        HostSubmissionResult,
+    )
     from ..submission.jobscript import (
         Jobscript,
         JobScriptDescriptor,
@@ -4064,6 +4069,7 @@ class Workflow(AppAware):
                 Submission._confirm_prepared_jobscripts(self.path, prepared_js)
             return {
                 "schema_version": 1,
+                "workflow_id": self.id_,
                 "workflow_path": str(Path(self.path).resolve()),
                 "jobscripts": prepared_js,
             }
@@ -4077,6 +4083,163 @@ class Workflow(AppAware):
         if return_idx:
             return submitted_js
         return None
+
+    def _record_host_submission(
+        self, result: HostSubmissionResult, *, add_to_known: bool = True
+    ) -> bool:
+        """Persist one successful host submission without launching any commands.
+
+        ``result`` is a versioned JSON-compatible record with workflow/jobscript
+        indices, host metadata, the actual argument list and a timezone-aware ISO
+        timestamp. Supply ``scheduler_job_ID`` for queued jobs or ``process_ID``
+        for direct jobs. The jobscript must already have been prepared.
+
+        Return True for a new record or False for an identical retry. Conflicting
+        records and invalid input raise ValueError without changing submission state.
+        Each successful acknowledgement is committed before returning.
+        """
+        required = {
+            "schema_version",
+            "workflow_id",
+            "submission_index",
+            "jobscript_index",
+            "submit_command",
+            "submit_time",
+            "submit_hostname",
+            "submit_machine",
+        }
+        optional = {"scheduler_job_ID", "process_ID", "version_info"}
+        if not isinstance(result, dict):
+            raise ValueError("Host submission result must be a JSON object.")
+        if missing := required.difference(result):
+            raise ValueError(f"Missing host submission fields: {sorted(missing)!r}.")
+        if unknown := result.keys() - required - optional:
+            raise ValueError(f"Unknown host submission fields: {sorted(unknown)!r}.")
+        if type(result["schema_version"]) is not int or result["schema_version"] != 1:
+            raise ValueError("Unsupported host submission schema_version; expected 1.")
+        if result["workflow_id"] != self.id_:
+            raise ValueError("Host submission workflow_id does not match this workflow.")
+        for key in ("submit_time", "submit_hostname", "submit_machine"):
+            value = result[key]
+            if not isinstance(value, str) or not value.strip() or "\0" in value:
+                raise ValueError(f"{key} must be a non-empty string without NUL bytes.")
+        for key in ("submission_index", "jobscript_index"):
+            if type(result[key]) is not int or result[key] < 0:
+                raise ValueError(f"{key} must be a non-negative integer.")
+        command = result["submit_command"]
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(arg, str) or "\0" in arg for arg in command)
+            or not command[0].strip()
+        ):
+            raise ValueError(
+                "submit_command must be a non-empty list of argument strings."
+            )
+        placeholder = re.compile(r"__HPCFLOW_(?:JOBSCRIPT_PATH|JOB_\d+_\d+)__")
+        if any(placeholder.search(arg) for arg in command):
+            raise ValueError("submit_command contains unresolved host submission tokens.")
+        submit_time = datetime.fromisoformat(result["submit_time"])
+        if submit_time.utcoffset() is None:
+            raise ValueError("submit_time must include a timezone.")
+        submit_time = submit_time.astimezone(timezone.utc)
+        version_info = result.get("version_info")
+        if "version_info" in result and (
+            not isinstance(version_info, dict)
+            or any(
+                not isinstance(key, str)
+                or not (
+                    isinstance(value, str)
+                    or isinstance(value, list)
+                    and all(isinstance(item, str) for item in value)
+                )
+                for key, value in version_info.items()
+            )
+        ):
+            raise ValueError(
+                "version_info must map strings to strings or lists of strings."
+            )
+
+        with self._store.cached_load():
+            if not self._store.is_submittable:
+                raise NotImplementedError("The workflow is not submittable.")
+            sub_idx, js_idx = result["submission_index"], result["jobscript_index"]
+            if sub_idx >= len(self.submissions):
+                raise ValueError(f"Unknown submission index: {sub_idx}.")
+            sub = self.submissions[sub_idx]
+            if js_idx >= len(sub.jobscripts):
+                raise ValueError(f"Unknown jobscript index: {js_idx}.")
+            js = sub.jobscripts[js_idx]
+            if js.is_scheduled:
+                job_id = result.get("scheduler_job_ID")
+                if (
+                    not isinstance(job_id, str)
+                    or not job_id.strip()
+                    or any(char.isspace() or char == "\0" for char in job_id)
+                    or placeholder.search(job_id)
+                    or "process_ID" in result
+                ):
+                    raise ValueError(
+                        "Queued jobs require only a non-empty scheduler_job_ID."
+                    )
+                reference = job_id
+            else:
+                process_id = result.get("process_ID")
+                if (
+                    type(process_id) is not int
+                    or process_id <= 0
+                    or "scheduler_job_ID" in result
+                ):
+                    raise ValueError(
+                        "Direct jobs require only a positive integer process_ID."
+                    )
+                reference = str(process_id)
+            recorded = not js.is_submitted
+            if not recorded:
+                if (
+                    js.scheduler_job_ID != result.get("scheduler_job_ID")
+                    or js.process_ID != result.get("process_ID")
+                    or js.submit_cmdline != command
+                    or js.submit_hostname != result["submit_hostname"]
+                    or js.submit_machine != result["submit_machine"]
+                    or js.at_submit_metadata["submit_time"]
+                    != submit_time.strftime(self.ts_fmt)
+                    or (js.version_info or None) != (version_info or None)
+                ):
+                    raise ValueError(
+                        f"Conflicting host submission result for jobscript {sub_idx}:{js_idx}."
+                    )
+            else:
+                if (
+                    js.shell_idx is None
+                    or not js.jobscript_path.is_file()
+                    or not js.EAR_ID_file_path.is_file()
+                    or not js.jobscript_functions_path.is_file()
+                ):
+                    raise ValueError(
+                        f"Jobscript {sub_idx}:{js_idx} has not been prepared."
+                    )
+                with self.batch_update():
+                    js._set_submit_hostname(result["submit_hostname"])
+                    js._set_submit_machine(result["submit_machine"])
+                    if version_info:
+                        js._set_version_info(version_info)
+                    js._record_submission(reference, command, submit_time)
+                    sub._append_submission_part(
+                        submit_time.strftime(self.ts_fmt), [js_idx]
+                    )
+                    self._store._pending.commit_all()
+            if add_to_known:
+                self._app._add_to_known_submissions(
+                    wk_path=self.path,
+                    wk_id=self.id_,
+                    sub_idx=sub_idx,
+                    sub_time=submit_time.strftime(self._app._submission_ts_fmt),
+                )
+        self._app.submission_logger.info(
+            f"Recorded host submission for jobscript {sub_idx}:{js_idx}: {reference!r}"
+        )
+        return recorded
 
     @staticmethod
     def __wait_for_direct_jobscripts(jobscripts: list[Jobscript], quiet: bool = False):
