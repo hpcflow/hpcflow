@@ -213,6 +213,49 @@ different operating system. Persistent file-path arguments and environment value
 are mapped back to the host during direct execution; this does not make Linux
 executables runnable on Windows. Existing ephemeral caches are not migrated.
 
+Host-aware show
+###############
+
+Use ``.\hpcflow.ps1 show`` from any working directory with the same shared
+configuration and ``-Machine`` selection. ``--full``, ``--max-recent`` and
+``--no-update`` retain their normal meanings. The wrapper selects the host
+machine consistently for all container commands.
+Docker stdin and stdout use UTF-8 regardless of the host console code page;
+the wrapper restores the caller's console encoding after each invocation.
+Human-readable output retains colours on ANSI-capable host terminals, despite
+Docker's piped output. ``NO_COLOR`` and PowerShell's ``PlainText`` output rendering
+disable colours; redirected output is plain unless ``$PSStyle.OutputRendering``
+is explicitly set to ``ANSI``. Internal protocol responses and ``--json`` output
+remain uncoloured.
+Coloured display output is written directly to the console rather than through
+PowerShell's text formatter. Rich live animations are disabled at this piped
+boundary, so status spinner frames are not replayed as separate lines.
+``submission get-known`` (including ``--json``) uses the same host activity
+bridge for programmatic registry queries.
+
+Host acknowledgements register mount roots under ``host-mounts`` in the shared
+container configuration. Known-submissions entries use stable
+``/host-workflows/<mount-id>/...`` paths, not the current invocation's ``/work``
+alias. The wrapper mounts the registered roots for monitoring, so equally named
+workflows in different working directories remain distinct. Missing roots are
+not mounted and their workflows are displayed as deleted.
+
+The container prepares activity queries; the host inspects direct processes
+(checking PID and creation time against the saved launch context) or executes
+Slurm/SGE status commands. The container parses scheduler output with the normal
+state parsers and renders the standard show table. No host process/scheduler
+probes are performed inside the container. Query errors, incomplete snapshots,
+and conflicting process identities fail explicitly without marking jobs inactive.
+``--no-update`` leaves the known-submissions file unchanged.
+
+Legacy ``/work/...`` registry entries are rejected rather than interpreted under
+an unrelated mount. Replaying the original host submission acknowledgement with
+the updated wrapper migrates matching entries by workflow ID and submission
+timestamp without relaunching jobs or changing their local IDs. Keep the original
+workflow mount and submission result when performing this migration.
+Calling container ``show`` or ``submission get-known`` directly, without the host
+bridge, is rejected for host-targeted containers. Wait/cancel remain unsupported.
+
 The wrapper recognises ``go``, ``demo-workflow go``, and
 ``workflow WORKFLOW_PATH submit`` at the start of ``HpcflowArgs``. Supply global
 hpcflow options separately via ``-ConfigArgs @('--config-key', 'KEY')``.
@@ -295,7 +338,7 @@ scripts that import the app still require a suitable host Python environment,
 or an explicitly configured container-based executable.
 
 Combined scripts, abortable actions, direct job arrays, and host process
-monitoring/cancellation through the wrapper are explicitly unsupported for now.
+waiting/cancellation through the wrapper are explicitly unsupported for now.
 The submission command still does not support ``--wait`` or ``--cancel``.
 POSIX queued execution still needs its execution bridge; ``manage
 install-container`` and Bash wrapper support are also not yet implemented.

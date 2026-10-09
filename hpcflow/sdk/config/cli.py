@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import click
-from colorama import init as colorama_init
 from termcolor import colored  # type: ignore
 
 from hpcflow.sdk.core.utils import open_file
@@ -23,8 +22,6 @@ if TYPE_CHECKING:
     from ..app import BaseApp
 
 logger = logging.getLogger(__name__)
-
-colorama_init(autoreset=True)
 
 
 def CLI_exception_wrapper_gen(*exception_cls):

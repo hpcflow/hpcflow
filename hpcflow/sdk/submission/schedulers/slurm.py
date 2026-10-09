@@ -518,7 +518,7 @@ class SlurmPosix(QueuedScheduler):
                 _arr_idx.append(int(i_range_str) - 1)
         return base_job_ID, _arr_idx
 
-    def __parse_job_states(
+    def _parse_job_states(
         self, stdout: str
     ) -> dict[str, JobscriptElementState | dict[int, JobscriptElementState]]:
         """Parse output from Slurm `squeue` command with a simple format."""
@@ -589,7 +589,7 @@ class SlurmPosix(QueuedScheduler):
         while refs:
             stdout, stderr = self.__query_job_states(refs)
             if not stderr:
-                return self.__parse_job_states(stdout)
+                return self._parse_job_states(stdout)
             if (
                 "Invalid job id specified" not in stderr
                 or count >= self.NUM_STATE_QUERY_TRIES

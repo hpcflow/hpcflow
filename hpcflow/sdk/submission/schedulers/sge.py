@@ -327,7 +327,13 @@ class SGEPosix(QueuedScheduler):
                 f"Could not get query SGE jobs. Command was: {cmd!r}; stderr was: "
                 f"{stderr}"
             )
-        elif not stdout:
+        return self._parse_job_states(stdout)
+
+    def _parse_job_states(
+        self, stdout: str
+    ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
+        """Parse qstat output, including individual array tasks."""
+        if not stdout:
             return {}
 
         info: dict[str, dict[int, JobscriptElementState] | JobscriptElementState] = {}

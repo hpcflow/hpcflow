@@ -44,6 +44,25 @@ Add-Content -LiteralPath $env:WRAPPER_CONTAINER_LOG -Value (
     ConvertTo-Json -InputObject $words -Compress)
 if ($words -contains 'execute-run') {
     Get-Content -Raw -LiteralPath $env:WRAPPER_RUN_PLAN
+} elseif ($words -contains 'prepare-host-show') {
+    Get-Content -Raw -LiteralPath $env:WRAPPER_MONITOR_PLAN
+} elseif ($words -contains 'show-host') {
+    if ($env:WRAPPER_FAIL_SHOW -eq '1') { exit 12 }
+    Add-Content -LiteralPath $env:WRAPPER_MONITOR_LOG -Value (
+        [IO.StreamReader]::new(
+            [Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false)
+        ).ReadToEnd().Trim())
+    'host-show-table'
+    if ($words -contains 'FORCE_COLOR=1') {
+        [Console]::WriteLine(([char]27).ToString() + '[32mcoloured-status' + [char]27 + '[0m')
+        if ($words -notcontains 'TTY_INTERACTIVE=0') {
+            'spinner-frame'
+        }
+    }
+    if ($env:WRAPPER_UNICODE -eq '1') {
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        [Console]::WriteLine(([char]0x250c).ToString() + [char]0x2500 + [char]0x25cf)
+    }
 } elseif ($words -contains 'complete-host-run') {
     Add-Content -LiteralPath $env:WRAPPER_COMPLETE_LOG -Value (
         ConvertTo-Json -InputObject $words -Compress)
@@ -145,6 +164,7 @@ else { "$($count + 100);cluster" }
         "WRAPPER_LAUNCH_LOG": str(root / "launch.jsonl"),
         "WRAPPER_PASS_EXIT": "0",
         "WRAPPER_COMPLETE_LOG": str(root / "complete.jsonl"),
+        "WRAPPER_MONITOR_LOG": str(root / "monitor.jsonl"),
     }
 
     def run(
@@ -154,6 +174,9 @@ else { "$($count + 100);cluster" }
         use_image=True,
         positional=False,
         machine="host-machine",
+        legacy_encoding=False,
+        output_rendering="PlainText",
+        plain_output_pipeline=False,
         **overrides,
     ):
         if wrapper == WRAPPER:
@@ -180,24 +203,260 @@ else { "$($count + 100);cluster" }
                 + ", ".join(ps_quote(arg) for arg in (args or ["go", "template.yaml"]))
                 + ")"
             )
+        command = invocation + "; exit $LASTEXITCODE"
+        if plain_output_pipeline:
+            command = (
+                "$out = " + invocation + " | Out-String; $code = $LASTEXITCODE; "
+                "$PSStyle.OutputRendering = 'PlainText'; $out; exit $code"
+            )
+        if legacy_encoding:
+            command = (
+                "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437); "
+                "$OutputEncoding = [Text.Encoding]::GetEncoding(437); "
+                "$out = " + invocation + "; $code = $LASTEXITCODE; "
+                "if ([Console]::OutputEncoding.CodePage -ne 437 -or "
+                "$OutputEncoding.CodePage -ne 437) { throw 'Encoding not restored' }; "
+                "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+                "$out; exit $code"
+            )
+        command = f"$PSStyle.OutputRendering = {ps_quote(output_rendering)}; " + command
         return subprocess.run(
-            [pwsh, "-NoProfile", "-Command", invocation + "; exit $LASTEXITCODE"],
+            [pwsh, "-NoProfile", "-Command", command],
             cwd=root,
             env={**env, **overrides},
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             timeout=30,
         )
 
     def records(name):
         path = root / f"{name}.jsonl"
         return (
-            [json.loads(line) for line in path.read_text().splitlines()]
+            [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
             if (path.exists())
             else []
         )
 
     return run, plan, workflow, records
+
+
+def test_wrapper_show_utf8_with_legacy_console_encoding(wrapper_host):
+    run, _, workflow, records = wrapper_host
+    plan_file = workflow.parent / "unicode-monitor.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "jobs": [
+                    {
+                        "workflow_path": "/host-workflows/test/caf\u00e9",
+                        "workflow_id": "unicode",
+                        "submission_index": 0,
+                        "jobscript_index": 0,
+                        "scheduler": "slurm",
+                        "query": [
+                            shutil.which("pwsh"),
+                            "-NoProfile",
+                            "-Command",
+                            "'123 RUNNING'",
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        ["show"],
+        legacy_encoding=True,
+        WRAPPER_UNICODE="1",
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "\u250c\u2500\u25cf" in result.stdout
+    assert records("monitor")[0]["jobs"][0]["workflow_path"].endswith("caf\u00e9")
+
+
+@pytest.mark.parametrize(
+    ("rendering", "no_color", "colour"),
+    [("ANSI", "", True), ("PlainText", "", False), ("ANSI", "1", False)],
+)
+def test_wrapper_show_colours(wrapper_host, rendering, no_color, colour):
+    run, _, workflow, records = wrapper_host
+    plan_file = workflow.parent / "empty-monitor.json"
+    plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
+    result = run(
+        ["show"],
+        output_rendering=rendering,
+        NO_COLOR=no_color,
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("\x1b[32mcoloured-status\x1b[0m" in result.stdout) == colour
+    calls = records("container")
+    assert "FORCE_COLOR=1" not in calls[0]
+    assert ("FORCE_COLOR=1" in calls[1]) == colour
+    assert "spinner-frame" not in result.stdout
+
+
+def test_wrapper_display_bypasses_plaintext_pipeline(wrapper_host):
+    run, _, workflow, _ = wrapper_host
+    plan_file = workflow.parent / "empty-monitor.json"
+    plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
+    result = run(
+        ["show"],
+        output_rendering="ANSI",
+        plain_output_pipeline=True,
+        NO_COLOR="",
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "\x1b[32mcoloured-status\x1b[0m" in result.stdout
+    assert "spinner-frame" not in result.stdout
+
+
+def test_wrapper_json_passthrough_disables_colours(wrapper_host):
+    run, _, _, records = wrapper_host
+    result = run(["config", "get", "--json"], output_rendering="ANSI")
+    assert result.returncode == 0, result.stderr
+    assert "FORCE_COLOR=1" not in records("container")[0]
+    assert "NO_COLOR=1" in records("container")[0]
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_wrapper_restores_encoding_after_passthrough(wrapper_host, exit_code):
+    run, _, _, _ = wrapper_host
+    result = run(["--version"], legacy_encoding=True, WRAPPER_PASS_EXIT=str(exit_code))
+    assert result.returncode == exit_code, result.stderr
+    assert "verbatim-output" in result.stdout
+
+
+def test_wrapper_restores_encoding_after_container_failure(wrapper_host):
+    run, _, workflow, _ = wrapper_host
+    plan_file = workflow.parent / "empty-monitor.json"
+    plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
+    result = run(
+        ["show"],
+        legacy_encoding=True,
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+        WRAPPER_FAIL_SHOW="1",
+    )
+    assert result.returncode == 1
+    assert "Container command failed with exit code 12" in result.stderr
+    assert "Encoding not restored" not in result.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows host process identity")
+@pytest.mark.parametrize("reused_pid", [False, True])
+def test_wrapper_show_host_process_identity(wrapper_host, reused_pid):
+    run, _, workflow, records = wrapper_host
+    launched = run()
+    assert launched.returncode == 0, launched.stderr
+    root = workflow.parent
+    mount_files = list((root / ".hpcflow-container" / "host-mounts").glob("*.json"))
+    assert len(mount_files) == 1
+    mount_id = mount_files[0].stem
+    ticks = subprocess.check_output(
+        [
+            shutil.which("pwsh"),
+            "-NoProfile",
+            "-Command",
+            f"(Get-Process -Id {os.getpid()}).StartTime.ToUniversalTime().Ticks",
+        ],
+        text=True,
+    ).strip()
+    context = workflow / ".HPCFLOW-host-0-0.json"
+    context.write_text(
+        json.dumps(
+            {
+                "workflow_id": "workflow-id",
+                "process_id": os.getpid(),
+                "start_ticks": int(ticks) + int(reused_pid),
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    plan_file = root / "monitor-plan.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "jobs": [
+                    {
+                        "workflow_path": f"/host-workflows/{mount_id}/workflow with spaces",
+                        "workflow_id": "workflow-id",
+                        "submission_index": 0,
+                        "jobscript_index": 0,
+                        "scheduler": "direct",
+                        "process_id": os.getpid(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        ["show", "--no-update", "--full", "-r", "7"], WRAPPER_MONITOR_PLAN=str(plan_file)
+    )
+    assert result.returncode == 0, result.stderr
+    assert "host-show-table" in result.stdout
+    assert records("monitor")[0]["jobs"][0]["active"] is (not reused_pid)
+    args = records("container")[-1]
+    assert args[-5:] == ["show-host", "--no-update", "--full", "-r", "7"]
+    assert f"type=bind,source={root},target=/host-workflows/{mount_id}" in args
+    assert ["--with-config", "machine", "host-machine"] == args[
+        args.index("hpcflow:test") + 1 : args.index("hpcflow:test") + 4
+    ]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_wrapper_show_scheduler_failure_is_not_inactivity(wrapper_host, failed):
+    run, _, workflow, records = wrapper_host
+    root = workflow.parent
+    plan_file = root / "monitor-plan.json"
+    query = root / "query.ps1"
+    query.write_text(
+        "'123 RUNNING'\n" + ("exit 7\n" if failed else ""),
+        encoding="utf-8",
+        newline="\n",
+    )
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "jobs": [
+                    {
+                        "workflow_path": "/host-workflows/test/workflow",
+                        "workflow_id": "workflow-id",
+                        "submission_index": 0,
+                        "jobscript_index": index,
+                        "scheduler": "slurm",
+                        "query": [
+                            shutil.which("pwsh"),
+                            "-NoProfile",
+                            "-File",
+                            str(query),
+                        ],
+                    }
+                    for index in (0, 1)
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(["show"], WRAPPER_MONITOR_PLAN=str(plan_file))
+    assert (result.returncode != 0) is failed
+    if failed:
+        assert "monitoring failed" in result.stderr
+        assert not records("monitor")
+    else:
+        assert [job["stdout"] for job in records("monitor")[0]["jobs"]] == [
+            "123 RUNNING"
+        ] * 2
 
 
 def test_wrapper_defaults_machine_to_host_hostname(wrapper_host):

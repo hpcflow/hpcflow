@@ -4232,8 +4232,10 @@ class Workflow(AppAware):
                     )
                     self._store._pending.commit_all()
             if add_to_known:
+                from hpcflow.sdk.submission.host_monitor import known_workflow_path
+
                 self._app._add_to_known_submissions(
-                    wk_path=self.path,
+                    wk_path=known_workflow_path(self._app, self.path),
                     wk_id=self.id_,
                     sub_idx=sub_idx,
                     sub_time=submit_time.strftime(self._app._submission_ts_fmt),

@@ -82,6 +82,7 @@ from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.submission import Submission
+from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
 from importlib.resources import files
 
@@ -845,7 +846,7 @@ def _make_workflow_CLI(app: BaseApp):
     return workflow
 
 
-def _make_submission_CLI(app: BaseApp):
+def _make_submission_CLI(app: BaseApp, host: bool = False):
     """Generate the CLI for submission related queries."""
 
     def OS_info_callback(ctx: click.Context, param, value: bool):
@@ -893,6 +894,8 @@ def _make_submission_CLI(app: BaseApp):
         def default(self, obj):
             if isinstance(obj, datetime):
                 return obj.isoformat()
+            if isinstance(obj, JobscriptElementState):
+                return obj.name
             return super().default(obj)
 
     @submission.command()
@@ -905,7 +908,16 @@ def _make_submission_CLI(app: BaseApp):
     )
     def get_known(as_json: bool = False):
         """Print known-submissions information as a formatted Python object."""
-        out = app.get_known_submissions(as_json=as_json)
+        if host:
+            from hpcflow.sdk.submission.host_monitor import parse_host_show
+
+            try:
+                states = parse_host_show(app, json.load(sys.stdin))
+                out = app._get_known_submissions(as_json=as_json, host_states=states)
+            except ValueError as exc:
+                raise click.ClickException(str(exc)) from exc
+        else:
+            out = app.get_known_submissions(as_json=as_json)
         if as_json:
             click.echo(json.dumps(out, cls=_DateTimeJSONEncoder))
         else:
@@ -967,6 +979,21 @@ def _make_internal_CLI(app: BaseApp):
         click.echo(app.run_time_info.invocation_command)
 
     internal.add_command(_make_install_CLI(app), name="get-container-wrapper")
+    internal.add_command(_make_show_CLI(app, host=True), name="show-host")
+    internal.add_command(
+        _make_submission_CLI(app, host=True).commands["get-known"],
+        name="get-known-host",
+    )
+
+    @internal.command(name="prepare-host-show")
+    def prepare_host_show():
+        """Collect host activity queries without executing them."""
+        from hpcflow.sdk.submission.host_monitor import prepare_host_show as prepare
+
+        try:
+            click.echo(json.dumps(prepare(app)))
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
 
     @internal.command()
     @click.pass_context
@@ -1143,7 +1170,7 @@ def _make_template_components_CLI(app: BaseApp):
     return tc
 
 
-def _make_show_CLI(app: BaseApp):
+def _make_show_CLI(app: BaseApp, host: bool = False):
     def show_legend_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
@@ -1183,7 +1210,21 @@ def _make_show_CLI(app: BaseApp):
     )
     def show(max_recent: int, full: bool, no_update: bool):
         """Show information about running and recently active workflows."""
-        app.show(max_recent=max_recent, full=full, no_update=no_update)
+        if host:
+            from hpcflow.sdk.submission.host_monitor import parse_host_show
+
+            try:
+                states = parse_host_show(app, json.load(sys.stdin))
+                app._show(
+                    max_recent=max_recent,
+                    full=full,
+                    no_update=no_update,
+                    host_states=states,
+                )
+            except ValueError as exc:
+                raise click.ClickException(str(exc)) from exc
+        else:
+            app.show(max_recent=max_recent, full=full, no_update=no_update)
 
     return show
 
@@ -2007,7 +2048,12 @@ def _make_env_CLI(app: BaseApp):
 def make_cli(app: BaseApp):
     """Generate the root CLI for the app."""
 
-    colorama_init(autoreset=True)
+    force_colour = bool(os.environ.get("FORCE_COLOR")) and not os.environ.get("NO_COLOR")
+    colorama_init(
+        autoreset=True,
+        strip=False if force_colour else None,
+        convert=False if force_colour else None,
+    )
 
     def run_time_info_callback(ctx: click.Context, param, value: bool):
         app.run_time_info.from_CLI = True

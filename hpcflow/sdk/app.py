@@ -67,6 +67,7 @@ from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.runtime import RunTimeInfo
 from hpcflow.sdk.cli import make_cli
 from hpcflow.sdk.submission.enums import JobscriptElementState
+from hpcflow.sdk.submission.host_monitor import HostStates
 from hpcflow.sdk.submission.shells import DEFAULT_SHELL_NAMES, get_shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
@@ -2877,6 +2878,41 @@ class BaseApp(metaclass=Singleton):
         for known_sub in known:
             all_ids.append(known_sub["local_id"])
             if (
+                wk_path.startswith("/host-workflows/")
+                and known_sub["path"].startswith("/work/")
+                and wk_id == known_sub["workflow_id"]
+                and sub_idx == known_sub["sub_idx"]
+                and sub_time == known_sub["submit_time"]
+            ):
+                old_line = self._format_known_submissions_line(
+                    known_sub["local_id"],
+                    wk_id,
+                    sub_time,
+                    sub_idx,
+                    known_sub["is_active"],
+                    known_sub["path"],
+                    known_sub["start_time"],
+                    known_sub["end_time"],
+                )
+                new_line = self._format_known_submissions_line(
+                    known_sub["local_id"],
+                    wk_id,
+                    sub_time,
+                    sub_idx,
+                    known_sub["is_active"],
+                    wk_path,
+                    known_sub["start_time"],
+                    known_sub["end_time"],
+                )
+                temporary = self.known_subs_file_path.with_suffix(".tmp")
+                temporary.write_text(
+                    self.known_subs_file_path.read_text().replace(old_line, new_line),
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                os.replace(temporary, self.known_subs_file_path)
+                return known_sub["local_id"]
+            if (
                 wk_path == known_sub["path"]
                 and sub_idx == known_sub["sub_idx"]
                 and sub_time == known_sub["submit_time"]
@@ -3872,6 +3908,7 @@ class BaseApp(metaclass=Singleton):
         no_update: bool = False,
         as_json: bool = False,
         status: Status | None = None,
+        host_states: HostStates | None = None,
     ) -> Sequence[KnownSubmissionItem]:
         """
         Retrieve information about active and recently inactive finished {app_name}
@@ -3892,6 +3929,12 @@ class BaseApp(metaclass=Singleton):
             `submission` key, for instance.
         """
         out: list[KnownSubmissionItem] = []
+        if (
+            self.run_time_info.in_container or self.run_time_info.container_host_os
+        ) and host_states is None:
+            raise ValueError(
+                "Container monitoring requires host activity; invoke show through the host wrapper."
+            )
         inactive_IDs: list[int] = []
         start_times: dict[int, str] = {}
         end_times: dict[int, str] = {}
@@ -4016,6 +4059,10 @@ class BaseApp(metaclass=Singleton):
                         ]
                         if run_key in active_jobscripts:
                             act_i_js = active_jobscripts[run_key]
+                        elif host_states is not None:
+                            if run_key not in host_states:
+                                raise ValueError("Missing host activity snapshot.")
+                            act_i_js = host_states[run_key]
                         else:
                             try:
                                 if as_json:
@@ -4158,6 +4205,7 @@ class BaseApp(metaclass=Singleton):
         max_recent: int = 3,
         full: bool = False,
         no_update: bool = False,
+        host_states: HostStates | None = None,
     ) -> None:
         """
         Show information about running {app_name} workflows.
@@ -4215,16 +4263,23 @@ class BaseApp(metaclass=Singleton):
         ts_fmt_part = r"%H:%M:%S"
 
         console = Console()
-        with console.status("Retrieving data...") as status:
+        status_context = (
+            console.status("Retrieving data...")
+            if console.is_interactive
+            else nullcontext()
+        )
+        with status_context as status:
             run_dat = self._get_known_submissions(
                 max_recent=max_recent,
                 no_update=no_update,
                 status=status,
+                host_states=host_states,
             )
             if not run_dat:
                 return
 
-            status.update("Formatting...")
+            if status is not None:
+                status.update("Formatting...")
             table = Table(box=box.SQUARE, expand=False)
             for col_name in columns:
                 table.add_column(allowed_cols[col_name])

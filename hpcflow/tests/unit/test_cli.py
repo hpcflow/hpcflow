@@ -1,10 +1,15 @@
 from pathlib import Path
 import json
+import os
+import subprocess
+import sys
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 
 from click.testing import CliRunner
+from rich.console import Console
 import click.exceptions
 
 from hpcflow import __version__
@@ -13,6 +18,7 @@ from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
     _make_install_CLI,
     _make_internal_CLI,
+    make_cli,
 )
 from hpcflow.sdk.cli_common import BoolOrString
 
@@ -20,6 +26,47 @@ from hpcflow.sdk.cli_common import BoolOrString
 def test_version(cli_runner) -> None:
     result = cli_runner(["--version"])
     assert result.output.strip() == f"hpcFlow, version {__version__}"
+
+
+@pytest.mark.parametrize(
+    ("force_colour", "no_colour", "strip"),
+    [("1", "", False), ("", "", None), ("1", "1", None)],
+)
+def test_cli_preserves_forced_colour(monkeypatch, force_colour, no_colour, strip):
+    monkeypatch.setenv("FORCE_COLOR", force_colour)
+    monkeypatch.setenv("NO_COLOR", no_colour)
+    init = Mock()
+    monkeypatch.setattr("hpcflow.sdk.cli.colorama_init", init)
+    make_cli(hf)
+    init.assert_called_once_with(autoreset=True, strip=strip, convert=strip)
+
+
+def test_cli_import_preserves_rich_colour_in_pipe():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import hpcflow.cli; from rich.console import Console; "
+            "Console(legacy_windows=False).print('[red]colour-probe[/red]')",
+        ],
+        env={**os.environ, "FORCE_COLOR": "1", "NO_COLOR": "", "TTY_INTERACTIVE": "0"},
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "\x1b[31mcolour-probe\x1b[0m" in result.stdout
+
+
+def test_show_noninteractive_emits_no_spinner_controls(monkeypatch):
+    output = StringIO()
+    console = Console(
+        file=output, force_terminal=True, force_interactive=False, legacy_windows=False
+    )
+    monkeypatch.setattr("hpcflow.sdk.app.Console", lambda: console)
+    monkeypatch.setattr(hf, "_get_known_submissions", Mock(return_value=[]))
+    hf._show(no_update=True)
+    assert output.getvalue() == ""
 
 
 def test_BoolOrString_convert():

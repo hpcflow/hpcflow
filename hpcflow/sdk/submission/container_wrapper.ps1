@@ -22,6 +22,16 @@ $appPrefix = '__APP_NAME_'.Trim('_')
 $configEnvName = "${appPrefix}_CONFIG_DIR"
 $hostConfigDirectory = $null
 $containerConfigDirectory = $null
+$showMounts = $false
+$monitorMounts = @{}
+
+function Get-MountID {
+    param([string]$Path)
+    if ($IsWindows) { $Path = $Path.ToUpperInvariant() }
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+        [Text.Encoding]::UTF8.GetBytes($Path)
+    )).ToLowerInvariant()
+}
 if ($Context) {
     $hostContext = Get-Content -Raw -LiteralPath $Context | ConvertFrom-Json -AsHashtable
     $root = $hostContext.mount_root
@@ -50,14 +60,27 @@ function ConvertTo-ContainerPath {
 }
 
 function Invoke-Container {
-    param([string[]]$CommandArgs, [string]$InputJson, [switch]$Capture)
-    $hostEnv = @()
+    param([string[]]$CommandArgs, [string]$InputJson, [switch]$Capture, [switch]$DisplayOutput)
+    $hostEnv = @('--env', 'TTY_INTERACTIVE=0')
+    $useColour = $DisplayOutput -and -not $env:NO_COLOR -and (
+        $PSStyle.OutputRendering -eq 'ANSI' -or (
+            $PSStyle.OutputRendering -eq 'Host' -and
+            $Host.UI.SupportsVirtualTerminal -and -not [Console]::IsOutputRedirected
+        )
+    )
+    if ($useColour) {
+        $hostEnv += @('--env', 'FORCE_COLOR=1')
+    } else {
+        $hostEnv += @('--env', 'FORCE_COLOR=', '--env', 'NO_COLOR=1')
+    }
     $configMount = @()
     $configPath = [System.Environment]::GetEnvironmentVariable($configEnvName)
     if ($IsWindows -and $configPath -and
         ($configPath -eq '/work' -or $configPath.StartsWith('/work/')) -and
         -not $hostConfigDirectory) {
         # Preserve an explicitly container-visible configuration path.
+        $script:hostConfigDirectory = Get-HostPath $configPath
+        [IO.Directory]::CreateDirectory($hostConfigDirectory) | Out-Null
     } else {
         if (-not $hostConfigDirectory) {
             if (-not $configPath) {
@@ -76,8 +99,31 @@ function Invoke-Container {
         $configMount = @('--mount', "type=bind,source=$hostConfigDirectory,target=$configPath")
     }
     $script:containerConfigDirectory = $configPath.TrimEnd('/')
+    $mountID = Get-MountID $root
+    if ($showMounts) {
+        if (-not $hostConfigDirectory) {
+            throw 'Host show requires the shared host configuration directory, not a /work configuration override.'
+        }
+        $mountDirectory = Join-Path $hostConfigDirectory 'host-mounts'
+        if (Test-Path -LiteralPath $mountDirectory) {
+            foreach ($file in Get-ChildItem -LiteralPath $mountDirectory -Filter '*.json') {
+                $record = Get-Content -Raw -LiteralPath $file.FullName | ConvertFrom-Json -AsHashtable
+                if ($record.schema_version -ne 1 -or $record.mount_root -isnot [string] -or
+                    -not [IO.Path]::IsPathFullyQualified($record.mount_root) -or
+                    $file.BaseName -ne (Get-MountID $record.mount_root)) {
+                    throw "Invalid host mount record: $($file.FullName)"
+                }
+                $target = "/host-workflows/$($file.BaseName)"
+                $script:monitorMounts[$target] = $record.mount_root
+                if (Test-Path -LiteralPath $record.mount_root -PathType Container) {
+                    $configMount += @('--mount', "type=bind,source=$($record.mount_root),target=$target")
+                }
+            }
+        }
+    }
     $hostEnv += @(
         '--env', "${configEnvName}=$configPath",
+        '--env', "${appPrefix}_CONTAINER_WORK_MOUNT=/host-workflows/$mountID",
         '--env', "XDG_CACHE_HOME=$containerConfigDirectory/cache",
         '--env', "XDG_DATA_HOME=$containerConfigDirectory/data"
     )
@@ -103,25 +149,49 @@ function Invoke-Container {
     $mappedArgs = @($ConfigArgs + $CommandArgs | ForEach-Object {
         ConvertTo-ContainerPath $_
     })
+    $mappedArgs = @('--with-config', 'machine', $Machine) + $mappedArgs
     $dockerArgs = @(
         'run', '--rm', '-i', '--mount', "type=bind,source=$root,target=/work",
         '--workdir', '/work'
     ) + $configMount + $hostEnv + @($Image) + $mappedArgs
     $exe = $ContainerCommand[0]
     $prefix = @($ContainerCommand | Select-Object -Skip 1)
-    if ($PSBoundParameters.ContainsKey('InputJson')) {
-        $out = $InputJson | & $exe @prefix @dockerArgs
-    } elseif ($Capture) {
-        $out = & $exe @prefix @dockerArgs
-    } else {
-        & $exe @prefix @dockerArgs
-        $script:containerExitCode = $LASTEXITCODE
-        return
+    $previousConsoleEncoding = [Console]::OutputEncoding
+    $OutputEncoding = $utf8
+    try {
+        [Console]::OutputEncoding = $utf8
+        if ($useColour) {
+            # Bypass PowerShell's formatter, which can strip ANSI from captured text.
+            if ($PSBoundParameters.ContainsKey('InputJson')) {
+                $InputJson | & $exe @prefix @dockerArgs | ForEach-Object {
+                    [Console]::WriteLine($_)
+                }
+            } else {
+                & $exe @prefix @dockerArgs | ForEach-Object {
+                    [Console]::WriteLine($_)
+                }
+            }
+            $script:containerExitCode = $LASTEXITCODE
+            if ($PSBoundParameters.ContainsKey('InputJson') -and $LASTEXITCODE -ne 0) {
+                throw "Container command failed with exit code $LASTEXITCODE."
+            }
+            return
+        } elseif ($PSBoundParameters.ContainsKey('InputJson')) {
+            $out = $InputJson | & $exe @prefix @dockerArgs
+        } elseif ($Capture) {
+            $out = & $exe @prefix @dockerArgs
+        } else {
+            & $exe @prefix @dockerArgs
+            $script:containerExitCode = $LASTEXITCODE
+            return
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Container command failed with exit code $LASTEXITCODE."
+        }
+        return ($out -join "`n")
+    } finally {
+        [Console]::OutputEncoding = $previousConsoleEncoding
     }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Container command failed with exit code $LASTEXITCODE."
-    }
-    return ($out -join "`n")
 }
 
 function Get-HostPath {
@@ -173,6 +243,94 @@ function Confirm-Result {
     ) {
         throw 'Invalid acknowledgement response from hpcflow.'
     }
+    $mountDirectory = Join-Path $hostConfigDirectory 'host-mounts'
+    [IO.Directory]::CreateDirectory($mountDirectory) | Out-Null
+    Save-Record (Join-Path $mountDirectory ((Get-MountID $root) + '.json')) @{
+        schema_version = 1
+        mount_root = $root
+    }
+}
+
+function Invoke-HostShow {
+    param([string[]]$ShowArgs, [switch]$GetKnown)
+    $script:showMounts = $true
+    $plan = Invoke-Container -CommandArgs @('internal', 'prepare-host-show') -Capture |
+        ConvertFrom-Json -AsHashtable
+    if ($plan.schema_version -ne 1 -or $plan.jobs -isnot [array]) {
+        throw 'Invalid host monitoring plan.'
+    }
+    $results = @()
+    $queries = @{}
+    foreach ($job in $plan.jobs) {
+        $result = @{
+            workflow_path = $job.workflow_path
+            workflow_id = $job.workflow_id
+            submission_index = $job.submission_index
+            jobscript_index = $job.jobscript_index
+        }
+        if ($job.scheduler -eq 'direct') {
+            $mount = @($monitorMounts.Keys | Where-Object {
+                $job.workflow_path.StartsWith($_ + '/')
+            })
+            if ($mount.Count -ne 1) { throw 'Unknown host workflow mount.' }
+            $relative = $job.workflow_path.Substring($mount[0].Length).TrimStart('/')
+            if ($relative.Contains('\') -or @($relative.Split('/')) -contains '..') {
+                throw 'Invalid monitored workflow path.'
+            }
+            $workflowHostPath = Join-Path $monitorMounts[$mount[0]] $relative
+            $proc = Get-Process -Id $job.process_id -ErrorAction SilentlyContinue
+            $result.active = $false
+            if ($null -ne $proc) {
+                $contextPath = Join-Path $workflowHostPath (
+                    ".${appPrefix}-host-$($job.submission_index)-$($job.jobscript_index).json"
+                )
+                if (-not (Test-Path -LiteralPath $contextPath)) {
+                    throw "Cannot verify host process identity: $contextPath"
+                }
+                $record = Get-Content -Raw -LiteralPath $contextPath | ConvertFrom-Json -AsHashtable
+                if ($record.workflow_id -ne $job.workflow_id -or
+                    $record.process_id -ne $job.process_id) {
+                    throw 'Conflicting host process monitoring context.'
+                }
+                $result.active = $proc.StartTime.ToUniversalTime().Ticks -eq $record.start_ticks
+            }
+        } elseif ($job.scheduler -in @('slurm', 'sge')) {
+            if ($job.query -isnot [array] -or -not $job.query.Count) {
+                throw 'Invalid scheduler monitoring command.'
+            }
+            $key = ConvertTo-Json -InputObject $job.query -Compress
+            if (-not $queries.ContainsKey($key)) {
+                $exe = $job.query[0]
+                $queryArgs = @($job.query | Select-Object -Skip 1 | ForEach-Object {
+                    if ($_ -eq '$USER') { [Environment]::UserName } else { $_ }
+                })
+                $stderrPath = [IO.Path]::GetTempFileName()
+                try {
+                    $stdout = (& $exe @queryArgs 2> $stderrPath) -join "`n"
+                    $code = $LASTEXITCODE
+                    $stderr = [IO.File]::ReadAllText($stderrPath)
+                    if ($code -ne 0 -or -not [string]::IsNullOrWhiteSpace($stderr)) {
+                        throw "Host monitoring failed (exit $code): $stderr"
+                    }
+                    $queries[$key] = $stdout
+                } finally {
+                    Remove-Item -LiteralPath $stderrPath
+                }
+            }
+            $result.stdout = $queries[$key]
+        } else {
+            throw "Unsupported host monitoring scheduler: $($job.scheduler)"
+        }
+        $results += $result
+    }
+    $snapshot = ConvertTo-Json -InputObject @{
+        schema_version = 1
+        jobs = $results
+    } -Depth 30 -Compress
+    $command = if ($GetKnown) { 'get-known-host' } else { 'show-host' }
+    $output = Invoke-Container -CommandArgs (@('internal', $command) + $ShowArgs) `
+        -InputJson $snapshot -DisplayOutput:($ShowArgs -notcontains '--json')
+    if ($output) { Write-Output $output }
 }
 
 function Get-DirectDependency {
@@ -283,6 +441,9 @@ try {
         throw 'Image and ContainerCommand must not be empty.'
     }
     if ($root.Contains(',')) { throw 'The mounted directory must not contain a comma.' }
+    if ([string]::IsNullOrWhiteSpace($Machine)) {
+        throw 'Machine must not be empty; omit it to use the host hostname.'
+    }
     if ($RunJob) {
         if (-not $Context) { throw 'RunJob requires Context.' }
         $gate = $hostContext.gate
@@ -344,6 +505,16 @@ try {
     if ($HpcflowArgs[0].StartsWith('-') -and $HpcflowArgs.Count -gt 1) {
         throw 'Supply global hpcflow options via ConfigArgs, not before the command in HpcflowArgs.'
     }
+    if ($HpcflowArgs[0] -eq 'show' -and $HpcflowArgs -notcontains '--help' -and
+        $HpcflowArgs -notcontains '--legend') {
+        Invoke-HostShow @($HpcflowArgs | Select-Object -Skip 1)
+        exit 0
+    }
+    if ($HpcflowArgs.Count -ge 2 -and $HpcflowArgs[0] -eq 'submission' -and
+        $HpcflowArgs[1] -eq 'get-known' -and $HpcflowArgs -notcontains '--help') {
+        Invoke-HostShow -ShowArgs @($HpcflowArgs | Select-Object -Skip 2) -GetKnown
+        exit 0
+    }
     $workflowCommandIndex = 2
     if ($HpcflowArgs[0] -eq 'workflow') {
         while ($workflowCommandIndex -lt $HpcflowArgs.Count) {
@@ -370,7 +541,7 @@ try {
             $HpcflowArgs[$workflowCommandIndex] -in @('wait', 'cancel', 'abort-run')) {
             throw 'Host process monitoring and cancellation are not yet supported by this wrapper.'
         }
-        Invoke-Container -CommandArgs $HpcflowArgs
+        Invoke-Container -CommandArgs $HpcflowArgs -DisplayOutput:($HpcflowArgs -notcontains '--json')
         exit $script:containerExitCode
     }
     if ([string]::IsNullOrWhiteSpace($Machine)) {
