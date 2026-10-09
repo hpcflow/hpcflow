@@ -30,6 +30,10 @@ from submitting earlier jobscripts. It must also replace
 ``__HPCFLOW_JOBSCRIPT_PATH__`` with the host-visible jobscript path and submit from
 the host-visible workflow directory. Container and host mount paths may differ.
 Preserve argument boundaries; do not evaluate the command as shell source.
+Temporary tokens also use the application's upper-case package name: MatFlow
+plans use ``__MATFLOW_JOB_0_0__`` and ``__MATFLOW_JOBSCRIPT_PATH__`` rather than
+the hpcflow-prefixed examples above. The wrapper template's generic app prefix
+and temporary container-image token are replaced when the wrapper is exported.
 
 Preparation does not set job IDs, process IDs, submission timestamps, or
 known-submission records. Repeating preparation regenerates the pending jobscripts
@@ -96,9 +100,92 @@ excludes acknowledged jobs and uses their real IDs for dependencies. Host
 acknowledgements must be serialised, not made concurrently against the same
 workflow. This protocol does not coordinate concurrent host submitters.
 
-Container installation, the host wrapper, and host-side ``execute-run`` integration are
-not yet implemented. The generated scripts are not yet a complete container
-execution solution.
+PowerShell host submission wrapper
+##################################
+
+The initial wrapper requires PowerShell 7.3 or newer and Docker on the host, but
+not a host hpcflow installation. It supports Slurm and SGE submission; direct
+execution is explicitly rejected before any job is launched. The host must have
+the submission executable available (``sbatch`` or ``qsub``). These schedulers
+normally require a POSIX host, where PowerShell can also be installed.
+
+Declare the image name explicitly at build time. Docker does not automatically
+make its eventual image tag available inside an image. For example, include
+these declarations in your Dockerfile:
+
+.. code-block:: dockerfile
+
+    ARG HPCFLOW_IMAGE=hpcflow:dev
+    ENV HPCFLOW_CONTAINER=${HPCFLOW_IMAGE}
+
+Build using the same value for the build argument and image tag.
+``RunTimeInfo.container_image`` reads ``HPCFLOW_CONTAINER`` at app initialisation,
+and ``RunTimeInfo.in_container`` indicates whether that value is present.
+The variable prefix is the application's upper-case package name, following the
+existing app-specific environment-variable convention. For downstream MatFlow,
+use ``MATFLOW_CONTAINER`` (and an appropriately named build argument/image tag)
+instead. Each app reads only its own container variable.
+Both fields are included in runtime information. This marker does not yet
+automatically change submission behaviour.
+
+With an image whose entrypoint invokes hpcflow, export the wrapper to the host:
+
+.. code-block:: powershell
+
+    docker run --rm hpcflow:dev internal get-container-wrapper |
+        Set-Content -Encoding utf8 hpcflow-container.ps1
+
+``internal get-container-wrapper --image IMAGE`` overrides the baked image name.
+This is a low-level export command, not the planned ``manage install-container``.
+
+Run the wrapper from the directory containing your templates and workflows:
+
+.. code-block:: powershell
+
+    .\hpcflow-container.ps1 -Machine my-cluster -HpcflowArgs @(
+        'go', 'template.yaml', '--path', '.'
+    )
+
+The current directory is bind-mounted at ``/work``, which is also the container's
+working directory. Workflow paths must stay within this mount; use relative paths
+or container-visible ``/work/...`` paths in hpcflow arguments. The mount directory
+must not contain a comma. Container/host paths inside generated jobscripts still
+need the forthcoming execution wrapper; path mapping here applies to submission
+commands only.
+
+The wrapper recognises ``go``, ``demo-workflow go``, and
+``workflow WORKFLOW_PATH submit`` at the start of ``HpcflowArgs``. Supply global
+hpcflow options separately via ``-ConfigArgs @('--config-key', 'KEY')``.
+Other commands pass through, preserving argument boundaries and the exit code.
+Submission adds ``--containerised`` and the host's ``-Machine`` configuration
+override; ``--wait`` and ``--cancel`` are rejected. ``--modify-js`` requires
+interactive stdin, which Docker receives through ``-i``.
+
+The wrapper validates the plan, launches commands from the host workflow
+directory, parses Slurm ``--parsable`` and SGE ``-terse`` IDs, substitutes dependency
+tokens, and immediately acknowledges each launch. It stops on the first error.
+A ``.hpcflow-host-submission.json`` journal in the workflow directory preserves
+the command, output and result. If acknowledgement fails after a known successful
+launch, retry only the acknowledgement:
+
+.. code-block:: powershell
+
+    .\hpcflow-container.ps1 -ResumeResult (
+        '.\workflow\.hpcflow-host-submission.json'
+    )
+
+Run recovery from the same mount root and with the same image and configuration.
+Successful recovery removes the journal without launching anything. Run submission
+again to prepare the remaining pending jobscripts. A journal with state
+``launching`` means the launch outcome is uncertain (including scheduler output
+that cannot be parsed). Inspect the scheduler and saved record manually; recovery
+will not relaunch or silently mark such a job submitted. Do not delete an uncertain
+journal until the outcome has been reconciled. Serialise all wrapper invocations
+against a workflow.
+
+``manage install-container``, Bash support, direct host launches, and host-side
+``execute-run`` integration are not yet implemented. The generated scripts are
+not yet a complete container execution solution.
 
 Adding class methods to the ``ValueSequence`` and ``MultiPathSequence`` classes
 -------------------------------------------------------------------------------

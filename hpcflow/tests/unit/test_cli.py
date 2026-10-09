@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 
@@ -8,7 +9,7 @@ import click.exceptions
 
 from hpcflow import __version__
 from hpcflow.app import app as hf
-from hpcflow.sdk.cli import ErrorPropagatingClickContext
+from hpcflow.sdk.cli import ErrorPropagatingClickContext, _make_internal_CLI
 from hpcflow.sdk.cli_common import BoolOrString
 
 
@@ -208,6 +209,52 @@ def test_record_host_submission_is_internal():
     assert "record-host-submission" in internal_workflow.commands
     assert not hasattr(hf.Workflow, "record_host_submission")
     assert hasattr(hf.Workflow, "_record_host_submission")
+
+
+@pytest.mark.parametrize("image", [None, "hpcflow:test"])
+def test_get_container_wrapper(cli_runner, monkeypatch, image):
+    monkeypatch.setattr(hf.run_time_info, "container_image", image)
+    result = cli_runner(["internal", "get-container-wrapper"])
+    if image is None:
+        assert result.exit_code != 0
+        assert not result.stdout
+        assert "HPCFLOW_CONTAINER" in result.stderr
+    else:
+        assert result.exit_code == 0, result.output
+        assert "[string]$Image = 'hpcflow:test'" in result.stdout
+        assert "__HPCFLOW_CONTAINER_IMAGE__" not in result.stdout
+        assert "\r\n" not in result.stdout
+
+
+def test_get_container_wrapper_image_override(cli_runner, monkeypatch):
+    monkeypatch.setattr(hf.run_time_info, "container_image", "default:test")
+    result = cli_runner(["internal", "get-container-wrapper", "--image", "override:test"])
+    assert result.exit_code == 0, result.output
+    assert "[string]$Image = 'override:test'" in result.stdout
+
+
+def test_downstream_container_wrapper_environment_help():
+    app = SimpleNamespace(
+        package_name="matflow",
+        run_time_info=SimpleNamespace(container_image=None),
+    )
+    command = _make_internal_CLI(app).commands["get-container-wrapper"]
+    runner = CliRunner()
+    help_result = runner.invoke(command, ["--help"])
+    assert help_result.exit_code == 0
+    assert "MATFLOW_CONTAINER" in help_result.output
+    assert "HPCFLOW_CONTAINER" not in help_result.output
+    missing_image = runner.invoke(command)
+    assert missing_image.exit_code != 0
+    assert "MATFLOW_CONTAINER" in missing_image.stderr
+    assert "HPCFLOW_CONTAINER" not in missing_image.stderr
+    exported = runner.invoke(command, ["--image", "matflow:test"])
+    assert exported.exit_code == 0, exported.output
+    assert "__MATFLOW_JOBSCRIPT_PATH__" in exported.stdout
+    assert "__MATFLOW_JOB_" in exported.stdout
+    assert "__HPCFLOW_" not in exported.stdout
+    assert "__APP_NAME_" not in exported.stdout
+    assert "__MATFLOW_CONTAINER_IMAGE__" not in exported.stdout
 
 
 def test_error_propagated_with_custom_context_class():

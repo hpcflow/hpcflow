@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from typing import Any
 from typing_extensions import TypedDict
@@ -118,10 +119,13 @@ def test_containerised_preparation(
 @pytest.mark.parametrize("scheduler_cls", [SlurmPosix, SGEPosix])
 @pytest.mark.parametrize("already_submitted", [False, True])
 @pytest.mark.parametrize("array_dependency", [False, True])
+@pytest.mark.parametrize("package_name", ["hpcflow", "matflow"])
 def test_containerised_scheduler_dependency_commands(
-    tmp_path, scheduler_cls, already_submitted, array_dependency
+    tmp_path, scheduler_cls, already_submitted, array_dependency, package_name
 ):
     sub = Mock(spec=hf.Submission)
+    sub._app = SimpleNamespace(package_name=package_name)
+    app_caps = package_name.upper()
     sub.index = 0
     sub.JS_parallelism = True
     sub.workflow = Mock(path=str(tmp_path))
@@ -151,7 +155,8 @@ def test_containerised_scheduler_dependency_commands(
     dependency = plan[-1]["dependencies"][0]
     assert dependency["is_array"] is array_dependency
     assert dependency["reference"] == ("12345" if already_submitted else None)
-    ref = "12345" if already_submitted else "__HPCFLOW_JOB_0_0__"
+    assert dependency["placeholder"] == f"__{app_caps}_JOB_0_0__"
+    ref = "12345" if already_submitted else f"__{app_caps}_JOB_0_0__"
     command = plan[-1]["submit_command"]
     if scheduler_cls is SlurmPosix:
         assert command == [
@@ -159,7 +164,7 @@ def test_containerised_scheduler_dependency_commands(
             "--parsable",
             "--dependency",
             f"{'aftercorr' if array_dependency else 'afterany'}:{ref}",
-            "__HPCFLOW_JOBSCRIPT_PATH__",
+            f"__{app_caps}_JOBSCRIPT_PATH__",
         ]
     else:
         assert command == [
@@ -167,7 +172,7 @@ def test_containerised_scheduler_dependency_commands(
             "-terse",
             "-hold_jid_ad" if array_dependency else "-hold_jid",
             ref,
-            "__HPCFLOW_JOBSCRIPT_PATH__",
+            f"__{app_caps}_JOBSCRIPT_PATH__",
         ]
     assert len(plan) == (1 if already_submitted else 2)
 

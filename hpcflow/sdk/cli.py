@@ -83,6 +83,7 @@ from hpcflow.sdk.submission.shells import ALL_SHELLS, DEFAULT_SHELL_NAMES
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
+from importlib.resources import files
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -927,6 +928,30 @@ def _make_internal_CLI(app: BaseApp):
     def get_invoc_cmd():
         """Get the invocation command for this app instance."""
         click.echo(app.run_time_info.invocation_command)
+
+    @internal.command(name="get-container-wrapper")
+    @click.option(
+        "--image",
+        help=f"Override the image name from {app.package_name.upper()}_CONTAINER.",
+    )
+    def get_container_wrapper(image: str | None):
+        """Print the PowerShell host wrapper with its container image name."""
+        image = image or app.run_time_info.container_image
+        if not image or any(char in image for char in "\r\n\0"):
+            raise click.ClickException(
+                f"Set {app.package_name.upper()}_CONTAINER in the image or supply --image."
+            )
+        script = (
+            files("hpcflow.sdk.submission")
+            .joinpath("container_wrapper.ps1")
+            .read_text(encoding="utf-8")
+        )
+        app_caps = app.package_name.upper()
+        script = script.replace("__APP_NAME_", f"__{app_caps}_")
+        click.echo(
+            script.replace(f"__{app_caps}_CONTAINER_IMAGE__", image.replace("'", "''")),
+            nl=False,
+        )
 
     @internal.command()
     @click.pass_context

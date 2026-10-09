@@ -51,6 +51,10 @@ class RunTimeInfo:
         self.version = version
         #: Whether this is a frozen application.
         self.is_frozen = is_frozen
+        #: Container image name, explicitly supplied by the image build.
+        self.container_image = os.environ.get(f"{package_name.upper()}_CONTAINER") or None
+        #: Whether the application is running in an image marked by its container variable.
+        self.in_container = self.container_image is not None
         #: Working directory.
         self.working_dir = os.getcwd()
         #: Where to write log messages.
@@ -153,6 +157,8 @@ class RunTimeInfo:
             "package_name": self.package_name,
             "version": self.version,
             "is_frozen": self.is_frozen,
+            "container_image": self.container_image,
+            "in_container": self.in_container,
             "working_dir": self.working_dir,
             "logger": self.logger,
             "hostname": self.hostname,

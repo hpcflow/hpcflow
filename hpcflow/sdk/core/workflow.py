@@ -4136,7 +4136,8 @@ class Workflow(AppAware):
             raise ValueError(
                 "submit_command must be a non-empty list of argument strings."
             )
-        placeholder = re.compile(r"__HPCFLOW_(?:JOBSCRIPT_PATH|JOB_\d+_\d+)__")
+        app_caps = re.escape(self._app.package_name.upper())
+        placeholder = re.compile(rf"__{app_caps}_(?:JOBSCRIPT_PATH|JOB_\d+_\d+)__")
         if any(placeholder.search(arg) for arg in command):
             raise ValueError("submit_command contains unresolved host submission tokens.")
         submit_time = datetime.fromisoformat(result["submit_time"])

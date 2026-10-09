@@ -1218,6 +1218,7 @@ class Submission(JSONLike):
             fp.write(js_funcs_str)
 
     def _prepare_containerised(self) -> list[ContainerisedJobscript]:
+        app_caps = self._app.package_name.upper()
         outstanding = set(self.outstanding_jobscripts)
         scheduler_refs: dict[int, tuple[str, bool]] = {}
         for js in self.jobscripts:
@@ -1253,7 +1254,7 @@ class Submission(JSONLike):
                         "jobscript_index": dep_idx,
                         "is_array": is_array,
                         "reference": None if dep_idx in outstanding else ref,
-                        "placeholder": f"__HPCFLOW_JOB_{self.index}_{dep_idx}__",
+                        "placeholder": f"__{app_caps}_JOB_{self.index}_{dep_idx}__",
                     }
                 )
             path = js._prepare_jobscript(deps)
@@ -1269,12 +1270,12 @@ class Submission(JSONLike):
                     "is_array": js.is_array,
                     "dependencies": dependencies,
                     "submit_command": js.scheduler.get_submit_command(
-                        js.shell, "__HPCFLOW_JOBSCRIPT_PATH__", deps
+                        js.shell, f"__{app_caps}_JOBSCRIPT_PATH__", deps
                     ),
                 }
             )
             scheduler_refs[js.index] = (
-                f"__HPCFLOW_JOB_{self.index}_{js.index}__",
+                f"__{app_caps}_JOB_{self.index}_{js.index}__",
                 js.is_array,
             )
         return prepared
