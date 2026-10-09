@@ -9,6 +9,7 @@ from typing_extensions import TypedDict
 import pytest
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.config.callbacks import callback_scheduler_set_up
 from hpcflow.sdk.core.errors import (
     MissingEnvironmentError,
     MissingEnvironmentExecutableError,
@@ -21,6 +22,20 @@ from hpcflow.sdk.submission.schedulers.sge import SGEPosix
 from hpcflow.sdk.submission.types import HostSubmissionResult
 
 
+def test_sge_test_config_avoids_login_node_discovery(modifiable_config, monkeypatch):
+    scheduler = SGEPosix()
+    get_login_nodes = Mock(side_effect=AssertionError("Host-only login-node probe"))
+    monkeypatch.setattr(scheduler, "get_login_nodes", get_login_nodes)
+    monkeypatch.setattr(hf, "get_scheduler", Mock(return_value=scheduler))
+    hf.config._file.update_invocation(
+        config_key=hf.config.config_key,
+        match={"hostname": hf.run_time_info.hostname},
+    )
+    schedulers = {"sge": {"defaults": {}}}
+    assert callback_scheduler_set_up(hf.config, schedulers) == schedulers
+    get_login_nodes.assert_not_called()
+
+
 @pytest.mark.parametrize("scheduler", ["direct", "slurm", "sge"])
 @pytest.mark.parametrize("parallelism", [False, True])
 def test_containerised_preparation(
@@ -29,6 +44,12 @@ def test_containerised_preparation(
     if scheduler != "direct":
         if os.name != "posix":
             pytest.skip("Queued scheduler resource validation requires a POSIX host")
+        login_nodes = Mock(side_effect=AssertionError("Host-only login-node probe"))
+        monkeypatch.setattr(SGEPosix, "get_login_nodes", login_nodes)
+        hf.config._file.update_invocation(
+            config_key=hf.config.config_key,
+            match={"hostname": hf.run_time_info.hostname},
+        )
         hf.config.add_scheduler(scheduler)
         if scheduler == "sge":
             hf.config.set(
@@ -114,6 +135,8 @@ def test_containerised_preparation(
     reloaded = hf.Workflow(workflow.path)
     assert len(reloaded.submissions) == 1
     assert not reloaded.submissions[0].submitted_jobscripts
+    if scheduler != "direct":
+        login_nodes.assert_not_called()
 
 
 @pytest.mark.parametrize("scheduler_cls", [SlurmPosix, SGEPosix])
