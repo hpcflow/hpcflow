@@ -86,6 +86,7 @@ if TYPE_CHECKING:
     from typing import ClassVar, Literal, Protocol
     from typing_extensions import Final
     from rich.status import Status
+    from .submission.types import ContainerisedSubmissionPlan
     from .typing import (
         BasicTemplateComponents,
         KnownSubmission,
@@ -271,7 +272,10 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             containerised: bool = False,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+        ) -> (
+            tuple[_Workflow, Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan]
+            | _Workflow
+        ): ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.make_and_submit_demo_workflow`"""
@@ -305,7 +309,10 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             containerised: bool = False,
-        ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
+        ) -> (
+            tuple[_Workflow, Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan]
+            | _Workflow
+        ): ...
 
     class _SubmitWorkflow(Protocol):
         """Type of :py:meth:`BaseApp.submit_workflow`"""
@@ -322,7 +329,7 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             containerised: bool = False,
-        ) -> Mapping[int, Sequence[int]] | None: ...
+        ) -> Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan | None: ...
 
     class _GetKnownSubmissions(Protocol):
         """Type of :py:meth:`BaseApp.get_known_submissions`"""
@@ -1602,8 +1609,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them. Return the workflow and a
+            versioned host submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -1698,8 +1705,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them. Return the workflow and a
+            versioned host submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -1737,8 +1744,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them and return a versioned host
+            submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -3209,7 +3216,10 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         containerised: bool = False,
-    ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
+    ) -> (
+        tuple[_Workflow, Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan]
+        | _Workflow
+    ):
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
         workflow template parametrisation.
@@ -3299,8 +3309,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them. Return the workflow and a
+            versioned host submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -3310,6 +3320,8 @@ class BaseApp(metaclass=Singleton):
             Mapping of submission handles. If requested by ``return_idx`` parameter.
         """
         self.API_logger.info("make_and_submit_workflow called")
+        if containerised and (wait or cancel):
+            raise ValueError("Containerised submission cannot wait for or cancel jobs.")
 
         wk = self._make_workflow(
             template_file_or_str=template_file_or_str,
@@ -3344,7 +3356,8 @@ class BaseApp(metaclass=Singleton):
             timeit=timeit,
             containerised=containerised,
         )
-        if return_idx:
+        assert submitted_js is not None
+        if return_idx or containerised:
             return (wk, submitted_js)
         else:
             return wk
@@ -3517,7 +3530,10 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         containerised: bool = False,
-    ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
+    ) -> (
+        tuple[_Workflow, Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan]
+        | _Workflow
+    ):
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
         workflow template parametrisation.
@@ -3603,8 +3619,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them. Return the workflow and a
+            versioned host submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -3614,6 +3630,8 @@ class BaseApp(metaclass=Singleton):
             Mapping of submission handles. If requested by ``return_idx`` parameter.
         """
         self.API_logger.info("make_and_submit_demo_workflow called")
+        if containerised and (wait or cancel):
+            raise ValueError("Containerised submission cannot wait for or cancel jobs.")
 
         wk = self._make_demo_workflow(
             workflow_name=workflow_name,
@@ -3647,7 +3665,8 @@ class BaseApp(metaclass=Singleton):
             timeit=timeit,
             containerised=containerised,
         )
-        if return_idx:
+        assert submitted_js is not None
+        if return_idx or containerised:
             return (wk, submitted_js)
         else:
             return wk
@@ -3663,7 +3682,7 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         containerised: bool = False,
-    ) -> Mapping[int, Sequence[int]] | None:
+    ) -> Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan | None:
         """
         Submit an existing {app_name} workflow.
 
@@ -3696,8 +3715,8 @@ class BaseApp(metaclass=Singleton):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them and return a versioned host
+            submission plan, regardless of `return_idx`.
 
         Returns
         -------
@@ -3707,7 +3726,7 @@ class BaseApp(metaclass=Singleton):
         self.API_logger.info("submit_workflow called")
         assert workflow_path is not None
         wk = self.Workflow(workflow_path)
-        if return_idx:
+        if return_idx or containerised:
             return wk.submit(
                 JS_parallelism=JS_parallelism,
                 min_jobscripts=min_jobscripts,

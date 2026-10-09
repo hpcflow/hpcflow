@@ -1,5 +1,8 @@
 from __future__ import annotations
 from datetime import timedelta
+import os
+from pathlib import Path
+from unittest.mock import Mock
 from typing import Any
 from typing_extensions import TypedDict
 import pytest
@@ -12,6 +15,203 @@ from hpcflow.sdk.core.errors import (
 )
 from hpcflow.sdk.core.utils import timedelta_format, timedelta_parse
 from hpcflow.sdk.submission.jobscript import group_resource_map_into_jobscripts
+from hpcflow.sdk.submission.schedulers.slurm import SlurmPosix
+from hpcflow.sdk.submission.schedulers.sge import SGEPosix
+
+
+@pytest.mark.parametrize("scheduler", ["direct", "slurm", "sge"])
+@pytest.mark.parametrize("parallelism", [False, True])
+def test_containerised_preparation(
+    tmp_path, modifiable_config, monkeypatch, scheduler, parallelism
+):
+    if scheduler != "direct":
+        if os.name != "posix":
+            pytest.skip("Queued scheduler resource validation requires a POSIX host")
+        hf.config.add_scheduler(scheduler)
+        if scheduler == "sge":
+            hf.config.set(
+                "schedulers.sge.parallel_environments",
+                {"test": {"num_cores": [1, 2]}},
+            )
+    resources = (
+        {}
+        if scheduler == "direct"
+        else {"scheduler": scheduler, "os_name": "posix", "shell": "bash"}
+    )
+    tasks = [
+        hf.Task(
+            schema=hf.task_schemas.test_t1_conditional_OS,
+            inputs={"p1": 1},
+            resources={"any": {**resources, "num_cores": cores}},
+        )
+        for cores in (1, 2)
+    ]
+    workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(name="host plan", tasks=tasks), path=tmp_path
+    )
+    sub = workflow.add_submission(
+        JS_parallelism=parallelism, min_jobscripts=False, status=False
+    )
+    assert sub is not None
+    assert len(sub.jobscripts) == 2
+    launch = Mock(side_effect=AssertionError("Must not submit inside the container"))
+    monkeypatch.setattr(hf.Jobscript, "submit", launch)
+    known_submission = Mock()
+    monkeypatch.setattr(hf, "_add_to_known_submissions", known_submission)
+    for _, sched in sub.get_unique_schedulers().items():
+        monkeypatch.setattr(
+            sched, "get_version_info", Mock(side_effect=AssertionError("Host-only probe"))
+        )
+    for _, shell in sub.get_unique_shells():
+        monkeypatch.setattr(
+            shell, "get_version_info", Mock(side_effect=AssertionError("Host-only probe"))
+        )
+    plan = workflow.submit(containerised=True, status=False)
+    assert plan["schema_version"] == 1
+    assert plan["workflow_path"] == str(Path(workflow.path).resolve())
+    assert len(plan["jobscripts"]) == 2
+    for job in plan["jobscripts"]:
+        path = Path(workflow.path) / job["path"]
+        assert path.is_file()
+        assert b"\r\n" not in path.read_bytes()
+        assert "__HPCFLOW_JOBSCRIPT_PATH__" in job["submit_command"]
+        assert job["submission_index"] == sub.index
+        assert job["scheduler"] == scheduler
+    dependencies = plan["jobscripts"][1]["dependencies"]
+    if parallelism:
+        assert dependencies == []
+    else:
+        assert dependencies == [
+            {
+                "submission_index": 0,
+                "jobscript_index": 0,
+                "is_array": False,
+                "reference": None,
+                "placeholder": "__HPCFLOW_JOB_0_0__",
+            }
+        ]
+        if scheduler != "direct":
+            assert "__HPCFLOW_JOB_0_0__" in " ".join(
+                plan["jobscripts"][1]["submit_command"]
+            )
+        else:
+            assert (
+                '--jobscripts "0:0"'
+                in (Path(workflow.path) / plan["jobscripts"][1]["path"]).read_text()
+            )
+    launch.assert_not_called()
+    known_submission.assert_not_called()
+    assert not sub.submitted_jobscripts
+    for js in sub.jobscripts:
+        assert js.scheduler_job_ID is None
+        assert js.process_ID is None
+        assert js.submit_time is None
+        assert js.EAR_ID_file_path.is_file()
+    assert workflow.submit(containerised=True, status=False) == plan
+    reloaded = hf.Workflow(workflow.path)
+    assert len(reloaded.submissions) == 1
+    assert not reloaded.submissions[0].submitted_jobscripts
+
+
+@pytest.mark.parametrize("scheduler_cls", [SlurmPosix, SGEPosix])
+@pytest.mark.parametrize("already_submitted", [False, True])
+@pytest.mark.parametrize("array_dependency", [False, True])
+def test_containerised_scheduler_dependency_commands(
+    tmp_path, scheduler_cls, already_submitted, array_dependency
+):
+    sub = Mock(spec=hf.Submission)
+    sub.index = 0
+    sub.JS_parallelism = True
+    sub.workflow = Mock(path=str(tmp_path))
+    sub.get_unique_shells.return_value = []
+    sub.outstanding_jobscripts = [1] if already_submitted else [0, 1]
+    scheduler = scheduler_cls()
+    jobscripts = []
+    for idx in (0, 1):
+        js = Mock(spec=hf.Jobscript)
+        js.index = idx
+        js.submission = sub
+        js.is_scheduled = True
+        js.is_array = array_dependency
+        js.scheduler_job_ID = "12345" if already_submitted and idx == 0 else None
+        js.scheduler = scheduler
+        js.scheduler_name = "slurm" if scheduler_cls is SlurmPosix else "sge"
+        js.shell_name = "bash"
+        js.dependencies = {(0, 0): {"is_array": array_dependency}} if idx else {}
+        js._prepare_jobscript.return_value = tmp_path / f"js_{idx}.sh"
+        jobscripts.append(js)
+    sub.jobscripts = jobscripts
+    for js in jobscripts:
+        js._get_submit_dependencies.side_effect = (
+            lambda refs, job=js: hf.Jobscript._get_submit_dependencies(job, refs)
+        )
+    plan = hf.Submission._prepare_containerised(sub)
+    dependency = plan[-1]["dependencies"][0]
+    assert dependency["is_array"] is array_dependency
+    assert dependency["reference"] == ("12345" if already_submitted else None)
+    ref = "12345" if already_submitted else "__HPCFLOW_JOB_0_0__"
+    command = plan[-1]["submit_command"]
+    if scheduler_cls is SlurmPosix:
+        assert command == [
+            "sbatch",
+            "--parsable",
+            "--dependency",
+            f"{'aftercorr' if array_dependency else 'afterany'}:{ref}",
+            "__HPCFLOW_JOBSCRIPT_PATH__",
+        ]
+    else:
+        assert command == [
+            "qsub",
+            "-terse",
+            "-hold_jid_ad" if array_dependency else "-hold_jid",
+            ref,
+            "__HPCFLOW_JOBSCRIPT_PATH__",
+        ]
+    assert len(plan) == (1 if already_submitted else 2)
+
+
+def test_containerised_natural_dependencies(tmp_path):
+    workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(
+            name="dependencies",
+            tasks=[
+                hf.Task(schema=hf.task_schemas.test_t1_conditional_OS, inputs={"p1": 1}),
+                hf.Task(
+                    schema=(
+                        hf.task_schemas.test_t2_ps
+                        if os.name == "nt"
+                        else hf.task_schemas.test_t2_bash
+                    ),
+                    resources={"any": {"num_cores": 2}},
+                ),
+            ],
+        ),
+        path=tmp_path,
+    )
+    plan = workflow.submit(
+        containerised=True, status=False, JS_parallelism=True, min_jobscripts=False
+    )
+    assert len(plan["jobscripts"]) == 2
+    assert plan["jobscripts"][1]["dependencies"][0]["jobscript_index"] == 0
+    assert not workflow.submissions[0].submitted_jobscripts
+
+
+def test_containerised_multiple_submissions(tmp_path):
+    workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(
+            name="multiple",
+            tasks=[
+                hf.Task(schema=hf.task_schemas.test_t1_conditional_OS, inputs={"p1": i})
+                for i in (1, 2)
+            ],
+        ),
+        path=tmp_path,
+    )
+    workflow.add_submission(tasks=[0], status=False)
+    workflow.add_submission(tasks=[1], status=False)
+    plan = workflow.submit(containerised=True, status=False)
+    assert [job["submission_index"] for job in plan["jobscripts"]] == [0, 1]
+    assert all(not sub.submitted_jobscripts for sub in workflow.submissions)
 
 
 class _Example(TypedDict):

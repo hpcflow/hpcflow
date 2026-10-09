@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from .schedulers import Scheduler
     from .shells import Shell
     from .types import SubmissionPart
+    from .types import ContainerisedDependency, ContainerisedJobscript
     from ..core.element import ElementActionRun
     from ..core.environment import Environment
     from ..core.object_list import EnvironmentsList
@@ -1213,6 +1214,102 @@ class Submission(JSONLike):
         with path.open("wt", newline="\n") as fp:
             fp.write(js_funcs_str)
 
+    def _prepare_containerised(self) -> list[ContainerisedJobscript]:
+        outstanding = set(self.outstanding_jobscripts)
+        scheduler_refs: dict[int, tuple[str, bool]] = {}
+        for js in self.jobscripts:
+            if js.index not in outstanding:
+                ref = js.scheduler_job_ID if js.is_scheduled else js.process_ID
+                if ref is None:
+                    raise ValueError(
+                        f"Submitted jobscript {js.index} has no scheduler/process ID."
+                    )
+                scheduler_refs[js.index] = (str(ref), js.is_array)
+
+        for shell_idx, (js_indices, shell) in enumerate(self.get_unique_shells()):
+            self._write_functions_file(shell, shell_idx)
+            for js_idx in js_indices:
+                if js_idx in outstanding:
+                    self.jobscripts[js_idx]._set_shell_idx(shell_idx)
+
+        prepared: list[ContainerisedJobscript] = []
+        for js in self.jobscripts:
+            if js.index not in outstanding:
+                continue
+            if any(js_idx not in scheduler_refs for js_idx, _ in js.dependencies):
+                raise ValueError(
+                    f"Cannot prepare jobscript {js.index}: dependencies are not "
+                    "submitted or earlier in the submission plan."
+                )
+            deps = js._get_submit_dependencies(scheduler_refs)
+            dependencies: list[ContainerisedDependency] = []
+            for dep_idx, (ref, is_array) in deps.items():
+                dependencies.append(
+                    {
+                        "submission_index": self.index,
+                        "jobscript_index": dep_idx,
+                        "is_array": is_array,
+                        "reference": None if dep_idx in outstanding else ref,
+                        "placeholder": f"__HPCFLOW_JOB_{self.index}_{dep_idx}__",
+                    }
+                )
+            path = js._prepare_jobscript(deps)
+            assert js.scheduler_name is not None
+            assert js.shell_name is not None
+            prepared.append(
+                {
+                    "submission_index": self.index,
+                    "jobscript_index": js.index,
+                    "path": path.relative_to(self.workflow.path).as_posix(),
+                    "scheduler": js.scheduler_name,
+                    "shell": js.shell_name,
+                    "is_array": js.is_array,
+                    "dependencies": dependencies,
+                    "submit_command": js.scheduler.get_submit_command(
+                        js.shell, "__HPCFLOW_JOBSCRIPT_PATH__", deps
+                    ),
+                }
+            )
+            scheduler_refs[js.index] = (
+                f"__HPCFLOW_JOB_{self.index}_{js.index}__",
+                js.is_array,
+            )
+        return prepared
+
+    @overload
+    def submit(
+        self,
+        status: Status | None,
+        ignore_errors: bool = False,
+        print_stdout: bool = False,
+        add_to_known: bool = True,
+        quiet: bool = False,
+        *,
+        containerised: Literal[True],
+    ) -> list[ContainerisedJobscript]: ...
+
+    @overload
+    def submit(
+        self,
+        status: Status | None,
+        ignore_errors: bool = False,
+        print_stdout: bool = False,
+        add_to_known: bool = True,
+        quiet: bool = False,
+        containerised: Literal[False] = False,
+    ) -> list[int]: ...
+
+    @overload
+    def submit(
+        self,
+        status: Status | None,
+        ignore_errors: bool = False,
+        print_stdout: bool = False,
+        add_to_known: bool = True,
+        quiet: bool = False,
+        containerised: bool = False,
+    ) -> list[int] | list[ContainerisedJobscript]: ...
+
     @TimeIt.decorator
     def submit(
         self,
@@ -1222,15 +1319,18 @@ class Submission(JSONLike):
         add_to_known: bool = True,
         quiet: bool = False,
         containerised: bool = False,
-    ) -> list[int]:
+    ) -> list[int] | list[ContainerisedJobscript]:
         """Generate and submit the jobscripts of this submission.
 
         Parameters
         ----------
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them and return host submission
+            descriptors. No submission-time metadata or known-submission record is set.
         """
+
+        if containerised:
+            return self._prepare_containerised()
 
         # TODO: support passing list of jobscript indices to submit; this will allow us
         # to test a submision with multiple "submission parts". would also need to check

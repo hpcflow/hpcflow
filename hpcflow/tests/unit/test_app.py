@@ -45,9 +45,11 @@ def test_containerised_passed_to_workflow_submit(
     submit.assert_called_once()
     assert submit.call_args.kwargs["containerised"] is containerised
     if api_name == "submit_workflow":
-        assert result == (indices if return_idx else None)
+        assert result == (indices if return_idx or containerised else None)
     else:
-        assert result == ((workflow, indices) if return_idx else workflow)
+        assert result == (
+            (workflow, indices) if return_idx or containerised else workflow
+        )
 
 
 @pytest.fixture

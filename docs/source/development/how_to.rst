@@ -1,6 +1,42 @@
 Contributor how to guides
 =========================
 
+Preparing jobscripts for host submission
+---------------------------------------
+
+The ``--containerised`` option on ``go``, ``demo-workflow go``, and
+``workflow ... submit`` writes jobscripts without launching them. Standard output
+contains a single JSON submission plan; progress and other messages go to standard
+error. ``--wait`` and ``--cancel`` are not supported in this mode.
+
+The plan contains ``schema_version`` (currently ``1``), ``workflow_path`` (the
+absolute workflow directory as seen by hpcflow), and a ``jobscripts`` list in
+submission order. Each entry includes ``submission_index``, ``jobscript_index``,
+``path`` (relative to the workflow directory, with slash separators), ``scheduler``,
+``shell``, ``is_array``, ``dependencies``, and ``submit_command`` (argument words,
+not shell source).
+
+Each dependency identifies its submission and jobscript indices and whether it is
+an array dependency. ``reference`` contains the scheduler job ID or process ID for
+an already submitted dependency, or ``null`` for a dependency in this plan.
+``placeholder`` identifies the corresponding token in the submission command.
+The host must replace unresolved dependency tokens with the actual IDs obtained
+from submitting earlier jobscripts. It must also replace
+``__HPCFLOW_JOBSCRIPT_PATH__`` with the host-visible jobscript path and submit from
+the host-visible workflow directory. Container and host mount paths may differ.
+Preserve argument boundaries; do not evaluate the command as shell source.
+
+Preparation does not set job IDs, process IDs, submission timestamps, or
+known-submission records. Repeating preparation regenerates the pending jobscripts
+without marking them submitted. In Python, ``Workflow.submit(containerised=True)``
+returns the plan regardless of ``return_idx``; the app's ``make_and_submit_*``
+functions return ``(workflow, plan)``.
+
+This is the preparation protocol only. Container installation, the host wrapper,
+recording host submission results, and host-side ``execute-run`` integration are
+not yet implemented. The generated scripts are not yet a complete container
+execution solution.
+
 Adding class methods to the ``ValueSequence`` and ``MultiPathSequence`` classes
 -------------------------------------------------------------------------------
 

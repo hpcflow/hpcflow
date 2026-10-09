@@ -3,7 +3,7 @@ Types for the submission subsystem.
 """
 
 from __future__ import annotations
-from typing import Any, TypeAlias, TYPE_CHECKING
+from typing import Any, Literal, TypeAlias, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
@@ -112,6 +112,37 @@ class SubmissionPart(TypedDict):
     submit_time: datetime
     #: The jobscripts involved in this submission.
     jobscripts: list[int]
+
+
+class ContainerisedDependency(TypedDict):
+    """A host submission dependency; a null reference must be resolved by the host."""
+
+    submission_index: int
+    jobscript_index: int
+    is_array: bool
+    reference: str | None
+    placeholder: str
+
+
+class ContainerisedJobscript(TypedDict):
+    """A prepared jobscript and its host-side submission command."""
+
+    submission_index: int
+    jobscript_index: int
+    path: str
+    scheduler: str
+    shell: str
+    is_array: bool
+    dependencies: list[ContainerisedDependency]
+    submit_command: list[str]
+
+
+class ContainerisedSubmissionPlan(TypedDict):
+    """Versioned, JSON-serialisable handoff to the host."""
+
+    schema_version: Literal[1]
+    workflow_path: str
+    jobscripts: list[ContainerisedJobscript]
 
 
 # This needs PEP 728 for a better type, alas

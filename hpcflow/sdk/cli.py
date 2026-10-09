@@ -7,6 +7,7 @@ import contextlib
 from datetime import datetime, timezone
 import json
 import os
+import sys
 import time
 import click
 from colorama import init as colorama_init
@@ -314,35 +315,44 @@ def _make_API_CLI(app: BaseApp):
 
         """
         # TODO: allow submitting a persistent workflow via this command?
-        out = app.make_and_submit_workflow(
-            template_file_or_str=template_file_or_str,
-            is_string=string,
-            template_format=format,
-            path=path,
-            name=name,
-            name_add_timestamp=name_add_timestamp,
-            name_use_dir=name_use_dir,
-            overwrite=overwrite,
-            store=store,
-            ts_fmt=ts_fmt,
-            ts_name_fmt=ts_name_fmt,
-            variables=dict(variables) if variables is not None else None,
-            updates={tuple(key.split(".")): val for key, val in (updates or [])} or None,
-            resources=dict(resources) if resources is not None else None,
-            config=dict(config) if config is not None else None,
-            JS_parallelism=js_parallelism,
-            min_jobscripts=min_jobscripts,
-            wait=wait,
-            add_to_known=add_to_known,
-            return_idx=print_idx,
-            tasks=tasks,
-            cancel=cancel,
-            status=status,
-            quiet=quiet,
-            timeit=timeit,
-            containerised=containerised,
-        )
-        if print_idx:
+        with (
+            contextlib.redirect_stdout(sys.stderr)
+            if containerised
+            else contextlib.nullcontext()
+        ):
+            out = app.make_and_submit_workflow(
+                template_file_or_str=template_file_or_str,
+                is_string=string,
+                template_format=format,
+                path=path,
+                name=name,
+                name_add_timestamp=name_add_timestamp,
+                name_use_dir=name_use_dir,
+                overwrite=overwrite,
+                store=store,
+                ts_fmt=ts_fmt,
+                ts_name_fmt=ts_name_fmt,
+                variables=dict(variables) if variables is not None else None,
+                updates={tuple(key.split(".")): val for key, val in (updates or [])}
+                or None,
+                resources=dict(resources) if resources is not None else None,
+                config=dict(config) if config is not None else None,
+                JS_parallelism=js_parallelism,
+                min_jobscripts=min_jobscripts,
+                wait=wait,
+                add_to_known=add_to_known,
+                return_idx=print_idx,
+                tasks=tasks,
+                cancel=cancel,
+                status=status,
+                quiet=quiet,
+                timeit=timeit,
+                containerised=containerised,
+            )
+        if containerised:
+            assert isinstance(out, tuple)
+            click.echo(json.dumps(out[1]))
+        elif print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
 
@@ -579,19 +589,26 @@ def _make_workflow_CLI(app: BaseApp):
         containerised: bool = False,
     ):
         """Submit the workflow."""
-        out = wf.submit(
-            JS_parallelism=js_parallelism,
-            wait=wait,
-            add_to_known=add_to_known,
-            return_idx=True,
-            tasks=tasks,
-            cancel=cancel,
-            status=status,
-            quiet=quiet,
-            timeit=timeit,
-            containerised=containerised,
-        )
-        if print_idx:
+        with (
+            contextlib.redirect_stdout(sys.stderr)
+            if containerised
+            else contextlib.nullcontext()
+        ):
+            out = wf.submit(
+                JS_parallelism=js_parallelism,
+                wait=wait,
+                add_to_known=add_to_known,
+                return_idx=True,
+                tasks=tasks,
+                cancel=cancel,
+                status=status,
+                quiet=quiet,
+                timeit=timeit,
+                containerised=containerised,
+            )
+        if containerised:
+            click.echo(json.dumps(out))
+        elif print_idx:
             click.echo(out)
 
     @workflow.command(name="add-submission")

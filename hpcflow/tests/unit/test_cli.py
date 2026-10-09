@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from unittest.mock import Mock
 import pytest
 
@@ -43,7 +44,7 @@ def test_containerised_help(submission_command):
     result = CliRunner().invoke(command, ["--help"])
     assert result.exit_code == 0
     assert "--containerised" in result.output
-    assert "Currently a no-op" in result.output
+    assert "JSON host submission plan" in result.output
 
 
 @pytest.mark.parametrize("containerised", [False, True])
@@ -51,7 +52,8 @@ def test_containerised_passed_to_submission_api(
     submission_command, monkeypatch, containerised
 ):
     command, args = submission_command
-    submit = Mock()
+    plan = {"schema_version": 1, "workflow_path": "workflow", "jobscripts": []}
+    submit = Mock(return_value=plan if command.name == "submit" else (None, plan))
     workflow = hf.Workflow.__new__(hf.Workflow)
     if command.name == "submit":
         monkeypatch.setattr(hf.Workflow, "submit", submit)
@@ -68,6 +70,62 @@ def test_containerised_passed_to_submission_api(
     assert result.exit_code == 0
     submit.assert_called_once()
     assert submit.call_args.kwargs["containerised"] is containerised
+    if containerised:
+        assert json.loads(result.stdout) == plan
+
+
+@pytest.mark.parametrize("command", ["go", "demo-go", "submit"])
+def test_containerised_json_plan(tmp_path, cli_runner, monkeypatch, command):
+    launch = Mock(side_effect=AssertionError("Container must not launch jobscripts"))
+    monkeypatch.setattr(hf.Jobscript, "submit", launch)
+    if command == "submit":
+        workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
+        assert isinstance(workflow, hf.Workflow)
+        args = ["workflow", str(workflow.path), "submit"]
+        hf.unload_config()
+    elif command == "demo-go":
+        args = ["demo-workflow", "go", "workflow_1", "--path", str(tmp_path)]
+    else:
+        args = [
+            "go",
+            json.dumps(
+                {
+                    "name": "plan",
+                    "tasks": [{"schema": "test_t1_conditional_OS", "inputs": {"p1": 1}}],
+                }
+            ),
+            "--string",
+            "--format",
+            "json",
+            "--path",
+            str(tmp_path),
+        ]
+    result = cli_runner([*args, "--containerised"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.stdout)
+    assert plan["schema_version"] == 1
+    assert len(plan["jobscripts"]) == 1
+    workflow_path = Path(plan["workflow_path"])
+    assert (workflow_path / plan["jobscripts"][0]["path"]).is_file()
+    assert not hf.Workflow(workflow_path).submissions[0].submitted_jobscripts
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize("option", ["--wait", "--cancel"])
+def test_containerised_rejects_host_only_options(tmp_path, cli_runner, option):
+    result = cli_runner(
+        [
+            "demo-workflow",
+            "go",
+            "workflow_1",
+            "--path",
+            str(tmp_path),
+            "--containerised",
+            option,
+        ]
+    )
+    assert result.exit_code != 0
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_error_propagated_with_custom_context_class():

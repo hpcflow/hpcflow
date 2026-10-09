@@ -1822,15 +1822,9 @@ class Jobscript(JSONLike):
             print(stderr)
         return stdout, stderr
 
-    @TimeIt.decorator
-    def submit(
-        self,
-        scheduler_refs: dict[int, tuple[str, bool]],
-        print_stdout: bool = False,
-    ) -> str:
-        """
-        Submit the jobscript to the scheduler.
-        """
+    def _get_submit_dependencies(
+        self, scheduler_refs: dict[int, tuple[str, bool]]
+    ) -> dict[int, tuple[str, bool]]:
         # map each dependency jobscript index to the JS ref (job/process ID) and if the
         # dependency is an array dependency:
         deps: dict[int, tuple[str, bool]] = {}
@@ -1855,6 +1849,9 @@ class Jobscript(JSONLike):
                     if js_idx not in deps:
                         deps[js_idx] = (js_ref, False)
 
+        return deps
+
+    def _prepare_jobscript(self, deps: dict[int, tuple[str, bool]]) -> Path:
         # make directory for jobscripts stdout/err stream files:
         self.std_path.mkdir(exist_ok=True)
 
@@ -1862,7 +1859,17 @@ class Jobscript(JSONLike):
             for block in self.blocks:
                 block.write_EAR_ID_file(ID_fp)
 
-        js_path = self.shell.prepare_JS_path(self.write_jobscript(deps=deps))
+        return self.write_jobscript(deps=deps)
+
+    @TimeIt.decorator
+    def submit(
+        self,
+        scheduler_refs: dict[int, tuple[str, bool]],
+        print_stdout: bool = False,
+    ) -> str:
+        """Submit the jobscript to the scheduler."""
+        deps = self._get_submit_dependencies(scheduler_refs)
+        js_path = self.shell.prepare_JS_path(self._prepare_jobscript(deps))
         submit_cmd = self.scheduler.get_submit_command(self.shell, js_path, deps)
         self._app.submission_logger.info(
             f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"

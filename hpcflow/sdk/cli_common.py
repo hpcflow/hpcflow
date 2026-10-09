@@ -225,8 +225,8 @@ submit_quiet_opt = click.option(
 containerised_opt = click.option(
     "--containerised",
     help=(
-        "Reserve submission for the host when running in a container. "
-        "Currently a no-op; jobscripts are still submitted normally."
+        "Write jobscripts without submitting and print a JSON host submission plan. "
+        "Cannot be combined with --wait or --cancel."
     ),
     is_flag=True,
     default=False,

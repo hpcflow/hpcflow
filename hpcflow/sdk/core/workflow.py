@@ -123,6 +123,7 @@ if TYPE_CHECKING:
         BlockActionKey,
     )
     from ..submission.submission import Submission
+    from ..submission.types import ContainerisedJobscript, ContainerisedSubmissionPlan
     from ..submission.jobscript import (
         Jobscript,
         JobScriptDescriptor,
@@ -3784,7 +3785,11 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         containerised: bool = False,
-    ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
+    ) -> tuple[
+        Sequence[SubmissionFailure],
+        Mapping[int, Sequence[int]],
+        list[ContainerisedJobscript],
+    ]:
         """Submit outstanding EARs for execution.
 
         Parameters
@@ -3805,8 +3810,7 @@ class Workflow(AppAware):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Prepare host submission descriptors instead of launching jobscripts.
         """
 
         # generate a new submission if there are no pending submissions:
@@ -3839,23 +3843,26 @@ class Workflow(AppAware):
         # submit all pending submissions:
         exceptions: list[SubmissionFailure] = []
         submitted_js: dict[int, list[int]] = {}
+        prepared_js: list[ContainerisedJobscript] = []
         for sub in pending:
             try:
                 if status:
                     status.update(f"Preparing submission {sub.index}...")
+                if containerised:
+                    prepared_js.extend(sub.submit(status=status, containerised=True))
+                    continue
                 sub_js_idx = sub.submit(
                     status=status,
                     ignore_errors=ignore_errors,
                     print_stdout=print_stdout,
                     add_to_known=add_to_known,
                     quiet=quiet,
-                    containerised=containerised,
                 )
                 submitted_js[sub.index] = sub_js_idx
             except SubmissionFailure as exc:
                 exceptions.append(exc)
 
-        return exceptions, submitted_js
+        return exceptions, submitted_js, prepared_js
 
     @overload
     def submit(
@@ -3873,7 +3880,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        containerised: bool = False,
+        containerised: Literal[False] = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -3892,8 +3899,46 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        containerised: bool = False,
+        containerised: Literal[False] = False,
     ) -> None: ...
+
+    @overload
+    def submit(
+        self,
+        *,
+        ignore_errors: bool = False,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
+        print_stdout: bool = False,
+        wait: bool = False,
+        add_to_known: bool = True,
+        return_idx: bool = False,
+        tasks: list[int] | None = None,
+        cancel: bool = False,
+        status: bool = True,
+        quiet: bool = False,
+        timeit: bool = False,
+        containerised: Literal[True],
+    ) -> ContainerisedSubmissionPlan: ...
+
+    @overload
+    def submit(
+        self,
+        *,
+        ignore_errors: bool = False,
+        JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+        min_jobscripts: bool = True,
+        print_stdout: bool = False,
+        wait: bool = False,
+        add_to_known: bool = True,
+        return_idx: bool = False,
+        tasks: list[int] | None = None,
+        cancel: bool = False,
+        status: bool = True,
+        quiet: bool = False,
+        timeit: bool = False,
+        containerised: bool,
+    ) -> Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan | None: ...
 
     def submit(
         self,
@@ -3911,7 +3956,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         containerised: bool = False,
-    ) -> Mapping[int, Sequence[int]] | None:
+    ) -> Mapping[int, Sequence[int]] | ContainerisedSubmissionPlan | None:
         """Submit the workflow for execution.
 
         Parameters
@@ -3955,9 +4000,13 @@ class Workflow(AppAware):
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
             are included.
         containerised: bool
-            Reserved for host-side submission when running in a container. Currently a
-            no-op; jobscripts are still submitted normally.
+            Write jobscripts without launching them and return a versioned host
+            submission plan, regardless of `return_idx`. Cannot be combined with
+            `wait` or `cancel`.
         """
+
+        if containerised and (wait or cancel):
+            raise ValueError("Containerised submission cannot wait for or cancel jobs.")
 
         # Type hint for mypy
         status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
@@ -3975,7 +4024,7 @@ class Workflow(AppAware):
                 self._store.parameters_array_cache(),
                 self._store.cache_ctx(),
             ):
-                exceptions, submitted_js = self._submit(
+                exceptions, submitted_js, prepared_js = self._submit(
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
                     min_jobscripts=min_jobscripts,
@@ -3990,6 +4039,13 @@ class Workflow(AppAware):
 
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
+
+        if containerised:
+            return {
+                "schema_version": 1,
+                "workflow_path": str(Path(self.path).resolve()),
+                "jobscripts": prepared_js,
+            }
 
         if cancel:
             self.cancel(status=status, quiet=quiet)

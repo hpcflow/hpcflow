@@ -72,14 +72,21 @@ def empty_workflow(tmp_path) -> Workflow:
 def test_containerised_passed_to_submission_submit(tmp_path, monkeypatch, containerised):
     workflow = hf.make_demo_workflow("workflow_1", path=tmp_path, status=False)
     assert isinstance(workflow, hf.Workflow)
-    submit = Mock(return_value=[0])
+    submit = Mock(return_value=[] if containerised else [0])
     monkeypatch.setattr(hf.Submission, "submit", submit)
     indices = workflow.submit(
         containerised=containerised, return_idx=True, status=False, quiet=True
     )
     submit.assert_called_once()
-    assert submit.call_args.kwargs["containerised"] is containerised
-    assert indices == {0: [0]}
+    assert submit.call_args.kwargs.get("containerised", False) is containerised
+    if containerised:
+        assert indices == {
+            "schema_version": 1,
+            "workflow_path": str(Path(workflow.path).resolve()),
+            "jobscripts": [],
+        }
+    else:
+        assert indices == {0: [0]}
 
 
 @pytest.fixture
