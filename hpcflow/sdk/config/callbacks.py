@@ -133,7 +133,7 @@ def set_scheduler_invocation_match(config: Config, scheduler: str) -> None:
     """
     sched = config._app.get_scheduler(
         scheduler_name=scheduler,
-        os_name=os.name,
+        os_name=config._app.run_time_info.execution_os,
         scheduler_args=config.get(f"schedulers.{scheduler}").get("defaults", {}),
     )
     if isinstance(sched, config._app.QueuedScheduler):
@@ -154,7 +154,7 @@ def callback_scheduler_set_up(
     for k, v in schedulers.items():
         sched = config._app.get_scheduler(
             scheduler_name=k,
-            os_name=os.name,
+            os_name=config._app.run_time_info.execution_os,
             scheduler_args=v.get("defaults", {}),
         )
 
@@ -173,7 +173,10 @@ def callback_supported_shells(config: Config, shell_name: str) -> str:
     """
     Callback that tests if a shell names is supported on this OS.
     """
-    supported = get_supported_shells(os.name)
+    supported = {
+        **get_supported_shells(os.name),
+        **get_supported_shells(config._app.run_time_info.execution_os),
+    }
     if shell_name not in supported:
         raise UnsupportedShellError(shell=shell_name, supported=supported)
     return shell_name

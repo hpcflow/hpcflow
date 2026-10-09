@@ -376,7 +376,7 @@ class ElementResources(JSONLike):
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
-    combine_jobscript_std: bool = field(default_factory=lambda: os.name != "nt")
+    combine_jobscript_std: bool | None = None
     #: Whether Python scripts should be combined.
     combine_scripts: bool | None = None
     #: How long to run for.
@@ -513,13 +513,14 @@ class ElementResources(JSONLike):
         executable instances at submit- and run-time."""
         return ("num_cores",)  # TODO: filter on `parallel_mode` later
 
-    @staticmethod
+    @classmethod
     @TimeIt.decorator
-    def get_default_os_name() -> str:
+    def get_default_os_name(cls) -> str:
         """
         Get the default value for OS name.
         """
-        return os.name
+
+        return cls._app.run_time_info.execution_os
 
     @classmethod
     @TimeIt.decorator
@@ -527,7 +528,17 @@ class ElementResources(JSONLike):
         """
         Get the default value for name.
         """
-        return cls._app.config.default_shell
+        shell = cls._app.config.default_shell
+        if cls._app.run_time_info.execution_os != os.name:
+            from hpcflow.sdk.submission.shells import (
+                get_supported_shells,
+                DEFAULT_SHELL_NAMES,
+            )
+
+            target_os = cls._app.run_time_info.execution_os
+            if shell not in get_supported_shells(target_os):
+                return DEFAULT_SHELL_NAMES[target_os]
+        return shell
 
     @classmethod
     @TimeIt.decorator
@@ -535,7 +546,7 @@ class ElementResources(JSONLike):
         """
         Get the default value for platform.
         """
-        return cls._app.run_time_info.platform
+        return cls._app.run_time_info.execution_platform
 
     @classmethod
     @TimeIt.decorator
@@ -543,7 +554,7 @@ class ElementResources(JSONLike):
         """
         Get the default value for the CPU architecture.
         """
-        return cls._app.run_time_info.CPU_arch
+        return cls._app.run_time_info.execution_CPU_arch
 
     @classmethod
     @TimeIt.decorator
@@ -551,7 +562,7 @@ class ElementResources(JSONLike):
         """
         Get the default value for the executable extension.
         """
-        return ".exe" if os.name == "nt" else ""
+        return ".exe" if cls._app.run_time_info.execution_os == "nt" else ""
 
     @classmethod
     @TimeIt.decorator
@@ -576,6 +587,8 @@ class ElementResources(JSONLike):
             self.shell = self.get_default_shell()
         if self.scheduler is None:
             self.scheduler = self.get_default_scheduler(self.os_name, self.shell)
+        if self.combine_jobscript_std is None:
+            self.combine_jobscript_std = self.os_name != "nt"
 
         # these are not set by the user:
         self.platform = self.get_default_platform()
@@ -604,7 +617,7 @@ class ElementResources(JSONLike):
     def validate_against_machine(self):
         """Validate the values for `os_name`, `shell` and `scheduler` against those
         supported on this machine (as specified by the app configuration)."""
-        if self.os_name != os.name:
+        if self.os_name != self._app.run_time_info.execution_os:
             raise UnsupportedOSError(os_name=self.os_name)
         if self.scheduler not in self._app.config.schedulers:
             raise UnsupportedSchedulerError(

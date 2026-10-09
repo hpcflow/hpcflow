@@ -55,12 +55,25 @@ class RunTimeInfo:
         self.container_image = os.environ.get(f"{package_name.upper()}_CONTAINER") or None
         #: Whether the application is running in an image marked by its container variable.
         self.in_container = self.container_image is not None
+        self.container_host_os = os.environ.get(
+            f"{package_name.upper()}_CONTAINER_HOST_OS"
+        )
+        if self.container_host_os not in (None, "nt", "posix"):
+            raise ValueError("CONTAINER_HOST_OS must be nt or posix.")
+        if self.container_host_os and not self.in_container:
+            raise ValueError("CONTAINER_HOST_OS requires a container image marker.")
+        self.execution_os = self.container_host_os or os.name
         #: Working directory.
         self.working_dir = os.getcwd()
         #: Where to write log messages.
         self.logger = logger
         #: Host that this is running on.
         self.hostname = socket.gethostname()
+        self.execution_hostname = (
+            os.environ.get(f"{package_name.upper()}_CONTAINER_HOST_HOSTNAME")
+            if self.container_host_os
+            else None
+        ) or self.hostname
 
         #: Whether this application is inside iPython.
         self.in_ipython = False
@@ -138,6 +151,14 @@ class RunTimeInfo:
         self.CPU_arch = platform.machine()
         # Broadly defined operating system, typically: "win", "macos", or "linux".
         self.platform = _PLAT_LOOKUP.get(sys.platform, sys.platform)
+        self.execution_platform = (
+            "win" if self.container_host_os == "nt" else self.platform
+        )
+        self.execution_CPU_arch = (
+            os.environ.get(f"{package_name.upper()}_CONTAINER_HOST_CPU_ARCH")
+            if self.container_host_os
+            else None
+        ) or self.CPU_arch
 
         # TODO: investigate
         # if self.is_venv and self.is_conda_venv:
@@ -159,6 +180,11 @@ class RunTimeInfo:
             "is_frozen": self.is_frozen,
             "container_image": self.container_image,
             "in_container": self.in_container,
+            "container_host_os": self.container_host_os,
+            "execution_os": self.execution_os,
+            "execution_hostname": self.execution_hostname,
+            "execution_platform": self.execution_platform,
+            "execution_CPU_arch": self.execution_CPU_arch,
             "working_dir": self.working_dir,
             "logger": self.logger,
             "hostname": self.hostname,

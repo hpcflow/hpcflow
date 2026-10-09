@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 from types import SimpleNamespace
 
@@ -41,7 +42,14 @@ $ErrorActionPreference = 'Stop'
 $words = @($args)
 Add-Content -LiteralPath $env:WRAPPER_CONTAINER_LOG -Value (
     ConvertTo-Json -InputObject $words -Compress)
-if ($words -contains 'record-host-submission') {
+if ($words -contains 'execute-run') {
+    Get-Content -Raw -LiteralPath $env:WRAPPER_RUN_PLAN
+} elseif ($words -contains 'complete-host-run') {
+    Add-Content -LiteralPath $env:WRAPPER_COMPLETE_LOG -Value (
+        ConvertTo-Json -InputObject $words -Compress)
+    if ($env:WRAPPER_FAIL_COMPLETE -eq '1') { exit 11 }
+    '{"completed":true}'
+} elseif ($words -contains 'record-host-submission') {
     $result = [Console]::In.ReadToEnd() | ConvertFrom-Json -AsHashtable
     Add-Content -LiteralPath $env:WRAPPER_ACK_LOG -Value (
         ConvertTo-Json -InputObject $result -Compress -Depth 30)
@@ -129,27 +137,42 @@ else { "$($count + 100);cluster" }
     plan_file = root / "plan.json"
     env = {
         **os.environ,
+        "HPCFLOW_CONFIG_DIR": str(root / ".hpcflow"),
+        "MATFLOW_CONFIG_DIR": str(root / ".matflow"),
         "WRAPPER_PLAN": str(plan_file),
         "WRAPPER_CONTAINER_LOG": str(root / "container.jsonl"),
         "WRAPPER_ACK_LOG": str(root / "ack.jsonl"),
         "WRAPPER_LAUNCH_LOG": str(root / "launch.jsonl"),
         "WRAPPER_PASS_EXIT": "0",
+        "WRAPPER_COMPLETE_LOG": str(root / "complete.jsonl"),
     }
 
-    def run(args=None, resume=False, wrapper=WRAPPER, use_image=True, **overrides):
+    def run(
+        args=None,
+        resume=False,
+        wrapper=WRAPPER,
+        use_image=True,
+        positional=False,
+        machine="host-machine",
+        **overrides,
+    ):
         if wrapper == WRAPPER:
             wrapper = rendered_wrapper
         plan_file.write_text(json.dumps(plan), encoding="utf-8", newline="\n")
         invocation = (
             f"& {ps_quote(wrapper)} "
             + ("-Image 'hpcflow:test' " if use_image else "")
-            + "-Machine 'host-machine' "
-            f"-ContainerCommand @({ps_quote(pwsh)}, '-NoProfile', '-File', "
+            + (f"-Machine {ps_quote(machine)} " if machine is not None else "")
+            + f"-ContainerCommand @({ps_quote(pwsh)}, '-NoProfile', '-File', "
             f"{ps_quote(container)}) "
         )
         if resume:
             invocation += "-ResumeResult " + ps_quote(
                 workflow / ".hpcflow-host-submission.json"
+            )
+        elif positional:
+            invocation += " ".join(
+                ps_quote(arg) for arg in (args or ["go", "template.yaml"])
             )
         else:
             invocation += (
@@ -175,6 +198,259 @@ else { "$($count + 100);cluster" }
         )
 
     return run, plan, workflow, records
+
+
+def test_wrapper_defaults_machine_to_host_hostname(wrapper_host):
+    run, _, _, records = wrapper_host
+    result = run(["demo-workflow", "go", "workflow_1"], positional=True, machine=None)
+    assert result.returncode == 0, result.stderr
+    hostname = socket.gethostname()
+    assert all(ack["submit_machine"] == hostname for ack in records("ack"))
+    preparation = records("container")[0]
+    command_index = preparation.index("demo-workflow")
+    assert preparation[command_index - 3 : command_index] == [
+        "--with-config",
+        "machine",
+        hostname,
+    ]
+
+
+def test_wrapper_rejects_explicit_empty_machine(wrapper_host):
+    run, _, _, records = wrapper_host
+    result = run(machine="")
+    assert result.returncode != 0
+    assert "Machine must not be empty" in result.stderr
+    assert not records("container")
+    assert not records("launch")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows host configuration paths")
+@pytest.mark.parametrize("app_name", ["hpcflow", "matflow"])
+@pytest.mark.parametrize("location", ["unset", "outside", "inside", "container"])
+def test_wrapper_container_config_directory(wrapper_host, app_name, location):
+    run, _, workflow, records = wrapper_host
+    root = workflow.parent
+    wrapper = root / f"{app_name}.ps1"
+    wrapper.write_text(
+        WRAPPER.read_text().replace("__APP_NAME_", f"__{app_name.upper()}_"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    config_dir = {
+        "unset": "",
+        "outside": str(root.parent / f".{app_name}"),
+        "inside": str(root / "custom config"),
+        "container": "/work/custom config",
+    }[location]
+    result = run(
+        ["show-config"],
+        wrapper=wrapper,
+        **{f"{app_name.upper()}_CONFIG_DIR": config_dir},
+        USERPROFILE=str(root),
+        HOME=str(root),
+    )
+    assert result.returncode == 0, result.stderr
+    args = records("container")[0]
+    env_values = [args[index + 1] for index, arg in enumerate(args) if arg == "--env"]
+    expected = (
+        "/work/custom config"
+        if location == "container"
+        else (f"/config/.{app_name}-container")
+    )
+    assert [
+        value
+        for value in env_values
+        if value.startswith(f"{app_name.upper()}_CONFIG_DIR=")
+    ] == [f"{app_name.upper()}_CONFIG_DIR={expected}"]
+    assert f"XDG_CACHE_HOME={expected}/cache" in env_values
+    assert f"XDG_DATA_HOME={expected}/data" in env_values
+    mounts = [args[index + 1] for index, arg in enumerate(args) if arg == "--mount"]
+    if location == "container":
+        assert len(mounts) == 1
+    else:
+        host_config = (
+            root / f".{app_name}-container"
+            if location == "unset"
+            else Path(config_dir + "-container")
+        )
+        assert host_config.is_dir()
+        assert mounts[1] == f"type=bind,source={host_config},target={expected}"
+    assert args.count("shells.powershell.defaults.executable") == 1
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        [
+            "demo-workflow",
+            "go",
+            "workflow_1",
+            "--path",
+            ".",
+            "--name",
+            "name with spaces",
+        ],
+        ["go", "template.yaml", "--modify-js"],
+        ["workflow", "workflow with spaces", "submit", "--name-no-timestamp"],
+    ],
+)
+def test_wrapper_positional_submission(wrapper_host, args):
+    run, _, _, records = wrapper_host
+    result = run(args, positional=True)
+    assert result.returncode == 0, result.stderr
+    prepared_args = records("container")[0]
+    command_index = prepared_args.index(args[0])
+    assert prepared_args[command_index:] == [*args, "--containerised"]
+    assert len(records("ack")) == 2
+
+
+def test_wrapper_positional_passthrough(wrapper_host):
+    run, _, _, records = wrapper_host
+    args = ["workflow", "workflow with spaces", "get-param", "1"]
+    result = run(args, positional=True, WRAPPER_PASS_EXIT="6")
+    assert result.returncode == 6, result.stderr
+    assert records("container")[0][-len(args) :] == args
+    assert not records("launch")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows direct host launcher")
+@pytest.mark.parametrize("fail_ack", [False, True])
+def test_wrapper_direct_launch_and_dependencies(wrapper_host, fail_ack):
+    import psutil
+
+    run, plan, workflow, records = wrapper_host
+    for index, job in enumerate(plan["jobscripts"]):
+        job["scheduler"] = "direct"
+        job["stdout_path"] = f"stdout {index}.log"
+        job["stderr_path"] = f"stderr {index}.log"
+        job["submit_command"] = [
+            shutil.which("pwsh"),
+            "-NoProfile",
+            "-File",
+            "__HPCFLOW_JOBSCRIPT_PATH__",
+        ]
+        (workflow / job["path"]).write_text(
+            "Start-Sleep -Milliseconds 1500\n"
+            + (
+                "if (-not (Test-Path -LiteralPath 'done 0')) { throw 'Dependency ran early' }\n"
+                if index
+                else ""
+            )
+            + f"Set-Content -LiteralPath 'done {index}' -Value 'done'\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    result = run(WRAPPER_FAIL_ACK="1" if fail_ack else "0")
+    if fail_ack:
+        assert result.returncode != 0
+        first_pid = records("ack")[0]["process_ID"]
+        try:
+            assert not (workflow / "done 0").exists()
+            recovered = run(resume=True)
+            assert recovered.returncode == 0, recovered.stderr
+            plan["jobscripts"] = plan["jobscripts"][1:]
+            plan["jobscripts"][0]["dependencies"][0]["reference"] = str(first_pid)
+            result = run()
+        finally:
+            if result.returncode != 0:
+                process = psutil.Process(first_pid)
+                for child in process.children(recursive=True):
+                    child.kill()
+                process.kill()
+    assert result.returncode == 0, result.stderr
+    acknowledgements = list(
+        {item["process_ID"]: item for item in records("ack")}.values()
+    )
+    assert len(acknowledgements) == 2
+    assert all(item["process_ID"] > 0 for item in acknowledgements)
+    assert all("scheduler_job_ID" not in item for item in acknowledgements)
+    for item in acknowledgements:
+        try:
+            psutil.Process(item["process_ID"]).wait(timeout=15)
+        except psutil.NoSuchProcess:
+            pass
+    assert (workflow / "done 0").exists()
+    assert (workflow / "done 1").exists()
+    assert (workflow / ".hpcflow.ps1").is_file()
+    assert not (workflow / ".hpcflow-host-submission.json").exists()
+    assert all(
+        not (workflow / f"stderr {index}.log").read_text().strip() for index in (0, 1)
+    )
+
+
+@pytest.mark.parametrize("exit_code,fail_complete", [(0, False), (7, False), (0, True)])
+@pytest.mark.parametrize("cached", [False, True])
+def test_wrapper_host_command_execution(wrapper_host, exit_code, fail_complete, cached):
+    run, _, workflow, records = wrapper_host
+    cache = workflow.parent / ".hpcflow-container" / "cache" / "hpcflow"
+    if cached:
+        cache.mkdir(parents=True)
+    command_file = (cache if cached else workflow) / "command with spaces.ps1"
+    container_file = (
+        "/config/.hpcflow-container/cache/hpcflow/command with spaces.ps1"
+        if cached
+        else "/work/workflow with spaces/command with spaces.ps1"
+    )
+    command_file.write_text(
+        "$env:HPCFLOW_RUN_ID | Set-Content -LiteralPath 'host-output'\n"
+        "$env:HPCFLOW_TEST_CACHED_FILE | Set-Content -LiteralPath 'mapped-file'\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    run_plan = workflow.parent / "run-plan.json"
+    run_plan.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "workflow_id": "workflow-id",
+                "command": [
+                    shutil.which("pwsh"),
+                    "-NoProfile",
+                    "-File",
+                    container_file,
+                ],
+                "working_directory": "/work/workflow with spaces",
+                "environment": {
+                    "HPCFLOW_RUN_ID": "42",
+                    "HPCFLOW_TEST_CACHED_FILE": container_file,
+                },
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        [
+            "internal",
+            "workflow",
+            "/work/workflow with spaces",
+            "execute-run",
+            "0",
+            "0",
+            "0",
+            "0",
+            "42",
+        ],
+        WRAPPER_RUN_PLAN=str(run_plan),
+        WRAPPER_FAIL_COMPLETE="1" if fail_complete else "0",
+    )
+    assert (result.returncode == 0) == (not fail_complete), result.stderr
+    assert (workflow / "host-output").read_text().strip() == "42"
+    assert (workflow / "mapped-file").read_text().strip() == str(command_file)
+    assert records("complete")[0][-2:] == ["--", str(exit_code)]
+    assert not records("launch")
+    journals = list(workflow.glob(".HPCFLOW-run-*.json"))
+    if fail_complete:
+        assert len(journals) == 1
+        journal = json.loads(journals[0].read_text())
+        assert journal["state"] == "executed"
+        assert journal["exit_code"] == exit_code
+        assert "environment" not in journal
+        retry = run(journal["complete_args"])
+        assert retry.returncode == 0, retry.stderr
+    else:
+        assert not journals
 
 
 @pytest.mark.parametrize(

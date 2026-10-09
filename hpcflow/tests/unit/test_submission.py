@@ -54,7 +54,7 @@ def test_containerised_preparation(
         if scheduler == "sge":
             hf.config.set(
                 "schedulers.sge.parallel_environments",
-                {"test": {"num_cores": [1, 2]}},
+                {"test": {"num_cores": [1, 1, 2]}},
             )
     resources = (
         {}
@@ -147,7 +147,10 @@ def test_containerised_scheduler_dependency_commands(
     tmp_path, scheduler_cls, already_submitted, array_dependency, package_name
 ):
     sub = Mock(spec=hf.Submission)
-    sub._app = SimpleNamespace(package_name=package_name)
+    sub._app = SimpleNamespace(
+        package_name=package_name,
+        run_time_info=SimpleNamespace(container_host_os=None),
+    )
     app_caps = package_name.upper()
     sub.index = 0
     sub.JS_parallelism = True

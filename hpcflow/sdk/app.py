@@ -651,6 +651,15 @@ class BaseApp(metaclass=Singleton):
             self.version,
             self.runtime_info_logger,
         )
+        if self.run_time_info.container_host_os:
+            self.config_options = copy.copy(config_options)
+            self.config_options.default_config = copy.deepcopy(
+                config_options.default_config
+            )
+            default_config = self.config_options.default_config["config"]
+            host_shell = DEFAULT_SHELL_NAMES[self.run_time_info.execution_os]
+            default_config["default_shell"] = host_shell
+            default_config["shells"].setdefault(host_shell, {"defaults": {}})
 
         self._builtin_template_components = template_components or {}
 
@@ -2263,10 +2272,10 @@ class BaseApp(metaclass=Singleton):
         system.
         """
         for k in self.scheduler_lookup:
-            if os.name == "nt" and k == ("direct", "posix"):
+            if self.run_time_info.execution_os == "nt" and k == ("direct", "posix"):
                 # this is valid for WSL on Windows
                 yield "_".join(k)
-            elif k[1] == os.name:
+            elif k[1] == self.run_time_info.execution_os:
                 yield k[0]
 
     def perm_error_retry(self):

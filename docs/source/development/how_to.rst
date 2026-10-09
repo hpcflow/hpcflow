@@ -19,7 +19,8 @@ The plan contains ``schema_version`` (currently ``1``), ``workflow_id``,
 submission order. Each entry includes ``submission_index``, ``jobscript_index``,
 ``path`` (relative to the workflow directory, with slash separators), ``scheduler``,
 ``shell``, ``is_array``, ``dependencies``, and ``submit_command`` (argument words,
-not shell source).
+not shell source). Non-array direct jobs also include ``stdout_path`` and
+``stderr_path``, relative to the workflow directory.
 
 Each dependency identifies its submission and jobscript indices and whether it is
 an array dependency. ``reference`` contains the scheduler job ID or process ID for
@@ -104,14 +105,29 @@ PowerShell host submission wrapper
 ##################################
 
 The initial wrapper requires PowerShell 7.3 or newer and Docker on the host, but
-not a host hpcflow installation. It supports Slurm and SGE submission; direct
-execution is explicitly rejected before any job is launched. The host must have
+not a host hpcflow installation for orchestration. It supports Slurm and SGE
+submission, and direct execution on Windows using PowerShell jobscripts. The host must have
 the submission executable available (``sbatch`` or ``qsub``). These schedulers
 normally require a POSIX host, where PowerShell can also be installed.
 
+Build the runtime image from the repository root:
+
+.. code-block:: powershell
+
+    docker build --build-arg HPCFLOW_IMAGE=hpcflow:dev -t hpcflow:dev .
+
+The Dockerfile uses Python 3.13 slim and a separate build stage, installing only
+runtime dependencies and the packaged application. Test/development dependencies,
+the source checkout, Git history and build caches are not included in the final
+image. Installation skips bytecode compilation and runtime bytecode writes are
+disabled. Required scientific and notebook dependencies are retained; this image
+does not remove supported application features to save space.
+``--build-arg PYTHON_VERSION=3.12`` selects another supported Python version.
+Dependencies are resolved from ``pyproject.toml`` at build time, not from the
+Poetry lock file.
+
 Declare the image name explicitly at build time. Docker does not automatically
-make its eventual image tag available inside an image. For example, include
-these declarations in your Dockerfile:
+make its eventual image tag available inside an image. The Dockerfile includes:
 
 .. code-block:: dockerfile
 
@@ -132,26 +148,70 @@ With an image whose entrypoint invokes hpcflow, export the wrapper to the host:
 
 .. code-block:: powershell
 
-    docker run --rm hpcflow:dev internal get-container-wrapper |
-        Set-Content -Encoding utf8 hpcflow-container.ps1
+    docker run --rm hpcflow:dev install > hpcflow.ps1
 
-``internal get-container-wrapper --image IMAGE`` overrides the baked image name.
-This is a low-level export command, not the planned ``manage install-container``.
+This prints only the wrapper to stdout; shell redirection saves it on the host
+without a bind mount or host Python installation. Use PowerShell 7.3 or newer.
+``install --image IMAGE`` overrides the baked image name.
+The low-level ``internal get-container-wrapper`` command remains available.
+Name the exported script after the application's package name: ``hpcflow.ps1``
+or, for MatFlow, ``matflow.ps1``. Only the PowerShell wrapper is currently
+implemented; a future Bash wrapper will use the corresponding ``.sh`` name.
 
 Run the wrapper from the directory containing your templates and workflows:
 
 .. code-block:: powershell
 
-    .\hpcflow-container.ps1 -Machine my-cluster -HpcflowArgs @(
-        'go', 'template.yaml', '--path', '.'
-    )
+    .\hpcflow.ps1 -Machine my-cluster go template.yaml --path .
+
+Pass the hpcflow command and arguments directly after any wrapper options.
+Quote values containing spaces as usual in PowerShell:
+
+.. code-block:: powershell
+
+    .\hpcflow.ps1 demo-workflow go workflow_1 `
+        --path . --name "direct demo" --name-no-timestamp
+
+    .\hpcflow.ps1 workflow "direct demo" show-all-status
+
+The explicit ``-HpcflowArgs @('go', 'template.yaml', '--path', '.')`` form
+remains supported for programmatic callers. Wrapper options such as ``-Image``,
+``-Machine`` and ``-ConfigArgs`` should precede the hpcflow command.
+``-Machine`` defaults to the host hostname, so local direct execution does not
+require it. Override it when using a different logical machine name, such as a
+named cluster configuration. The wrapper uses this name during preparation and
+records it in host submission acknowledgements.
 
 The current directory is bind-mounted at ``/work``, which is also the container's
 working directory. Workflow paths must stay within this mount; use relative paths
 or container-visible ``/work/...`` paths in hpcflow arguments. The mount directory
-must not contain a comma. Container/host paths inside generated jobscripts still
-need the forthcoming execution wrapper; path mapping here applies to submission
-commands only.
+must not contain a comma. Windows direct execution maps workflow arguments,
+command-file paths, working directories, and app environment paths between the
+host mount and ``/work``. Arbitrary paths embedded in user command source are
+not rewritten; use the app's path environment variables or host-visible paths.
+
+Container configuration is shared across working directories, but kept separate
+from ordinary host configuration. The wrapper appends ``-container`` to the host
+``HPCFLOW_CONFIG_DIR`` (``MATFLOW_CONFIG_DIR`` for MatFlow), or uses
+``~/.hpcflow-container`` (``~/.matflow-container``) when unset. For example,
+``D:\.hpcflow`` becomes ``D:\.hpcflow-container``. This directory is created on
+the host and bind-mounted at ``/config/.hpcflow-container`` inside the container.
+The configuration directory must not contain a comma.
+Explicit container-visible ``/work/...`` configuration paths remain supported
+on Windows. The wrapper does not copy existing host or working-directory
+configuration into the new directory. Direct-job contexts retain the selected
+host configuration directory for subsequent container invocations.
+
+The same mount persists caches and application data. The wrapper sets
+``XDG_CACHE_HOME`` and ``XDG_DATA_HOME`` to ``cache`` and ``data`` beneath the
+container configuration directory. Platformdirs adds the application name:
+for hpcflow these become ``cache/hpcflow`` and ``data/hpcflow`` on the host.
+Downloaded demonstration data, cached programs, and application state therefore
+survive container removal and are shared across working directories. Container
+caches are separate from native host caches, since cached programs may target a
+different operating system. Persistent file-path arguments and environment values
+are mapped back to the host during direct execution; this does not make Linux
+executables runnable on Windows. Existing ephemeral caches are not migrated.
 
 The wrapper recognises ``go``, ``demo-workflow go``, and
 ``workflow WORKFLOW_PATH submit`` at the start of ``HpcflowArgs``. Supply global
@@ -170,7 +230,7 @@ launch, retry only the acknowledgement:
 
 .. code-block:: powershell
 
-    .\hpcflow-container.ps1 -ResumeResult (
+    .\hpcflow.ps1 -ResumeResult (
         '.\workflow\.hpcflow-host-submission.json'
     )
 
@@ -183,9 +243,67 @@ will not relaunch or silently mark such a job submitted. Do not delete an uncert
 journal until the outcome has been reconciled. Serialise all wrapper invocations
 against a workflow.
 
-``manage install-container``, Bash support, direct host launches, and host-side
-``execute-run`` integration are not yet implemented. The generated scripts are
-not yet a complete container execution solution.
+Windows direct execution with a Linux container
+##############################################
+
+On Windows the wrapper supplies ``HPCFLOW_CONTAINER``,
+``HPCFLOW_CONTAINER_HOST_OS=nt``, ``HPCFLOW_CONTAINER_HOST_HOSTNAME`` and
+``HPCFLOW_CONTAINER_HOST_CPU_ARCH`` to the
+container. These variables use the application's upper-case package name
+(``MATFLOW_`` for MatFlow). Runtime information retains the actual container
+platform and adds ``execution_os``, ``execution_platform`` and
+``execution_CPU_arch`` for host resource selection, plus ``execution_hostname``
+for run metadata. New configurations default
+to the host shell; the wrapper selects the host PowerShell 7 executable.
+An existing configuration must include a ``powershell`` shell entry.
+
+Direct jobs start as detached host processes with separate jobscript stdout and
+stderr logs. The recorded process ID and command line describe the host launcher,
+not a container process. A durable acknowledgement gate prevents execution before
+the launch is recorded. If acknowledgement fails, the process waits; use
+``-ResumeResult`` to acknowledge the existing process and open its gate without
+launching another job. Dependencies are waited on by the host launcher before
+invoking the jobscript, not by hpcflow inside the container. Process creation
+times in the saved context protect against reused PIDs. Running dependencies
+launched outside this wrapper cannot be verified and are rejected.
+
+The wrapper saves a copy of itself and per-job execution context in the workflow
+directory. Generated PowerShell functions route hpcflow operations (including
+parameter saving) back through this copy. Keep these files and the original
+mount directory available while jobs are running.
+
+For each run, ``internal workflow ... execute-run --containerised`` prepares
+inputs and a command file and marks the run started. It returns a JSON command,
+working directory and execution environment, or ``null`` if no host command is
+needed and the run was finalised in the container. The host runs the command
+synchronously, then calls ``internal workflow ... complete-host-run`` with the
+same five indices and the actual exit code. Completion processes generated
+files, loop termination and downstream failures using the ordinary run lifecycle.
+Identical completion retries are idempotent; conflicting exit codes fail.
+Prepared runs are never automatically executed again.
+
+A ``.HPCFLOW-run-*.json`` journal (``.MATFLOW-run-*.json`` for MatFlow) is retained
+if execution or completion is interrupted. State ``executed`` contains
+``complete_args`` and the exit code: retry those arguments through the wrapper,
+then remove the reconciled journal. Do not rerun the command file. State
+``launching`` is uncertain and requires manual reconciliation. Journals omit
+execution environment values, including secrets.
+
+Host executables and their environment setup must be available on Windows;
+container-installed executables are not automatically host executables. Python
+scripts that import the app still require a suitable host Python environment,
+or an explicitly configured container-based executable.
+
+Combined scripts, abortable actions, direct job arrays, and host process
+monitoring/cancellation through the wrapper are explicitly unsupported for now.
+The submission command still does not support ``--wait`` or ``--cancel``.
+POSIX queued execution still needs its execution bridge; ``manage
+install-container`` and Bash wrapper support are also not yet implemented.
+
+The optional integration test for this path requires a local Linux image with
+an hpcflow entrypoint. Set ``HPCFLOW_TEST_CONTAINER_IMAGE`` to its tag and run
+``hpcflow test --integration --configure-python-env -k
+test_linux_container_windows_direct_workflow``.
 
 Adding class methods to the ``ValueSequence`` and ``MultiPathSequence`` classes
 -------------------------------------------------------------------------------

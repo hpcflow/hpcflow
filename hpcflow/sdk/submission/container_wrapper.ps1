@@ -1,11 +1,14 @@
 #Requires -Version 7.3
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Image = '__APP_NAME_CONTAINER_IMAGE__',
-    [string]$Machine,
+    [string]$Machine = [System.Net.Dns]::GetHostName(),
     [string[]]$ContainerCommand = @('docker'),
     [string[]]$ConfigArgs = @(),
     [string]$ResumeResult,
+    [string]$Context,
+    [switch]$RunJob,
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$HpcflowArgs = @()
 )
 
@@ -15,13 +18,95 @@ $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
 $root = (Get-Location).ProviderPath
 $utf8 = [System.Text.UTF8Encoding]::new($false)
+$appPrefix = '__APP_NAME_'.Trim('_')
+$configEnvName = "${appPrefix}_CONFIG_DIR"
+$hostConfigDirectory = $null
+$containerConfigDirectory = $null
+if ($Context) {
+    $hostContext = Get-Content -Raw -LiteralPath $Context | ConvertFrom-Json -AsHashtable
+    $root = $hostContext.mount_root
+    $Image = $hostContext.image
+    $Machine = $hostContext.machine
+    $ContainerCommand = @($hostContext.container_command)
+    $ConfigArgs = @($hostContext.config_args)
+    if ($hostContext.ContainsKey('container_config_directory')) {
+        $hostConfigDirectory = $hostContext.container_config_directory
+    }
+}
+
+function ConvertTo-ContainerPath {
+    param([string]$Value)
+    if ($hostConfigDirectory -and $containerConfigDirectory) {
+        if ($Value -eq $hostConfigDirectory) { return $containerConfigDirectory }
+        if ($Value.StartsWith($hostConfigDirectory.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar)) {
+            return $containerConfigDirectory + '/' + $Value.Substring($hostConfigDirectory.Length).TrimStart('\', '/').Replace('\', '/')
+        }
+    }
+    if ($Value -eq $root) { return '/work' }
+    if ($Value.StartsWith($root.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar)) {
+        return '/work/' + $Value.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
+    }
+    return $Value
+}
 
 function Invoke-Container {
     param([string[]]$CommandArgs, [string]$InputJson, [switch]$Capture)
+    $hostEnv = @()
+    $configMount = @()
+    $configPath = [System.Environment]::GetEnvironmentVariable($configEnvName)
+    if ($IsWindows -and $configPath -and
+        ($configPath -eq '/work' -or $configPath.StartsWith('/work/')) -and
+        -not $hostConfigDirectory) {
+        # Preserve an explicitly container-visible configuration path.
+    } else {
+        if (-not $hostConfigDirectory) {
+            if (-not $configPath) {
+                $configPath = Join-Path $HOME ".$($appPrefix.ToLowerInvariant())"
+            } elseif ($configPath -eq '~' -or $configPath.StartsWith('~/') -or
+                $configPath.StartsWith('~\')) {
+                $configPath = Join-Path $HOME $configPath.Substring(1).TrimStart('\', '/')
+            }
+            $script:hostConfigDirectory = [System.IO.Path]::GetFullPath($configPath).TrimEnd('\', '/') + '-container'
+        }
+        if ($hostConfigDirectory.Contains(',')) {
+            throw 'Container configuration directory must not contain a comma.'
+        }
+        [System.IO.Directory]::CreateDirectory($hostConfigDirectory) | Out-Null
+        $configPath = "/config/.$($appPrefix.ToLowerInvariant())-container"
+        $configMount = @('--mount', "type=bind,source=$hostConfigDirectory,target=$configPath")
+    }
+    $script:containerConfigDirectory = $configPath.TrimEnd('/')
+    $hostEnv += @(
+        '--env', "${configEnvName}=$configPath",
+        '--env', "XDG_CACHE_HOME=$containerConfigDirectory/cache",
+        '--env', "XDG_DATA_HOME=$containerConfigDirectory/data"
+    )
+    if ($IsWindows) {
+        $hostEnv += @(
+            '--env', "${appPrefix}_CONTAINER=$Image",
+            '--env', "${appPrefix}_CONTAINER_HOST_OS=nt",
+            '--env', "${appPrefix}_CONTAINER_HOST_HOSTNAME=$([System.Net.Dns]::GetHostName())",
+            '--env', "${appPrefix}_CONTAINER_HOST_CPU_ARCH=$env:PROCESSOR_ARCHITECTURE"
+        )
+        foreach ($item in Get-ChildItem Env:) {
+            if ($item.Name.StartsWith("${appPrefix}_") -and
+                $item.Name -ne $configEnvName -and
+                $item.Name -notmatch '_CONTAINER|_RUN_PORT$') {
+                $hostEnv += @('--env', "$($item.Name)=$(ConvertTo-ContainerPath $item.Value)")
+            }
+        }
+        $CommandArgs = @(
+            '--with-config', 'shells.powershell.defaults.executable',
+            (Get-Command pwsh -CommandType Application).Source
+        ) + $CommandArgs
+    }
+    $mappedArgs = @($ConfigArgs + $CommandArgs | ForEach-Object {
+        ConvertTo-ContainerPath $_
+    })
     $dockerArgs = @(
         'run', '--rm', '-i', '--mount', "type=bind,source=$root,target=/work",
-        '--workdir', '/work', $Image
-    ) + $ConfigArgs + $CommandArgs
+        '--workdir', '/work'
+    ) + $configMount + $hostEnv + @($Image) + $mappedArgs
     $exe = $ContainerCommand[0]
     $prefix = @($ContainerCommand | Select-Object -Skip 1)
     if ($PSBoundParameters.ContainsKey('InputJson')) {
@@ -40,15 +125,23 @@ function Invoke-Container {
 }
 
 function Get-HostPath {
-    param([string]$ContainerPath)
-    if ($ContainerPath -ne '/work' -and -not $ContainerPath.StartsWith('/work/')) {
+    param([string]$ContainerPath, [switch]$AllowConfig)
+    $hostRoot = $root
+    $containerRoot = '/work'
+    if ($AllowConfig -and $hostConfigDirectory -and $containerConfigDirectory -and
+        ($ContainerPath -eq $containerConfigDirectory -or
+         $ContainerPath.StartsWith($containerConfigDirectory + '/'))) {
+        $hostRoot = $hostConfigDirectory
+        $containerRoot = $containerConfigDirectory
+    }
+    if ($ContainerPath -ne $containerRoot -and -not $ContainerPath.StartsWith($containerRoot + '/')) {
         throw "Container path is outside /work: $ContainerPath"
     }
-    $relative = $ContainerPath.Substring(5).TrimStart('/')
+    $relative = $ContainerPath.Substring($containerRoot.Length).TrimStart('/')
     if ($relative.Contains('\') -or @($relative.Split('/')) -contains '..') {
         throw "Invalid container path: $ContainerPath"
     }
-    return [System.IO.Path]::GetFullPath((Join-Path $root $relative))
+    return [System.IO.Path]::GetFullPath((Join-Path $hostRoot $relative))
 }
 
 function Save-Record {
@@ -82,6 +175,106 @@ function Confirm-Result {
     }
 }
 
+function Get-DirectDependency {
+    param([hashtable]$Dependency, [string]$Reference, [string]$WorkflowHostPath)
+    $proc = Get-Process -Id ([int]$Reference) -ErrorAction SilentlyContinue
+    if ($null -eq $proc) { return }
+    $depContextPath = Join-Path $WorkflowHostPath (
+        ".${appPrefix}-host-$($Dependency.submission_index)-$($Dependency.jobscript_index).json"
+    )
+    if (-not (Test-Path -LiteralPath $depContextPath)) {
+        throw 'Cannot verify a running direct dependency not launched by this wrapper.'
+    }
+    $depContext = Get-Content -Raw -LiteralPath $depContextPath | ConvertFrom-Json -AsHashtable
+    if ($depContext.process_id -eq [int]$Reference -and
+        $depContext.start_ticks -eq $proc.StartTime.ToUniversalTime().Ticks) {
+        return @{ process_id = [int]$Reference; start_ticks = $depContext.start_ticks }
+    }
+}
+
+function Invoke-HostRun {
+    param([string[]]$RunArgs)
+    $planJson = Invoke-Container -CommandArgs ($RunArgs + '--containerised') -Capture
+    $runPlan = ConvertFrom-Json -AsHashtable $planJson
+    if ($null -eq $runPlan) { return }
+    if (($runPlan.schema_version -isnot [int] -and $runPlan.schema_version -isnot [long]) -or
+        $runPlan.schema_version -ne 1 -or $runPlan.command -isnot [array] -or
+        -not $runPlan.command.Count -or $runPlan.environment -isnot [hashtable]) {
+        throw 'Invalid host run plan.'
+    }
+    if ($Context -and $runPlan.workflow_id -ne $hostContext.workflow_id) {
+        throw 'Host run plan belongs to a different workflow.'
+    }
+    $workingDirectory = Get-HostPath $runPlan.working_directory
+    $command = @($runPlan.command | ForEach-Object {
+        if ($_ -isnot [string] -or $_.Contains([char]0)) {
+            throw 'Invalid host command argument.'
+        }
+        if ($_ -eq '/work' -or $_.StartsWith('/work/') -or
+            ($hostConfigDirectory -and ($_ -eq $containerConfigDirectory -or
+             $_.StartsWith($containerConfigDirectory + '/')))) {
+            Get-HostPath $_ -AllowConfig
+        } else { $_ }
+    })
+    $workflowHostPath = Get-HostPath (ConvertTo-ContainerPath $RunArgs[2])
+    $runJournal = Join-Path $workflowHostPath (
+        ".${appPrefix}-run-" + ($RunArgs[4..8] -join '-') + '.json'
+    )
+    if (Test-Path -LiteralPath $runJournal) {
+        throw "A host run journal exists: $runJournal. Reconcile it before retrying."
+    }
+    Save-Record $runJournal @{ state = 'launching'; run_args = $RunArgs; command = $command }
+    $previous = @{}
+    try {
+        foreach ($key in $runPlan.environment.Keys) {
+            if ([string]::IsNullOrWhiteSpace($key) -or $key.Contains('=') -or
+                $key.Contains([char]0) -or $key -match "_CONTAINER|^${appPrefix}_RUN_PORT$") {
+                throw "Invalid execution environment variable: $key"
+            }
+            $previous[$key] = [Environment]::GetEnvironmentVariable($key)
+            $value = [string]$runPlan.environment[$key]
+            if ($value -eq '/work' -or $value.StartsWith('/work/') -or
+                ($hostConfigDirectory -and ($value -eq $containerConfigDirectory -or
+                 $value.StartsWith($containerConfigDirectory + '/')))) {
+                $value = Get-HostPath $value -AllowConfig
+            }
+            [Environment]::SetEnvironmentVariable($key, $value)
+        }
+        Push-Location -LiteralPath $workingDirectory
+        $launchError = $null
+        try {
+            $exe = $command[0]
+            $commandArgs = @($command | Select-Object -Skip 1)
+            & $exe @commandArgs
+            $runExitCode = $LASTEXITCODE
+        } catch {
+            $launchError = $_
+            $runExitCode = 1
+        } finally {
+            Pop-Location
+        }
+    } finally {
+        foreach ($key in $previous.Keys) {
+            [Environment]::SetEnvironmentVariable($key, $previous[$key])
+        }
+    }
+    $completeArgs = @($RunArgs)
+    $completeArgs[3] = 'complete-host-run'
+    $completeArgs += @('--', [string]$runExitCode)
+    Save-Record $runJournal @{
+        state = 'executed'
+        complete_args = $completeArgs
+        exit_code = $runExitCode
+    }
+    $response = Invoke-Container -CommandArgs $completeArgs -Capture |
+        ConvertFrom-Json -AsHashtable
+    if ($response.completed -isnot [bool] -or -not $response.completed) {
+        throw 'Invalid run completion response.'
+    }
+    Remove-Item -LiteralPath $runJournal
+    if ($null -ne $launchError) { throw $launchError }
+}
+
 try {
     if (
         -not $ContainerCommand.Count -or [string]::IsNullOrWhiteSpace($Image) -or
@@ -90,6 +283,24 @@ try {
         throw 'Image and ContainerCommand must not be empty.'
     }
     if ($root.Contains(',')) { throw 'The mounted directory must not contain a comma.' }
+    if ($RunJob) {
+        if (-not $Context) { throw 'RunJob requires Context.' }
+        $gate = $hostContext.gate
+        while (-not (Test-Path -LiteralPath $gate)) { Start-Sleep -Milliseconds 100 }
+        foreach ($dep in $hostContext.dependencies) {
+            $proc = Get-Process -Id $dep.process_id -ErrorAction SilentlyContinue
+            if ($null -ne $proc -and $proc.StartTime.ToUniversalTime().Ticks -eq $dep.start_ticks) {
+                $proc.WaitForExit()
+            }
+        }
+        [Environment]::SetEnvironmentVariable("${appPrefix}_CONTAINER_WRAPPER", $PSCommandPath)
+        [Environment]::SetEnvironmentVariable("${appPrefix}_CONTAINER_CONTEXT", $Context)
+        Set-Location -LiteralPath $hostContext.workflow_host_path
+        $exe = $hostContext.command[0]
+        $jobArgs = @($hostContext.command | Select-Object -Skip 1)
+        & $exe @jobArgs 1> $hostContext.stdout_path 2> $hostContext.stderr_path
+        exit $LASTEXITCODE
+    }
     if ($ResumeResult) {
         if ($HpcflowArgs.Count) { throw 'ResumeResult cannot be combined with HpcflowArgs.' }
         $envelope = Get-Content -Raw -LiteralPath $ResumeResult | ConvertFrom-Json -AsHashtable
@@ -101,11 +312,35 @@ try {
         }
         $null = Get-HostPath $envelope.workflow_path
         Confirm-Result $envelope
+        if ($envelope.ContainsKey('gate')) {
+            [System.IO.File]::WriteAllText($envelope.gate, 'acknowledged', $utf8)
+        }
         Remove-Item -LiteralPath $ResumeResult
         Write-Output 'Host submission acknowledged; no job was launched.'
         exit 0
     }
     if (-not $HpcflowArgs.Count) { throw 'Supply HpcflowArgs or ResumeResult.' }
+    if ($Context) {
+        $offset = 0
+        while ($offset -lt $HpcflowArgs.Count -and $HpcflowArgs[$offset].StartsWith('-')) {
+            $option = $HpcflowArgs[$offset]
+            $count = switch ($option) {
+                '--with-config' { 3 }
+                { $_ -in @('--std-stream', '--config-dir', '--config-key', '--timeit-file') } { 2 }
+                '--timeit' { 1 }
+                default { throw "Unsupported internal global option: $option" }
+            }
+            if ($offset + $count -ge $HpcflowArgs.Count) { throw "Missing command after $option." }
+            $ConfigArgs += $HpcflowArgs[$offset..($offset + $count - 1)]
+            $offset += $count
+        }
+        $HpcflowArgs = @($HpcflowArgs | Select-Object -Skip $offset)
+    }
+    if ($HpcflowArgs.Count -ge 4 -and $HpcflowArgs[0] -eq 'internal' -and
+        $HpcflowArgs[1] -eq 'workflow' -and $HpcflowArgs[3] -eq 'execute-run') {
+        Invoke-HostRun $HpcflowArgs
+        exit 0
+    }
     if ($HpcflowArgs[0].StartsWith('-') -and $HpcflowArgs.Count -gt 1) {
         throw 'Supply global hpcflow options via ConfigArgs, not before the command in HpcflowArgs.'
     }
@@ -130,11 +365,16 @@ try {
         throw 'Unsupported submission argument order; use the documented command-first invocation.'
     }
     if (-not $submission) {
+        if ($IsWindows -and $HpcflowArgs[0] -eq 'workflow' -and
+            $workflowCommandIndex -lt $HpcflowArgs.Count -and
+            $HpcflowArgs[$workflowCommandIndex] -in @('wait', 'cancel', 'abort-run')) {
+            throw 'Host process monitoring and cancellation are not yet supported by this wrapper.'
+        }
         Invoke-Container -CommandArgs $HpcflowArgs
         exit $script:containerExitCode
     }
     if ([string]::IsNullOrWhiteSpace($Machine)) {
-        throw 'Supply Machine using the host hpcflow machine configuration name.'
+        throw 'Machine must not be empty; omit it to use the host hostname.'
     }
     if ($HpcflowArgs -contains '--wait' -or $HpcflowArgs -contains '--cancel') {
         throw 'Containerised submission cannot wait for or cancel jobs.'
@@ -169,8 +409,20 @@ try {
         ) { throw 'Invalid jobscript indices.' }
         $key = "$($job.submission_index):$($job.jobscript_index)"
         if ($seen.ContainsKey($key)) { throw "Duplicate jobscript: $key" }
-        if ($job.scheduler -notin @('slurm', 'sge')) {
+        if ($job.scheduler -notin @('slurm', 'sge', 'direct')) {
             throw "Unsupported scheduler: $($job.scheduler)"
+        }
+        if ($job.scheduler -eq 'direct') {
+            if (-not $IsWindows -or $job.shell -ne 'powershell' -or $job.is_array) {
+                throw 'Direct container execution currently requires Windows PowerShell and non-array jobs.'
+            }
+            foreach ($pathKey in @('stdout_path', 'stderr_path')) {
+                if (-not $job.ContainsKey($pathKey) -or $job[$pathKey] -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($job[$pathKey]) -or $job[$pathKey].StartsWith('/')) {
+                    throw "Invalid direct $pathKey."
+                }
+                $null = Get-HostPath ($plan.workflow_path.TrimEnd('/') + '/' + $job[$pathKey])
+            }
         }
         if ($job.path -isnot [string] -or $job.path.StartsWith('/') -or $job.path.Contains('\')) {
             throw 'Jobscript paths must be relative slash-separated paths.'
@@ -207,6 +459,9 @@ try {
             if ($null -ne $dep.reference -and (
                 $dep.reference -isnot [string] -or $dep.reference -notmatch '^\d+$'
             )) { throw "Invalid dependency reference: $depKey" }
+            if ($job.scheduler -eq 'direct' -and $null -ne $dep.reference) {
+                $null = Get-DirectDependency $dep $dep.reference $workflowPath
+            }
             $tokens += $dep.placeholder
         }
         foreach ($arg in $job.submit_command) {
@@ -254,6 +509,66 @@ try {
             $stream = [System.IO.File]::Open($journalPath, [System.IO.FileMode]::CreateNew)
             $stream.Dispose()
             Save-Record $journalPath $envelope
+            if ($job.scheduler -eq 'direct') {
+                $dependencies = @(
+                    foreach ($dep in $job.dependencies) {
+                        $pidValue = $dep.reference
+                        if ($null -eq $pidValue) { $pidValue = $refs["$($dep.submission_index):$($dep.jobscript_index)"] }
+                        Get-DirectDependency $dep ([string]$pidValue) $workflowPath
+                    }
+                )
+                $prefix = ".${appPrefix}-host-$($job.submission_index)-$($job.jobscript_index)"
+                $contextPath = Join-Path $workflowPath ($prefix + '.json')
+                $gate = Join-Path $workflowPath ($prefix + '.ack')
+                if (Test-Path -LiteralPath $gate) { throw "Acknowledgement gate already exists: $gate" }
+                $wrapperPath = Join-Path $workflowPath ".$($appPrefix.ToLowerInvariant()).ps1"
+                if ($PSCommandPath -ne $wrapperPath) {
+                    Copy-Item -LiteralPath $PSCommandPath -Destination $wrapperPath
+                }
+                $stdoutPath = Get-HostPath ($plan.workflow_path.TrimEnd('/') + '/' + $job.stdout_path)
+                $stderrPath = Get-HostPath ($plan.workflow_path.TrimEnd('/') + '/' + $job.stderr_path)
+                Save-Record $contextPath @{
+                    mount_root = $root
+                    image = $Image
+                    machine = $Machine
+                    container_command = $ContainerCommand
+                    config_args = $ConfigArgs
+                    container_config_directory = $hostConfigDirectory
+                    workflow_host_path = $workflowPath
+                    workflow_id = $plan.workflow_id
+                    command = $command
+                    dependencies = $dependencies
+                    gate = $gate
+                    stdout_path = $stdoutPath
+                    stderr_path = $stderrPath
+                }
+                $quotedWrapper = "'" + $wrapperPath.Replace("'", "''") + "'"
+                $quotedContext = "'" + $contextPath.Replace("'", "''") + "'"
+                $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(
+                    "& $quotedWrapper -Context $quotedContext -RunJob"
+                ))
+                $launchExe = (Get-Command pwsh -CommandType Application).Source
+                $launchArgs = @('-NoProfile', '-EncodedCommand', $encoded)
+                $result.submit_command = @($launchExe) + $launchArgs
+                $envelope.gate = $gate
+                Save-Record $journalPath $envelope
+                $process = Start-Process -FilePath $launchExe -ArgumentList $launchArgs `
+                    -WorkingDirectory $workflowPath -WindowStyle Hidden -PassThru
+                $jobContext = Get-Content -Raw -LiteralPath $contextPath | ConvertFrom-Json -AsHashtable
+                $jobContext.process_id = $process.Id
+                $jobContext.start_ticks = $process.StartTime.ToUniversalTime().Ticks
+                Save-Record $contextPath $jobContext
+                $ref = [string]$process.Id
+                $result.process_ID = $process.Id
+                $envelope.state = 'submitted'
+                Save-Record $journalPath $envelope
+                Confirm-Result $envelope
+                [System.IO.File]::WriteAllText($gate, 'acknowledged', $utf8)
+                Remove-Item -LiteralPath $journalPath
+                $refs["$($job.submission_index):$($job.jobscript_index)"] = $ref
+                Write-Output "Submitted jobscript $($job.submission_index):$($job.jobscript_index): $ref"
+                continue
+            }
             $stderrPath = $journalPath + '.stderr'
             $exe = $command[0]
             $commandArgs = @($command | Select-Object -Skip 1)
@@ -288,6 +603,11 @@ try {
         Pop-Location
     }
 } catch {
+    if ($RunJob -and $Context -and $hostContext.ContainsKey('stderr_path')) {
+        [System.IO.File]::AppendAllText(
+            $hostContext.stderr_path, $_.Exception.Message + "`n", $utf8
+        )
+    }
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 }

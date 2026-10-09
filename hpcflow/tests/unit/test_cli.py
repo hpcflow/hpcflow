@@ -9,7 +9,11 @@ import click.exceptions
 
 from hpcflow import __version__
 from hpcflow.app import app as hf
-from hpcflow.sdk.cli import ErrorPropagatingClickContext, _make_internal_CLI
+from hpcflow.sdk.cli import (
+    ErrorPropagatingClickContext,
+    _make_install_CLI,
+    _make_internal_CLI,
+)
 from hpcflow.sdk.cli_common import BoolOrString
 
 
@@ -211,10 +215,11 @@ def test_record_host_submission_is_internal():
     assert hasattr(hf.Workflow, "_record_host_submission")
 
 
+@pytest.mark.parametrize("command", [["install"], ["internal", "get-container-wrapper"]])
 @pytest.mark.parametrize("image", [None, "hpcflow:test"])
-def test_get_container_wrapper(cli_runner, monkeypatch, image):
+def test_get_container_wrapper(cli_runner, monkeypatch, image, command):
     monkeypatch.setattr(hf.run_time_info, "container_image", image)
-    result = cli_runner(["internal", "get-container-wrapper"])
+    result = cli_runner(command)
     if image is None:
         assert result.exit_code != 0
         assert not result.stdout
@@ -226,24 +231,46 @@ def test_get_container_wrapper(cli_runner, monkeypatch, image):
         assert "\r\n" not in result.stdout
 
 
-def test_get_container_wrapper_image_override(cli_runner, monkeypatch):
+@pytest.mark.parametrize("command", [["install"], ["internal", "get-container-wrapper"]])
+def test_get_container_wrapper_image_override(cli_runner, monkeypatch, command):
     monkeypatch.setattr(hf.run_time_info, "container_image", "default:test")
-    result = cli_runner(["internal", "get-container-wrapper", "--image", "override:test"])
+    result = cli_runner([*command, "--image", "override:test"])
     assert result.exit_code == 0, result.output
     assert "[string]$Image = 'override:test'" in result.stdout
 
 
-def test_downstream_container_wrapper_environment_help():
+def test_install_help(cli_runner):
+    result = cli_runner(["install", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "hpcflow.ps1" in result.stdout
+    assert "--image" in result.stdout
+
+
+@pytest.mark.parametrize("image", ["bad\nimage", "bad\rimage", "bad\0image"])
+def test_install_invalid_image(cli_runner, image):
+    result = cli_runner(["install", "--image", image])
+    assert result.exit_code != 0
+    assert not result.stdout
+    assert "Error:" in result.stderr
+
+
+@pytest.mark.parametrize("public", [False, True])
+def test_downstream_container_wrapper_environment_help(public):
     app = SimpleNamespace(
         package_name="matflow",
         run_time_info=SimpleNamespace(container_image=None),
     )
-    command = _make_internal_CLI(app).commands["get-container-wrapper"]
+    command = (
+        _make_install_CLI(app)
+        if public
+        else _make_internal_CLI(app).commands["get-container-wrapper"]
+    )
     runner = CliRunner()
     help_result = runner.invoke(command, ["--help"])
     assert help_result.exit_code == 0
     assert "MATFLOW_CONTAINER" in help_result.output
     assert "HPCFLOW_CONTAINER" not in help_result.output
+    assert "matflow.ps1" in help_result.output
     missing_image = runner.invoke(command)
     assert missing_image.exit_code != 0
     assert "MATFLOW_CONTAINER" in missing_image.stderr

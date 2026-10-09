@@ -135,6 +135,8 @@ class ContainerisedJobscript(TypedDict):
     is_array: bool
     dependencies: list[ContainerisedDependency]
     submit_command: list[str]
+    stdout_path: NotRequired[str]
+    stderr_path: NotRequired[str]
 
 
 class ContainerisedSubmissionPlan(TypedDict):
@@ -163,6 +165,16 @@ class HostSubmissionResult(TypedDict):
     #: Required for direct execution; omit for queued jobs.
     process_ID: NotRequired[int]
     version_info: NotRequired[VersionInfo]
+
+
+class ContainerisedRunPlan(TypedDict):
+    """Commands prepared in the container for synchronous host execution."""
+
+    schema_version: Literal[1]
+    workflow_id: str
+    command: list[str]
+    working_directory: str
+    environment: dict[str, str]
 
 
 # This needs PEP 728 for a better type, alas

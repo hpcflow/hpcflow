@@ -1,0 +1,13 @@
+**
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!README.md
+!LICENSE
+!hpcflow/
+!hpcflow/**
+hpcflow/tests/
+hpcflow/data/demo_data/
+**/__pycache__/
+**/*.pyc
+**/*.pyo

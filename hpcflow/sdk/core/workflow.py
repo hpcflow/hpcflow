@@ -130,6 +130,7 @@ if TYPE_CHECKING:
         ContainerisedJobscript,
         ContainerisedSubmissionPlan,
         HostSubmissionResult,
+        ContainerisedRunPlan,
     )
     from ..submission.jobscript import (
         Jobscript,
@@ -4860,7 +4861,7 @@ class Workflow(AppAware):
         cache."""
         # parameter sources do not change during execution:
         with self._store.parameters_metadata_cache():
-            return self._execute_run(submission_idx, block_act_key, run_ID)
+            self._execute_run(submission_idx, block_act_key, run_ID)
 
     @TimeIt.decorator
     @load_workflow_config
@@ -4869,7 +4870,8 @@ class Workflow(AppAware):
         submission_idx: int,
         block_act_key: BlockActionKey,
         run_ID: int,
-    ) -> None:
+        containerised: bool = False,
+    ) -> ContainerisedRunPlan | None:
         """Execute commands of a run via a subprocess."""
 
         if TimeIt.active:
@@ -5105,6 +5107,16 @@ class Workflow(AppAware):
                             secrets_env[secret_key] = self._app.get_secret(secret_key)
                         env.update(secrets_env)
 
+                        if containerised:
+                            self.set_EAR_start(run_ID, run_dir, port_number=None)
+                            return {
+                                "schema_version": 1,
+                                "workflow_id": self.id_,
+                                "command": cmd,
+                                "working_directory": str(Path.cwd()),
+                                "environment": {**add_env, **secrets_env},
+                            }
+
                         exe = self._app.Executor(cmd, env, self._app.package_name)
                         port = (
                             exe.start_zmq_server()
@@ -5153,6 +5165,68 @@ class Workflow(AppAware):
                 sum(exe.child_orchestration_times) if exe is not None else 0.0
             )
             TimeIt.child_work_time = sum(exe.child_work_times) if exe is not None else 0.0
+
+    def _validate_host_run(
+        self, submission_idx: int, block_act_key: BlockActionKey, run: ElementActionRun
+    ) -> None:
+        js_idx, block_idx, action_idx = block_act_key
+        if min(submission_idx, js_idx, block_idx, action_idx) < 0:
+            raise ValueError("Host run indices must be non-negative.")
+        if submission_idx >= len(self.submissions):
+            raise ValueError("Unknown host run submission.")
+        jobscripts = self.submissions[submission_idx].jobscripts
+        if js_idx >= len(jobscripts) or block_idx >= len(jobscripts[js_idx].blocks):
+            raise ValueError("Unknown host run jobscript or block.")
+        jobscript = jobscripts[js_idx]
+        block = jobscript.blocks[block_idx]
+        if action_idx >= block.num_actions or run.id_ not in block.EAR_ID[action_idx]:
+            raise ValueError("Run does not belong to the specified jobscript action.")
+        if run.action.abortable or jobscript.resources.combine_scripts:
+            raise NotImplementedError(
+                "Container host execution does not support combined scripts "
+                "or abortable actions."
+            )
+
+    @load_workflow_config
+    def _prepare_host_run(
+        self, submission_idx: int, block_act_key: BlockActionKey, run_ID: int
+    ) -> ContainerisedRunPlan | None:
+        """Prepare and mark a run started, without executing its commands."""
+        if run_ID < 0:
+            raise ValueError("Host run ID must be non-negative.")
+        with self._store.parameters_metadata_cache():
+            run = self.get_EARs_from_IDs([run_ID])[0]
+            self._validate_host_run(submission_idx, block_act_key, run)
+            if run.start_time is not None or run.end_time is not None:
+                raise ValueError("Run has already been started or completed.")
+            return self._execute_run(
+                submission_idx, block_act_key, run_ID, containerised=True
+            )
+
+    @load_workflow_config
+    def _complete_host_run(
+        self,
+        submission_idx: int,
+        block_act_key: BlockActionKey,
+        run_ID: int,
+        exit_code: int,
+    ) -> None:
+        """Process outputs and persist completion after synchronous host execution."""
+        if type(exit_code) is not int:
+            raise ValueError("Host exit code must be an integer.")
+        if run_ID < 0:
+            raise ValueError("Host run ID must be non-negative.")
+        with self._store.parameters_metadata_cache(), self._store.cached_load():
+            run = self.get_EARs_from_IDs([run_ID])[0]
+            self._validate_host_run(submission_idx, block_act_key, run)
+            if run.start_time is None:
+                raise ValueError("Run has not been prepared for host execution.")
+            if run.end_time is not None:
+                if run.exit_code != exit_code:
+                    raise ValueError("Conflicting host completion exit code.")
+                return
+            self._check_loop_termination(run)
+            self.set_EAR_end(block_act_key, run, exit_code)
 
     @TimeIt.decorator
     def _check_loop_termination(self, run: ElementActionRun) -> set[int]:

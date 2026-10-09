@@ -1177,6 +1177,19 @@ class Submission(JSONLike):
 
         """
 
+        if self._app.run_time_info.container_host_os == "nt" and shell.JS_EXT == ".ps1":
+            app_caps = self._app.package_name.upper()
+            return (
+                f"function {self.WORKFLOW_APP_ALIAS} {{\n"
+                f"    & $env:{app_caps}_CONTAINER_WRAPPER "
+                f"-Context $env:{app_caps}_CONTAINER_CONTEXT -HpcflowArgs $args\n"
+                "    if ($LASTEXITCODE -ne 0) { throw 'Container command failed.' }\n"
+                "}\n\n"
+                "function get_nth_line($file, $line) {\n"
+                "    Get-Content $file | Select-Object -Skip $line -First 1\n"
+                "}\n"
+            )
+
         cfg_invocation = self._app.config._file.get_invocation(
             self._app.config._config_key
         )
@@ -1219,6 +1232,15 @@ class Submission(JSONLike):
 
     def _prepare_containerised(self) -> list[ContainerisedJobscript]:
         app_caps = self._app.package_name.upper()
+        if self._app.run_time_info.container_host_os:
+            for js in self.jobscripts:
+                if js.resources.combine_scripts or any(
+                    run.action.abortable for run in js.all_EARs
+                ):
+                    raise NotImplementedError(
+                        "Container host execution does not support combined scripts "
+                        "or abortable actions."
+                    )
         outstanding = set(self.outstanding_jobscripts)
         scheduler_refs: dict[int, tuple[str, bool]] = {}
         for js in self.jobscripts:
@@ -1257,7 +1279,11 @@ class Submission(JSONLike):
                         "placeholder": f"__{app_caps}_JOB_{self.index}_{dep_idx}__",
                     }
                 )
-            path = js._prepare_jobscript(deps)
+            script_deps = deps
+            if self._app.run_time_info.container_host_os and not js.is_scheduled:
+                # The host launcher waits on host PIDs; a container cannot query them.
+                script_deps = {}
+            path = js._prepare_jobscript(script_deps)
             assert js.scheduler_name is not None
             assert js.shell_name is not None
             prepared.append(
@@ -1274,6 +1300,13 @@ class Submission(JSONLike):
                     ),
                 }
             )
+            if not js.is_scheduled and not js.is_array:
+                prepared[-1]["stdout_path"] = js.direct_stdout_path.relative_to(
+                    self.workflow.path
+                ).as_posix()
+                prepared[-1]["stderr_path"] = js.direct_stderr_path.relative_to(
+                    self.workflow.path
+                ).as_posix()
             scheduler_refs[js.index] = (
                 f"__{app_caps}_JOB_{self.index}_{js.index}__",
                 js.is_array,
