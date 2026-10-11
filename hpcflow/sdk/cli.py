@@ -943,17 +943,35 @@ def _make_install_CLI(app: BaseApp):
     @click.command(
         name="install",
         help=(
-            "Print the PowerShell container wrapper; redirect stdout to "
-            f"{app.package_name}.ps1. No host Python installation or bind mount "
-            "is required. Only PowerShell wrappers are currently supported."
+            "Print a container wrapper; redirect stdout to "
+            f"{app.package_name}.ps1 (PowerShell) or {app.package_name}.sh (Bash). "
+            "No host Python installation or bind mount is required."
         ),
     )
     @click.option(
         "--image",
         help=f"Override the image name from {app.package_name.upper()}_CONTAINER.",
     )
-    def install(image: str | None):
-        """Print the PowerShell container wrapper."""
+    @click.option(
+        "--shell",
+        type=click.Choice(["powershell", "bash"]),
+        default="powershell",
+        show_default=True,
+        help="Wrapper shell. Bash supports Linux Docker, Apptainer and Singularity.",
+    )
+    @click.option(
+        "--runtime",
+        type=click.Choice(["docker", "apptainer", "singularity"]),
+        default="docker",
+        show_default=True,
+        help="Default container runtime embedded in the Bash wrapper.",
+    )
+    def install(image: str | None, shell: str, runtime: str):
+        """Print the selected container wrapper."""
+        if shell != "bash" and runtime != "docker":
+            raise click.ClickException(
+                "Apptainer and Singularity wrappers require --shell bash."
+            )
         image = image or app.run_time_info.container_image
         if not image or any(char in image for char in "\r\n\0"):
             raise click.ClickException(
@@ -961,13 +979,23 @@ def _make_install_CLI(app: BaseApp):
             )
         script = (
             files("hpcflow.sdk.containerisation")
-            .joinpath("container_wrapper.ps1")
+            .joinpath(
+                "container_wrapper.sh" if shell == "bash" else "container_wrapper.ps1"
+            )
             .read_text(encoding="utf-8")
         )
         app_caps = app.package_name.upper()
         script = script.replace("__APP_NAME_", f"__{app_caps}_")
+        script = (
+            script.replace("__APP_PACKAGE__", app.package_name)
+            .replace("__APP_CAPS__", app_caps)
+            .replace("__APP_RUNTIME__", runtime)
+        )
+        escaped_image = (
+            image.replace("'", "'\"'\"'") if shell == "bash" else image.replace("'", "''")
+        )
         click.echo(
-            script.replace(f"__{app_caps}_CONTAINER_IMAGE__", image.replace("'", "''")),
+            script.replace(f"__{app_caps}_CONTAINER_IMAGE__", escaped_image),
             nl=False,
         )
 

@@ -4,6 +4,7 @@ A collection of submissions to a scheduler, generated from a workflow.
 
 from __future__ import annotations
 from collections import defaultdict
+import shlex
 import shutil
 from pathlib import Path
 import socket
@@ -1179,15 +1180,34 @@ class Submission(JSONLike):
 
         if self._app.run_time_info.container_host_os == "nt" and shell.JS_EXT == ".ps1":
             app_caps = self._app.package_name.upper()
+            config_key = self._app.config.config_key.replace("'", "''")
             return (
                 f"function {self.WORKFLOW_APP_ALIAS} {{\n"
                 f"    & $env:{app_caps}_CONTAINER_WRAPPER "
-                f"-Context $env:{app_caps}_CONTAINER_CONTEXT -HpcflowArgs $args\n"
+                f"-Context $env:{app_caps}_CONTAINER_CONTEXT "
+                f"-HpcflowArgs (@('--config-key', '{config_key}') + $args)\n"
                 "    if ($LASTEXITCODE -ne 0) { throw 'Container command failed.' }\n"
                 "}\n\n"
                 "function get_nth_line($file, $line) {\n"
                 "    Get-Content $file | Select-Object -Skip $line -First 1\n"
                 "}\n"
+            )
+
+        if self._app.run_time_info.container_host_os == "posix" and shell.JS_EXT == ".sh":
+            app_caps = self._app.package_name.upper()
+            package = self._app.package_name
+            config_key = shlex.quote(self._app.config.config_key)
+            return (
+                f'export {app_caps}_CONTAINER_WRAPPER="'
+                f'${{{app_caps}_WK_PATH:-${{WK_PATH:?}}}}/.{package}.sh"\n'
+                f'export {app_caps}_CONTAINER_CONTEXT="'
+                f'${{{app_caps}_WK_PATH:-${{WK_PATH:?}}}}/.{package}-container-context.json"\n\n'
+                f"function {self.WORKFLOW_APP_ALIAS} {{\n"
+                f'    bash "${{{app_caps}_CONTAINER_WRAPPER:?}}" '
+                f'--context "${{{app_caps}_CONTAINER_CONTEXT:?}}" '
+                f'-- --config-key {config_key} "$@" || exit $?\n'
+                "}\n\n"
+                'function get_nth_line() { sed -n "$(($2 + 1))p" "$1"; }\n'
             )
 
         cfg_invocation = self._app.config._file.get_invocation(

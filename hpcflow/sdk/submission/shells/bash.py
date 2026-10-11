@@ -220,7 +220,7 @@ class Bash(Shell):
     #: Template for the jobscript footer.
     JS_FOOTER: ClassVar[str] = dedent(
         """\
-        cd $WK_PATH
+        cd "$WK_PATH"
     """
     )
 

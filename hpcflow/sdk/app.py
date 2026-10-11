@@ -4892,6 +4892,8 @@ class BaseApp(metaclass=Singleton):
 
     def _get_envs_table(self, include_source: bool = True) -> Table:
         """Generate a Rich table that shows details of all environments."""
+        from .containerisation.paths import display_host_path
+
         headers = ["ID", "Name", "Specifiers", "Label"]
         if include_source:
             headers.append("Source")
@@ -4900,7 +4902,11 @@ class BaseApp(metaclass=Singleton):
             for row_idx, (key, val) in enumerate((env.specifiers or {"": None}).items()):
                 spec_col = f"{key}: {val}" if key != "" else "-"
                 lab_col = (env.setup_label or "-") if row_idx == 0 else ""
-                src_col = str(env.source_file) or "-" if row_idx == 0 else ""
+                src_col = (
+                    display_host_path(self.package_name, env.source_file) or "-"
+                    if row_idx == 0
+                    else ""
+                )
                 cols = [
                     str(env_idx),
                     env.name if row_idx == 0 else "",
@@ -4928,6 +4934,8 @@ class BaseApp(metaclass=Singleton):
         """
         Print one or more environment definitions.
         """
+        from .containerisation.paths import display_host_path
+
         panels = []
         for env in self.__get_envs(id=id, name=name, label=label, specifiers=specifiers):
             execs = env.executables
@@ -4937,7 +4945,7 @@ class BaseApp(metaclass=Singleton):
             tab.add_row("name", Pretty(env.name))
             tab.add_row("specifiers", Pretty(env.specifiers))
             tab.add_row("label", Pretty(env.setup_label))
-            tab.add_row("source", str(env.source_file))
+            tab.add_row("source", display_host_path(self.package_name, env.source_file))
             tab.add_row("setup", "\n".join(env.setup or []) or "-")
             tab.add_row("executables:", "-" if not execs else "")
             if execs:

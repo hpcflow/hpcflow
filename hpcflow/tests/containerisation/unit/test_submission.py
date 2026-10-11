@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,6 +13,49 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.submission.schedulers.slurm import SlurmPosix
 from hpcflow.sdk.submission.schedulers.sge import SGEPosix
 from hpcflow.sdk.submission.types import HostSubmissionResult
+
+
+@pytest.mark.parametrize("package", ["hpcflow", "matflow"])
+@pytest.mark.parametrize("config_key", ["cambridge-CSD3", "cluster's $config; name"])
+def test_bash_host_jobscript_functions(package, config_key):
+    """Route queued Bash jobscript application calls through the host container bridge."""
+    from hpcflow.sdk.submission.submission import Submission
+
+    sub = Mock(spec=Submission)
+    sub._app = SimpleNamespace(
+        package_name=package,
+        run_time_info=SimpleNamespace(container_host_os="posix"),
+        config=SimpleNamespace(config_key=config_key),
+    )
+    sub.WORKFLOW_APP_ALIAS = "workflow_app"
+    script = Submission._compose_functions_file(sub, SimpleNamespace(JS_EXT=".sh"))
+    assert f"${{{package.upper()}_CONTAINER_WRAPPER:?}}" in script
+    assert f"${{{package.upper()}_CONTAINER_CONTEXT:?}}" in script
+    invocation = next(
+        line for line in script.splitlines() if line.startswith("    bash ")
+    )
+    assert shlex.split(invocation)[4:7] == ["--", "--config-key", config_key]
+    assert '"$@" || exit $?' in invocation
+    assert "get_nth_line" in script
+
+
+@pytest.mark.parametrize("package", ["hpcflow", "matflow"])
+@pytest.mark.parametrize("config_key", ["cambridge-CSD3", "cluster's $config; name"])
+def test_powershell_host_jobscript_functions(package, config_key):
+    """Preserve the selected configuration as a literal PowerShell argument."""
+    from hpcflow.sdk.submission.submission import Submission
+
+    sub = Mock(spec=Submission)
+    sub._app = SimpleNamespace(
+        package_name=package,
+        run_time_info=SimpleNamespace(container_host_os="nt"),
+        config=SimpleNamespace(config_key=config_key),
+    )
+    sub.WORKFLOW_APP_ALIAS = "workflow_app"
+    script = Submission._compose_functions_file(sub, SimpleNamespace(JS_EXT=".ps1"))
+    escaped_key = config_key.replace("'", "''")
+    assert f"-HpcflowArgs (@('--config-key', '{escaped_key}') + $args)" in script
+    assert f"-Context $env:{package.upper()}_CONTAINER_CONTEXT" in script
 
 
 @pytest.mark.parametrize("scheduler", ["direct", "slurm", "sge"])

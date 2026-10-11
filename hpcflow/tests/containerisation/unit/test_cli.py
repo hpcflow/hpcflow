@@ -267,6 +267,38 @@ def test_install_invalid_image(cli_runner, image):
     assert "Error:" in result.stderr
 
 
+@pytest.mark.parametrize("package", ["hpcflow", "matflow"])
+@pytest.mark.parametrize("runtime", ["docker", "apptainer", "singularity"])
+def test_install_bash_wrapper(package, runtime):
+    """Export a namespaced Bash wrapper with literal shell-safe image quoting."""
+    app = SimpleNamespace(
+        package_name=package,
+        run_time_info=SimpleNamespace(container_image=None),
+    )
+    result = CliRunner().invoke(
+        _make_install_CLI(app),
+        ["--shell", "bash", "--runtime", runtime, "--image", "image'$(touch bad)"],
+    )
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("#!/usr/bin/env bash\n")
+    assert f"app='{package}'" in result.stdout
+    assert "image='image'\"'\"'$(touch bad)'" in result.stdout
+    assert f"runtime='{runtime}'" in result.stdout
+    assert "__APP_RUNTIME__" not in result.stdout
+    assert f"__{package.upper()}_JOBSCRIPT_PATH__" in result.stdout
+    assert "__APP_NAME_" not in result.stdout
+    assert "\r\n" not in result.stdout
+
+
+@pytest.mark.parametrize("runtime", ["apptainer", "singularity"])
+def test_install_non_docker_requires_bash(cli_runner, runtime):
+    """Reject unsupported PowerShell runtimes instead of exporting a misleading wrapper."""
+    result = cli_runner(["install", "--runtime", runtime, "--image", "/shared/image.sif"])
+    assert result.exit_code != 0
+    assert not result.stdout
+    assert "--shell bash" in result.stderr
+
+
 @pytest.mark.parametrize("public", [False, True])
 def test_downstream_container_wrapper_environment_help(public):
     """Namespace exported wrapper tokens and help for downstream applications such as MatFlow."""

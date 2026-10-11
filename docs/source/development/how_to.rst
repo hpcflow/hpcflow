@@ -188,8 +188,131 @@ without a bind mount or host Python installation. Use PowerShell 7.3 or newer.
 ``install --image IMAGE`` overrides the baked image name.
 The low-level ``internal get-container-wrapper`` command remains available.
 Name the exported script after the application's package name: ``hpcflow.ps1``
-or, for MatFlow, ``matflow.ps1``. Only the PowerShell wrapper is currently
-implemented; a future Bash wrapper will use the corresponding ``.sh`` name.
+or, for MatFlow, ``matflow.ps1``.
+
+Linux Bash wrapper
+##################
+
+Export a Bash wrapper for Linux Docker, Apptainer or SingularityCE hosts:
+
+.. code-block:: bash
+
+    docker run --rm hpcflow:dev install --shell bash > hpcflow.sh
+    chmod +x hpcflow.sh
+    ./hpcflow.sh go workflow.yaml
+
+PowerShell remains the default export, preserving existing installations.
+The Linux wrapper requires Bash 4.4+, ``jq``, ``flock`` and GNU coreutils on
+the host, but not Python. macOS support is not implemented yet.
+
+To transfer an image to an HPC system without Docker:
+
+.. code-block:: bash
+
+    docker save -o hpcflow.tar hpcflow:dev
+    apptainer build hpcflow.sif docker-archive://hpcflow.tar
+    apptainer run hpcflow.sif install --shell bash --runtime apptainer \
+        --image "$(realpath hpcflow.sif)" > hpcflow.sh
+    chmod +x hpcflow.sh
+    ./hpcflow.sh go workflow.yaml
+
+Use ``--runtime singularity`` for SingularityCE. The runtime must support
+``--no-eval``, ``--cleanenv``, ``--contain``, ``--bind`` and ``--env``. This
+prevents a second evaluation of literal arguments/environment variables.
+The export command's ``--runtime`` and ``--image`` embed defaults in the wrapper.
+Use an absolute, host-visible SIF path accessible on login and compute nodes;
+the export command does not check its existence inside the container.
+Both defaults remain overridable using the wrapper's own options.
+SIF paths are resolved on the host before starting queued jobs.
+
+Wrapper options precede the application command. ``--`` is optional for ordinary
+commands such as ``go``, but explicitly separates wrapper and application options.
+``--machine NAME`` defaults to the host hostname. ``--config-dir DIRECTORY``
+selects the shared, persistent configuration directory directly; otherwise it
+defaults to the native application's configuration path with ``-container``
+appended. This storage is separate from native configuration. Repeat
+``--config-arg WORD`` for each word in a global application option.
+
+The initial Linux implementation supports Slurm and SGE Bash jobscripts,
+including arrays and scheduler dependencies, acknowledgement recovery and
+host-side command-file execution. Select the appropriate scheduler in the
+shared application configuration/resources. Both wrapper and per-workflow
+context are copied into the workflow directory and must remain accessible,
+along with configuration and mounted workflow roots, on compute nodes.
+The runtime and ``jq`` must also be available there.
+Generated container bridge functions explicitly select the configuration key
+used during submission, as native jobscript functions do. Compute-node
+invocations therefore do not need to match the login node's hostname rule.
+The Bash bridge forwards exported application-prefixed jobscript variables
+(``HPCFLOW_*`` or ``MATFLOW_*``), translating paths under shared host mounts
+to their container equivalents. Configuration-directory, container-control
+and executor-port variables are excluded; the bridge supplies its own values.
+Unrelated host environment variables are not forwarded.
+
+Python actions launched in a second Singularity/Apptainer invocation must bind
+both the workflow and the shared configuration. The host bridge supplies
+``MATFLOW_CONFIG_DIR`` (or ``HPCFLOW_CONFIG_DIR``) as the host configuration
+directory while executing command files. For example, a MatFlow
+``python_script`` executable can use:
+
+.. code-block:: bash
+
+    singularity exec \
+        --bind "$MATFLOW_WK_PATH:$MATFLOW_WK_PATH" \
+        --bind "$MATFLOW_CONFIG_DIR:/config/.matflow-container" \
+        --pwd "$PWD" "$IMG_PATH" \
+        /opt/venv/bin/python "<<script_path>>" <<args>>
+
+The stable configuration mount is required because generated Python scripts
+embed its container path, and configured environment sources may refer to it.
+Do not activate the container virtualenv on the host. Additional external
+input directories require their own binds. ``env list`` and ``env show``
+display recognised source paths as host paths; stored definitions and execution
+paths remain unchanged.
+Generated Python snippets skip the executor timing callback when no
+``*_RUN_PORT`` is provided, as in host-bridged execution. Native runs with
+an executor port still report timing; local ``TimeIt`` summaries remain available.
+
+Direct job scheduling, ``show``/``submission get-known`` host monitoring,
+workflow waiting and cancellation are explicitly rejected for now.
+Combined command scripts and abortable actions are unsupported.
+Submitted-job references are substituted as literal argv words, never evaluated
+as shell text. Every plan is validated before its first host launch.
+Uncertain launches and failed acknowledgements retain a workflow journal.
+After verifying that a journal has state ``submitted``, retry only acknowledgement:
+
+.. code-block:: bash
+
+    ./hpcflow.sh --runtime apptainer --image hpcflow.sif \
+        --resume-result workflow/.hpcflow-host-submission.json
+
+Use the original mount root, runtime, image and shared configuration directory.
+A ``launching`` record requires manual reconciliation with the scheduler; it
+must not trigger a blind resubmission. A failed host-run completion likewise
+retains a run journal and requires reconciliation, not re-execution.
+
+``--tty`` and ``--no-tty`` control Docker display mode; Apptainer/Singularity
+inherit the terminal without Docker flags. The supplied images clear the
+startup indicator through their entrypoint signal. Custom images without that
+signal retain the Bash indicator until the runtime exits.
+
+For notebooks:
+
+.. code-block:: bash
+
+    ./hpcflow.sh --runtime apptainer --image hpcflow.sif \
+        --notebook-port 8889 -- notebook
+
+Docker publishes only the host loopback port. Apptainer/Singularity share host
+networking and Jupyter binds to loopback directly. Token authentication remains
+enabled; extra server arguments are rejected. For remote HPC access, create
+an SSH tunnel to the host running Jupyter, then use the token URL in a browser
+or VS Code. Notebook startup signalling is not a readiness check.
+
+Dedicated Bash tests run natively on Linux. On this Windows development machine,
+``HPCFLOW_TEST_WSL_DISTRO=Ubuntu-24.04`` enables the fake-runtime suite through
+WSL; ``jq`` must be installed in that distribution. Fake runtime tests do not
+certify compatibility with a site's Apptainer/Singularity installation.
 
 Each host-wrapper container invocation displays ``Starting container...`` on
 standard error while waiting for the container to start. The image entrypoint

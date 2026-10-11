@@ -447,6 +447,8 @@ function Invoke-Container {
     $hostEnv += @(
         '--env', "${configEnvName}=$configPath",
         '--env', "${appPrefix}_CONTAINER_WORK_MOUNT=/host-workflows/$mountID",
+        '--env', "${appPrefix}_CONTAINER_HOST_CONFIG_DIR=$hostConfigDirectory",
+        '--env', "${appPrefix}_CONTAINER_HOST_WORK_DIR=$root",
         '--env', "XDG_CACHE_HOME=$containerConfigDirectory/cache",
         '--env', "XDG_DATA_HOME=$containerConfigDirectory/data"
     )
@@ -923,6 +925,11 @@ function Invoke-HostRun {
             }
             [Environment]::SetEnvironmentVariable($key, $value)
         }
+        $configEnvName = "${appPrefix}_CONFIG_DIR"
+        if (-not $previous.ContainsKey($configEnvName)) {
+            $previous[$configEnvName] = [Environment]::GetEnvironmentVariable($configEnvName)
+        }
+        [Environment]::SetEnvironmentVariable($configEnvName, $hostConfigDirectory)
         Push-Location -LiteralPath $workingDirectory
         $launchError = $null
         try {

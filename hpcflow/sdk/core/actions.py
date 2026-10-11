@@ -3692,12 +3692,14 @@ class Action(JSONLike):
             _script_time = time.perf_counter() - _script_start
             _script_orchestration_time = _script_time - _user_work_time
 
-            app.Executor.send_timeit(
-                hostname="localhost",
-                port_number=int(os.environ["{app_caps}_RUN_PORT"]),
-                orchestration_time=_script_orchestration_time,
-                work_time=_user_work_time,
-            )
+            # Host-bridged runs have no executor timing server.
+            if "{app_caps}_RUN_PORT" in os.environ:
+                app.Executor.send_timeit(
+                    hostname="localhost",
+                    port_number=int(os.environ["{app_caps}_RUN_PORT"]),
+                    orchestration_time=_script_orchestration_time,
+                    work_time=_user_work_time,
+                )
 
             if TimeIt.active:
                 with app.redirect_std_to_file(std_path, preamble=run_std_preamble):
