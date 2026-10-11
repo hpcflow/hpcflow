@@ -12,7 +12,7 @@ import time
 import click
 from colorama import init as colorama_init
 from termcolor import colored  # type: ignore
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 from rich.pretty import pprint
 
 from hpcflow import __version__, _app_name
@@ -21,6 +21,7 @@ from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
 from hpcflow.sdk.core.execute import Executor
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
+from hpcflow.sdk.containerisation.protocol import emit_container_submission_plan
 from hpcflow.sdk.cli_common import (
     format_option,
     path_option,
@@ -358,7 +359,7 @@ def _make_API_CLI(app: BaseApp):
             )
         if containerised:
             assert isinstance(out, tuple)
-            click.echo(json.dumps(out[1]))
+            emit_container_submission_plan(app.package_name, out[1])
         elif print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
@@ -617,7 +618,7 @@ def _make_workflow_CLI(app: BaseApp):
                 containerised=containerised,
             )
         if containerised:
-            click.echo(json.dumps(out))
+            emit_container_submission_plan(app.package_name, out)
         elif print_idx:
             click.echo(out)
 
@@ -846,6 +847,11 @@ def _make_workflow_CLI(app: BaseApp):
     return workflow
 
 
+_host_snapshot_option = click.option(
+    "--snapshot-file", type=click.File("r", encoding="utf-8"), hidden=True
+)
+
+
 def _make_submission_CLI(app: BaseApp, host: bool = False):
     """Generate the CLI for submission related queries."""
 
@@ -906,13 +912,16 @@ def _make_submission_CLI(app: BaseApp, host: bool = False):
         default=False,
         help="Do not format and only show JSON-compatible information.",
     )
-    def get_known(as_json: bool = False):
+    def get_known(as_json: bool = False, snapshot_file: TextIO | None = None):
         """Print known-submissions information as a formatted Python object."""
         if host:
-            from hpcflow.sdk.submission.host_monitor import parse_host_show
+            from hpcflow.sdk.containerisation.host_monitor import parse_host_show
 
             try:
-                states = parse_host_show(app, json.load(sys.stdin))
+                states = parse_host_show(
+                    app,
+                    json.load(snapshot_file if snapshot_file is not None else sys.stdin),
+                )
                 out = app._get_known_submissions(as_json=as_json, host_states=states)
             except ValueError as exc:
                 raise click.ClickException(str(exc)) from exc
@@ -923,6 +932,8 @@ def _make_submission_CLI(app: BaseApp, host: bool = False):
         else:
             pprint(out)
 
+    if host:
+        _host_snapshot_option(get_known)
     return submission
 
 
@@ -949,7 +960,7 @@ def _make_install_CLI(app: BaseApp):
                 f"Set {app.package_name.upper()}_CONTAINER in the image or supply --image."
             )
         script = (
-            files("hpcflow.sdk.submission")
+            files("hpcflow.sdk.containerisation")
             .joinpath("container_wrapper.ps1")
             .read_text(encoding="utf-8")
         )
@@ -988,7 +999,7 @@ def _make_internal_CLI(app: BaseApp):
     @internal.command(name="prepare-host-show")
     def prepare_host_show():
         """Collect host activity queries without executing them."""
-        from hpcflow.sdk.submission.host_monitor import prepare_host_show as prepare
+        from hpcflow.sdk.containerisation.host_monitor import prepare_host_show as prepare
 
         try:
             click.echo(json.dumps(prepare(app)))
@@ -1208,13 +1219,21 @@ def _make_show_CLI(app: BaseApp, host: bool = False):
         expose_value=False,
         callback=show_legend_callback,
     )
-    def show(max_recent: int, full: bool, no_update: bool):
+    def show(
+        max_recent: int,
+        full: bool,
+        no_update: bool,
+        snapshot_file: TextIO | None = None,
+    ):
         """Show information about running and recently active workflows."""
         if host:
-            from hpcflow.sdk.submission.host_monitor import parse_host_show
+            from hpcflow.sdk.containerisation.host_monitor import parse_host_show
 
             try:
-                states = parse_host_show(app, json.load(sys.stdin))
+                states = parse_host_show(
+                    app,
+                    json.load(snapshot_file if snapshot_file is not None else sys.stdin),
+                )
                 app._show(
                     max_recent=max_recent,
                     full=full,
@@ -1226,7 +1245,7 @@ def _make_show_CLI(app: BaseApp, host: bool = False):
         else:
             app.show(max_recent=max_recent, full=full, no_update=no_update)
 
-    return show
+    return _host_snapshot_option(show) if host else show
 
 
 def _make_zip_CLI(app: BaseApp):

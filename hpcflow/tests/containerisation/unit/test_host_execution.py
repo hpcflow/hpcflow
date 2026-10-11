@@ -24,6 +24,7 @@ def make_workflow(tmp_path):
 
 @pytest.mark.parametrize("exit_code", [0, 7])
 def test_host_run_preparation_and_completion(tmp_path, monkeypatch, exit_code):
+    """Prepare a host command without executing it and persist idempotent completion metadata."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     run = workflow.submissions[0].jobscripts[0].all_EARs[0]
@@ -58,6 +59,7 @@ def test_host_run_preparation_and_completion(tmp_path, monkeypatch, exit_code):
 
 
 def test_host_completion_requires_preparation(tmp_path):
+    """Reject completion before preparation and invalid submission indices."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     run = workflow.submissions[0].jobscripts[0].all_EARs[0]
@@ -68,6 +70,7 @@ def test_host_completion_requires_preparation(tmp_path):
 
 
 def test_host_run_without_commands_finalises_in_container(tmp_path, monkeypatch):
+    """Finalise command-free runs in the container without requesting host execution."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     run = workflow.submissions[0].jobscripts[0].all_EARs[0]
@@ -84,6 +87,7 @@ def test_host_run_without_commands_finalises_in_container(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("unsupported", ["combined", "abortable"])
 def test_host_run_rejects_unsupported_actions(tmp_path, monkeypatch, unsupported):
+    """Reject combined or abortable actions before marking a host run as started."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     jobscript = workflow.submissions[0].jobscripts[0]

@@ -67,7 +67,7 @@ from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.runtime import RunTimeInfo
 from hpcflow.sdk.cli import make_cli
 from hpcflow.sdk.submission.enums import JobscriptElementState
-from hpcflow.sdk.submission.host_monitor import HostStates
+from hpcflow.sdk.containerisation.host_monitor import HostStates
 from hpcflow.sdk.submission.shells import DEFAULT_SHELL_NAMES, get_shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,

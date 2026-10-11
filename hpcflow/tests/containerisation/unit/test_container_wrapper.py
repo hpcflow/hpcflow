@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from importlib.resources import files
 from pathlib import Path
 import shutil
 import socket
@@ -13,15 +14,17 @@ from click.testing import CliRunner
 
 from hpcflow.sdk.cli import _make_internal_CLI
 
-WRAPPER = Path(__file__).parents[2] / "sdk" / "submission" / "container_wrapper.ps1"
+WRAPPER = files("hpcflow.sdk.containerisation").joinpath("container_wrapper.ps1")
 
 
 def ps_quote(value: str | Path) -> str:
+    """Quote a literal host argument for the PowerShell test invocation."""
     return "'" + str(value).replace("'", "''") + "'"
 
 
 @pytest.fixture
 def wrapper_host(tmp_path):
+    """Provide fake container and scheduler commands with observable host journals."""
     pwsh = shutil.which("pwsh")
     if not pwsh:
         pytest.skip("PowerShell 7 is required for wrapper tests")
@@ -39,7 +42,26 @@ def wrapper_host(tmp_path):
     container.write_text(
         """
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $words = @($args)
+if ($env:WRAPPER_STARTUP_DELAY -eq '1') {
+    Start-Sleep -Milliseconds 500
+}
+if ($env:WRAPPER_SIGNAL_STARTED -eq '1') {
+    $signal = @($words | Where-Object { $_.StartsWith('HPCFLOW_CONTAINER_STARTED_FILE=') })[0]
+    $signalPath = Join-Path (
+        Join-Path (Split-Path $env:WRAPPER_PLAN) '.hpcflow-container'
+    ) $signal.Split('/')[-1]
+    [IO.File]::WriteAllText($signalPath, 'started')
+    Start-Sleep -Milliseconds 500
+    if (-not (Test-Path -LiteralPath $env:WRAPPER_CLEARED_FILE)) {
+        throw 'Startup indicator still visible during application initialisation'
+    }
+}
+if ($env:WRAPPER_EARLY_STDERR -eq '1') {
+    [Console]::Error.WriteLine('early-container-output')
+    Start-Sleep -Milliseconds 500
+}
 Add-Content -LiteralPath $env:WRAPPER_CONTAINER_LOG -Value (
     ConvertTo-Json -InputObject $words -Compress)
 if ($words -contains 'execute-run') {
@@ -48,10 +70,30 @@ if ($words -contains 'execute-run') {
     Get-Content -Raw -LiteralPath $env:WRAPPER_MONITOR_PLAN
 } elseif ($words -contains 'show-host') {
     if ($env:WRAPPER_FAIL_SHOW -eq '1') { exit 12 }
-    Add-Content -LiteralPath $env:WRAPPER_MONITOR_LOG -Value (
-        [IO.StreamReader]::new(
+    if ($env:WRAPPER_LARGE_STDERR -eq '1') {
+        [Console]::Error.Write('e' * 262144)
+        [Console]::Error.Flush()
+    }
+    if ($words -contains '--snapshot-file') {
+        $snapshotIndex = [Array]::IndexOf($words, '--snapshot-file') + 1
+        $snapshotName = $words[$snapshotIndex].Split('/')[-1]
+        $snapshotPath = Join-Path (
+            Join-Path (Split-Path $env:WRAPPER_PLAN) '.hpcflow-container'
+        ) $snapshotName
+        $snapshot = Get-Content -Raw -Encoding utf8 -LiteralPath $snapshotPath
+    } else {
+        $snapshot = [IO.StreamReader]::new(
             [Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false)
-        ).ReadToEnd().Trim())
+        ).ReadToEnd().Trim()
+    }
+    Add-Content -LiteralPath $env:WRAPPER_MONITOR_LOG -Value $snapshot
+    if ($words -contains '-t') {
+        [Console]::Write(
+            'first-frame' + [char]13 + [char]27 + '[2Ksecond-frame' +
+            [char]13 + [char]27 + '[2K' + [char]0x250c + [char]0x25cf
+        )
+        exit 0
+    }
     'host-show-table'
     if ($words -contains 'FORCE_COLOR=1') {
         [Console]::WriteLine(([char]27).ToString() + '[32mcoloured-status' + [char]27 + '[0m')
@@ -77,7 +119,18 @@ if ($words -contains 'execute-run') {
     '{"recorded":true}'
 } elseif ($words -contains '--containerised') {
     if ($env:WRAPPER_FAIL_PREPARE -eq '1') { exit 9 }
-    Get-Content -Raw -LiteralPath $env:WRAPPER_PLAN
+    $planOutput = @($words | Where-Object { $_.StartsWith('HPCFLOW_CONTAINER_PLAN_FILE=') })
+    if ($planOutput.Count) {
+        $planPath = Join-Path (
+            Join-Path (Split-Path $env:WRAPPER_PLAN) '.hpcflow-container'
+        ) $planOutput[0].Split('/')[-1]
+        if ($env:WRAPPER_MISSING_PLAN -ne '1') {
+            Copy-Item -LiteralPath $env:WRAPPER_PLAN -Destination $planPath
+        }
+        [Console]::Write('prepare-frame' + [char]13 + [char]27 + '[2K')
+    } else {
+        Get-Content -Raw -LiteralPath $env:WRAPPER_PLAN
+    }
 } else {
     'verbatim-output'
     exit ([int]$env:WRAPPER_PASS_EXIT)
@@ -177,18 +230,23 @@ else { "$($count + 100);cluster" }
         legacy_encoding=False,
         output_rendering="PlainText",
         plain_output_pipeline=False,
+        tty=False,
+        raw_output=False,
+        notebook_port=None,
         **overrides,
     ):
         if wrapper == WRAPPER:
             wrapper = rendered_wrapper
         plan_file.write_text(json.dumps(plan), encoding="utf-8", newline="\n")
-        invocation = (
-            f"& {ps_quote(wrapper)} "
-            + ("-Image 'hpcflow:test' " if use_image else "")
-            + (f"-Machine {ps_quote(machine)} " if machine is not None else "")
-            + f"-ContainerCommand @({ps_quote(pwsh)}, '-NoProfile', '-File', "
-            f"{ps_quote(container)}) "
+        invocation = f"& {ps_quote(wrapper)} " + (
+            "-Image 'hpcflow:test' " if use_image else ""
+        ) + (
+            f"-Machine {ps_quote(machine)} " if machine is not None else ""
+        ) + f"-ContainerCommand @({ps_quote(pwsh)}, '-NoProfile', '-File', " f"{ps_quote(container)}) " + (
+            "" if tty is None else ("-Tty " if tty else "-Tty:$false ")
         )
+        if notebook_port is not None:
+            invocation += f"-NotebookPort {notebook_port} "
         if resume:
             invocation += "-ResumeResult " + ps_quote(
                 workflow / ".hpcflow-host-submission.json"
@@ -225,7 +283,7 @@ else { "$($count + 100);cluster" }
             cwd=root,
             env={**env, **overrides},
             capture_output=True,
-            encoding="utf-8",
+            encoding=None if raw_output else "utf-8",
             timeout=30,
         )
 
@@ -241,6 +299,7 @@ else { "$($count + 100);cluster" }
 
 
 def test_wrapper_show_utf8_with_legacy_console_encoding(wrapper_host):
+    """Preserve Unicode display and snapshot text under a legacy host console code page."""
     run, _, workflow, records = wrapper_host
     plan_file = workflow.parent / "unicode-monitor.json"
     plan_file.write_text(
@@ -283,6 +342,7 @@ def test_wrapper_show_utf8_with_legacy_console_encoding(wrapper_host):
     [("ANSI", "", True), ("PlainText", "", False), ("ANSI", "1", False)],
 )
 def test_wrapper_show_colours(wrapper_host, rendering, no_color, colour):
+    """Enable terminal colours only when output rendering and NO_COLOR permit them."""
     run, _, workflow, records = wrapper_host
     plan_file = workflow.parent / "empty-monitor.json"
     plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
@@ -301,6 +361,7 @@ def test_wrapper_show_colours(wrapper_host, rendering, no_color, colour):
 
 
 def test_wrapper_display_bypasses_plaintext_pipeline(wrapper_host):
+    """Keep forced ANSI display intact when PowerShell would otherwise strip escape codes."""
     run, _, workflow, _ = wrapper_host
     plan_file = workflow.parent / "empty-monitor.json"
     plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
@@ -316,7 +377,156 @@ def test_wrapper_display_bypasses_plaintext_pipeline(wrapper_host):
     assert "spinner-frame" not in result.stdout
 
 
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.parametrize("tty", [True, None])
+def test_wrapper_tty_preserves_frames_and_cleans_snapshot(wrapper_host, fail, tty):
+    """Stream TTY bytes unchanged and remove temporary snapshots after success or failure."""
+    run, _, workflow, records = wrapper_host
+    plan_file = workflow.parent / "empty-monitor.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "jobs": [
+                    {
+                        "workflow_path": "/host-workflows/test/caf\u00e9",
+                        "workflow_id": "unicode",
+                        "submission_index": 0,
+                        "jobscript_index": 0,
+                        "scheduler": "slurm",
+                        "query": [
+                            shutil.which("pwsh"),
+                            "-NoProfile",
+                            "-Command",
+                            "'123 RUNNING'",
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        ["show"],
+        tty=tty,
+        raw_output=True,
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+        WRAPPER_FAIL_SHOW="1" if fail else "",
+    )
+    assert result.returncode == (1 if fail else 0), result.stderr
+    calls = records("container")
+    assert "-t" not in calls[0]
+    assert "-t" in calls[1]
+    assert "-i" not in calls[1]
+    assert "--snapshot-file" in calls[1]
+    assert "TTY_INTERACTIVE=1" in calls[1]
+    assert not list((workflow.parent / ".hpcflow-container").glob(".host-show-*.json"))
+    if not fail:
+        assert result.stdout == (
+            "first-frame\r\x1b[2Ksecond-frame\r\x1b[2K\u250c\u25cf"
+        ).encode("utf-8")
+        assert records("monitor")[0]["jobs"][0]["workflow_path"].endswith("caf\u00e9")
+
+
+def test_wrapper_tty_does_not_apply_to_json(wrapper_host):
+    """Keep JSON passthrough non-TTY even when TTY display is explicitly requested."""
+    run, _, _, records = wrapper_host
+    result = run(["config", "get", "--json"], tty=True)
+    assert result.returncode == 0, result.stderr
+    assert "-t" not in records("container")[0]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["go", "template.yaml"],
+        ["demo-workflow", "go", "workflow_1"],
+        ["workflow", "workflow with spaces", "submit"],
+    ],
+)
+def test_wrapper_submission_defaults_to_tty(wrapper_host, args):
+    """Use TTY progress and a separate plan file for all default submission entry points."""
+    run, _, workflow, records = wrapper_host
+    result = run(args, tty=None)
+    assert result.returncode == 0, result.stderr
+    calls = records("container")
+    assert "-t" in calls[0]
+    assert any(word.startswith("HPCFLOW_CONTAINER_PLAN_FILE=") for word in calls[0])
+    assert "\x1b[2K" in result.stdout
+    assert len(records("ack")) == 2
+    assert all("-t" not in call for call in calls[1:])
+    assert not list((workflow.parent / ".hpcflow-container").glob(".host-plan-*.json"))
+
+
+def test_wrapper_submission_tty_failure_does_not_launch(wrapper_host):
+    """Stop before host launch when TTY container preparation fails."""
+    run, _, workflow, records = wrapper_host
+    result = run(tty=None, WRAPPER_FAIL_PREPARE="1")
+    assert result.returncode == 1
+    assert not records("launch")
+    assert not list((workflow.parent / ".hpcflow-container").glob(".host-plan-*.json"))
+
+
+def test_wrapper_submission_tty_missing_plan_does_not_launch(wrapper_host):
+    """Reject successful-looking TTY preparation that did not produce a submission plan."""
+    run, _, _, records = wrapper_host
+    result = run(tty=None, WRAPPER_MISSING_PLAN="1")
+    assert result.returncode == 1
+    assert "did not write a host submission plan" in result.stderr
+    assert not records("launch")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["workflow", "0", "--ref-type", "id", "submit"],
+        ["workflow", "--ref-type", "id", "0", "submit"],
+        ["workflow", "--ref-type=id", "0", "submit"],
+    ],
+)
+def test_wrapper_workflow_reference_option_order(wrapper_host, args):
+    """Normalise workflow reference options before dispatching to Click."""
+    run, _, _, records = wrapper_host
+    result = run(args)
+    assert result.returncode == 0, result.stderr
+    call = records("container")[0]
+    index = call.index("workflow")
+    expected = (
+        ["workflow", "--ref-type=id", "0", "submit"]
+        if "--ref-type=id" in args
+        else ["workflow", "--ref-type", "id", "0", "submit"]
+    )
+    assert call[index : index + len(expected)] == expected
+
+
+def test_wrapper_registered_mounts_available_to_workflow_commands(wrapper_host):
+    """Mount previously registered roots when accessing workflows by local ID."""
+    run, _, workflow, records = wrapper_host
+    assert run().returncode == 0
+    result = run(["workflow", "0", "show-all-status"])
+    assert result.returncode == 0, result.stderr
+    mounts = list((workflow.parent / ".hpcflow-container" / "host-mounts").glob("*.json"))
+    assert len(mounts) == 1
+    assert any(
+        word.endswith(f"target=/host-workflows/{mounts[0].stem}")
+        for word in records("container")[-1]
+    )
+
+
+def test_wrapper_submits_from_registered_workflow_alias(wrapper_host):
+    """Map a persistent workflow alias back to host files during submission."""
+    run, plan, workflow, records = wrapper_host
+    assert run().returncode == 0
+    mount = next((workflow.parent / ".hpcflow-container" / "host-mounts").glob("*.json"))
+    plan["workflow_path"] = f"/host-workflows/{mount.stem}/{workflow.name}"
+    result = run(["workflow", "0", "--ref-type=id", "submit"])
+    assert result.returncode == 0, result.stderr
+    assert len(records("ack")) == 4
+
+
 def test_wrapper_json_passthrough_disables_colours(wrapper_host):
+    """Exclude colour controls from machine-readable passthrough output."""
     run, _, _, records = wrapper_host
     result = run(["config", "get", "--json"], output_rendering="ANSI")
     assert result.returncode == 0, result.stderr
@@ -326,6 +536,7 @@ def test_wrapper_json_passthrough_disables_colours(wrapper_host):
 
 @pytest.mark.parametrize("exit_code", [0, 7])
 def test_wrapper_restores_encoding_after_passthrough(wrapper_host, exit_code):
+    """Restore the caller's console encoding after successful or failed passthrough commands."""
     run, _, _, _ = wrapper_host
     result = run(["--version"], legacy_encoding=True, WRAPPER_PASS_EXIT=str(exit_code))
     assert result.returncode == exit_code, result.stderr
@@ -333,6 +544,7 @@ def test_wrapper_restores_encoding_after_passthrough(wrapper_host, exit_code):
 
 
 def test_wrapper_restores_encoding_after_container_failure(wrapper_host):
+    """Restore console encoding even when container snapshot rendering fails."""
     run, _, workflow, _ = wrapper_host
     plan_file = workflow.parent / "empty-monitor.json"
     plan_file.write_text('{"schema_version":1,"jobs":[]}', encoding="utf-8", newline="\n")
@@ -350,6 +562,7 @@ def test_wrapper_restores_encoding_after_container_failure(wrapper_host):
 @pytest.mark.skipif(os.name != "nt", reason="Windows host process identity")
 @pytest.mark.parametrize("reused_pid", [False, True])
 def test_wrapper_show_host_process_identity(wrapper_host, reused_pid):
+    """Distinguish a live host launcher from a reused PID using process creation time."""
     run, _, workflow, records = wrapper_host
     launched = run()
     assert launched.returncode == 0, launched.stderr
@@ -414,6 +627,7 @@ def test_wrapper_show_host_process_identity(wrapper_host, reused_pid):
 
 @pytest.mark.parametrize("failed", [False, True])
 def test_wrapper_show_scheduler_failure_is_not_inactivity(wrapper_host, failed):
+    """Report scheduler query errors rather than treating them as inactive jobs."""
     run, _, workflow, records = wrapper_host
     root = workflow.parent
     plan_file = root / "monitor-plan.json"
@@ -459,7 +673,185 @@ def test_wrapper_show_scheduler_failure_is_not_inactivity(wrapper_host, failed):
         ] * 2
 
 
+@pytest.mark.parametrize("animate", [False, True])
+@pytest.mark.parametrize("early_stderr", [False, True])
+def test_wrapper_startup_indicator(wrapper_host, animate, early_stderr):
+    """Show startup on stderr, clear animation before output, and preserve stdout."""
+    run, _, workflow, _ = wrapper_host
+    wrapper = workflow.parent / "startup-wrapper.ps1"
+    # Exercise interactive rendering under subprocess capture without requiring
+    # a real terminal; production uses terminal capability and redirection checks.
+    wrapper.write_text(
+        WRAPPER.read_text()
+        .replace("__APP_NAME_", "__HPCFLOW_")
+        .replace(
+            "$animate = $Host.UI.SupportsVirtualTerminal -and -not [Console]::IsErrorRedirected",
+            "$animate = $" + str(animate).lower(),
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        ["--version"],
+        wrapper=wrapper,
+        WRAPPER_STARTUP_DELAY="1",
+        WRAPPER_EARLY_STDERR="1" if early_stderr else "0",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "verbatim-output\n"
+    assert "Starting container..." in result.stderr
+    if animate:
+        assert "| Starting container..." in result.stderr
+        assert "/ Starting container..." in result.stderr
+        assert "\x1b[2K" in result.stderr
+        if early_stderr:
+            assert result.stderr.index("\x1b[2K") < result.stderr.index(
+                "early-container-output"
+            )
+            assert (
+                "Starting container..."
+                not in result.stderr.split("early-container-output")[1]
+            )
+    else:
+        assert result.stderr.count("Starting container...") == 1
+        assert "\x1b" not in result.stderr
+
+
+@pytest.mark.parametrize("command", [["--version"], ["notebook"]])
+@pytest.mark.parametrize("exit_code", ["0", "9"])
+def test_wrapper_startup_signal_clears_before_output(wrapper_host, command, exit_code):
+    """Clear startup during silent application initialisation and clean the signal file."""
+    run, _, workflow, records = wrapper_host
+    wrapper = workflow.parent / "signal-wrapper.ps1"
+    cleared = workflow.parent / "indicator-cleared"
+    wrapper.write_text(
+        WRAPPER.read_text()
+        .replace("__APP_NAME_", "__HPCFLOW_")
+        .replace(
+            "$animate = $Host.UI.SupportsVirtualTerminal -and -not [Console]::IsErrorRedirected",
+            "$animate = $true",
+        )
+        .replace(
+            "[Console]::Error.Write(\"`r\" + [char]27 + '[2K')",
+            "[Console]::Error.Write(\"`r\" + [char]27 + '[2K'); "
+            "[IO.File]::WriteAllText($env:WRAPPER_CLEARED_FILE, 'cleared')",
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        command,
+        wrapper=wrapper,
+        WRAPPER_STARTUP_DELAY="1",
+        WRAPPER_SIGNAL_STARTED="1",
+        WRAPPER_CLEARED_FILE=str(cleared),
+        WRAPPER_PASS_EXIT=exit_code,
+    )
+    assert result.returncode == int(exit_code), result.stderr
+    assert cleared.exists()
+    assert "\x1b[2K" in result.stderr
+    assert not list((workflow.parent / ".hpcflow-container").glob(".host-started-*"))
+    assert any(
+        arg.startswith("HPCFLOW_CONTAINER_STARTED_FILE=")
+        for arg in records("container")[0]
+    )
+
+
+def test_wrapper_large_snapshot_with_early_stderr(wrapper_host):
+    """Drain stderr while writing a snapshot larger than the subprocess pipe buffers."""
+    run, _, workflow, records = wrapper_host
+    plan_file = workflow.parent / "large-monitor.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "jobs": [
+                    {
+                        "workflow_path": "/work/workflow with spaces",
+                        "workflow_id": "large-output",
+                        "submission_index": 0,
+                        "jobscript_index": 0,
+                        "scheduler": "slurm",
+                        "query": [
+                            shutil.which("pwsh"),
+                            "-NoProfile",
+                            "-Command",
+                            "'x' * 262144",
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    result = run(
+        ["show"],
+        WRAPPER_MONITOR_PLAN=str(plan_file),
+        WRAPPER_LARGE_STDERR="1",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "host-show-table\n"
+    assert result.stderr.count("e") >= 262144
+    assert records("monitor")[0]["jobs"][0]["stdout"].strip() == "x" * 262144
+
+
+@pytest.mark.parametrize("port", [8888, 8889])
+def test_wrapper_notebook_server(wrapper_host, port):
+    """Start an authenticated localhost notebook server with persistent workflow mounts."""
+    run, _, _, records = wrapper_host
+    result = run(["notebook"], notebook_port=port)
+    assert result.returncode == 0, result.stderr
+    command = records("container")[0]
+    assert command[command.index("--publish") + 1] == f"127.0.0.1:{port}:8888"
+    assert command[command.index("--entrypoint") + 1] == "hpcflow-container-entrypoint"
+    image_index = command.index("hpcflow:test")
+    assert command[image_index + 1 :] == [
+        "python",
+        "-m",
+        "jupyterlab",
+        "--ServerApp.ip=0.0.0.0",
+        "--ServerApp.port=8888",
+        "--ServerApp.port_retries=0",
+        "--ServerApp.open_browser=False",
+        "--ServerApp.allow_root=True",
+        "--ServerApp.root_dir=/work",
+        "--ServerApp.custom_display_url",
+        f"http://127.0.0.1:{port}",
+    ]
+    assert any("target=/work" in arg for arg in command)
+    assert any("target=/config/.hpcflow-container" in arg for arg in command)
+    assert not records("launch")
+    assert not records("ack")
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_wrapper_notebook_invalid_port(wrapper_host, port):
+    """Reject invalid host ports before starting a container."""
+    run, _, _, records = wrapper_host
+    result = run(["notebook"], notebook_port=port)
+    assert "Cannot validate argument on parameter 'NotebookPort'" in result.stderr
+    assert not records("container")
+
+
+def test_wrapper_notebook_rejects_server_arguments(wrapper_host):
+    """Prevent forwarded server flags from disabling notebook authentication."""
+    run, _, _, records = wrapper_host
+    result = run(["notebook", "--IdentityProvider.token="])
+    assert result.returncode != 0
+    assert "Use notebook without" in result.stderr
+    assert not records("container")
+
+
+def test_wrapper_notebook_failure(wrapper_host):
+    """Propagate startup failures such as an unavailable host port or missing JupyterLab."""
+    run, _, _, _ = wrapper_host
+    result = run(["notebook"], WRAPPER_PASS_EXIT="9")
+    assert result.returncode == 9
+
+
 def test_wrapper_defaults_machine_to_host_hostname(wrapper_host):
+    """Use the host hostname when no machine override is supplied."""
     run, _, _, records = wrapper_host
     result = run(["demo-workflow", "go", "workflow_1"], positional=True, machine=None)
     assert result.returncode == 0, result.stderr
@@ -467,14 +859,17 @@ def test_wrapper_defaults_machine_to_host_hostname(wrapper_host):
     assert all(ack["submit_machine"] == hostname for ack in records("ack"))
     preparation = records("container")[0]
     command_index = preparation.index("demo-workflow")
-    assert preparation[command_index - 3 : command_index] == [
+    machine_index = preparation.index("machine")
+    assert preparation[machine_index - 1 : machine_index + 2] == [
         "--with-config",
         "machine",
         hostname,
     ]
+    assert machine_index < command_index
 
 
 def test_wrapper_rejects_explicit_empty_machine(wrapper_host):
+    """Reject an explicitly empty machine instead of silently selecting a default."""
     run, _, _, records = wrapper_host
     result = run(machine="")
     assert result.returncode != 0
@@ -487,6 +882,7 @@ def test_wrapper_rejects_explicit_empty_machine(wrapper_host):
 @pytest.mark.parametrize("app_name", ["hpcflow", "matflow"])
 @pytest.mark.parametrize("location", ["unset", "outside", "inside", "container"])
 def test_wrapper_container_config_directory(wrapper_host, app_name, location):
+    """Resolve application-specific persistent config, cache and data mounts from host settings."""
     run, _, workflow, records = wrapper_host
     root = workflow.parent
     wrapper = root / f"{app_name}.ps1"
@@ -554,6 +950,7 @@ def test_wrapper_container_config_directory(wrapper_host, app_name, location):
     ],
 )
 def test_wrapper_positional_submission(wrapper_host, args):
+    """Recognise documented command-first positional submission forms."""
     run, _, _, records = wrapper_host
     result = run(args, positional=True)
     assert result.returncode == 0, result.stderr
@@ -564,6 +961,7 @@ def test_wrapper_positional_submission(wrapper_host, args):
 
 
 def test_wrapper_positional_passthrough(wrapper_host):
+    """Preserve positional arguments for non-submission commands."""
     run, _, _, records = wrapper_host
     args = ["workflow", "workflow with spaces", "get-param", "1"]
     result = run(args, positional=True, WRAPPER_PASS_EXIT="6")
@@ -575,6 +973,7 @@ def test_wrapper_positional_passthrough(wrapper_host):
 @pytest.mark.skipif(os.name != "nt", reason="Windows direct host launcher")
 @pytest.mark.parametrize("fail_ack", [False, True])
 def test_wrapper_direct_launch_and_dependencies(wrapper_host, fail_ack):
+    """Launch gated direct host jobs and preserve dependency identities through acknowledgement."""
     import psutil
 
     run, plan, workflow, records = wrapper_host
@@ -640,6 +1039,7 @@ def test_wrapper_direct_launch_and_dependencies(wrapper_host, fail_ack):
 @pytest.mark.parametrize("exit_code,fail_complete", [(0, False), (7, False), (0, True)])
 @pytest.mark.parametrize("cached", [False, True])
 def test_wrapper_host_command_execution(wrapper_host, exit_code, fail_complete, cached):
+    """Execute host run plans with mapped paths and acknowledge their actual exit codes."""
     run, _, workflow, records = wrapper_host
     cache = workflow.parent / ".hpcflow-container" / "cache" / "hpcflow"
     if cached:
@@ -723,6 +1123,7 @@ def test_wrapper_host_command_execution(wrapper_host, exit_code, fail_complete, 
 )
 @pytest.mark.parametrize("scheduler", ["slurm", "sge"])
 def test_wrapper_submission(wrapper_host, args, scheduler):
+    """Submit prepared scheduler scripts with substituted paths and dependency references."""
     run, plan, workflow, records = wrapper_host
     for job in plan["jobscripts"]:
         job["scheduler"] = scheduler
@@ -747,6 +1148,7 @@ def test_wrapper_submission(wrapper_host, args, scheduler):
 
 
 def test_wrapper_passthrough(wrapper_host):
+    """Preserve passthrough arguments, output and native exit status."""
     run, _, _, records = wrapper_host
     result = run(["--version"], WRAPPER_PASS_EXIT="3")
     assert result.returncode == 3
@@ -756,6 +1158,7 @@ def test_wrapper_passthrough(wrapper_host):
 
 
 def test_wrapper_ack_failure_and_recovery(wrapper_host):
+    """Recover a failed acknowledgement without launching an already submitted job again."""
     run, plan, workflow, records = wrapper_host
     result = run(WRAPPER_FAIL_ACK="1")
     assert result.returncode != 0
@@ -787,6 +1190,7 @@ def test_wrapper_ack_failure_and_recovery(wrapper_host):
     ],
 )
 def test_wrapper_uncertain_launch_blocks_recovery(wrapper_host, overrides):
+    """Keep uncertain scheduler launch outcomes blocked until manually reconciled."""
     run, _, workflow, records = wrapper_host
     result = run(**overrides)
     assert result.returncode != 0
@@ -815,6 +1219,7 @@ def test_wrapper_uncertain_launch_blocks_recovery(wrapper_host, overrides):
     ],
 )
 def test_wrapper_invalid_plan_never_launches(wrapper_host, invalid):
+    """Validate the whole submission plan before executing its first host command."""
     run, plan, _, records = wrapper_host
     if invalid == "outside":
         plan["workflow_path"] = "/outside/workflow"
@@ -842,6 +1247,7 @@ def test_wrapper_invalid_plan_never_launches(wrapper_host, invalid):
 
 
 def test_wrapper_existing_dependency(wrapper_host):
+    """Reuse scheduler references for dependencies that were submitted previously."""
     run, plan, _, records = wrapper_host
     plan["jobscripts"] = plan["jobscripts"][1:]
     plan["jobscripts"][0]["dependencies"][0]["reference"] = "500"
@@ -851,6 +1257,7 @@ def test_wrapper_existing_dependency(wrapper_host):
 
 
 def test_wrapper_invalid_ack_retains_result(wrapper_host):
+    """Retain the durable launch result when the container returns an invalid acknowledgement."""
     run, _, workflow, records = wrapper_host
     result = run(WRAPPER_BAD_ACK="1")
     assert result.returncode != 0
@@ -863,6 +1270,7 @@ def test_wrapper_invalid_ack_retains_result(wrapper_host):
 
 @pytest.mark.parametrize("option", ["--wait", "--cancel"])
 def test_wrapper_rejects_wait_and_cancel(wrapper_host, option):
+    """Reject unsupported synchronous waiting and cancellation in host submission mode."""
     run, _, _, records = wrapper_host
     result = run(["go", "template.yaml", option])
     assert result.returncode != 0
@@ -871,6 +1279,7 @@ def test_wrapper_rejects_wait_and_cancel(wrapper_host, option):
 
 
 def test_wrapper_no_jobs(wrapper_host):
+    """Handle an empty prepared plan without executing host submission commands."""
     run, plan, workflow, records = wrapper_host
     plan["jobscripts"] = []
     result = run()
@@ -880,6 +1289,7 @@ def test_wrapper_no_jobs(wrapper_host):
 
 
 def test_wrapper_failed_preparation_never_launches(wrapper_host):
+    """Prevent host launch when container preparation exits unsuccessfully."""
     run, _, _, records = wrapper_host
     result = run(WRAPPER_FAIL_PREPARE="1")
     assert result.returncode != 0
@@ -887,6 +1297,7 @@ def test_wrapper_failed_preparation_never_launches(wrapper_host):
 
 
 def test_wrapper_global_prefix_never_passes_submission_through(wrapper_host):
+    """Reject ambiguous global-prefix syntax instead of submitting inside the container."""
     run, _, _, records = wrapper_host
     result = run(["--config-key", "key", "go", "template.yaml"])
     assert result.returncode != 0
@@ -895,6 +1306,7 @@ def test_wrapper_global_prefix_never_passes_submission_through(wrapper_host):
 
 
 def test_wrapper_exported_default_image(wrapper_host, cli_runner, monkeypatch, tmp_path):
+    """Execute the exported wrapper using its substituted default image."""
     from hpcflow.app import app as hf
 
     monkeypatch.setattr(hf.run_time_info, "container_image", "hpcflow:test")
@@ -909,6 +1321,7 @@ def test_wrapper_exported_default_image(wrapper_host, cli_runner, monkeypatch, t
 
 
 def test_wrapper_downstream_tokens(wrapper_host, tmp_path):
+    """Use downstream application markers consistently in plans and wrapper commands."""
     run, plan, _, records = wrapper_host
     app = SimpleNamespace(
         package_name="matflow",
@@ -929,6 +1342,7 @@ def test_wrapper_downstream_tokens(wrapper_host, tmp_path):
 
 
 def test_wrapper_partial_failure_preserves_success(wrapper_host):
+    """Retain earlier successful acknowledgements when a later host submission fails."""
     run, _, workflow, records = wrapper_host
     result = run(WRAPPER_FAIL_SECOND="1")
     assert result.returncode != 0
@@ -941,6 +1355,7 @@ def test_wrapper_partial_failure_preserves_success(wrapper_host):
 
 
 def test_wrapper_multiple_submissions_and_array_dependency(wrapper_host):
+    """Substitute dependencies across submissions while retaining scheduler array syntax."""
     run, plan, _, records = wrapper_host
     plan["jobscripts"][1]["submission_index"] = 1
     plan["jobscripts"][0]["is_array"] = True

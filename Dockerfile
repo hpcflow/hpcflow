@@ -6,7 +6,7 @@ WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
 COPY hpcflow ./hpcflow
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/python -m pip install --no-cache-dir --no-compile .
+    && /opt/venv/bin/python -m pip install --no-cache-dir --no-compile ".[notebook]"
 
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
@@ -17,6 +17,7 @@ ENV HPCFLOW_CONTAINER=${HPCFLOW_IMAGE} \
     PYTHONUNBUFFERED=1
 
 COPY --from=build /opt/venv /opt/venv
+COPY --chmod=755 hpcflow/sdk/containerisation/container_entrypoint.sh /usr/local/bin/hpcflow-container-entrypoint
 WORKDIR /work
-ENTRYPOINT ["hpcflow"]
+ENTRYPOINT ["hpcflow-container-entrypoint", "hpcflow"]
 CMD ["--help"]

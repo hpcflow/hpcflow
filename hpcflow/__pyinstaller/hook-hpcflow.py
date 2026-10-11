@@ -22,7 +22,7 @@ hiddenimports = [
 
 datas = (
     collect_data_files("hpcflow.sdk.data")
-    + collect_data_files("hpcflow.sdk.submission", includes=("container_wrapper.ps1",))
+    + collect_data_files("hpcflow.sdk.containerisation", includes=("*.ps1", "*.sh"))
     + collect_data_files("hpcflow.data.data_manifests")
     + collect_data_files(
         "hpcflow.data.scripts", include_py_files=True, excludes=("**/__pycache__",)

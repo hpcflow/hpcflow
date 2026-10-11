@@ -4,7 +4,6 @@ CLI components for demonstration code.
 
 from __future__ import annotations
 import contextlib
-import json
 import sys
 from pathlib import Path
 from random import randint
@@ -13,6 +12,7 @@ import click
 
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.core.utils import get_process_stamp
+from hpcflow.sdk.containerisation.protocol import emit_container_submission_plan
 from hpcflow.sdk.cli_common import (
     format_option,
     path_option,
@@ -280,7 +280,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             )
         if containerised:
             assert isinstance(out, tuple)
-            click.echo(json.dumps(out[1]))
+            emit_container_submission_plan(app.package_name, out[1])
         elif print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])

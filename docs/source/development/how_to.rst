@@ -1,6 +1,39 @@
 Contributor how to guides
 =========================
 
+Containerisation code and tests
+------------------------------
+
+The host bridge lives in ``hpcflow/sdk/containerisation``:
+
+* ``container_wrapper.ps1`` is the standalone PowerShell wrapper exported by
+  ``install``. Keep it self-contained so the host does not need Python installed.
+* ``host_monitor.py`` validates host activity snapshots and resolves persistent
+  workflow mount identities.
+* ``protocol.py`` emits submission plans, either to stdout or to the exchange file
+  used when TTY progress occupies stdout.
+
+Container-specific tests live in ``hpcflow/tests/containerisation/unit`` and
+``hpcflow/tests/containerisation/integration``. They inherit the shared test
+fixtures from ``hpcflow/tests/conftest.py``. Unit tests use fake host/container
+commands; integration tests use a real Docker image and host execution.
+
+Run the unit package using the active Python environment:
+
+.. code-block:: console
+
+    python -m pytest -p hpcflow.pytest_plugin --configure-python-env hpcflow/tests/containerisation/unit -q
+
+For the Docker integration tests, build the development image and set
+``HPCFLOW_TEST_CONTAINER_IMAGE=hpcflow:dev`` before running:
+
+.. code-block:: console
+
+    python -m pytest -p hpcflow.pytest_plugin --integration --configure-python-env hpcflow/tests/containerisation/integration -q
+
+Use isolated configuration and application-data directories when testing host
+registry changes; never write test submissions into the normal user registry.
+
 Preparing jobscripts for host submission
 ---------------------------------------
 
@@ -158,6 +191,66 @@ Name the exported script after the application's package name: ``hpcflow.ps1``
 or, for MatFlow, ``matflow.ps1``. Only the PowerShell wrapper is currently
 implemented; a future Bash wrapper will use the corresponding ``.sh`` name.
 
+Each host-wrapper container invocation displays ``Starting container...`` on
+standard error while waiting for the container to start. The image entrypoint
+writes a temporary signal through the shared configuration mount before launching
+hpcflow or Python. On an interactive terminal the spinner and message are cleared
+at that point, even while application initialisation is silent. Container output
+also clears the indicator, supporting images without startup signalling.
+With stderr redirected it is a single plain message; stdout and JSON protocol
+payloads are not modified. The signal does not indicate that a Jupyter server is
+ready; wait for its token URL.
+
+JupyterLab post-processing
+#########################
+
+The Docker image includes the optional ``notebook`` dependencies (JupyterLab and
+IPython kernel). Native installations do not install these extras by default.
+Run the wrapper from the directory containing your notebooks and workflows:
+
+.. code-block:: powershell
+
+    .\hpcflow.ps1 notebook
+
+Open the printed ``http://127.0.0.1:8888/...?...token=...`` URL in a browser.
+The server runs in the foreground; press Ctrl+C to stop it and remove the
+container. Token authentication remains enabled and Docker publishes the port
+only on host loopback, not on the network. Treat the token URL as a credential.
+The wrapper does not launch the host browser automatically.
+
+To use another host port (for example when 8888 is already occupied):
+
+.. code-block:: powershell
+
+    .\hpcflow.ps1 -NotebookPort 8889 notebook
+
+The server's displayed URL uses this host port. An occupied port is an error;
+Jupyter does not silently switch to an unpublished port.
+
+In VS Code, open a notebook, choose ``Select Kernel`` then ``Existing Jupyter
+Server`` (under ``Select Another Kernel`` if necessary), and paste the printed
+token URL. Select the server's Python kernel, not a local Python environment.
+
+The working directory is mounted at ``/work``. Notebooks saved there persist on
+the host, and the server reuses the wrapper's persistent configuration, cache,
+data and registered workflow mounts. For example, a notebook can read a workflow:
+
+.. code-block:: python
+
+    from pathlib import Path
+    from hpcflow.app import app as hf
+
+    workflow = hf.Workflow(Path("/work/my_workflow"))
+
+Use container-visible paths, not Windows host paths. Registered workflow roots
+remain available at their ``/host-workflows/<mount-id>`` aliases. This command is
+for post-processing: continue to submit jobs and query host activity through the
+host wrapper, not by launching host-only commands from notebook cells.
+``ConfigArgs`` and additional Jupyter command-line flags are not accepted by
+``notebook``; configure hpcflow through the shared configuration directory.
+The usual ``-Machine`` selection applies to wrapper submissions, not to direct
+Python API calls made by a notebook kernel.
+
 Run the wrapper from the directory containing your templates and workflows:
 
 .. code-block:: powershell
@@ -227,9 +320,21 @@ Docker's piped output. ``NO_COLOR`` and PowerShell's ``PlainText`` output render
 disable colours; redirected output is plain unless ``$PSStyle.OutputRendering``
 is explicitly set to ``ANSI``. Internal protocol responses and ``--json`` output
 remain uncoloured.
-Coloured display output is written directly to the console rather than through
-PowerShell's text formatter. Rich live animations are disabled at this piped
-boundary, so status spinner frames are not replayed as separate lines.
+``show``, ``go``, ``demo-workflow go`` and ``workflow ... submit`` enable
+TTY progress output by default.
+In TTY mode, display commands use ``docker run -t`` and stream output bytes
+directly to the host console, preserving spinner redraws and colours.
+The initial host terminal dimensions are passed to the container.
+Monitoring snapshots are passed through a temporary UTF-8 file in the shared
+configuration mount rather than piped stdin, and removed even if rendering fails.
+TTY submissions write their JSON plans to a separate temporary file in the same
+mount, keeping progress and plan data separate. No host job is launched if
+preparation fails or the plan is missing or invalid.
+Use ``.\hpcflow.ps1 -Tty:$false show`` when capturing or redirecting output,
+because PowerShell redirection does not reliably change the underlying console
+handles. Other display commands remain non-TTY unless ``-Tty`` is supplied.
+Internal protocol commands and ``--json`` always remain non-TTY even with ``-Tty``.
+Forced ANSI non-TTY display also bypasses PowerShell's text formatter.
 ``submission get-known`` (including ``--json``) uses the same host activity
 bridge for programmatic registry queries.
 
@@ -239,6 +344,10 @@ container configuration. Known-submissions entries use stable
 alias. The wrapper mounts the registered roots for monitoring, so equally named
 workflows in different working directories remain distinct. Missing roots are
 not mounted and their workflows are displayed as deleted.
+Registered roots are also mounted for workflow commands, so local IDs from
+``show`` work from other working directories, for example
+``.\hpcflow.ps1 workflow 0 show-all-status`` or
+``.\hpcflow.ps1 workflow 0 --ref-type id submit``.
 
 The container prepares activity queries; the host inspects direct processes
 (checking PID and creation time against the saved launch context) or executes

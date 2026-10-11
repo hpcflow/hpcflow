@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.submission.enums import JobscriptElementState
-from hpcflow.sdk.submission.host_monitor import (
+from hpcflow.sdk.containerisation.host_monitor import (
     known_workflow_path,
     parse_host_show,
     prepare_host_show,
@@ -59,6 +59,7 @@ def host_submission(tmp_path, monkeypatch):
 def test_host_show_uses_snapshot_not_container_processes(
     host_submission, monkeypatch, active, no_update
 ):
+    """Apply host activity snapshots without querying container processes or unwanted registry updates."""
     monkeypatch.setattr(
         DirectScheduler,
         "get_job_state_info",
@@ -85,6 +86,7 @@ def test_host_show_uses_snapshot_not_container_processes(
 
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "identity", "activity"])
 def test_invalid_host_snapshot_preserves_registry(host_submission, invalid):
+    """Reject incomplete, duplicate or conflicting activity snapshots without modifying the registry."""
     snapshot = prepare_host_show(hf)
     snapshot["jobs"][0]["active"] = True
     if invalid == "missing":
@@ -102,6 +104,7 @@ def test_invalid_host_snapshot_preserves_registry(host_submission, invalid):
 
 
 def test_unbridged_container_monitoring_rejected(host_submission, monkeypatch):
+    """Prevent container-local process checks from misclassifying host submissions."""
     monkeypatch.setattr(hf.run_time_info, "container_host_os", "nt")
     before = hf.known_subs_file_path.read_bytes()
     with pytest.raises(ValueError, match="host wrapper"):
@@ -110,6 +113,7 @@ def test_unbridged_container_monitoring_rejected(host_submission, monkeypatch):
 
 
 def test_host_known_json_uses_host_snapshot(host_submission):
+    """Serialise known submissions as JSON using validated host activity states."""
     snapshot = prepare_host_show(hf)
     snapshot["jobs"][0]["active"] = True
     command = _make_internal_CLI(hf).commands["get-known-host"]
@@ -120,7 +124,40 @@ def test_host_known_json_uses_host_snapshot(host_submission):
     assert set(items[0]["active_jobscripts"]["0"]["0"].values()) == {"running"}
 
 
+@pytest.mark.parametrize("command_name", ["show-host", "get-known-host"])
+def test_host_monitor_reads_snapshot_file(host_submission, tmp_path, command_name):
+    """Read monitor snapshots from files rather than stdin for TTY-safe rendering."""
+    snapshot = prepare_host_show(hf)
+    snapshot["jobs"][0]["active"] = True
+    snapshot_path = tmp_path / "snapshot with spaces.json"
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8", newline="\n")
+    command = _make_internal_CLI(hf).commands[command_name]
+    before = hf.known_subs_file_path.read_bytes()
+    args = ["--snapshot-file", str(snapshot_path)]
+    args += ["--no-update"] if command_name == "show-host" else ["--json"]
+    result = CliRunner().invoke(command, args, input="not a JSON snapshot")
+    assert result.exit_code == 0, result.output
+    if command_name == "show-host":
+        assert "monitored" in result.stdout
+        assert hf.known_subs_file_path.read_bytes() == before
+    else:
+        assert json.loads(result.stdout)[0]["active_jobscripts"]
+
+
+def test_host_monitor_rejects_invalid_snapshot_file(host_submission, tmp_path):
+    """Reject malformed snapshot files while leaving the submission registry untouched."""
+    snapshot_path = tmp_path / "invalid.json"
+    snapshot_path.write_text("not JSON", encoding="utf-8", newline="\n")
+    command = _make_internal_CLI(hf).commands["show-host"]
+    before = hf.known_subs_file_path.read_bytes()
+    result = CliRunner().invoke(command, ["--snapshot-file", str(snapshot_path)])
+    assert result.exit_code != 0
+    assert "Error:" in result.output
+    assert hf.known_subs_file_path.read_bytes() == before
+
+
 def test_missing_host_workflow_is_not_resolved_under_another_mount(host_submission):
+    """Report a missing workflow instead of finding an unrelated workflow under /work."""
     path = Path(host_submission.path)
     path.rename(path.with_name(path.name + "-moved"))
     snapshot = prepare_host_show(hf)
@@ -136,15 +173,18 @@ def test_missing_host_workflow_is_not_resolved_under_another_mount(host_submissi
 
 
 def test_persistent_mount_identity(monkeypatch):
+    """Preserve stable workflow identities across mounts and repeated path conversion."""
     monkeypatch.setenv("HPCFLOW_CONTAINER_WORK_MOUNT", "/host-workflows/mount-one")
     first = known_workflow_path(hf, Path("/work/demo"))
     monkeypatch.setenv("HPCFLOW_CONTAINER_WORK_MOUNT", "/host-workflows/mount-two")
     second = known_workflow_path(hf, Path("/work/demo"))
     assert first != second
     assert str(first).replace("\\", "/") == "/host-workflows/mount-one/demo"
+    assert known_workflow_path(hf, first) == first
 
 
 def test_legacy_registry_migrates_only_matching_workflow(host_submission):
+    """Migrate matching legacy registry records without creating new local IDs."""
     entry = hf.read_known_submissions_file()[0]
     hf.known_subs_file_path.write_text(
         hf._format_known_submissions_line(
@@ -177,6 +217,7 @@ def test_legacy_registry_migrates_only_matching_workflow(host_submission):
 @pytest.mark.parametrize("scheduler_cls", [SlurmPosix, SGEPosix])
 @pytest.mark.parametrize("array", [False, True])
 def test_host_scheduler_output_uses_shared_parser(tmp_path, scheduler_cls, array):
+    """Parse Slurm and SGE host query output using the normal scheduler state parsers."""
     scheduler = object.__new__(scheduler_cls)
     scheduler.show_cmd = ["host-query"]
     js = SimpleNamespace(

@@ -31,6 +31,10 @@ def known_workflow_path(app: BaseApp, path: str | Path) -> Path:
         or "/" in mount[len("/host-workflows/") :]
     ):
         raise ValueError("Invalid container workflow mount.")
+    if path.as_posix().startswith("/host-workflows/"):
+        if len(path.parts) < 4 or ".." in path.parts:
+            raise ValueError("Invalid persistent workflow path.")
+        return path
     return Path(mount) / path.relative_to("/work")
 
 
