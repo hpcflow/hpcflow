@@ -4425,6 +4425,11 @@ class Workflow(AppAware):
         return out
 
     def _abort_run(self, run: ElementActionRun):
+        if run.port_number is None:
+            raise NotImplementedError(
+                "Aborting container host runs is not supported: "
+                "the run has no executor control server."
+            )
         # connect to the ZeroMQ server on the worker node:
         self._app.logger.info(f"abort run: {run!r}")
         self._app.Executor.send_abort(
@@ -5183,10 +5188,9 @@ class Workflow(AppAware):
         block = jobscript.blocks[block_idx]
         if action_idx >= block.num_actions or run.id_ not in block.EAR_ID[action_idx]:
             raise ValueError("Run does not belong to the specified jobscript action.")
-        if run.action.abortable or jobscript.resources.combine_scripts:
+        if jobscript.resources.combine_scripts:
             raise NotImplementedError(
-                "Container host execution does not support combined scripts "
-                "or abortable actions."
+                "Container host execution does not support combined scripts."
             )
 
     @load_workflow_config

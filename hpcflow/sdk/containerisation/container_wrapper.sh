@@ -577,7 +577,8 @@ if [[ ${args[0]} == workflow ]]; then
     done
     args=(workflow "${ref_options[@]}" "$reference" "${args[@]:index}")
     case ${args[index]:-} in
-        wait|cancel|abort-run|show-all-status)
+        abort-run) die 'Aborting container host runs is not supported yet.' ;;
+        wait|cancel|show-all-status)
             die 'Host monitoring and cancellation are not supported by this Bash wrapper yet.' ;;
     esac
 fi

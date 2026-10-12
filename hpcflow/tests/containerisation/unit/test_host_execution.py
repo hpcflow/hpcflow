@@ -23,11 +23,13 @@ def make_workflow(tmp_path):
 
 
 @pytest.mark.parametrize("exit_code", [0, 7])
-def test_host_run_preparation_and_completion(tmp_path, monkeypatch, exit_code):
+@pytest.mark.parametrize("abortable", [False, True])
+def test_host_run_preparation_and_completion(tmp_path, monkeypatch, exit_code, abortable):
     """Prepare a host command without executing it and persist idempotent completion metadata."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     run = workflow.submissions[0].jobscripts[0].all_EARs[0]
+    monkeypatch.setattr(run.action, "abortable", abortable)
     executor = Mock(side_effect=AssertionError("Must not execute commands in container"))
     monkeypatch.setattr(hf, "Executor", executor)
     monkeypatch.setattr(hf.run_time_info, "container_host_os", "nt")
@@ -85,17 +87,45 @@ def test_host_run_without_commands_finalises_in_container(tmp_path, monkeypatch)
     assert completed.end_time is not None
 
 
-@pytest.mark.parametrize("unsupported", ["combined", "abortable"])
-def test_host_run_rejects_unsupported_actions(tmp_path, monkeypatch, unsupported):
-    """Reject combined or abortable actions before marking a host run as started."""
+def test_host_run_rejects_combined_scripts(tmp_path, monkeypatch):
+    """Reject combined scripts before marking a host run as started."""
     workflow = make_workflow(tmp_path)
     workflow.submit(containerised=True, status=False)
     jobscript = workflow.submissions[0].jobscripts[0]
     run = jobscript.all_EARs[0]
-    if unsupported == "combined":
-        monkeypatch.setattr(jobscript.resources, "combine_scripts", True)
-    else:
-        monkeypatch.setattr(run.action, "abortable", True)
-    with pytest.raises(NotImplementedError, match="combined scripts or abortable"):
+    monkeypatch.setattr(jobscript.resources, "combine_scripts", True)
+    with pytest.raises(NotImplementedError, match="combined scripts"):
         workflow._prepare_host_run(0, (0, 0, 0), run.id_)
     assert hf.Workflow(workflow.path).get_EARs_from_IDs([run.id_])[0].start_time is None
+
+
+def test_abort_without_executor_server(monkeypatch):
+    """Reject abort before attempting any networking for a host-bridged run."""
+    from types import SimpleNamespace
+
+    send = Mock()
+    monkeypatch.setattr(hf.Executor, "send_abort", send)
+    with pytest.raises(NotImplementedError, match="no executor control server"):
+        hf.Workflow._abort_run(Mock(), SimpleNamespace(port_number=None))
+    send.assert_not_called()
+
+
+def test_native_abort_keeps_executor_callback(monkeypatch):
+    from types import SimpleNamespace
+
+    send = Mock()
+    monkeypatch.setattr(hf.Executor, "send_abort", send)
+    hf.Workflow._abort_run(
+        Mock(_app=hf), SimpleNamespace(port_number=12345, run_hostname="worker")
+    )
+    send.assert_called_once_with(hostname="worker", port_number=12345)
+
+
+def test_container_submission_allows_abortable_actions(tmp_path, monkeypatch):
+    workflow = make_workflow(tmp_path)
+    workflow.submit(containerised=True, status=False)
+    sub = workflow.submissions[0]
+    run = sub.jobscripts[0].all_EARs[0]
+    monkeypatch.setattr(run.action, "abortable", True)
+    monkeypatch.setattr(hf.run_time_info, "container_host_os", "nt")
+    assert sub._prepare_containerised()

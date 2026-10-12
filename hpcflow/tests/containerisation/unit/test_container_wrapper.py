@@ -1278,6 +1278,15 @@ def test_wrapper_rejects_wait_and_cancel(wrapper_host, option):
     assert not records("launch")
 
 
+def test_wrapper_rejects_abort(wrapper_host):
+    run, _, _, records = wrapper_host
+    result = run(["workflow", "0", "abort-run"])
+    assert result.returncode != 0
+    assert "Aborting container host runs is not supported" in result.stderr
+    assert not records("container")
+    assert not records("launch")
+
+
 def test_wrapper_no_jobs(wrapper_host):
     """Handle an empty prepared plan without executing host submission commands."""
     run, plan, workflow, records = wrapper_host

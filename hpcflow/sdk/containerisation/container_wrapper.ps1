@@ -1098,9 +1098,14 @@ try {
         throw 'Unsupported submission argument order; use the documented command-first invocation.'
     }
     if (-not $submission) {
+        if ($HpcflowArgs[0] -eq 'workflow' -and
+            $workflowCommandIndex -lt $HpcflowArgs.Count -and
+            $HpcflowArgs[$workflowCommandIndex] -eq 'abort-run') {
+            throw 'Aborting container host runs is not supported yet.'
+        }
         if ($IsWindows -and $HpcflowArgs[0] -eq 'workflow' -and
             $workflowCommandIndex -lt $HpcflowArgs.Count -and
-            $HpcflowArgs[$workflowCommandIndex] -in @('wait', 'cancel', 'abort-run')) {
+            $HpcflowArgs[$workflowCommandIndex] -in @('wait', 'cancel')) {
             throw 'Host process monitoring and cancellation are not yet supported by this wrapper.'
         }
         Invoke-Container -CommandArgs $HpcflowArgs -DisplayOutput:($HpcflowArgs -notcontains '--json')

@@ -1254,12 +1254,9 @@ class Submission(JSONLike):
         app_caps = self._app.package_name.upper()
         if self._app.run_time_info.container_host_os:
             for js in self.jobscripts:
-                if js.resources.combine_scripts or any(
-                    run.action.abortable for run in js.all_EARs
-                ):
+                if js.resources.combine_scripts:
                     raise NotImplementedError(
-                        "Container host execution does not support combined scripts "
-                        "or abortable actions."
+                        "Container host execution does not support combined scripts."
                     )
         outstanding = set(self.outstanding_jobscripts)
         scheduler_refs: dict[int, tuple[str, bool]] = {}

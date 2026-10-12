@@ -275,7 +275,9 @@ an executor port still report timing; local ``TimeIt`` summaries remain availabl
 
 Direct job scheduling, ``show``/``submission get-known`` host monitoring,
 workflow waiting and cancellation are explicitly rejected for now.
-Combined command scripts and abortable actions are unsupported.
+Combined command scripts are unsupported. Actions marked abortable can run,
+but ``workflow abort-run`` fails explicitly: host execution has no persistent
+executor control server yet.
 Submitted-job references are substituted as literal argv words, never evaluated
 as shell text. Every plan is validated before its first host launch.
 Uncertain launches and failed acknowledgements retain a workflow journal.
@@ -569,7 +571,7 @@ container-installed executables are not automatically host executables. Python
 scripts that import the app still require a suitable host Python environment,
 or an explicitly configured container-based executable.
 
-Combined scripts, abortable actions, direct job arrays, and host process
+Combined scripts, direct job arrays, and host process
 waiting/cancellation through the wrapper are explicitly unsupported for now.
 The submission command still does not support ``--wait`` or ``--cancel``.
 POSIX queued execution still needs its execution bridge; ``manage

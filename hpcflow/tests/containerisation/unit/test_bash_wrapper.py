@@ -485,6 +485,15 @@ def test_bash_workflow_reference_order(bash_host, reference):
 
 
 @pytest.mark.parametrize("runtime", ["docker", "apptainer", "singularity"])
+def test_bash_rejects_abort(bash_host, runtime):
+    run, _, _, _, _, records, _ = bash_host
+    result = run(["--", "workflow", "0", "abort-run"], runtime)
+    assert result.returncode != 0
+    assert "Aborting container host runs is not supported" in result.stderr
+    assert not records("runtime")
+
+
+@pytest.mark.parametrize("runtime", ["docker", "apptainer", "singularity"])
 @pytest.mark.parametrize("failure", [False, True])
 def test_bash_host_command_execution(bash_host, runtime, failure):
     """Execute queued-job commands on the host and retain completion failures without rerunning."""
