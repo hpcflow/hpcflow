@@ -2830,16 +2830,16 @@ class ResourceSpec(JSONLike):
         """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
 
         _value_group_idx = json_like.pop("value_group_idx", None)
-        try:
-            obj = cls(**json_like)
-        except TypeError:
-            given_keys = set(k for k in json_like if k != "scope")
-            bad_keys = cls.__quoted(given_keys - cls.ALLOWED_PARAMETERS)
+        given_keys = set(k for k in json_like if k != "scope")
+        bad_keys = given_keys - cls.ALLOWED_PARAMETERS
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+        if bad_keys:
             good_keys = cls._allowed_params_quoted()
-            raise UnknownResourceSpecItemError(
-                f"The following resource item names are unknown: {bad_keys}. "
-                f"Allowed resource item names are: {good_keys}."
-            )
+            print(f"Allowed resource item names are: {good_keys!r}.")
+
+        obj = cls(**json_like)
         obj._value_group_idx = _value_group_idx
 
         return obj
