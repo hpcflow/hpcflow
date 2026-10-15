@@ -2837,7 +2837,7 @@ class ResourceSpec(JSONLike):
             json_like.pop(key)
         if bad_keys:
             good_keys = cls._allowed_params_quoted()
-            print(f"Allowed resource item names are: {good_keys!r}.")
+            print(f"Allowed resource item names are: {good_keys}.")
 
         obj = cls(**json_like)
         obj._value_group_idx = _value_group_idx

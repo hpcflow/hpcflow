@@ -21,6 +21,8 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+import warnings
+from typing_extensions import Self
 
 from hpcflow.sdk.core.enums import ParallelMode
 from hpcflow.sdk.core.skip_reason import SkipReason
@@ -437,6 +439,26 @@ class ElementResources(JSONLike):
 
         self.scheduler_args = self.scheduler_args or {}
         self.shell_args = self.shell_args or {}
+
+    @classmethod
+    def _json_like_constructor(cls, json_like) -> Self:
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+
+        given_keys = set(k for k in json_like)
+        bad_keys = given_keys - {
+            *cls._app.ResourceSpec.ALLOWED_PARAMETERS,
+            "platform",
+            "CPU_arch",
+            "executable_extension",
+        }
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+        if bad_keys:
+            good_keys = cls._app.ResourceSpec._allowed_params_quoted()
+            print(f"Allowed resource item names are: {good_keys}.")
+
+        return cls(**json_like)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):
