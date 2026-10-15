@@ -686,7 +686,12 @@ class SchemaOutput(SchemaParameter):
             self.parameter: Parameter = self._app.Parameter(typ=parameter)
         else:
             self.parameter = parameter
-        self.propagation_mode = propagation_mode
+        if isinstance(propagation_mode, str):
+            self.propagation_mode: ParameterPropagationMode = getattr(
+                self._app.ParameterPropagationMode, propagation_mode
+            )
+        else:
+            self.propagation_mode = propagation_mode
 
     @property
     def input_or_output(self) -> Literal["output"]:
