@@ -86,7 +86,7 @@ if TYPE_CHECKING:
         Resources,
         RepeatsDescriptorType,
     )
-    from .workflow import Workflow, WorkflowTemplate
+    from .workflow import ArrayOutput, Workflow, WorkflowTemplate
 
     StrSeq = TypeVar("StrSeq", bound=Sequence[str])
 
@@ -1898,6 +1898,128 @@ class WorkflowTask(AppAware):
         Get the iterations known by the task's elements.
         """
         return {itr.id_: itr for elem in self.elements for itr in elem.iterations}
+
+    @TimeIt.decorator
+    def list_array_outputs(self) -> list[str]:
+        """Return configured array output names whose workflow directories exist.
+
+        Names are sorted and exclude the optional ``outputs.`` prefix. No NPZ
+        files are inspected; an existing directory does not guarantee that this
+        task has saved entries.
+        """
+        return [
+            name
+            for name in self._get_configured_array_outputs()
+            if self.workflow._get_array_output_archive_path(name, 0).parent.is_dir()
+        ]
+
+    def _get_configured_array_outputs(self) -> list[str]:
+        """Return sorted, normalized task/schema array output names."""
+        return sorted(
+            {
+                output.removeprefix("outputs.")
+                for output in (
+                    *self.template.array_outputs,
+                    *(
+                        output
+                        for schema in self.template.schemas
+                        for output in schema.array_outputs
+                    ),
+                )
+                if output.removeprefix("outputs.")
+            }
+        )
+
+    @TimeIt.decorator
+    def get_array_output(
+        self,
+        name: str,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+    ) -> ArrayOutput:
+        """Read a configured array output from this task's producing action runs.
+
+        The optional ``outputs.`` prefix is accepted. Task- and schema-level
+        ``array_outputs`` declarations are combined. Only runs of the root
+        parameter's first source action from
+        :meth:`.TaskSchema.get_action_parameter_flow` are included. Order follows
+        :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
+        workflow reader; missing saved data therefore raises rather than being skipped.
+
+        ``iteration_idx=None`` selects each element's final non-loop-skipped
+        iteration; an integer or sequence selects those iteration indices explicitly.
+        ``element_idx=None`` includes all elements; an integer or sequence selects
+        those element indices. Sequences filter without reordering or duplicating runs.
+
+        Raises
+        ------
+        ValueError
+            If the output is not configured or no producing runs are found.
+        """
+        output_name = name.removeprefix("outputs.")
+        if output_name not in self._get_configured_array_outputs():
+            raise ValueError(
+                f"Array output {name!r} is not configured for task {self.unique_name!r}."
+            )
+
+        root_name = output_name.split(".", 1)[0]
+        source_action_idx: int | None = None
+        action_offset = 0
+        for schema in self.template.schemas:
+            flow = schema.get_action_parameter_flow()
+            sources = flow.get(root_name, {}).get("sources", [])
+            if sources and sources[0] >= 0:
+                source_action_idx = action_offset + sources[0]
+                break
+            action_offset += len(schema.actions)
+
+        run_IDs = self.workflow.get_EAR_IDs_of_tasks([self.insert_ID])
+        runs_by_ID = {run.id_: run for run in self.workflow.get_EARs_from_IDs(run_IDs)}
+        iteration_indices = (
+            None
+            if iteration_idx is None
+            else {iteration_idx} if isinstance(iteration_idx, int) else set(iteration_idx)
+        )
+        element_indices = (
+            None
+            if element_idx is None
+            else {element_idx} if isinstance(element_idx, int) else set(element_idx)
+        )
+        latest_iteration_IDs: dict[int, int | None] = {}
+        if iteration_idx is None and source_action_idx is not None:
+            for run in runs_by_ID.values():
+                if run.element_action.action_idx != source_action_idx:
+                    continue
+                if run.element.id_ not in latest_iteration_IDs and (
+                    element_indices is None or run.element.index in element_indices
+                ):
+                    latest = run.element.latest_iteration_non_skipped
+                    latest_iteration_IDs[run.element.id_] = (
+                        latest.id_ if latest is not None else None
+                    )
+        applicable_run_IDs = [
+            run_ID
+            for run_ID in run_IDs
+            if source_action_idx is not None
+            and runs_by_ID[run_ID].element_action.action_idx == source_action_idx
+            and (
+                element_indices is None
+                or runs_by_ID[run_ID].element.index in element_indices
+            )
+            and (
+                runs_by_ID[run_ID].element_iteration.id_
+                == latest_iteration_IDs[runs_by_ID[run_ID].element.id_]
+                if iteration_indices is None
+                else runs_by_ID[run_ID].element_iteration.index in iteration_indices
+            )
+        ]
+        if not applicable_run_IDs:
+            raise ValueError(
+                f"No producing runs found for array output {name!r} "
+                f"in task {self.unique_name!r}."
+            )
+        return self.workflow.get_array_output(name, applicable_run_IDs)
 
     @staticmethod
     @TimeIt.decorator

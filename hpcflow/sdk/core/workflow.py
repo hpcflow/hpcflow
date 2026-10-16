@@ -999,10 +999,62 @@ def resolve_fsspec(
 
 
 @dataclass(frozen=True)
+class ArrayOutput:
+    """Saved output array data and metadata in requested run-ID order.
+
+    For a scalar run ID, ``data`` is that run's array; metadata arrays still have
+    one entry. For multiple IDs, ``data`` is stacked when no shape metadata is
+    present and all shapes match, otherwise it is a list. ``shape`` is omitted
+    when none of the source archives has shape metadata.
+    """
+
+    name: str
+    data: np.ndarray | list[np.ndarray]
+    task_insert_ID: np.ndarray
+    task_idx: np.ndarray
+    element_idx: np.ndarray
+    element_ID: np.ndarray
+    iteration_idx: np.ndarray
+    iteration_ID: np.ndarray
+    action_idx: np.ndarray
+    run_idx: np.ndarray
+    run_ID: np.ndarray
+    shape: np.ndarray | None = None
+
+    @property
+    def dtype(self) -> np.dtype:
+        """Data dtype, or NumPy's common dtype for list-backed arrays."""
+        if isinstance(self.data, np.ndarray):
+            return self.data.dtype
+        return np.result_type(*(array.dtype for array in self.data))
+
+    def __repr__(self) -> str:
+        attributes = []
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.name == "name":
+                formatted = repr(self.name)
+            elif field.name == "data":
+                formatted = (
+                    f"{self.data.shape}"
+                    if isinstance(self.data, np.ndarray)
+                    else f"{shorten_list_str(array.shape for array in self.data)}"
+                )
+            else:
+                formatted = "None" if value is None else shorten_list_str(value.tolist())
+            attributes.append(f"    {field.name}={formatted},")
+            if field.name == "name":
+                attributes.append(f"    dtype={self.dtype},")
+        return f"{self.__class__.__name__}(\n" + "\n".join(attributes) + "\n)"
+
+
+@dataclass(frozen=True)
 class _ArrayOutputArchive:
     """Array data and per-run metadata loaded from an array-output NPZ archive."""
 
     data: np.ndarray
+    task_insert_ID: np.ndarray
+    task_idx: np.ndarray
     element_idx: np.ndarray
     element_ID: np.ndarray
     iteration_idx: np.ndarray
@@ -5093,6 +5145,18 @@ class Workflow(AppAware):
 
             self.set_parameter_value(param_id, value)
 
+    def list_array_outputs(self) -> list[str]:
+        """Return sorted names of stored array outputs, excluding empty directories."""
+        root = Path(self._store.path) / "parameters" / "array_outputs"
+        if not root.exists():
+            return []
+        return sorted(
+            directory.name
+            for directory in root.iterdir()
+            if directory.is_dir()
+            and any(path.is_file() for path in directory.glob("*.npz"))
+        )
+
     def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
         """Return the archive path for a dot-delimited output name and run-file ID."""
         output_name = name.removeprefix("outputs.")
@@ -5113,7 +5177,7 @@ class Workflow(AppAware):
         )
 
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
-        """Append one configured array output and its EAR metadata to an NPZ archive."""
+        """Append an array and EAR metadata, requiring matching dimensions and dtype."""
         value = np.asarray(value)
         if value.dtype.hasobject:
             raise TypeError(
@@ -5128,6 +5192,8 @@ class Workflow(AppAware):
         archive_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_values = {
+            "task_insert_ID": EAR.task.insert_ID,
+            "task_idx": EAR.task.index,
             "element_idx": EAR.element.index,
             "element_ID": EAR.element.id_,
             "iteration_idx": EAR.element_iteration.index,
@@ -5146,6 +5212,11 @@ class Workflow(AppAware):
         if archive_path.exists():
             archive = self._read_array_output_archive(archive_path)
             previous_data = archive.data
+            if previous_data.dtype != value.dtype:
+                raise TypeError(
+                    f"Configured array output {name!r} has dtype {value.dtype}, "
+                    f"but existing values have dtype {previous_data.dtype}."
+                )
             if previous_data.ndim != value.ndim + 1:
                 raise ValueError(
                     f"Configured array output {name!r} has {value.ndim} "
@@ -5166,9 +5237,8 @@ class Workflow(AppAware):
                 max(previous_data.shape[axis + 1], value.shape[axis])
                 for axis in range(value.ndim)
             )
-            dtype = np.result_type(previous_data.dtype, value.dtype)
             expanded_data = np.zeros(
-                (previous_data.shape[0] + 1, *max_shape), dtype=dtype
+                (previous_data.shape[0] + 1, *max_shape), dtype=previous_data.dtype
             )
             previous_slices: tuple[slice, ...] = tuple(
                 slice(0, size) for size in previous_data.shape[1:]
@@ -5200,14 +5270,13 @@ class Workflow(AppAware):
         atomic_write(archive_path, buffer.getvalue())
 
     @TimeIt.decorator
-    def get_array_output(
-        self, name: str, run_IDs: int | Iterable[int]
-    ) -> np.ndarray | list[np.ndarray]:
+    def get_array_output(self, name: str, run_IDs: int | Iterable[int]) -> ArrayOutput:
         """Read a saved array output for one run ID or an iterable of run IDs.
 
-        For one run ID, return its array. For multiple run IDs, return a NumPy array
-        when no shape metadata is present and all arrays have the same shape; otherwise,
-        return a list.
+        Return an :class:`ArrayOutput` with data and all per-run metadata selected
+        in the requested order, including repeated IDs. For a scalar ID, ``data``
+        is that run's array. For multiple IDs it is stacked when no shape metadata
+        is present and all shapes match, otherwise it is a list.
         """
         if isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
@@ -5225,6 +5294,12 @@ class Workflow(AppAware):
 
         loaded_archives: dict[int, _ArrayOutputArchive] = {}
         output_arrays: list[np.ndarray] = []
+        metadata: dict[str, list[np.ndarray]] = {
+            field.name: []
+            for field in fields(ArrayOutput)
+            if field.name not in {"name", "data", "shape"}
+        }
+        output_shapes: list[tuple[int, ...]] = []
         has_shape_metadata = False
         for run_ID, EAR in zip(requested_run_IDs, EARs):
             if EAR.run_file_ID is None:
@@ -5256,14 +5331,27 @@ class Workflow(AppAware):
                 array_shape = tuple(int(dim) for dim in shapes[archive_idx])
             array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
             output_arrays.append(np.array(data[archive_idx][array_slices]))
+            output_shapes.append(array_shape)
+            for key, values in metadata.items():
+                values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
 
+        result_data: np.ndarray | list[np.ndarray]
         if is_single_run:
-            return output_arrays[0]
-        if not has_shape_metadata and all(
+            result_data = output_arrays[0]
+        elif not has_shape_metadata and all(
             array.shape == output_arrays[0].shape for array in output_arrays[1:]
         ):
-            return np.stack(output_arrays)
-        return output_arrays
+            result_data = np.stack(output_arrays)
+        else:
+            result_data = output_arrays
+        return ArrayOutput(
+            name=name.removeprefix("outputs."),
+            data=result_data,
+            **{key: np.concatenate(values) for key, values in metadata.items()},
+            shape=(
+                np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
+            ),
+        )
 
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
