@@ -1,10 +1,12 @@
 from __future__ import annotations
 import copy
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass
 from pathlib import Path
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 
 from hpcflow.app import app as hf
@@ -50,6 +52,234 @@ def test_workflow_zip(persistent_workflow):
 
     # delete the zipped workflow:
     Path(zip_path).unlink()
+
+
+def test_save_parameter_appends_configured_array_output(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schema = SimpleNamespace(array_outputs=["p1.a", "p1.missing"])
+    task = SimpleNamespace(
+        template=SimpleNamespace(schemas=[schema], array_outputs=["p1.b"])
+    )
+    ear_values = {
+        "run_file_ID": 6,
+        "id_": 100,
+        "index": 0,
+        "task": task,
+        "element": SimpleNamespace(index=3, id_=30),
+        "element_iteration": SimpleNamespace(index=4, id_=40),
+        "element_action": SimpleNamespace(action_idx=5),
+        "data_idx": {"outputs.p1": 12},
+    }
+    ear = SimpleNamespace(**ear_values)
+    ears_by_ID = {100: ear}
+
+    def get_test_EARs(run_IDs):
+        if isinstance(run_IDs, int):
+            return ears_by_ID[run_IDs]
+        return [ears_by_ID[run_ID] for run_ID in run_IDs]
+
+    monkeypatch.setattr(empty_workflow, "get_EARs_from_IDs", get_test_EARs)
+    parameter_values: list[tuple[int, object]] = []
+    monkeypatch.setattr(
+        empty_workflow,
+        "set_parameter_value",
+        lambda param_id, value: parameter_values.append((param_id, value)),
+    )
+
+    first_value = {"a": [[0, 1, 2], [3, 4, 5]], "b": np.arange(4)}
+    empty_workflow.save_parameter("outputs.p1", first_value, EAR_ID=100)
+
+    ear_values.update(
+        id_=101,
+        index=1,
+        element=SimpleNamespace(index=7, id_=70),
+        element_iteration=SimpleNamespace(index=8, id_=80),
+        element_action=SimpleNamespace(action_idx=9),
+    )
+    ear = SimpleNamespace(**ear_values)
+    ears_by_ID[101] = ear
+    second_value = {"a": np.arange(12).reshape(3, 4), "b": np.arange(4, 8)}
+    empty_workflow.save_parameter("outputs.p1", second_value, EAR_ID=101)
+
+    array_archive_path = (
+        Path(empty_workflow._store.path)
+        / "parameters"
+        / "array_outputs"
+        / "p1.a"
+        / "6.npz"
+    )
+    with np.load(array_archive_path, allow_pickle=False) as archive:
+        np.testing.assert_array_equal(
+            archive["data"],
+            np.array(
+                [
+                    [[0, 1, 2, 0], [3, 4, 5, 0], [0, 0, 0, 0]],
+                    [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]],
+                ]
+            ),
+        )
+        np.testing.assert_array_equal(archive["shape"], [[2, 3], [3, 4]])
+        np.testing.assert_array_equal(archive["element_idx"], [3, 7])
+        np.testing.assert_array_equal(archive["element_ID"], [30, 70])
+        np.testing.assert_array_equal(archive["iteration_idx"], [4, 8])
+        np.testing.assert_array_equal(archive["iteration_ID"], [40, 80])
+        np.testing.assert_array_equal(archive["action_idx"], [5, 9])
+        np.testing.assert_array_equal(archive["run_idx"], [0, 1])
+        np.testing.assert_array_equal(archive["run_ID"], [100, 101])
+
+    task_array_archive_path = (
+        Path(empty_workflow._store.path)
+        / "parameters"
+        / "array_outputs"
+        / "p1.b"
+        / "6.npz"
+    )
+    with np.load(task_array_archive_path, allow_pickle=False) as archive:
+        np.testing.assert_array_equal(archive["data"], [[0, 1, 2, 3], [4, 5, 6, 7]])
+        assert "shape" not in archive.files
+
+    assert not (
+        Path(empty_workflow._store.path)
+        / "parameters"
+        / "array_outputs"
+        / "p1.missing"
+        / "6.npz"
+    ).exists()
+    np.testing.assert_array_equal(
+        empty_workflow.get_array_output("p1.a", 100), first_value["a"]
+    )
+    arrays = empty_workflow.get_array_output("outputs.p1.a", [101, 100])
+    assert isinstance(arrays, list)
+    np.testing.assert_array_equal(arrays[0], second_value["a"])
+    np.testing.assert_array_equal(arrays[1], first_value["a"])
+    arrays = empty_workflow.get_array_output("p1.b", [101, 100])
+    assert isinstance(arrays, np.ndarray)
+    np.testing.assert_array_equal(arrays, [second_value["b"], first_value["b"]])
+    assert parameter_values == [(12, first_value), (12, second_value)]
+
+
+@pytest.mark.parametrize("second_size", [2, 3])
+def test_get_array_output_across_files(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch, second_size: int
+) -> None:
+    ears_by_ID = {
+        100: SimpleNamespace(run_file_ID=6, id_=100),
+        101: SimpleNamespace(run_file_ID=7, id_=101),
+    }
+    monkeypatch.setattr(
+        empty_workflow,
+        "get_EARs_from_IDs",
+        lambda run_IDs: [ears_by_ID[run_ID] for run_ID in run_IDs],
+    )
+    archive_dir = (
+        Path(empty_workflow._store.path) / "parameters" / "array_outputs" / "p1.a"
+    )
+    archive_dir.mkdir(parents=True)
+    values = [np.array([1, 2]), np.arange(3, 3 + second_size)]
+    for (run_ID, ear), value in zip(ears_by_ID.items(), values):
+        np.savez(
+            archive_dir / f"{ear.run_file_ID}.npz",
+            data=value[np.newaxis, ...],
+            element_idx=[0],
+            element_ID=[0],
+            iteration_idx=[0],
+            iteration_ID=[0],
+            action_idx=[0],
+            run_idx=[0],
+            run_ID=[run_ID],
+        )
+
+    arrays = empty_workflow.get_array_output("p1.a", [100, 101])
+
+    assert isinstance(arrays, np.ndarray if second_size == 2 else list)
+    for actual, expected in zip(arrays, values):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
+def test_get_array_output_archive_path(empty_workflow: Workflow, name: str) -> None:
+    path = empty_workflow._get_array_output_archive_path(name, 6)
+
+    assert path == (
+        Path(empty_workflow._store.path)
+        / "parameters"
+        / "array_outputs"
+        / "p1.a"
+        / "6.npz"
+    )
+    assert not path.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "name", ["", "outputs.", ".p1", "p1.", "p1..a", "p1/a", "p1\\a", ".."]
+)
+def test_get_array_output_archive_path_invalid_name(
+    empty_workflow: Workflow, name: str
+) -> None:
+    with pytest.raises(ValueError, match="Invalid dot-delimited array output path"):
+        empty_workflow._get_array_output_archive_path(name, 6)
+
+
+@pytest.mark.parametrize(
+    ("shape", "valid"),
+    [
+        (None, True),
+        ([[1], [2]], True),
+        ([[-1], [2]], False),
+        ([[3], [2]], False),
+        ([[1, 2], [1, 2]], False),
+        ([[1]], False),
+    ],
+)
+def test_read_array_output_archive(
+    empty_workflow: Workflow,
+    tmp_path: Path,
+    shape: list[list[int]] | None,
+    valid: bool,
+) -> None:
+    contents = {
+        "data": np.array([[1, 2], [3, 4]]),
+        "element_idx": np.array([0, 1]),
+        "element_ID": np.array([10, 11]),
+        "iteration_idx": np.array([2, 3]),
+        "iteration_ID": np.array([12, 13]),
+        "action_idx": np.array([4, 5]),
+        "run_idx": np.array([6, 7]),
+        "run_ID": np.array([100, 101]),
+    }
+    if shape is not None:
+        contents["shape"] = np.array(shape)
+    path = tmp_path / "arrays.npz"
+    np.savez(path, **contents)
+
+    if not valid:
+        with pytest.raises(ValueError, match="invalid shape metadata"):
+            empty_workflow._read_array_output_archive(path)
+        return
+
+    archive = empty_workflow._read_array_output_archive(path)
+
+    assert is_dataclass(archive)
+    for field in fields(archive):
+        if field.name == "shape" and shape is None:
+            assert archive.shape is None
+        else:
+            np.testing.assert_array_equal(
+                getattr(archive, field.name), contents[field.name]
+            )
+    with pytest.raises(FrozenInstanceError):
+        setattr(archive, "data", np.array([]))
+
+
+def test_task_array_outputs() -> None:
+    task = hf.Task(
+        schema=hf.TaskSchema("array_output_task"),
+        array_outputs=["p1.a"],
+    )
+
+    assert task.array_outputs == ["p1.a"]
+    assert task.to_dict()["array_outputs"] == ["p1.a"]
 
 
 def make_workflow_w1_with_config_kwargs(

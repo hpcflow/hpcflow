@@ -803,6 +803,10 @@ class Task(JSONLike):
         into `resources` using the "any" scope. If False, these presets are ignored.
         This is required on first initialisation, but not on subsequent
         re-initialisation from a persistent workflow.
+    array_outputs: list[str]
+        Dot-delimited output parameter paths, relative to the ``outputs`` namespace,
+        whose array values should also be stored in separate array-output files. The
+        ``outputs.`` prefix is optional.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -851,6 +855,7 @@ class Task(JSONLike):
         condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
+        array_outputs: list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
         # (lists of) strs e.g.: Task(
@@ -900,6 +905,7 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
+        self.array_outputs = list(array_outputs or [])
         self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.

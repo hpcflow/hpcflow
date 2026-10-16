@@ -47,6 +47,19 @@ def test_task_schema_equality() -> None:
     assert t1a == t1b
 
 
+def test_array_outputs() -> None:
+    schema = hf.TaskSchema("t1", array_outputs=["outputs.foo.bar"])
+
+    assert hf.TaskSchema("t1").array_outputs == []
+    assert schema.array_outputs == ["outputs.foo.bar"]
+    assert schema != hf.TaskSchema("t1")
+
+    json_like = schema.to_json_like()[0]
+    restored_schema = hf.TaskSchema.from_json_like(json_like)
+    assert restored_schema is not None
+    assert restored_schema.array_outputs == ["outputs.foo.bar"]
+
+
 def test_init_with_str_objective(action_a1: Action) -> None:
     obj_str = "t1"
     obj = hf.TaskObjective(obj_str)

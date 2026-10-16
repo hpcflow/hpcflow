@@ -103,6 +103,10 @@ class TaskSchema(JSONLike):
     environment_presets:
         Information about default execution environments. Can be overridden in specific
         cases in the concrete tasks.
+    array_outputs:
+        A list of dot-delimited output parameter paths, relative to the ``outputs``
+        namespace, to store more efficiently. The ``outputs.`` prefix is optional. This
+        is a temporary workaround.
     """
 
     _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
@@ -153,6 +157,7 @@ class TaskSchema(JSONLike):
         doc: str = "",
         parameter_dependencies: Sequence[str] | None = None,
         _hash_value: str | None = None,
+        array_outputs: list[str] | None = None,
     ):
         #: This is a string representing the objective of the task schema.
         self.objective = self.__coerce_objective(objective)
@@ -178,6 +183,9 @@ class TaskSchema(JSONLike):
         #: Additional parameters that the actions of this schema should depend on (e.g.
         # for the purposes of jobscript scheduling).
         self.parameter_dependencies = list(parameter_dependencies or [])
+        #: Dot-delimited output parameter names to store more efficiently. This is a
+        #: temporary workaround.
+        self.array_outputs = list(array_outputs or [])
         self._hash_value = _hash_value
 
         self._set_parent_refs()
@@ -667,6 +675,7 @@ class TaskSchema(JSONLike):
             and self.implementation == other.implementation
             and self.inputs == other.inputs
             and self.outputs == other.outputs
+            and self.array_outputs == other.array_outputs
             and self.version == other.version
             and self._hash_value == other._hash_value
         )
@@ -1078,6 +1087,7 @@ class MetaTaskSchema(TaskSchema):
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
         _hash_value: str | None = None,
+        array_outputs: list[str] | None = None,
     ):
         super().__init__(
             objective=objective,
@@ -1090,4 +1100,5 @@ class MetaTaskSchema(TaskSchema):
             environment_presets=environment_presets,
             doc=doc,
             _hash_value=_hash_value,
+            array_outputs=array_outputs,
         )

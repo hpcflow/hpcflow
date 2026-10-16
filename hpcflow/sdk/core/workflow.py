@@ -7,7 +7,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from io import BytesIO
 
 from datetime import datetime, timezone
 from functools import wraps
@@ -61,7 +62,7 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
-from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
+from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write, infer_store
 from hpcflow.sdk.submission.jobscript import (
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
@@ -85,6 +86,7 @@ from hpcflow.sdk.core.utils import (
     current_timestamp,
     normalise_timestamp,
     parse_timestamp,
+    get_in_container,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
@@ -994,6 +996,21 @@ def resolve_fsspec(
             path_s = str(Path(path_s).resolve())
 
     return fs, path_s, pw
+
+
+@dataclass(frozen=True)
+class _ArrayOutputArchive:
+    """Array data and per-run metadata loaded from an array-output NPZ archive."""
+
+    data: np.ndarray
+    element_idx: np.ndarray
+    element_ID: np.ndarray
+    iteration_idx: np.ndarray
+    iteration_ID: np.ndarray
+    action_idx: np.ndarray
+    run_idx: np.ndarray
+    run_ID: np.ndarray
+    shape: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -5032,13 +5049,262 @@ class Workflow(AppAware):
     ):
         """
         Save a parameter where an EAR can find it.
+
+        Configured array outputs are also appended to per-run-file NPZ archives.
         """
         self._app.logger.info(f"save parameter {name!r} for EAR_ID {EAR_ID}.")
         self._app.logger.debug(f"save parameter {name!r} value is {value!r}.")
         with self._store.cached_load(), self.batch_update():
             EAR = self.get_EARs_from_IDs(EAR_ID)
             param_id = EAR.data_idx[name]
+            configured_outputs = dict.fromkeys(
+                (
+                    *EAR.task.template.array_outputs,
+                    *(
+                        array_output
+                        for schema in EAR.task.template.schemas
+                        for array_output in schema.array_outputs
+                    ),
+                )
+            )
+            for configured_output in configured_outputs:
+                array_output = configured_output.removeprefix("outputs.")
+                if not array_output:
+                    continue
+                full_output_path = f"outputs.{array_output}"
+                if not (
+                    full_output_path == name or full_output_path.startswith(f"{name}.")
+                ):
+                    continue
+
+                suffix = full_output_path[len(name) :].removeprefix(".")
+                try:
+                    array_value = get_in_container(
+                        value, suffix.split(".") if suffix else (), allow_getattr=True
+                    )
+                except (KeyError, IndexError, AttributeError, TypeError, ValueError):
+                    self._app.logger.debug(
+                        f"Configured array output {configured_output!r} is not present "
+                        f"in parameter {name!r}; skipping."
+                    )
+                    continue
+
+                self._save_array_output(EAR, array_output, array_value)
+
             self.set_parameter_value(param_id, value)
+
+    def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
+        """Return the archive path for a dot-delimited output name and run-file ID."""
+        output_name = name.removeprefix("outputs.")
+        if not output_name or any(
+            not component
+            or component in {".", ".."}
+            or "/" in component
+            or "\\" in component
+            for component in output_name.split(".")
+        ):
+            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        return (
+            Path(self._store.path)
+            / "parameters"
+            / "array_outputs"
+            / output_name
+            / f"{run_file_ID}.npz"
+        )
+
+    def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
+        """Append one configured array output and its EAR metadata to an NPZ archive."""
+        value = np.asarray(value)
+        if value.dtype.hasobject:
+            raise TypeError(
+                f"Configured array output {name!r} has object dtype, which cannot be "
+                "stored without pickle."
+            )
+        if EAR.run_file_ID is None:
+            raise ValueError(
+                f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
+            )
+        archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+        metadata_values = {
+            "element_idx": EAR.element.index,
+            "element_ID": EAR.element.id_,
+            "iteration_idx": EAR.element_iteration.index,
+            "iteration_ID": EAR.element_iteration.id_,
+            "action_idx": EAR.element_action.action_idx,
+            "run_idx": EAR.index,
+            "run_ID": EAR.id_,
+        }
+
+        array_data = value[np.newaxis, ...]
+        shapes = np.asarray([value.shape], dtype=np.int32)
+        stored_metadata: dict[str, np.ndarray] = {
+            key: np.asarray([metadata_value], dtype=np.int32)
+            for key, metadata_value in metadata_values.items()
+        }
+        if archive_path.exists():
+            archive = self._read_array_output_archive(archive_path)
+            previous_data = archive.data
+            if previous_data.ndim != value.ndim + 1:
+                raise ValueError(
+                    f"Configured array output {name!r} has {value.ndim} "
+                    f"dimensions, but existing values have "
+                    f"{previous_data.ndim - 1} dimensions."
+                )
+
+            if archive.shape is not None:
+                previous_shapes = archive.shape
+            else:
+                previous_shapes = np.broadcast_to(
+                    previous_data.shape[1:],
+                    (previous_data.shape[0], value.ndim),
+                ).copy()
+            shapes = np.concatenate((previous_shapes, shapes), axis=0)
+
+            max_shape = tuple(
+                max(previous_data.shape[axis + 1], value.shape[axis])
+                for axis in range(value.ndim)
+            )
+            dtype = np.result_type(previous_data.dtype, value.dtype)
+            expanded_data = np.zeros(
+                (previous_data.shape[0] + 1, *max_shape), dtype=dtype
+            )
+            previous_slices: tuple[slice, ...] = tuple(
+                slice(0, size) for size in previous_data.shape[1:]
+            )
+            previous_index: tuple[slice, ...] = (
+                slice(None, -1),
+                *previous_slices,
+            )
+            expanded_data[previous_index] = previous_data
+            value_slices: tuple[slice, ...] = tuple(
+                slice(0, size) for size in value.shape
+            )
+            value_index: tuple[int | slice, ...] = (-1, *value_slices)
+            expanded_data[value_index] = value
+            array_data = expanded_data
+
+            for key in metadata_values:
+                stored_metadata[key] = np.append(
+                    getattr(archive, key),
+                    np.asarray([metadata_values[key]], dtype=np.int64),
+                )
+
+        archive_data = {"data": array_data, **stored_metadata}
+        if not np.all(shapes == shapes[0]):
+            archive_data["shape"] = shapes
+
+        buffer = BytesIO()
+        np.savez(buffer, **archive_data)
+        atomic_write(archive_path, buffer.getvalue())
+
+    @TimeIt.decorator
+    def get_array_output(
+        self, name: str, run_IDs: int | Iterable[int]
+    ) -> np.ndarray | list[np.ndarray]:
+        """Read a saved array output for one run ID or an iterable of run IDs.
+
+        For one run ID, return its array. For multiple run IDs, return a NumPy array
+        when no shape metadata is present and all arrays have the same shape; otherwise,
+        return a list.
+        """
+        if isinstance(run_IDs, (int, np.integer)):
+            is_single_run = True
+            requested_run_IDs = [int(cast(int, run_IDs))]
+            EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
+            EARs: list[ElementActionRun] = [cast(ElementActionRun, EAR)]
+        else:
+            is_single_run = False
+            requested_run_IDs = [int(run_ID) for run_ID in cast("Iterable[int]", run_IDs)]
+            EAR_result_list = cast(
+                list[ElementActionRun], self.get_EARs_from_IDs(requested_run_IDs)
+            )
+            EARs_by_ID = {EAR.id_: EAR for EAR in EAR_result_list}
+            EARs = [EARs_by_ID[run_ID] for run_ID in requested_run_IDs]
+
+        loaded_archives: dict[int, _ArrayOutputArchive] = {}
+        output_arrays: list[np.ndarray] = []
+        has_shape_metadata = False
+        for run_ID, EAR in zip(requested_run_IDs, EARs):
+            if EAR.run_file_ID is None:
+                raise ValueError(
+                    f"Cannot read array output {name!r}: EAR {run_ID} has no "
+                    "run_file_ID."
+                )
+
+            if EAR.run_file_ID not in loaded_archives:
+                archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
+                loaded_archives[EAR.run_file_ID] = self._read_array_output_archive(
+                    archive_path
+                )
+
+            archive = loaded_archives[EAR.run_file_ID]
+            data, shapes = archive.data, archive.shape
+            has_shape_metadata |= shapes is not None
+            matching_indices = np.flatnonzero(archive.run_ID == run_ID)
+            if len(matching_indices) != 1:
+                raise ValueError(
+                    f"Expected one entry for run ID {run_ID} in array-output archive "
+                    f"for {name!r}, found {len(matching_indices)}."
+                )
+
+            archive_idx = int(matching_indices[0])
+            if shapes is None:
+                array_shape = data.shape[1:]
+            else:
+                array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+            array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
+            output_arrays.append(np.array(data[archive_idx][array_slices]))
+
+        if is_single_run:
+            return output_arrays[0]
+        if not has_shape_metadata and all(
+            array.shape == output_arrays[0].shape for array in output_arrays[1:]
+        ):
+            return np.stack(output_arrays)
+        return output_arrays
+
+    @TimeIt.decorator
+    def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
+        """Load and validate an array-output NPZ archive."""
+        with np.load(path, allow_pickle=False) as archive:
+            required_names = [
+                field.name
+                for field in fields(_ArrayOutputArchive)
+                if field.name != "shape"
+            ]
+            if not all(name in archive.files for name in required_names):
+                raise ValueError(
+                    f"Array-output archive {path} has an unsupported format."
+                )
+
+            arrays = {name: archive[name] for name in required_names}
+            data = arrays["data"]
+            run_ids = arrays["run_ID"]
+            shapes = archive["shape"] if "shape" in archive.files else None
+            if data.ndim < 1 or run_ids.ndim != 1:
+                raise ValueError(
+                    f"Array-output archive {path} has invalid data or run_ID dimensions."
+                )
+            if len(data) != len(run_ids):
+                raise ValueError(
+                    f"Array-output archive {path} has mismatched data and run_ID lengths."
+                )
+            for name, metadata in arrays.items():
+                if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
+                    raise ValueError(
+                        f"Array-output archive {path} has invalid {name} metadata."
+                    )
+            if shapes is not None and (
+                shapes.shape != (len(data), data.ndim - 1)
+                or np.any(shapes < 0)
+                or np.any(shapes > data.shape[1:])
+            ):
+                raise ValueError(
+                    f"Array-output archive {path} has invalid shape metadata."
+                )
+            return _ArrayOutputArchive(**arrays, shape=shapes)
 
     def show_all_EAR_statuses(self) -> None:
         """

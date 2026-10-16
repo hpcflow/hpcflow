@@ -266,6 +266,11 @@ class ElementActionRun(AppAware):
         return self._index
 
     @property
+    def run_file_ID(self) -> int | None:
+        """ID of the file to which execution-time run data is assigned."""
+        return self._run_file_ID
+
+    @property
     def action(self) -> Action:
         """
         The action this is a run of.
@@ -3653,7 +3658,7 @@ class Action(JSONLike):
                         wk._store.parameters_metadata_cache(),
                     ):
                         for name_i, out_i in outputs.items():
-                            wk.set_parameter_value(param_id=EAR.data_idx[f"outputs.{name_i}"], value=out_i)
+                            wk.save_parameter(name=f"outputs.{name_i}", value=out_i, EAR_ID=EAR.id_)
                 """
             )
         elif self.is_OFP:
