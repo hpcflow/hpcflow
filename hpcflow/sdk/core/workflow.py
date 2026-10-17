@@ -5102,47 +5102,16 @@ class Workflow(AppAware):
         """
         Save a parameter where an EAR can find it.
 
-        Configured array outputs are also appended to per-run-file NPZ archives.
+        With the Zarr store, output ndarrays use NPZ archives instead of legacy
+        array datasets unless excluded by task/schema ``disable_array_outputs``.
+        This is a temporary storage workaround. The JSON store
+        retains its existing encoding and does not write NPZ archives.
         """
         self._app.logger.info(f"save parameter {name!r} for EAR_ID {EAR_ID}.")
         self._app.logger.debug(f"save parameter {name!r} value is {value!r}.")
         with self._store.cached_load(), self.batch_update():
             EAR = self.get_EARs_from_IDs(EAR_ID)
             param_id = EAR.data_idx[name]
-            configured_outputs = dict.fromkeys(
-                (
-                    *EAR.task.template.array_outputs,
-                    *(
-                        array_output
-                        for schema in EAR.task.template.schemas
-                        for array_output in schema.array_outputs
-                    ),
-                )
-            )
-            for configured_output in configured_outputs:
-                array_output = configured_output.removeprefix("outputs.")
-                if not array_output:
-                    continue
-                full_output_path = f"outputs.{array_output}"
-                if not (
-                    full_output_path == name or full_output_path.startswith(f"{name}.")
-                ):
-                    continue
-
-                suffix = full_output_path[len(name) :].removeprefix(".")
-                try:
-                    array_value = get_in_container(
-                        value, suffix.split(".") if suffix else (), allow_getattr=True
-                    )
-                except (KeyError, IndexError, AttributeError, TypeError, ValueError):
-                    self._app.logger.debug(
-                        f"Configured array output {configured_output!r} is not present "
-                        f"in parameter {name!r}; skipping."
-                    )
-                    continue
-
-                self._save_array_output(EAR, array_output, array_value)
-
             self.set_parameter_value(param_id, value)
 
     def list_array_outputs(self) -> list[str]:
@@ -5181,7 +5150,7 @@ class Workflow(AppAware):
         value = np.asarray(value)
         if value.dtype.hasobject:
             raise TypeError(
-                f"Configured array output {name!r} has object dtype, which cannot be "
+                f"Array output {name!r} has object dtype, which cannot be "
                 "stored without pickle."
             )
         if EAR.run_file_ID is None:
@@ -5214,12 +5183,12 @@ class Workflow(AppAware):
             previous_data = archive.data
             if previous_data.dtype != value.dtype:
                 raise TypeError(
-                    f"Configured array output {name!r} has dtype {value.dtype}, "
+                    f"Array output {name!r} has dtype {value.dtype}, "
                     f"but existing values have dtype {previous_data.dtype}."
                 )
             if previous_data.ndim != value.ndim + 1:
                 raise ValueError(
-                    f"Configured array output {name!r} has {value.ndim} "
+                    f"Array output {name!r} has {value.ndim} "
                     f"dimensions, but existing values have "
                     f"{previous_data.ndim - 1} dimensions."
                 )

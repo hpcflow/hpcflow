@@ -63,18 +63,12 @@ def workflow_w0(tmp_path: Path) -> Workflow:
 
 
 @pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
-@pytest.mark.parametrize("configuration_source", ["task", "schema"])
 def test_task_get_array_output(
     workflow_w0: Workflow,
     monkeypatch: pytest.MonkeyPatch,
     name: str,
-    configuration_source: str,
 ) -> None:
     task = workflow_w0.tasks[0]
-    if configuration_source == "task":
-        task.template.array_outputs = ["outputs.p1.a"]
-    else:
-        task.template.schemas[0].array_outputs = ["p1.a"]
     monkeypatch.setattr(
         task.template.schemas[0],
         "get_action_parameter_flow",
@@ -127,7 +121,6 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
 ) -> None:
     task = workflow_w0.tasks[0]
     name = f"VE_response.phase_data.{field}.data"
-    task.template.array_outputs = [name]
     monkeypatch.setattr(
         task.template.schemas[0],
         "get_action_parameter_flow",
@@ -190,7 +183,6 @@ def test_task_get_array_output_without_producing_runs(
     workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch, has_runs: bool
 ) -> None:
     task = workflow_w0.tasks[0]
-    task.template.array_outputs = ["p1.a"]
     monkeypatch.setattr(
         workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[10] if has_runs else [])
     )
@@ -218,33 +210,39 @@ def test_task_list_array_outputs_checks_directories_only(
     workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     task = workflow_w0.tasks[0]
-    task.template.array_outputs = ["outputs.z.data", "shared", "outputs.", ""]
-    task.template.schemas[0].array_outputs = ["a.data", "outputs.shared", "z.data"]
-    disk_methods = [
-        Mock(side_effect=AssertionError("Listing must not access archives"))
-        for _ in range(2)
+    task.template.schemas[0].outputs = [
+        hf.SchemaOutput(parameter=hf.Parameter(name)) for name in ("a", "shared", "z")
     ]
-    for name, method in zip(
-        (
-            "list_array_outputs",
-            "_read_array_output_archive",
-        ),
-        disk_methods,
-    ):
-        monkeypatch.setattr(workflow_w0, name, method)
+    task.template.disable_array_outputs = ["outputs.a"]
+    read_archive = Mock(side_effect=AssertionError("Listing must not read NPZ files"))
+    monkeypatch.setattr(workflow_w0, "_read_array_output_archive", read_archive)
 
     assert task.list_array_outputs() == []
-    for name in ["shared", "z.data", "other_task"]:
+    for name in ["shared", "z.data", "a.data", "other_task"]:
         directory = workflow_w0._get_array_output_archive_path(name, 0).parent
         directory.mkdir(parents=True)
+        (directory / "0.npz").touch()
     assert task.list_array_outputs() == ["shared", "z.data"]
-    for method in disk_methods:
-        method.assert_not_called()
+    read_archive.assert_not_called()
 
 
-def test_task_get_array_output_not_configured(workflow_w0: Workflow) -> None:
-    with pytest.raises(ValueError, match="is not configured"):
+def test_task_get_array_output_disabled(workflow_w0: Workflow) -> None:
+    workflow_w0.tasks[0].template.disable_array_outputs = ["p1"]
+    with pytest.raises(ValueError, match="is disabled"):
         workflow_w0.tasks[0].get_array_output("p1.a")
+
+
+def test_task_without_array_output_fields() -> None:
+    schema = hf.TaskSchema.from_json_like({"objective": "legacy_task", "actions": []})
+    task = hf.Task.from_json_like(
+        {"schema": ["legacy_task"]},
+        shared_data={"task_schemas": hf.TaskSchemasList([schema])},
+    )
+    assert task is not None
+    assert task.disable_array_outputs == []
+    assert task.schemas[0].disable_array_outputs == []
+    assert not hasattr(task, "array_outputs")
+    assert "array_outputs" not in task.to_dict()
 
 
 @pytest.mark.parametrize(
@@ -273,7 +271,6 @@ def test_task_get_array_output_filters_elements_and_iterations(
     expected: list[int],
 ) -> None:
     task = workflow_w0.tasks[0]
-    task.template.array_outputs = ["p1.a"]
     monkeypatch.setattr(
         task.template.schemas[0],
         "get_action_parameter_flow",
@@ -337,16 +334,16 @@ def test_task_get_array_output_schema_action_offset(
 ) -> None:
     task = workflow_w0.tasks[0]
     template = SimpleNamespace(
-        array_outputs=["p1.a"],
+        disable_array_outputs=[],
         schemas=[
             SimpleNamespace(
                 actions=[None, None],
-                array_outputs=[],
+                disable_array_outputs=[],
                 get_action_parameter_flow=Mock(return_value={}),
             ),
             SimpleNamespace(
                 actions=[None, None, None],
-                array_outputs=[],
+                disable_array_outputs=[],
                 get_action_parameter_flow=Mock(
                     return_value={"p1": {"sources": [1, 2], "sinks": [-1]}}
                 ),

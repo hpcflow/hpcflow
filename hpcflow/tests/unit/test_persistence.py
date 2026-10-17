@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+from unittest.mock import Mock
 
 from typing import Any, cast, TYPE_CHECKING
 import numpy as np
@@ -24,6 +25,348 @@ from hpcflow.app import app as hf
 
 if TYPE_CHECKING:
     from hpcflow.sdk.persistence.zarr import ZarrPersistentStore
+
+
+@pytest.fixture
+def zarr_array_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
+    workflow = hf.Workflow.from_template_data(
+        template_name="array_test",
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    "array_test",
+                    inputs=[hf.Parameter("p2")],
+                    outputs=[hf.Parameter("p1")],
+                    actions=[hf.Action(script="test.py")],
+                ),
+                inputs=[hf.InputValue("p2", np.arange(3))],
+            )
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    task = workflow.tasks[0]
+    assert workflow.list_array_outputs() == []
+    runs = list(workflow.get_EARs_of_tasks([task.insert_ID]))
+    assert len(runs) == 1
+    run = runs[0]
+    monkeypatch.setattr(run, "_run_file_ID", 6)
+    original_get_runs = workflow.get_EARs_from_IDs
+    monkeypatch.setattr(
+        workflow,
+        "get_EARs_from_IDs",
+        lambda IDs: run if isinstance(IDs, int) else original_get_runs(IDs),
+    )
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_file_lookup",
+        lambda IDs, file_offset=0: {0: {6 + file_offset: {run.id_: 0}}},
+    )
+    return workflow, run
+
+
+@pytest.mark.parametrize("disabled", [[], ["p1"]])
+@pytest.mark.parametrize("numpy_array", [False, True])
+def test_json_output_arrays_do_not_use_npz(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    disabled: list[str],
+    numpy_array: bool,
+) -> None:
+    workflow = hf.Workflow.from_template_data(
+        template_name="json_array_test",
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    "json_array_test",
+                    outputs=[hf.Parameter("p1")],
+                    actions=[hf.Action(script="test.py")],
+                ),
+                disable_array_outputs=disabled,
+            )
+        ],
+        path=tmp_path,
+        store="json",
+    )
+    run = next(iter(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID])))
+    write_archive = Mock(side_effect=AssertionError("JSON must not write NPZ files"))
+    read_archive = Mock(side_effect=AssertionError("JSON must not read NPZ files"))
+    monkeypatch.setattr(workflow, "_save_array_output", write_archive)
+    monkeypatch.setattr(workflow, "_read_array_output_archive", read_archive)
+    array = np.arange(6).reshape(2, 3)
+    values = {"nested": {"data": array if numpy_array else array.tolist()}}
+
+    if numpy_array:
+        with pytest.raises(ValueError, match="cannot be serialised"):
+            workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    else:
+        workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+        reloaded = hf.Workflow(workflow.path)
+        stored = reloaded.get_parameter_data(run.data_idx["outputs.p1"])
+        assert stored == values
+    assert workflow.list_array_outputs() == []
+    assert not list(Path(workflow.path).rglob("*.npz"))
+    write_archive.assert_not_called()
+    read_archive.assert_not_called()
+
+
+def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> None:
+    workflow, run = zarr_array_workflow
+    task = run.task
+    values = {
+        "nested": {"data": np.arange(6).reshape(2, 3)},
+        "unconfigured": np.array([1.5, 2.5], dtype="float32"),
+        "sequence": [np.array(7, dtype="int32")],
+        "plain_list": [1, 2],
+    }
+
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+
+    for name, expected in {
+        "p1.nested.data": values["nested"]["data"],
+        "p1.unconfigured": values["unconfigured"],
+        "p1.sequence.0": values["sequence"][0],
+    }.items():
+        archive = workflow._read_array_output_archive(
+            workflow._get_array_output_archive_path(name, 6)
+        )
+        assert len(archive.run_ID) == 1
+        np.testing.assert_array_equal(archive.data[0], expected)
+        np.testing.assert_array_equal(archive.run_ID, [run.id_])
+        np.testing.assert_array_equal(archive.task_insert_ID, [task.insert_ID])
+        assert archive.data.dtype == expected.dtype
+    assert workflow.list_array_outputs() == [
+        "p1.nested.data",
+        "p1.sequence.0",
+        "p1.unconfigured",
+    ]
+    param_ID = run.data_idx["outputs.p1"]
+    inner_group = workflow._store._get_or_create_parameter_data_array_inner_group(
+        param_ID, mode="r+"
+    )
+    parameter_name = workflow._store._param_data_arr_grp_names(param_ID)[-1]
+    assert parameter_name not in inner_group
+    input_ID = run.data_idx["inputs.p2"]
+    input_arrays = workflow._store.get_parameter_data_array_group(input_ID)
+    np.testing.assert_array_equal(input_arrays["arr_0"][...], np.arange(3))
+    root_array = np.arange(4, dtype="float64")
+    workflow.set_parameter_value(param_ID, root_array)
+    archive = workflow._read_array_output_archive(
+        workflow._get_array_output_archive_path("p1", 6)
+    )
+    np.testing.assert_array_equal(archive.data, root_array[np.newaxis, ...])
+    assert parameter_name not in inner_group
+    original_bytes = workflow._get_array_output_archive_path("p1", 6).read_bytes()
+    with pytest.raises(TypeError, match="dtype int32.*dtype float64"):
+        workflow._store._set_parameter_values(
+            {param_ID: (np.arange(4, dtype="int32"), False)}
+        )
+    assert workflow._get_array_output_archive_path("p1", 6).read_bytes() == original_bytes
+    assert parameter_name not in inner_group
+
+
+@pytest.mark.parametrize("dataset_copy", [False, True])
+@pytest.mark.parametrize("storage", ["npz", "legacy", "dual"])
+def test_zarr_output_array_decode_prefers_npz(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_copy: bool,
+    storage: str,
+) -> None:
+    workflow, run = zarr_array_workflow
+    values = {
+        "nested": {"data": np.arange(6).reshape(2, 3)},
+        "scalar": np.array(7, dtype="int32"),
+        "list": [np.array([1.5, 2.5], dtype="float32")],
+    }
+    if storage != "npz":
+        run.task.template.disable_array_outputs = ["p1"]
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    run.task.template.disable_array_outputs = []
+    param_ID = run.data_idx["outputs.p1"]
+    inner_group = workflow._store._get_or_create_parameter_data_array_inner_group(
+        param_ID, mode="r+"
+    )
+    parameter_name = workflow._store._param_data_arr_grp_names(param_ID)[-1]
+    if storage == "npz":
+        assert parameter_name not in inner_group
+    elif storage == "dual":
+        arrays = inner_group[parameter_name]
+        for idx, (name, value) in enumerate(
+            (
+                ("p1.nested.data", values["nested"]["data"]),
+                ("p1.scalar", values["scalar"]),
+                ("p1.list.0", values["list"][0]),
+            )
+        ):
+            workflow._save_array_output(run, name, value)
+            arrays[f"arr_{idx}"][...] = -99
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    read_archive = Mock(wraps=workflow._read_array_output_archive)
+    monkeypatch.setattr(workflow, "_read_array_output_archive", read_archive)
+    workflow._store.parameter_cache.clear()
+
+    stored = workflow.get_parameter_data(param_ID, dataset_copy=dataset_copy)
+
+    for actual, expected in [
+        (stored["nested"]["data"], values["nested"]["data"]),
+        (stored["scalar"], values["scalar"]),
+        (stored["list"][0], values["list"][0]),
+    ]:
+        np.testing.assert_array_equal(actual, expected)
+        assert actual.dtype == expected.dtype
+    assert read_archive.call_count == (0 if storage == "legacy" else 3)
+
+
+@pytest.mark.parametrize(
+    ("task_disabled", "schema_disabled", "expected"),
+    [
+        ([], [], ["p1.a", "p1.b"]),
+        (["p1.a"], [], ["p1.b"]),
+        ([], ["outputs.p1.b"], ["p1.a"]),
+        (["p1.a"], ["p1.b"], []),
+        (["outputs.p1"], [], []),
+        ([], ["p1"], []),
+        (["p1.missing"], [], ["p1.a", "p1.b"]),
+    ],
+)
+def test_zarr_disable_array_outputs(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    task_disabled: list[str],
+    schema_disabled: list[str],
+    expected: list[str],
+) -> None:
+    workflow, run = zarr_array_workflow
+    run.task.template.disable_array_outputs = task_disabled
+    run.task.template.schemas[0].disable_array_outputs = schema_disabled
+    values = {"a": np.arange(3), "b": np.arange(4)}
+
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+
+    assert workflow.list_array_outputs() == expected
+    param_ID = run.data_idx["outputs.p1"]
+    inner_group = workflow._store._get_or_create_parameter_data_array_inner_group(
+        param_ID, mode="r+"
+    )
+    parameter_name = workflow._store._param_data_arr_grp_names(param_ID)[-1]
+    legacy_names = [name for name in values if f"p1.{name}" not in expected]
+    if legacy_names:
+        arrays = inner_group[parameter_name]
+        assert sorted(arrays.keys()) == [f"arr_{idx}" for idx in range(len(legacy_names))]
+        for idx, name in enumerate(legacy_names):
+            np.testing.assert_array_equal(arrays[f"arr_{idx}"][...], values[name])
+    else:
+        assert parameter_name not in inner_group
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
+    for name, value in values.items():
+        np.testing.assert_array_equal(stored[name], value)
+
+
+def test_zarr_legacy_output_decode_without_array_archives(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow, run = zarr_array_workflow
+    run.task.template.disable_array_outputs = ["p1"]
+    values = {"data": np.arange(6).reshape(2, 3), "text": "legacy"}
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    assert not (Path(workflow._store.path) / "parameters" / "array_outputs").exists()
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "get_EARs_from_IDs",
+        Mock(side_effect=AssertionError("Legacy decoding must not load array context")),
+    )
+    workflow._store.parameter_cache.clear()
+
+    stored = workflow.get_parameter_data(run.data_idx["outputs.p1"], dataset_copy=True)
+
+    np.testing.assert_array_equal(stored["data"], values["data"])
+    assert stored["text"] == "legacy"
+
+
+@pytest.mark.parametrize("disabled", [False, True])
+def test_zarr_masked_output_array_decode(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch, disabled: bool
+) -> None:
+    workflow, run = zarr_array_workflow
+    if disabled:
+        run.task.template.disable_array_outputs = ["p1"]
+    value = np.ma.array([1.0, 2.0], mask=[False, True], fill_value=-10.0)
+    values = {"plain": np.arange(3), "masked": value, "other_masked": value + 1}
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    param_ID = run.data_idx["outputs.p1"]
+    arrays = workflow._store.get_parameter_data_array_group(param_ID)
+    assert len(list(arrays.keys())) == (5 if disabled else 2)
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+
+    stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
+    np.testing.assert_array_equal(stored["plain"], values["plain"])
+    for name in ("masked", "other_masked"):
+        assert isinstance(stored[name], np.ma.MaskedArray)
+        np.testing.assert_array_equal(stored[name].data, values[name].data)
+        np.testing.assert_array_equal(stored[name].mask, values[name].mask)
+        assert stored[name].fill_value == values[name].fill_value
+
+
+@pytest.mark.parametrize("remove_directory", [False, True])
+def test_zarr_npz_only_output_missing_archive_raises(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    remove_directory: bool,
+) -> None:
+    workflow, run = zarr_array_workflow
+    workflow.save_parameter("outputs.p1", np.arange(3), EAR_ID=run.id_)
+    path = workflow._get_array_output_archive_path("p1", 6)
+    path.unlink()
+    if remove_directory:
+        path.parent.rmdir()
+        path.parent.parent.rmdir()
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    with pytest.raises(FileNotFoundError, match="Missing NPZ archive"):
+        workflow.get_parameter_data(run.data_idx["outputs.p1"])
+
+
+def test_zarr_array_output_decode_rejects_corrupt_archive(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow, run = zarr_array_workflow
+    workflow.save_parameter("outputs.p1", np.arange(3), EAR_ID=run.id_)
+    path = workflow._get_array_output_archive_path("p1", 6)
+    path.write_bytes(b"not an npz archive")
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+
+    with pytest.raises(ValueError):
+        workflow.get_parameter_data(run.data_idx["outputs.p1"])
 
 
 @pytest.mark.skip("need to refactor `make_test_store_from_spec`")

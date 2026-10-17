@@ -55,12 +55,13 @@ def test_workflow_zip(persistent_workflow):
     Path(zip_path).unlink()
 
 
-def test_save_parameter_appends_configured_array_output(
-    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+def test_save_array_output_appends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    schema = SimpleNamespace(array_outputs=["p1.a", "p1.missing"])
+    empty_workflow = hf.Workflow.from_template(
+        hf.WorkflowTemplate(name="array_outputs"), path=tmp_path, store="zarr"
+    )
     task = SimpleNamespace(
-        template=SimpleNamespace(schemas=[schema], array_outputs=["p1.b"]),
         insert_ID=20,
         index=2,
     )
@@ -91,7 +92,8 @@ def test_save_parameter_appends_configured_array_output(
     )
 
     first_value = {"a": [[0, 1, 2], [3, 4, 5]], "b": np.arange(4)}
-    empty_workflow.save_parameter("outputs.p1", first_value, EAR_ID=100)
+    for key, value in first_value.items():
+        empty_workflow._save_array_output(ear, f"p1.{key}", value)
 
     ear_values.update(
         id_=101,
@@ -103,7 +105,8 @@ def test_save_parameter_appends_configured_array_output(
     ear = SimpleNamespace(**ear_values)
     ears_by_ID[101] = ear
     second_value = {"a": np.arange(12).reshape(3, 4), "b": np.arange(4, 8)}
-    empty_workflow.save_parameter("outputs.p1", second_value, EAR_ID=101)
+    for key, value in second_value.items():
+        empty_workflow._save_array_output(ear, f"p1.{key}", value)
 
     array_archive_path = (
         Path(empty_workflow._store.path)
@@ -183,7 +186,7 @@ def test_save_parameter_appends_configured_array_output(
     assert output.shape is None
     with pytest.raises(FrozenInstanceError):
         setattr(output, "data", np.array([]))
-    assert parameter_values == [(12, first_value), (12, second_value)]
+    assert parameter_values == []
 
 
 @pytest.mark.parametrize("second_size", [2, 3])
@@ -326,14 +329,14 @@ def test_read_array_output_archive(
         setattr(archive, "data", np.array([]))
 
 
-def test_task_array_outputs() -> None:
+def test_task_disable_array_outputs() -> None:
     task = hf.Task(
         schema=hf.TaskSchema("array_output_task"),
-        array_outputs=["p1.a"],
+        disable_array_outputs=["p1.a"],
     )
 
-    assert task.array_outputs == ["p1.a"]
-    assert task.to_dict()["array_outputs"] == ["p1.a"]
+    assert task.disable_array_outputs == ["p1.a"]
+    assert task.to_dict()["disable_array_outputs"] == ["p1.a"]
 
 
 def test_list_array_outputs(empty_workflow: Workflow) -> None:
@@ -341,15 +344,25 @@ def test_list_array_outputs(empty_workflow: Workflow) -> None:
     root = Path(empty_workflow._store.path) / "parameters" / "array_outputs"
     (root / "empty").mkdir(parents=True)
     tasks = [
-        hf.Task(schema=hf.TaskSchema(objective="array_task_one", actions=[])),
-        hf.Task(schema=hf.TaskSchema(objective="array_task_two", actions=[])),
+        hf.Task(
+            schema=hf.TaskSchema(
+                objective="array_task_one",
+                actions=[hf.Action(script="test.py")],
+                outputs=[hf.Parameter("z"), hf.Parameter("shared")],
+            )
+        ),
+        hf.Task(
+            schema=hf.TaskSchema(
+                objective="array_task_two",
+                actions=[hf.Action(script="test.py")],
+                outputs=[hf.Parameter("a"), hf.Parameter("shared")],
+            )
+        ),
     ]
     empty_workflow.add_task(tasks[0])
     empty_workflow.add_task(tasks[1])
     first, second = empty_workflow.tasks
     assert first.list_array_outputs() == []
-    first.template.array_outputs = ["z.output", "shared"]
-    second.template.schemas[0].array_outputs = ["a.output", "shared"]
     for name, task_IDs in {
         "z.output": [first.insert_ID],
         "a.output": [second.insert_ID],

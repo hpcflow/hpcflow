@@ -803,10 +803,12 @@ class Task(JSONLike):
         into `resources` using the "any" scope. If False, these presets are ignored.
         This is required on first initialisation, but not on subsequent
         re-initialisation from a persistent workflow.
-    array_outputs: list[str]
-        Dot-delimited output parameter paths, relative to the ``outputs`` namespace,
-        whose array values should also be stored in separate array-output files. The
-        ``outputs.`` prefix is optional.
+    disable_array_outputs: list[str]
+        Dot-delimited output paths to store only in the legacy Zarr groups.
+        The optional ``outputs.`` prefix is accepted. A containing parameter path
+        disables all nested arrays. Task and schema exclusions are combined.
+        By default output ndarrays use NPZ instead of legacy Zarr groups.
+        This is a temporary storage workaround specific to the Zarr store.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -855,7 +857,7 @@ class Task(JSONLike):
         condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
-        array_outputs: list[str] | None = None,
+        disable_array_outputs: list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
         # (lists of) strs e.g.: Task(
@@ -905,7 +907,7 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
-        self.array_outputs = list(array_outputs or [])
+        self.disable_array_outputs = list(disable_array_outputs or [])
         self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
@@ -1901,7 +1903,7 @@ class WorkflowTask(AppAware):
 
     @TimeIt.decorator
     def list_array_outputs(self) -> list[str]:
-        """Return configured array output names whose workflow directories exist.
+        """Return array output directory names for this task's output parameters.
 
         Names are sorted and exclude the optional ``outputs.`` prefix. No NPZ
         files are inspected; an existing directory does not guarantee that this
@@ -1909,25 +1911,29 @@ class WorkflowTask(AppAware):
         """
         return [
             name
-            for name in self._get_configured_array_outputs()
-            if self.workflow._get_array_output_archive_path(name, 0).parent.is_dir()
+            for name in self.workflow.list_array_outputs()
+            if any(
+                name == root or name.startswith(f"{root}.")
+                for schema in self.template.schemas
+                for root in schema.output_types
+            )
+            and not self._is_array_output_disabled(name)
         ]
 
-    def _get_configured_array_outputs(self) -> list[str]:
-        """Return sorted, normalized task/schema array output names."""
-        return sorted(
-            {
-                output.removeprefix("outputs.")
-                for output in (
-                    *self.template.array_outputs,
-                    *(
-                        output
-                        for schema in self.template.schemas
-                        for output in schema.array_outputs
-                    ),
-                )
-                if output.removeprefix("outputs.")
-            }
+    def _is_array_output_disabled(self, name: str) -> bool:
+        """Check task/schema exclusions, including containing parameter paths."""
+        name = name.removeprefix("outputs.")
+        return any(
+            bool(disabled) and (name == disabled or name.startswith(f"{disabled}."))
+            for output in (
+                *self.template.disable_array_outputs,
+                *(
+                    output
+                    for schema in self.template.schemas
+                    for output in schema.disable_array_outputs
+                ),
+            )
+            for disabled in [output.removeprefix("outputs.")]
         )
 
     @TimeIt.decorator
@@ -1938,10 +1944,10 @@ class WorkflowTask(AppAware):
         iteration_idx: int | Sequence[int] | None = None,
         element_idx: int | Sequence[int] | None = None,
     ) -> ArrayOutput:
-        """Read a configured array output from this task's producing action runs.
+        """Read an array output from this task's producing action runs.
 
         The optional ``outputs.`` prefix is accepted. Task- and schema-level
-        ``array_outputs`` declarations are combined. Only runs of the root
+        ``disable_array_outputs`` exclusions are combined. Only runs of the root
         parameter's first source action from
         :meth:`.TaskSchema.get_action_parameter_flow` are included. Order follows
         :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
@@ -1955,12 +1961,12 @@ class WorkflowTask(AppAware):
         Raises
         ------
         ValueError
-            If the output is not configured or no producing runs are found.
+            If the output is disabled or no producing runs are found.
         """
         output_name = name.removeprefix("outputs.")
-        if output_name not in self._get_configured_array_outputs():
+        if self._is_array_output_disabled(output_name):
             raise ValueError(
-                f"Array output {name!r} is not configured for task {self.unique_name!r}."
+                f"Array output {name!r} is disabled for task {self.unique_name!r}."
             )
 
         root_name = output_name.split(".", 1)[0]
