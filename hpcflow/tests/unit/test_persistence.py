@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from typing import Any, cast, TYPE_CHECKING
 import numpy as np
+import zstandard as zstd
 import zarr  # type: ignore
 import pytest
 from hpcflow.sdk.core.test_utils import (
@@ -107,7 +108,7 @@ def test_json_output_arrays_do_not_use_npz(
         stored = reloaded.get_parameter_data(param_ID)
         assert stored == values
     assert workflow.list_array_outputs() == []
-    assert not list(Path(workflow.path).rglob("*.npz"))
+    assert not list(Path(workflow.path).rglob("*.npz*"))
     write_archive.assert_not_called()
     read_archive.assert_not_called()
 
@@ -168,6 +169,26 @@ def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> N
         )
     assert workflow._get_array_output_archive_path("p1", 6).read_bytes() == original_bytes
     assert parameter_name not in inner_group
+
+
+@pytest.mark.parametrize("run_file_ID", [499, 500, 1000])
+def test_zarr_array_output_zstandard_compression(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    run_file_ID: int,
+) -> None:
+    workflow, run = zarr_array_workflow
+    monkeypatch.setattr(run, "_run_file_ID", run_file_ID)
+    value = np.zeros((100, 100), dtype="float64")
+    workflow.save_parameter("outputs.p1", value, EAR_ID=run.id_)
+    path = workflow._get_array_output_archive_path("p1", run_file_ID)
+    compressed = path.read_bytes()
+    uncompressed = zstd.ZstdDecompressor().decompress(compressed)
+    assert uncompressed.startswith(b"PK")
+    assert len(compressed) < len(uncompressed) // 10
+    archive = workflow._read_array_output_archive(path)
+    np.testing.assert_array_equal(archive.data[0], value)
+    assert workflow.list_array_outputs() == ["p1"]
 
 
 @pytest.mark.parametrize("dataset_copy", [False, True])
@@ -351,6 +372,7 @@ def test_zarr_npz_only_output_missing_archive_raises(
     if remove_directory:
         path.parent.rmdir()
         path.parent.parent.rmdir()
+        path.parent.parent.parent.rmdir()
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
@@ -361,13 +383,19 @@ def test_zarr_npz_only_output_missing_archive_raises(
         workflow.get_parameter_data(run.data_idx["outputs.p1"])
 
 
+@pytest.mark.parametrize("valid_zstd", [False, True])
 def test_zarr_array_output_decode_rejects_corrupt_archive(
-    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch, valid_zstd: bool
 ) -> None:
     workflow, run = zarr_array_workflow
     workflow.save_parameter("outputs.p1", np.arange(3), EAR_ID=run.id_)
     path = workflow._get_array_output_archive_path("p1", 6)
-    path.write_bytes(b"not an npz archive")
+    corrupt_data = b"not an npz archive"
+    path.write_bytes(
+        zstd.ZstdCompressor(level=1).compress(corrupt_data)
+        if valid_zstd
+        else corrupt_data
+    )
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
@@ -375,7 +403,7 @@ def test_zarr_array_output_decode_rejects_corrupt_archive(
     )
     workflow._store.parameter_cache.clear()
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError if valid_zstd else zstd.ZstdError):
         workflow.get_parameter_data(run.data_idx["outputs.p1"])
 
 

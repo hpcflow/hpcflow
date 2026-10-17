@@ -1,8 +1,10 @@
 from __future__ import annotations
 import copy
+from io import BytesIO
 import os
 import pytest
 import numpy as np
+import zstandard as zstd
 from types import SimpleNamespace
 from unittest.mock import Mock
 from typing import TYPE_CHECKING
@@ -147,8 +149,9 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
     for run_ID, file_ID in [(10, 7), (12, 6)]:
         path = workflow_w0._get_array_output_archive_path(name, file_ID)
         path.parent.mkdir(parents=True, exist_ok=True)
+        buffer = BytesIO()
         np.savez(
-            path,
+            buffer,
             allow_pickle=False,
             data=np.array([[run_ID, run_ID + 1]]),
             **{
@@ -166,6 +169,7 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
                 )
             },
         )
+        path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
 
     read_archive = Mock(wraps=workflow_w0._read_array_output_archive)
     monkeypatch.setattr(workflow_w0, "_read_array_output_archive", read_archive)
@@ -224,7 +228,7 @@ def test_task_list_array_outputs_checks_directories_only(
     for name in ["shared", "z.data", "a.data", "other_task"]:
         directory = workflow_w0._get_array_output_archive_path(name, 0).parent
         directory.mkdir(parents=True)
-        (directory / "0.npz").touch()
+        (directory / "0.npz.zst").touch()
     assert task.list_array_outputs() == ["shared", "z.data"]
     read_archive.assert_not_called()
 

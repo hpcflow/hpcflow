@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+from io import BytesIO
 from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass
 from pathlib import Path
 from textwrap import dedent
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import numpy as np
+import zstandard as zstd
 import pytest
 
 from hpcflow.app import app as hf
@@ -115,9 +117,13 @@ def test_save_array_output_appends(
         / "parameters"
         / "array_outputs"
         / "p1.a"
-        / "6.npz"
+        / "0"
+        / "6.npz.zst"
     )
-    with np.load(array_archive_path, allow_pickle=False) as archive:
+    with np.load(
+        BytesIO(zstd.ZstdDecompressor().decompress(array_archive_path.read_bytes())),
+        allow_pickle=False,
+    ) as archive:
         np.testing.assert_array_equal(
             archive["data"],
             np.array(
@@ -143,9 +149,13 @@ def test_save_array_output_appends(
         / "parameters"
         / "array_outputs"
         / "p1.b"
-        / "6.npz"
+        / "0"
+        / "6.npz.zst"
     )
-    with np.load(task_array_archive_path, allow_pickle=False) as archive:
+    with np.load(
+        BytesIO(zstd.ZstdDecompressor().decompress(task_array_archive_path.read_bytes())),
+        allow_pickle=False,
+    ) as archive:
         np.testing.assert_array_equal(archive["data"], [[0, 1, 2, 3], [4, 5, 6, 7]])
         assert "shape" not in archive.files
 
@@ -154,7 +164,8 @@ def test_save_array_output_appends(
         / "parameters"
         / "array_outputs"
         / "p1.missing"
-        / "6.npz"
+        / "0"
+        / "6.npz.zst"
     ).exists()
     output = empty_workflow.get_array_output("p1.a", 100)
     assert isinstance(output, ArrayOutput)
@@ -201,22 +212,19 @@ def test_get_array_output_across_files(
 ) -> None:
     ears_by_ID = {
         100: SimpleNamespace(run_file_ID=6, id_=100),
-        101: SimpleNamespace(run_file_ID=7, id_=101),
+        101: SimpleNamespace(run_file_ID=500, id_=101),
     }
     monkeypatch.setattr(
         empty_workflow,
         "get_EARs_from_IDs",
         lambda run_IDs: [ears_by_ID[run_ID] for run_ID in run_IDs],
     )
-    archive_dir = (
-        Path(empty_workflow._store.path) / "parameters" / "array_outputs" / "p1.a"
-    )
-    archive_dir.mkdir(parents=True)
     values = [np.array([1, 2]), np.arange(3, 3 + second_size)]
     for idx, ((run_ID, ear), value) in enumerate(zip(ears_by_ID.items(), values)):
         shape_metadata = {"shape": np.array([value.shape])} if with_shape and idx else {}
+        buffer = BytesIO()
         np.savez(
-            archive_dir / f"{ear.run_file_ID}.npz",
+            buffer,
             allow_pickle=False,
             data=value[np.newaxis, ...],
             task_insert_ID=[60 + idx],
@@ -230,6 +238,9 @@ def test_get_array_output_across_files(
             run_ID=[run_ID],
             **shape_metadata,
         )
+        path = empty_workflow._get_array_output_archive_path("p1.a", ear.run_file_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
 
     output = empty_workflow.get_array_output("p1.a", [101, 100, 101])
     arrays = output.data
@@ -256,17 +267,38 @@ def test_get_array_output_across_files(
 
 
 @pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
-def test_get_array_output_archive_path(empty_workflow: Workflow, name: str) -> None:
-    path = empty_workflow._get_array_output_archive_path(name, 6)
+@pytest.mark.parametrize("run_file_ID", [0, 6, 499, 500, 999, 1000, 250000])
+def test_get_array_output_archive_path(
+    empty_workflow: Workflow, name: str, run_file_ID: int
+) -> None:
+    path = empty_workflow._get_array_output_archive_path(name, run_file_ID)
 
     assert path == (
         Path(empty_workflow._store.path)
         / "parameters"
         / "array_outputs"
         / "p1.a"
-        / "6.npz"
+        / str(run_file_ID // 500)
+        / f"{run_file_ID % 500}.npz.zst"
     )
     assert not path.parent.exists()
+
+
+def test_array_output_shards_limit_files(empty_workflow: Workflow) -> None:
+    shards: dict[Path, set[str]] = {}
+    for run_file_ID in range(1501):
+        path = empty_workflow._get_array_output_archive_path("p1.a", run_file_ID)
+        shards.setdefault(path.parent, set()).add(path.name)
+
+    assert [len(names) for names in shards.values()] == [500, 500, 500, 1]
+    path.parent.mkdir(parents=True)
+    path.touch()
+    assert empty_workflow.list_array_outputs() == ["p1.a"]
+
+
+def test_array_output_archive_path_rejects_negative_ID(empty_workflow: Workflow) -> None:
+    with pytest.raises(ValueError, match="Invalid array output run-file ID"):
+        empty_workflow._get_array_output_archive_path("p1.a", -1)
 
 
 @pytest.mark.parametrize(
@@ -310,8 +342,10 @@ def test_read_array_output_archive(
     }
     if shape is not None:
         contents["shape"] = np.array(shape)
-    path = tmp_path / "arrays.npz"
-    np.savez(path, allow_pickle=False, **contents)
+    path = tmp_path / "arrays.npz.zst"
+    buffer = BytesIO()
+    np.savez(buffer, allow_pickle=False, **contents)
+    path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
 
     if not valid:
         with pytest.raises(ValueError, match="invalid shape metadata"):
@@ -373,8 +407,9 @@ def test_list_array_outputs(empty_workflow: Workflow) -> None:
     }.items():
         path = empty_workflow._get_array_output_archive_path(name, 0)
         path.parent.mkdir(parents=True)
+        buffer = BytesIO()
         np.savez(
-            path,
+            buffer,
             allow_pickle=False,
             data=np.zeros((len(task_IDs), 2)),
             task_insert_ID=task_IDs,
@@ -392,6 +427,7 @@ def test_list_array_outputs(empty_workflow: Workflow) -> None:
                 )
             },
         )
+        path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
     assert empty_workflow.list_array_outputs() == ["a.output", "shared", "z.output"]
     assert first.list_array_outputs() == ["shared", "z.output"]
     assert second.list_array_outputs() == ["a.output", "shared"]

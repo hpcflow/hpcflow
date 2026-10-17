@@ -807,7 +807,8 @@ class Task(JSONLike):
         Dot-delimited output paths to store only in the legacy Zarr groups.
         The optional ``outputs.`` prefix is accepted. A containing parameter path
         disables all nested arrays. Task and schema exclusions are combined.
-        By default output ndarrays use NPZ instead of legacy Zarr groups.
+        By default output ndarrays use Zstandard-compressed NPZ instead of legacy
+        Zarr groups, with run-file IDs sharded into directories of up to 500 files.
         This is a temporary storage workaround specific to the Zarr store.
     """
 

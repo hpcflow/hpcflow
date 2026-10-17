@@ -29,6 +29,7 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
+import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
 import rich.console
@@ -74,6 +75,7 @@ from hpcflow.sdk.submission.jobscript import (
 from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.submission import Submission
+from hpcflow.sdk.submission.run_file_resolver import get_run_multi_chunk_path
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.core.utils import (
@@ -5102,8 +5104,9 @@ class Workflow(AppAware):
         """
         Save a parameter where an EAR can find it.
 
-        With the Zarr store, output ndarrays use NPZ archives instead of legacy
-        array datasets unless excluded by task/schema ``disable_array_outputs``.
+        With the Zarr store, output ndarrays use Zstandard-compressed NPZ archives
+        instead of legacy array datasets unless excluded by task/schema
+        ``disable_array_outputs``.
         This is a temporary storage workaround. The JSON store
         retains its existing encoding and does not write NPZ archives.
         """
@@ -5115,7 +5118,7 @@ class Workflow(AppAware):
             self.set_parameter_value(param_id, value)
 
     def list_array_outputs(self) -> list[str]:
-        """Return sorted names of stored array outputs, excluding empty directories."""
+        """Return sorted names with compressed archives in 500-file shards."""
         root = Path(self._store.path) / "parameters" / "array_outputs"
         if not root.exists():
             return []
@@ -5123,11 +5126,14 @@ class Workflow(AppAware):
             directory.name
             for directory in root.iterdir()
             if directory.is_dir()
-            and any(path.is_file() for path in directory.glob("*.npz"))
+            and any(path.is_file() for path in directory.glob("*/*.npz.zst"))
         )
 
     def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
-        """Return the archive path for a dot-delimited output name and run-file ID."""
+        """Return a Zstandard-compressed NPZ path, sharded at 500 files per directory.
+
+        Run-file IDs use the same quotient/remainder mapping as ``base_multi``.
+        """
         output_name = name.removeprefix("outputs.")
         if not output_name or any(
             not component
@@ -5137,16 +5143,15 @@ class Workflow(AppAware):
             for component in output_name.split(".")
         ):
             raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
-        return (
-            Path(self._store.path)
-            / "parameters"
-            / "array_outputs"
-            / output_name
-            / f"{run_file_ID}.npz"
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
+        root = Path(self._store.path) / "parameters" / "array_outputs" / output_name
+        return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
+            ".npz.zst"
         )
 
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
-        """Append an array and EAR metadata, requiring matching dimensions and dtype."""
+        """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
         value = np.asarray(value)
         if value.dtype.hasobject:
             raise TypeError(
@@ -5236,7 +5241,9 @@ class Workflow(AppAware):
 
         buffer = BytesIO()
         np.savez(buffer, **archive_data)
-        atomic_write(archive_path, buffer.getvalue())
+        atomic_write(
+            archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
+        )
 
     @TimeIt.decorator
     def get_array_output(self, name: str, run_IDs: int | Iterable[int]) -> ArrayOutput:
@@ -5246,6 +5253,9 @@ class Workflow(AppAware):
         in the requested order, including repeated IDs. For a scalar ID, ``data``
         is that run's array. For multiple IDs it is stacked when no shape metadata
         is present and all shapes match, otherwise it is a list.
+
+        Archives are Zstandard-compressed NPZ files in 500-file shard directories.
+        Earlier uncompressed NPZ archives are not supported.
         """
         if isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
@@ -5324,8 +5334,9 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
-        """Load and validate an array-output NPZ archive."""
-        with np.load(path, allow_pickle=False) as archive:
+        """Decompress, load, and validate an array-output NPZ archive."""
+        buffer = BytesIO(zstd.ZstdDecompressor().decompress(path.read_bytes()))
+        with np.load(buffer, allow_pickle=False) as archive:
             required_names = [
                 field.name
                 for field in fields(_ArrayOutputArchive)

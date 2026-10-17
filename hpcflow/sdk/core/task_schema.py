@@ -107,8 +107,9 @@ class TaskSchema(JSONLike):
         A list of dot-delimited output parameter paths, relative to the ``outputs``
         namespace, to store only in legacy Zarr groups. The ``outputs.`` prefix is
         optional. Containing parameter paths disable all nested arrays. By default
-        EAR output ndarrays use NPZ instead of legacy Zarr groups. This is a temporary
-        storage workaround specific to the Zarr store.
+        EAR output ndarrays use Zstandard-compressed NPZ instead of legacy Zarr groups,
+        with up to 500 archives per shard directory. This is a temporary storage
+        workaround specific to the Zarr store.
     """
 
     _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
