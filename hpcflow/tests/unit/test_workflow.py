@@ -173,6 +173,9 @@ def test_save_array_output_appends(
     np.testing.assert_array_equal(output.run_ID, [100])
     np.testing.assert_array_equal(output.element_ID, [30])
     np.testing.assert_array_equal(output.shape, [[2, 3]])
+    destination = tmp_path / "scalar-run.npy"
+    empty_workflow.export_array_output("p1.a", 100, destination)
+    np.testing.assert_array_equal(np.load(destination), first_value["a"])
     output = empty_workflow.get_array_output("outputs.p1.a", [101, 100], sort=False)
     assert output.name == "p1.a"
     arrays = output.data
@@ -265,6 +268,47 @@ def test_get_array_output_across_files(
     else:
         assert output.shape is None
 
+    read_archive = Mock(wraps=empty_workflow._read_array_output_archive)
+    monkeypatch.setattr(empty_workflow, "_read_array_output_archive", read_archive)
+    output_all = empty_workflow.get_array_output("p1.a")
+    np.testing.assert_array_equal(output_all.run_ID, [100, 101])
+    for actual, expected_array in zip(output_all.data, values):
+        np.testing.assert_array_equal(actual, expected_array)
+    assert read_archive.call_count == 2
+
+    destination = Path(empty_workflow.path) / "export.npy"
+    if second_size != 2:
+        destination.write_bytes(b"existing export")
+        with pytest.raises(ValueError, match="shapes are inconsistent"):
+            empty_workflow.export_array_output(
+                "p1.a", [101, 100, 101], destination, sort=False, overwrite=True
+            )
+        assert destination.read_bytes() == b"existing export"
+    else:
+        assert (
+            empty_workflow.export_array_output(
+                "p1.a", [101, 100, 101], destination, sort=False
+            )
+            == destination
+        )
+        np.testing.assert_array_equal(
+            np.load(destination, allow_pickle=False),
+            np.stack([values[1], values[0], values[1]]),
+        )
+        original = destination.read_bytes()
+        with pytest.raises(FileExistsError):
+            empty_workflow.export_array_output("p1.a", path=destination)
+        assert destination.read_bytes() == original
+        empty_workflow.export_array_output("p1.a", path=destination, overwrite=True)
+        np.testing.assert_array_equal(np.load(destination), np.stack(values))
+
+
+def test_get_array_output_without_saved_runs(empty_workflow: Workflow) -> None:
+    with pytest.raises(ValueError, match="No saved runs selected"):
+        empty_workflow.get_array_output("missing")
+    with pytest.raises(ValueError, match="No saved runs selected"):
+        empty_workflow.get_array_output("missing", [])
+
 
 @pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
 @pytest.mark.parametrize("run_file_ID", [0, 6, 499, 500, 999, 1000, 250000])
@@ -341,6 +385,12 @@ def test_get_array_output_sort(
     else:
         assert output.shape is None
     read_archive.assert_called_once()
+    if not variable_shapes:
+        destination = Path(empty_workflow.path) / "sorted.npy"
+        export = empty_workflow.export_array_output(
+            "p1.a", requested, destination, sort=sort is not False
+        )
+        np.testing.assert_array_equal(np.load(export), data[expected])
 
 
 def test_array_output_shards_limit_files(empty_workflow: Workflow) -> None:

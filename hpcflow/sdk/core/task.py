@@ -2031,6 +2031,29 @@ class WorkflowTask(AppAware):
             )
         return self.workflow.get_array_output(name, applicable_run_IDs, sort=sort)
 
+    def export_array_output(
+        self,
+        name: str,
+        path: str | Path,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export this task's selected array output to a single ``.npy`` file.
+
+        Filters and sorting follow :meth:`get_array_output`. All selected arrays
+        must have matching shapes. Write to exactly ``path`` and return that path.
+        Existing files raise FileExistsError unless ``overwrite=True``.
+        """
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(
+            name, iteration_idx=iteration_idx, element_idx=element_idx, sort=sort
+        )
+        return self.workflow._export_array_output(output, path, overwrite=overwrite)
+
     @staticmethod
     @TimeIt.decorator
     def __get_src_elem_iters(

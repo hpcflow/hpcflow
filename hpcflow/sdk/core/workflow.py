@@ -5247,7 +5247,7 @@ class Workflow(AppAware):
 
     @TimeIt.decorator
     def get_array_output(
-        self, name: str, run_IDs: int | Iterable[int], *, sort: bool = True
+        self, name: str, run_IDs: int | Iterable[int] | None = None, *, sort: bool = True
     ) -> ArrayOutput:
         """Read a saved array output for one run ID or an iterable of run IDs.
 
@@ -5261,8 +5261,25 @@ class Workflow(AppAware):
 
         Archives are Zstandard-compressed NPZ files in 500-file shard directories.
         Earlier uncompressed NPZ archives are not supported.
+        With ``run_IDs=None``, include every saved run for this output, across tasks
+        and iterations. With ``sort=False``, archives are visited in path order.
         """
-        if isinstance(run_IDs, (int, np.integer)):
+        loaded_archives: dict[int, _ArrayOutputArchive] = {}
+        run_files: list[tuple[int, int | None]]
+        if run_IDs is None:
+            is_single_run = False
+            root = self._get_array_output_archive_path(name, 0).parent.parent
+            run_files = []
+            for archive_path in sorted(root.glob("*/*.npz.zst")):
+                archive_file_ID = int(archive_path.parent.name) * 500 + int(
+                    archive_path.name.removesuffix(".npz.zst")
+                )
+                archive = self._read_array_output_archive(archive_path)
+                loaded_archives[archive_file_ID] = archive
+                run_files.extend(
+                    (int(run_ID), archive_file_ID) for run_ID in archive.run_ID
+                )
+        elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
             EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
@@ -5276,7 +5293,12 @@ class Workflow(AppAware):
             EARs_by_ID = {EAR.id_: EAR for EAR in EAR_result_list}
             EARs = [EARs_by_ID[run_ID] for run_ID in requested_run_IDs]
 
-        loaded_archives: dict[int, _ArrayOutputArchive] = {}
+        if run_IDs is not None:
+            run_files = [
+                (run_ID, EAR.run_file_ID) for run_ID, EAR in zip(requested_run_IDs, EARs)
+            ]
+        if not run_files:
+            raise ValueError(f"No saved runs selected for array output {name!r}.")
         output_arrays: list[np.ndarray] = []
         metadata: dict[str, list[np.ndarray]] = {
             field.name: []
@@ -5285,20 +5307,18 @@ class Workflow(AppAware):
         }
         output_shapes: list[tuple[int, ...]] = []
         has_shape_metadata = False
-        for run_ID, EAR in zip(requested_run_IDs, EARs):
-            if EAR.run_file_ID is None:
+        for run_ID, file_ID in run_files:
+            if file_ID is None:
                 raise ValueError(
                     f"Cannot read array output {name!r}: EAR {run_ID} has no "
                     "run_file_ID."
                 )
 
-            if EAR.run_file_ID not in loaded_archives:
-                archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
-                loaded_archives[EAR.run_file_ID] = self._read_array_output_archive(
-                    archive_path
-                )
+            if file_ID not in loaded_archives:
+                archive_path = self._get_array_output_archive_path(name, file_ID)
+                loaded_archives[file_ID] = self._read_array_output_archive(archive_path)
 
-            archive = loaded_archives[EAR.run_file_ID]
+            archive = loaded_archives[file_ID]
             data, shapes = archive.data, archive.shape
             has_shape_metadata |= shapes is not None
             matching_indices = np.flatnonzero(archive.run_ID == run_ID)
@@ -5352,6 +5372,55 @@ class Workflow(AppAware):
                 np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
             ),
         )
+
+    def export_array_output(
+        self,
+        name: str,
+        run_IDs: int | Iterable[int] | None = None,
+        path: str | Path | None = None,
+        *,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export the selected array output to a single NumPy ``.npy`` file.
+
+        Selection, sorting, and scalar-run shape follow :meth:`get_array_output`.
+        List-backed results are stacked if all selected shapes match; otherwise
+        raise ValueError before writing. Write to exactly ``path`` (no automatic
+        suffix) and return that path. ``path`` is required; omit ``run_IDs`` to
+        export every saved run. Existing files raise FileExistsError unless
+        ``overwrite=True``.
+        """
+        if path is None:
+            raise TypeError("export_array_output requires an output path.")
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(name, run_IDs, sort=sort)
+        return self._export_array_output(output, path, overwrite=overwrite)
+
+    @staticmethod
+    def _export_array_output(
+        output: ArrayOutput, path: str | Path, *, overwrite: bool = False
+    ) -> Path:
+        destination = Path(path)
+        if not overwrite and destination.exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        data = output.data
+        if isinstance(data, list):
+            if not data or any(array.shape != data[0].shape for array in data[1:]):
+                raise ValueError(
+                    f"Cannot export array output {output.name!r}: "
+                    "selected array shapes are inconsistent or empty."
+                )
+            data = np.stack(data)
+        buffer = BytesIO()
+        np.save(buffer, data, allow_pickle=False)
+        if overwrite:
+            atomic_write(destination, buffer.getvalue())
+        else:
+            with destination.open("xb") as stream:
+                stream.write(buffer.getvalue())
+        return destination
 
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:

@@ -652,6 +652,57 @@ def _make_workflow_CLI(app: BaseApp):
         """Get a parameter value by data index."""
         click.echo(wf.get_parameter_data(index))
 
+    @workflow.command(name="export-array-output")
+    @click.argument("name")
+    @click.argument("output_path", type=click.Path(dir_okay=False))
+    @click.option("--task", type=click.INT, metavar="TASK_INSERT_ID")
+    @click.option(
+        "--run-id", type=click.INT, multiple=True, help="Repeat for each run ID."
+    )
+    @click.option("--element-idx", type=click.INT, multiple=True)
+    @click.option("--iteration-idx", type=click.INT, multiple=True)
+    @click.option("--sort/--no-sort", default=True, show_default=True)
+    @click.option("--overwrite", is_flag=True, help="Replace an existing output file.")
+    @_pass_workflow
+    def export_array_output(
+        wf: Workflow,
+        name: str,
+        output_path: str,
+        task: int | None,
+        run_id: tuple[int, ...],
+        element_idx: tuple[int, ...],
+        iteration_idx: tuple[int, ...],
+        sort: bool,
+        overwrite: bool,
+    ):
+        """Export NAME as one NPY file at OUTPUT_PATH.
+
+        Without --task or --run-id, export all saved runs for NAME. With --task, select by
+        task insert ID and optionally filter elements and iterations (repeatable).
+        By default use all elements and their final non-skipped iterations.
+        Inconsistent selected shapes raise an error. Existing files require --overwrite.
+        """
+        if task is None:
+            if element_idx or iteration_idx:
+                raise click.UsageError(
+                    "--element-idx and --iteration-idx require --task."
+                )
+            destination = wf.export_array_output(
+                name, run_id or None, output_path, sort=sort, overwrite=overwrite
+            )
+        else:
+            if run_id:
+                raise click.UsageError("--run-id cannot be combined with --task.")
+            destination = wf.tasks.get(insert_ID=task).export_array_output(
+                name,
+                output_path,
+                element_idx=element_idx or None,
+                iteration_idx=iteration_idx or None,
+                sort=sort,
+                overwrite=overwrite,
+            )
+        click.echo(destination)
+
     @workflow.command(name="get-param-source")
     @click.argument("index", type=click.INT)
     @_pass_workflow

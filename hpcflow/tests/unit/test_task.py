@@ -256,6 +256,35 @@ def test_task_without_array_output_fields() -> None:
     assert "array_outputs" not in task.to_dict()
 
 
+@pytest.mark.parametrize("sort", [False, True])
+def test_task_export_array_output(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sort: bool
+) -> None:
+    task = workflow_w0.tasks[0]
+    output = Mock(data=np.arange(6).reshape(2, 3))
+    read_output = Mock(return_value=output)
+    monkeypatch.setattr(task, "get_array_output", read_output)
+    path = tmp_path / "task.npy"
+
+    assert (
+        task.export_array_output(
+            "p1.a", path, iteration_idx=[0, 2], element_idx=1, sort=sort
+        )
+        == path
+    )
+    read_output.assert_called_once_with(
+        "p1.a", iteration_idx=[0, 2], element_idx=1, sort=sort
+    )
+    np.testing.assert_array_equal(np.load(path, allow_pickle=False), output.data)
+    original = path.read_bytes()
+    with pytest.raises(FileExistsError):
+        task.export_array_output("p1.a", path)
+    assert path.read_bytes() == original
+    output.data = np.arange(3)
+    task.export_array_output("p1.a", path, overwrite=True)
+    np.testing.assert_array_equal(np.load(path, allow_pickle=False), output.data)
+
+
 @pytest.mark.parametrize(
     ("iteration_idx", "element_idx", "expected"),
     [
