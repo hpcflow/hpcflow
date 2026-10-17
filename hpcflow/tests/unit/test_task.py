@@ -20,6 +20,7 @@ from hpcflow.sdk.core.errors import (
     UnsetParameterDataError,
 )
 from hpcflow.sdk.core.parameters import NullDefault
+from hpcflow.sdk.core.object_list import ObjectList
 from hpcflow.sdk.core.test_utils import (
     make_schemas,
     make_tasks,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
     from hpcflow.sdk.core.command_files import FileSpec
     from hpcflow.sdk.core.parameters import Parameter
+    from hpcflow.sdk.core.json_like import JSONable
     from hpcflow.sdk.core.task_schema import TaskSchema
     from hpcflow.sdk.core.workflow import Workflow
 
@@ -147,6 +149,7 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             path,
+            allow_pickle=False,
             data=np.array([[run_ID, run_ID + 1]]),
             **{
                 key: np.array([run_ID])
@@ -234,9 +237,11 @@ def test_task_get_array_output_disabled(workflow_w0: Workflow) -> None:
 
 def test_task_without_array_output_fields() -> None:
     schema = hf.TaskSchema.from_json_like({"objective": "legacy_task", "actions": []})
+    assert schema is not None
+    schemas: ObjectList[JSONable] = ObjectList([schema])
     task = hf.Task.from_json_like(
         {"schema": ["legacy_task"]},
-        shared_data={"task_schemas": hf.TaskSchemasList([schema])},
+        shared_data={"task_schemas": schemas},
     )
     assert task is not None
     assert task.disable_array_outputs == []
@@ -276,8 +281,6 @@ def test_task_get_array_output_filters_elements_and_iterations(
         "get_action_parameter_flow",
         Mock(return_value={"p1": {"sources": [7, 8], "sinks": [-1]}}),
     )
-    from hpcflow.sdk.core.element import Element
-
     elements = []
     for idx, skipped in enumerate(([False, False, True], [False, True])):
         element = SimpleNamespace(
@@ -288,8 +291,10 @@ def test_task_get_array_output_filters_elements_and_iterations(
                 for i, skip in enumerate(skipped)
             ],
         )
-        element.latest_iteration_non_skipped = Element.latest_iteration_non_skipped.fget(
-            element
+        element.latest_iteration_non_skipped = next(
+            iteration
+            for iteration in reversed(element.iterations)
+            if not iteration.loop_skipped
         )
         elements.append(element)
     runs = [
@@ -353,20 +358,21 @@ def test_task_get_array_output_schema_action_offset(
     )
     monkeypatch.setattr(task, "_template", template)
     monkeypatch.setattr(workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[10, 11]))
+    get_runs = Mock(
+        return_value=[
+            SimpleNamespace(id_=10, element_action=SimpleNamespace(action_idx=1)),
+            SimpleNamespace(id_=11, element_action=SimpleNamespace(action_idx=3)),
+        ]
+    )
     monkeypatch.setattr(
         workflow_w0,
         "get_EARs_from_IDs",
-        Mock(
-            return_value=[
-                SimpleNamespace(id_=10, element_action=SimpleNamespace(action_idx=1)),
-                SimpleNamespace(id_=11, element_action=SimpleNamespace(action_idx=3)),
-            ]
-        ),
+        get_runs,
     )
     read_output = Mock()
     monkeypatch.setattr(workflow_w0, "get_array_output", read_output)
 
-    for run in workflow_w0.get_EARs_from_IDs.return_value:
+    for run in get_runs.return_value:
         run.element_iteration = SimpleNamespace(index=0)
     assert task.get_array_output("p1.a", iteration_idx=0) is read_output.return_value
     read_output.assert_called_once_with("p1.a", [11])

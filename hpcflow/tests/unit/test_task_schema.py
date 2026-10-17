@@ -55,6 +55,7 @@ def test_disable_array_outputs() -> None:
     assert schema != hf.TaskSchema("t1")
 
     json_like = schema.to_json_like()[0]
+    assert isinstance(json_like, dict)
     restored_schema = hf.TaskSchema.from_json_like(json_like)
     assert restored_schema is not None
     assert restored_schema.disable_array_outputs == ["outputs.foo.bar"]

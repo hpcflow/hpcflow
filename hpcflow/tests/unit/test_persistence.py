@@ -102,7 +102,9 @@ def test_json_output_arrays_do_not_use_npz(
     else:
         workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
         reloaded = hf.Workflow(workflow.path)
-        stored = reloaded.get_parameter_data(run.data_idx["outputs.p1"])
+        param_ID = run.data_idx["outputs.p1"]
+        assert isinstance(param_ID, int)
+        stored = reloaded.get_parameter_data(param_ID)
         assert stored == values
     assert workflow.list_array_outputs() == []
     assert not list(Path(workflow.path).rglob("*.npz"))
@@ -113,19 +115,22 @@ def test_json_output_arrays_do_not_use_npz(
 def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> None:
     workflow, run = zarr_array_workflow
     task = run.task
+    nested_data = np.arange(6).reshape(2, 3)
+    sequence_array = np.array(7, dtype="int32")
+    unconfigured_array = np.array([1.5, 2.5], dtype="float32")
     values = {
-        "nested": {"data": np.arange(6).reshape(2, 3)},
-        "unconfigured": np.array([1.5, 2.5], dtype="float32"),
-        "sequence": [np.array(7, dtype="int32")],
+        "nested": {"data": nested_data},
+        "unconfigured": unconfigured_array,
+        "sequence": [sequence_array],
         "plain_list": [1, 2],
     }
 
     workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
 
     for name, expected in {
-        "p1.nested.data": values["nested"]["data"],
-        "p1.unconfigured": values["unconfigured"],
-        "p1.sequence.0": values["sequence"][0],
+        "p1.nested.data": nested_data,
+        "p1.unconfigured": unconfigured_array,
+        "p1.sequence.0": sequence_array,
     }.items():
         archive = workflow._read_array_output_archive(
             workflow._get_array_output_archive_path(name, 6)
@@ -174,10 +179,13 @@ def test_zarr_output_array_decode_prefers_npz(
     storage: str,
 ) -> None:
     workflow, run = zarr_array_workflow
+    nested_data = np.arange(6).reshape(2, 3)
+    list_array = np.array([1.5, 2.5], dtype="float32")
+    scalar_array = np.array(7, dtype="int32")
     values = {
-        "nested": {"data": np.arange(6).reshape(2, 3)},
-        "scalar": np.array(7, dtype="int32"),
-        "list": [np.array([1.5, 2.5], dtype="float32")],
+        "nested": {"data": nested_data},
+        "scalar": scalar_array,
+        "list": [list_array],
     }
     if storage != "npz":
         run.task.template.disable_array_outputs = ["p1"]
@@ -194,9 +202,9 @@ def test_zarr_output_array_decode_prefers_npz(
         arrays = inner_group[parameter_name]
         for idx, (name, value) in enumerate(
             (
-                ("p1.nested.data", values["nested"]["data"]),
-                ("p1.scalar", values["scalar"]),
-                ("p1.list.0", values["list"][0]),
+                ("p1.nested.data", nested_data),
+                ("p1.scalar", scalar_array),
+                ("p1.list.0", list_array),
             )
         ):
             workflow._save_array_output(run, name, value)
@@ -213,9 +221,9 @@ def test_zarr_output_array_decode_prefers_npz(
     stored = workflow.get_parameter_data(param_ID, dataset_copy=dataset_copy)
 
     for actual, expected in [
-        (stored["nested"]["data"], values["nested"]["data"]),
-        (stored["scalar"], values["scalar"]),
-        (stored["list"][0], values["list"][0]),
+        (stored["nested"]["data"], nested_data),
+        (stored["scalar"], scalar_array),
+        (stored["list"][0], list_array),
     ]:
         np.testing.assert_array_equal(actual, expected)
         assert actual.dtype == expected.dtype
@@ -322,10 +330,12 @@ def test_zarr_masked_output_array_decode(
     stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
     np.testing.assert_array_equal(stored["plain"], values["plain"])
     for name in ("masked", "other_masked"):
+        expected = values[name]
+        assert isinstance(expected, np.ma.MaskedArray)
         assert isinstance(stored[name], np.ma.MaskedArray)
-        np.testing.assert_array_equal(stored[name].data, values[name].data)
-        np.testing.assert_array_equal(stored[name].mask, values[name].mask)
-        assert stored[name].fill_value == values[name].fill_value
+        np.testing.assert_array_equal(stored[name].data, expected.data)
+        np.testing.assert_array_equal(stored[name].mask, expected.mask)
+        assert stored[name].fill_value == expected.fill_value
 
 
 @pytest.mark.parametrize("remove_directory", [False, True])

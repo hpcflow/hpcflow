@@ -5,11 +5,13 @@ from pathlib import Path
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.actions import ElementActionRun
 from hpcflow.sdk.core.errors import (
     MissingInputs,
     WorkflowNotFoundError,
@@ -75,7 +77,7 @@ def test_save_array_output_appends(
         "element_action": SimpleNamespace(action_idx=5),
         "data_idx": {"outputs.p1": 12},
     }
-    ear = SimpleNamespace(**ear_values)
+    ear = Mock(spec=ElementActionRun, **ear_values)
     ears_by_ID = {100: ear}
 
     def get_test_EARs(run_IDs):
@@ -102,7 +104,7 @@ def test_save_array_output_appends(
         element_iteration=SimpleNamespace(index=8, id_=80),
         element_action=SimpleNamespace(action_idx=9),
     )
-    ear = SimpleNamespace(**ear_values)
+    ear = Mock(spec=ElementActionRun, **ear_values)
     ears_by_ID[101] = ear
     second_value = {"a": np.arange(12).reshape(3, 4), "b": np.arange(4, 8)}
     for key, value in second_value.items():
@@ -215,6 +217,7 @@ def test_get_array_output_across_files(
         shape_metadata = {"shape": np.array([value.shape])} if with_shape and idx else {}
         np.savez(
             archive_dir / f"{ear.run_file_ID}.npz",
+            allow_pickle=False,
             data=value[np.newaxis, ...],
             task_insert_ID=[60 + idx],
             task_idx=[70 + idx],
@@ -232,8 +235,8 @@ def test_get_array_output_across_files(
     arrays = output.data
 
     assert isinstance(arrays, np.ndarray if second_size == 2 and not with_shape else list)
-    for actual, expected in zip(arrays, [values[1], values[0], values[1]]):
-        np.testing.assert_array_equal(actual, expected)
+    for actual, expected_array in zip(arrays, [values[1], values[0], values[1]]):
+        np.testing.assert_array_equal(actual, expected_array)
     for key, expected in {
         "task_insert_ID": [61, 60, 61],
         "task_idx": [71, 70, 71],
@@ -308,7 +311,7 @@ def test_read_array_output_archive(
     if shape is not None:
         contents["shape"] = np.array(shape)
     path = tmp_path / "arrays.npz"
-    np.savez(path, **contents)
+    np.savez(path, allow_pickle=False, **contents)
 
     if not valid:
         with pytest.raises(ValueError, match="invalid shape metadata"):
@@ -372,6 +375,7 @@ def test_list_array_outputs(empty_workflow: Workflow) -> None:
         path.parent.mkdir(parents=True)
         np.savez(
             path,
+            allow_pickle=False,
             data=np.zeros((len(task_IDs), 2)),
             task_insert_ID=task_IDs,
             **{
@@ -442,7 +446,8 @@ def test_array_output_repr(as_list: bool, with_shape: bool, dtype: str) -> None:
 def test_array_output_append_rejects_dtype_mismatch(
     empty_workflow: Workflow, dtype: str
 ) -> None:
-    ear = SimpleNamespace(
+    ear = Mock(
+        spec=ElementActionRun,
         run_file_ID=6,
         id_=100,
         index=0,
