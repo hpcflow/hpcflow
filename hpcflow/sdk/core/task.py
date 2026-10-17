@@ -1944,13 +1944,16 @@ class WorkflowTask(AppAware):
         *,
         iteration_idx: int | Sequence[int] | None = None,
         element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
     ) -> ArrayOutput:
         """Read an array output from this task's producing action runs.
 
         The optional ``outputs.`` prefix is accepted. Task- and schema-level
         ``disable_array_outputs`` exclusions are combined. Only runs of the root
         parameter's first source action from
-        :meth:`.TaskSchema.get_action_parameter_flow` are included. Order follows
+        :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
+        are sorted lexicographically by element index, iteration index, action index,
+        then run index. With ``sort=False``, order follows
         :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
         workflow reader; missing saved data therefore raises rather than being skipped.
 
@@ -2026,7 +2029,7 @@ class WorkflowTask(AppAware):
                 f"No producing runs found for array output {name!r} "
                 f"in task {self.unique_name!r}."
             )
-        return self.workflow.get_array_output(name, applicable_run_IDs)
+        return self.workflow.get_array_output(name, applicable_run_IDs, sort=sort)
 
     @staticmethod
     @TimeIt.decorator

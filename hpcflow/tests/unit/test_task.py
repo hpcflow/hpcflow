@@ -67,10 +67,12 @@ def workflow_w0(tmp_path: Path) -> Workflow:
 
 
 @pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
+@pytest.mark.parametrize("sort", [False, True])
 def test_task_get_array_output(
     workflow_w0: Workflow,
     monkeypatch: pytest.MonkeyPatch,
     name: str,
+    sort: bool,
 ) -> None:
     task = workflow_w0.tasks[0]
     monkeypatch.setattr(
@@ -102,12 +104,12 @@ def test_task_get_array_output(
 
     for run in get_runs.return_value:
         run.element_iteration = SimpleNamespace(index=0)
-    output = task.get_array_output(name, iteration_idx=0)
+    output = task.get_array_output(name, iteration_idx=0, sort=sort)
 
     assert output is read_output.return_value
     get_IDs.assert_called_once_with([task.insert_ID])
     get_runs.assert_called_once_with([12, 10, 11])
-    read_output.assert_called_once_with(name, [12, 11])
+    read_output.assert_called_once_with(name, [12, 11], sort=sort)
     read_archive.assert_not_called()
 
 
@@ -178,9 +180,9 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
     output = task.get_array_output(name, iteration_idx=0)
 
     assert read_archive.call_count == 2
-    np.testing.assert_array_equal(output.run_ID, [12, 10])
-    np.testing.assert_array_equal(output.data, [[12, 13], [10, 11]])
-    np.testing.assert_array_equal(output.element_ID, [12, 10])
+    np.testing.assert_array_equal(output.run_ID, [10, 12])
+    np.testing.assert_array_equal(output.data, [[10, 11], [12, 13]])
+    np.testing.assert_array_equal(output.element_ID, [10, 12])
     with pytest.raises(ValueError, match="run ID 11.*found 0"):
         workflow_w0.get_array_output(name, 11)
 
@@ -335,7 +337,7 @@ def test_task_get_array_output_filters_elements_and_iterations(
         )
         is read_output.return_value
     )
-    read_output.assert_called_once_with("p1.a", expected)
+    read_output.assert_called_once_with("p1.a", expected, sort=True)
 
 
 def test_task_get_array_output_schema_action_offset(
@@ -379,7 +381,7 @@ def test_task_get_array_output_schema_action_offset(
     for run in get_runs.return_value:
         run.element_iteration = SimpleNamespace(index=0)
     assert task.get_array_output("p1.a", iteration_idx=0) is read_output.return_value
-    read_output.assert_called_once_with("p1.a", [11])
+    read_output.assert_called_once_with("p1.a", [11], sort=True)
 
 
 @pytest.fixture

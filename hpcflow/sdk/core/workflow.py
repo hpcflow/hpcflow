@@ -5246,11 +5246,16 @@ class Workflow(AppAware):
         )
 
     @TimeIt.decorator
-    def get_array_output(self, name: str, run_IDs: int | Iterable[int]) -> ArrayOutput:
+    def get_array_output(
+        self, name: str, run_IDs: int | Iterable[int], *, sort: bool = True
+    ) -> ArrayOutput:
         """Read a saved array output for one run ID or an iterable of run IDs.
 
         Return an :class:`ArrayOutput` with data and all per-run metadata selected
-        in the requested order, including repeated IDs. For a scalar ID, ``data``
+        including repeated IDs. By default, sort lexicographically by element index,
+        iteration index, action index, then run index. Equal keys retain their requested
+        order. With ``sort=False``, preserve the requested order. Data, metadata, and
+        shapes are reordered together. For a scalar ID, ``data``
         is that run's array. For multiple IDs it is stacked when no shape metadata
         is present and all shapes match, otherwise it is a list.
 
@@ -5314,6 +5319,22 @@ class Workflow(AppAware):
             for key, values in metadata.items():
                 values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
 
+        combined_metadata = {
+            key: np.concatenate(values) for key, values in metadata.items()
+        }
+        if sort and not is_single_run:
+            order = np.lexsort(
+                tuple(
+                    combined_metadata[key]
+                    for key in ("run_idx", "action_idx", "iteration_idx", "element_idx")
+                )
+            )
+            output_arrays = [output_arrays[idx] for idx in order]
+            output_shapes = [output_shapes[idx] for idx in order]
+            combined_metadata = {
+                key: values[order] for key, values in combined_metadata.items()
+            }
+
         result_data: np.ndarray | list[np.ndarray]
         if is_single_run:
             result_data = output_arrays[0]
@@ -5326,7 +5347,7 @@ class Workflow(AppAware):
         return ArrayOutput(
             name=name.removeprefix("outputs."),
             data=result_data,
-            **{key: np.concatenate(values) for key, values in metadata.items()},
+            **combined_metadata,
             shape=(
                 np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
             ),

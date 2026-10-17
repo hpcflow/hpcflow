@@ -23,7 +23,7 @@ from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     make_test_data_YAML_workflow,
 )
-from hpcflow.sdk.core.workflow import ArrayOutput
+from hpcflow.sdk.core.workflow import ArrayOutput, _ArrayOutputArchive
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -173,7 +173,7 @@ def test_save_array_output_appends(
     np.testing.assert_array_equal(output.run_ID, [100])
     np.testing.assert_array_equal(output.element_ID, [30])
     np.testing.assert_array_equal(output.shape, [[2, 3]])
-    output = empty_workflow.get_array_output("outputs.p1.a", [101, 100])
+    output = empty_workflow.get_array_output("outputs.p1.a", [101, 100], sort=False)
     assert output.name == "p1.a"
     arrays = output.data
     assert isinstance(arrays, list)
@@ -192,7 +192,7 @@ def test_save_array_output_appends(
         "shape": [[3, 4], [2, 3]],
     }.items():
         np.testing.assert_array_equal(getattr(output, key), expected)
-    output = empty_workflow.get_array_output("p1.b", [101, 100])
+    output = empty_workflow.get_array_output("p1.b", [101, 100], sort=False)
     arrays = output.data
     assert isinstance(arrays, np.ndarray)
     np.testing.assert_array_equal(arrays, [second_value["b"], first_value["b"]])
@@ -242,7 +242,7 @@ def test_get_array_output_across_files(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
 
-    output = empty_workflow.get_array_output("p1.a", [101, 100, 101])
+    output = empty_workflow.get_array_output("p1.a", [101, 100, 101], sort=False)
     arrays = output.data
 
     assert isinstance(arrays, np.ndarray if second_size == 2 and not with_shape else list)
@@ -282,6 +282,65 @@ def test_get_array_output_archive_path(
         / f"{run_file_ID % 500}.npz.zst"
     )
     assert not path.parent.exists()
+
+
+@pytest.mark.parametrize("sort", [None, False, True])
+@pytest.mark.parametrize("variable_shapes", [False, True])
+def test_get_array_output_sort(
+    empty_workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+    sort: bool | None,
+    variable_shapes: bool,
+) -> None:
+    keys = np.array(
+        [
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
+    )
+    metadata = {
+        field.name: np.arange(6)
+        for field in fields(_ArrayOutputArchive)
+        if field.name not in {"data", "shape"}
+    }
+    for column, key in enumerate(
+        ("element_idx", "iteration_idx", "action_idx", "run_idx")
+    ):
+        metadata[key] = keys[:, column]
+    data = np.repeat(np.arange(6)[:, None], 6, axis=1)
+    shapes = np.arange(1, 7)[:, None] if variable_shapes else None
+    archive = _ArrayOutputArchive(data=data, shape=shapes, **metadata)
+    monkeypatch.setattr(
+        empty_workflow,
+        "get_EARs_from_IDs",
+        Mock(return_value=[SimpleNamespace(id_=idx, run_file_ID=0) for idx in range(6)]),
+    )
+    read_archive = Mock(return_value=archive)
+    monkeypatch.setattr(empty_workflow, "_read_array_output_archive", read_archive)
+    requested = [0, 1, 2, 3, 5, 4, 2]
+    if sort is None:
+        output = empty_workflow.get_array_output("p1.a", requested)
+    else:
+        output = empty_workflow.get_array_output("p1.a", requested, sort=sort)
+
+    expected = requested if sort is False else [5, 4, 3, 2, 2, 1, 0]
+    assert isinstance(output.data, list if variable_shapes else np.ndarray)
+    for actual, idx in zip(output.data, expected):
+        np.testing.assert_array_equal(
+            actual, data[idx, : idx + 1] if variable_shapes else data[idx]
+        )
+    for key, values in metadata.items():
+        np.testing.assert_array_equal(getattr(output, key), values[expected])
+    if variable_shapes:
+        assert shapes is not None
+        np.testing.assert_array_equal(output.shape, shapes[expected])
+    else:
+        assert output.shape is None
+    read_archive.assert_called_once()
 
 
 def test_array_output_shards_limit_files(empty_workflow: Workflow) -> None:
