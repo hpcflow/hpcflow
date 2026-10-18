@@ -11,7 +11,6 @@ import numpy as np
 
 from hpcflow.sdk.core.utils import get_in_container, get_relative_path, set_in_container
 
-
 #: The basic types that Zarr can handle directly with no special action.
 PRIMITIVES: tuple[type, ...] = (
     int,

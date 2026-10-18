@@ -155,8 +155,7 @@ def test_slice(tmp_path: Path):
 def test_demo_data_substitution_param_value_class_method(
     tmp_path: Path, reload_template_components
 ):
-    yaml_str = dedent(
-        """\
+    yaml_str = dedent("""\
         name: temp
         template_components:
           task_schemas:
@@ -169,8 +168,7 @@ def test_demo_data_substitution_param_value_class_method(
             inputs:
               p1c::from_file:
                 path: <<demo_data_file:text_file_1.txt>>
-    """
-    )
+    """)
     wk = hf.Workflow.from_YAML_string(YAML_str=yaml_str, path=tmp_path)
     assert wk.tasks[0].template.element_sets[0].inputs[0].value == {
         "path": str(hf.data_cache_dir.joinpath("text_file_1.txt"))
@@ -180,8 +178,7 @@ def test_demo_data_substitution_param_value_class_method(
 def test_demo_data_substitution_value_sequence_class_method(
     tmp_path: Path, reload_template_components
 ):
-    yaml_str = dedent(
-        """\
+    yaml_str = dedent("""\
         name: temp
         template_components:
           task_schemas:
@@ -194,8 +191,7 @@ def test_demo_data_substitution_value_sequence_class_method(
               - path: inputs.p1
                 values::from_file:
                   file_path: <<demo_data_file:text_file_1.txt>>
-    """
-    )
+    """)
     wk = hf.Workflow.from_YAML_string(YAML_str=yaml_str, path=tmp_path)
     assert wk.tasks[0].template.element_sets[0].sequences[0].values == [
         "1",

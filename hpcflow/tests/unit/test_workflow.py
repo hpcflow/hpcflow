@@ -494,9 +494,7 @@ def test_task_disable_array_outputs_from_YAML(
         if use_element_sets
         else "    inputs:\n      p1: 1\n"
     )
-    wkt_yaml = (
-        dedent(
-            """\
+    wkt_yaml = dedent("""\
             name: disable_array_outputs_YAML
             template_components:
               task_schemas:
@@ -510,10 +508,7 @@ def test_task_disable_array_outputs_from_YAML(
             tasks:
               - schema: array_output_task
                 disable_array_outputs: [p2.a]
-            """
-        )
-        + task_params
-    )
+            """) + task_params
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
 
     task = wkt.tasks[0]
@@ -819,8 +814,7 @@ def test_new_workflow_deleted_on_creation_failure():
 
 
 def test_WorkflowTemplate_from_YAML_string():
-    wkt_yml = dedent(
-        """
+    wkt_yml = dedent("""
         name: simple_workflow
 
         tasks:
@@ -833,14 +827,12 @@ def test_WorkflowTemplate_from_YAML_string():
               - path: inputs.p1
                 nesting_order: 0
                 values: [101, 102]
-    """
-    )
+    """)
     hf.WorkflowTemplate.from_YAML_string(wkt_yml)
 
 
 def test_WorkflowTemplate_from_YAML_string_without_element_sets():
-    wkt_yml = dedent(
-        """
+    wkt_yml = dedent("""
         name: simple_workflow
 
         tasks:
@@ -852,14 +844,12 @@ def test_WorkflowTemplate_from_YAML_string_without_element_sets():
             - path: inputs.p1
               nesting_order: 0
               values: [101, 102]
-    """
-    )
+    """)
     hf.WorkflowTemplate.from_YAML_string(wkt_yml)
 
 
 def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equivalence():
-    wkt_yml_1 = dedent(
-        """
+    wkt_yml_1 = dedent("""
         name: simple_workflow
         resources:
           any:
@@ -874,10 +864,8 @@ def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equival
                 - path: inputs.p1
                   nesting_order: 0
                   values: [101, 102]
-    """
-    )
-    wkt_yml_2 = dedent(
-        """
+    """)
+    wkt_yml_2 = dedent("""
         name: simple_workflow
         resources:
           any:
@@ -891,8 +879,7 @@ def test_WorkflowTemplate_from_YAML_string_with_and_without_element_sets_equival
             - path: inputs.p1
               nesting_order: 0
               values: [101, 102]
-    """
-    )
+    """)
     wkt_1 = hf.WorkflowTemplate.from_YAML_string(wkt_yml_1)
     wkt_2 = hf.WorkflowTemplate.from_YAML_string(wkt_yml_2)
     assert wkt_1 == wkt_2
@@ -926,8 +913,7 @@ def test_closest_task_input_source_chosen(tmp_path: Path):
 
 
 def test_WorkflowTemplate_from_JSON_string_without_element_sets():
-    wkt_json = dedent(
-        """
+    wkt_json = dedent("""
         {
             "name": "test_wk",
             "tasks": [
@@ -939,8 +925,7 @@ def test_WorkflowTemplate_from_JSON_string_without_element_sets():
                 }
             ]
         }
-    """
-    )
+    """)
     hf.WorkflowTemplate.from_JSON_string(wkt_json)
 
 
@@ -1324,15 +1309,13 @@ def test_from_template_workflow_reload(tmp_path: Path, store: str):
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_from_YAML_str_template_workflow_reload(tmp_path: Path, store: str):
-    yaml_str = dedent(
-        """
+    yaml_str = dedent("""
     name: temp
     tasks: 
       - schema: test_t1_ps
         inputs:
           p1: 101
-    """
-    )
+    """)
     wk = hf.Workflow.from_YAML_string(
         YAML_str=yaml_str,
         path=tmp_path,

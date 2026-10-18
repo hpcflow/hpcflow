@@ -161,8 +161,7 @@ def copy_all_demo_workflows(app: BaseApp):
 
 
 def prepare_API_reference_stub(app: BaseApp):
-    contents = dedent(
-        f"""\
+    contents = dedent(f"""\
         Python API
         ==========
 
@@ -172,8 +171,7 @@ def prepare_API_reference_stub(app: BaseApp):
           :recursive:
 
           {app.module}
-    """
-    )
+    """)
     with Path("reference/api.rst").open("wt") as fp:
         fp.write(contents)
 

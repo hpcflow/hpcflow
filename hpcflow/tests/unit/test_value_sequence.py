@@ -447,16 +447,13 @@ def test_environments_sequence_to_resources():
 
 def test_from_yaml_and_json_like_various():
     seed = 13123
-    es_1 = dedent(
-        """\
+    es_1 = dedent("""\
     sequences:
       - path: inputs.p1c::from_data
         nesting_order: 1
         values: [100, 200]
-    """
-    )
-    es_2 = dedent(
-        f"""\
+    """)
+    es_2 = dedent(f"""\
     sequences:
       - path: inputs.p1
         nesting_order: 1
@@ -465,11 +462,9 @@ def test_from_yaml_and_json_like_various():
           scale: 0.1
           shape: 2
           seed: {seed}
-    """
-    )
+    """)
 
-    es_3 = dedent(
-        f"""\
+    es_3 = dedent(f"""\
     sequences:
       - path: inputs.p1c::from_data
         nesting_order: 1
@@ -478,8 +473,7 @@ def test_from_yaml_and_json_like_various():
           scale: 0.1
           shape: 2
           seed: {seed}
-    """
-    )
+    """)
 
     es_JSONs = [read_YAML_str(es_i) for es_i in (es_1, es_2, es_3)]
     es = [hf.ElementSet.from_json_like(es_json_i) for es_json_i in es_JSONs]

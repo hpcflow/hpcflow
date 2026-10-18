@@ -169,82 +169,62 @@ def test_input_value_from_yaml_and_json_like_various():
 
     seed = 9871389
     es_all = [
-        dedent(
-            """\
+        dedent("""\
     inputs:
       p1: 1
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1[A]: 1
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1.b: 20
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1[A].b: 1
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1c::from_data:
         b: 1
         c: 2
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1c[A]::from_data:
         b: 1
         c: 2
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1::from_normal:
         loc: 1.4
         scale: 0.1
         seed: {seed}
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1[A]::from_normal:
         loc: 1.4
         scale: 0.1
         seed: {seed}
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1.b::from_normal:
         loc: 1.4
         scale: 0.1
         seed: {seed}
-    """
-        ),
-        dedent(
-            f"""\
+    """),
+        dedent(f"""\
     inputs:
       p1[A].b::from_normal:
         loc: 1.4
         scale: 0.1
         seed: {seed}
-    """
-        ),
+    """),
     ]
 
     es_JSONs = [read_YAML_str(es_i) for es_i in es_all]
