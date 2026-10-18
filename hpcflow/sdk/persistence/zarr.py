@@ -226,7 +226,7 @@ def _decode_numpy_arrays(
             if (
                 (arr_idx is None or not run.task._is_array_output_disabled(name))
                 and archive_path is not None
-                and archive_path.is_file()
+                and run.workflow._array_output_fs.exists(archive_path.as_posix())
             ):
                 if array_output_cache is not None and name in array_output_cache:
                     dataset = array_output_cache[name]
@@ -2775,7 +2775,9 @@ class ZarrPersistentStore(
                     and v.get("type_lookup")
                     and src_dat[k]["type"] == "EAR_output"
                     and (
-                        (Path(self.path) / "parameters" / "array_outputs").is_dir()
+                        self.workflow._array_output_fs.exists(
+                            (Path(self.path) / "parameters" / "array_outputs").as_posix()
+                        )
                         or any(
                             index is None
                             for _, index in v["type_lookup"].get("arrays", [])

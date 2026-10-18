@@ -5147,16 +5147,22 @@ class Workflow(AppAware):
             param_id = EAR.data_idx[name]
             self.set_parameter_value(param_id, value)
 
+    @property
+    def _array_output_fs(self) -> AbstractFileSystem:
+        if self._store.fs is None:
+            raise RuntimeError("Array outputs require a store filesystem.")
+        return self._store.fs
+
     def list_array_outputs(self) -> list[str]:
         """Return sorted names with compressed archives in 500-file shards."""
-        root = Path(self._store.path) / "parameters" / "array_outputs"
-        if not root.exists():
+        root = (Path(self._store.path) / "parameters" / "array_outputs").as_posix()
+        if not self._array_output_fs.exists(root):
             return []
         return sorted(
-            directory.name
-            for directory in root.iterdir()
-            if directory.is_dir()
-            and any(path.is_file() for path in directory.glob("*/*.npz.zst"))
+            {
+                Path(path).parent.parent.name
+                for path in self._array_output_fs.glob(f"{root}/*/*/*.npz.zst")
+            }
         )
 
     def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
@@ -5300,7 +5306,10 @@ class Workflow(AppAware):
             is_single_run = False
             root = self._get_array_output_archive_path(name, 0).parent.parent
             run_files = []
-            for archive_path in sorted(root.glob("*/*.npz.zst")):
+            for archive_path in sorted(
+                Path(path)
+                for path in self._array_output_fs.glob(f"{root.as_posix()}/*/*.npz.zst")
+            ):
                 archive_file_ID = int(archive_path.parent.name) * 500 + int(
                     archive_path.name.removesuffix(".npz.zst")
                 )
@@ -5455,7 +5464,8 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
         """Decompress, load, and validate an array-output NPZ archive."""
-        buffer = BytesIO(zstd.ZstdDecompressor().decompress(path.read_bytes()))
+        compressed = self._store.get_binary_file(path)
+        buffer = BytesIO(zstd.ZstdDecompressor().decompress(compressed))
         with np.load(buffer, allow_pickle=False) as archive:
             required_names = [
                 field.name

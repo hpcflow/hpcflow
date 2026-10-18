@@ -328,6 +328,34 @@ def test_zarr_legacy_output_decode_without_array_archives(
     assert stored["text"] == "legacy"
 
 
+def test_zarr_zip_reads_array_outputs(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    workflow, run = zarr_array_workflow
+    value = np.arange(6).reshape(2, 3)
+    workflow.save_parameter("outputs.p1", {"data": value}, EAR_ID=run.id_)
+    zip_workflow = hf.Workflow(workflow.zip(path=tmp_path, status=False))
+    zip_run = cast(Any, zip_workflow.get_EARs_from_IDs(run.id_))
+    monkeypatch.setattr(zip_run, "_run_file_ID", 6)
+    original_get_runs = zip_workflow.get_EARs_from_IDs
+    monkeypatch.setattr(
+        zip_workflow,
+        "get_EARs_from_IDs",
+        lambda IDs: zip_run if isinstance(IDs, int) else original_get_runs(IDs),
+    )
+    monkeypatch.setattr(
+        zip_workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+
+    assert zip_workflow.list_array_outputs() == ["p1.data"]
+    np.testing.assert_array_equal(zip_workflow.get_array_output("p1.data").data, [value])
+    np.testing.assert_array_equal(
+        zip_workflow.get_parameter_data(run.data_idx["outputs.p1"])["data"], value
+    )
+
+
 @pytest.mark.parametrize("disabled", [False, True])
 def test_zarr_masked_output_array_decode(
     zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch, disabled: bool
