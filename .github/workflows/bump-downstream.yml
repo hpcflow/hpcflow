@@ -81,9 +81,15 @@ jobs:
         run: |
           TITLE="Bump hpcflow version to ${HPCFLOW_VERSION}"
           BODY="Created by GitHub action"
-          PR_NUMBER=$(gh pr list --repo hpcflow/matflow --base develop --head bump/hpcflow --state open --json number --jq '.[0].number // empty')
+          # Use REST to avoid GraphQL queries that require additional token scopes.
+          PR_NUMBER=$(gh api --method GET repos/hpcflow/matflow/pulls \
+            -f base=develop -f head=hpcflow:bump/hpcflow -f state=open \
+            --jq '.[0].number // empty')
           if [ -n "${PR_NUMBER}" ]; then
-            gh pr edit "${PR_NUMBER}" --repo hpcflow/matflow --title "${TITLE}" --body "${BODY}"
+            gh api --method PATCH "repos/hpcflow/matflow/pulls/${PR_NUMBER}" \
+              -f title="${TITLE}" -f body="${BODY}" --jq '.html_url'
           else
-            gh pr create --repo hpcflow/matflow --base develop --head bump/hpcflow --title "${TITLE}" --body "${BODY}"
+            gh api --method POST repos/hpcflow/matflow/pulls \
+              -f base=develop -f head=bump/hpcflow \
+              -f title="${TITLE}" -f body="${BODY}" --jq '.html_url'
           fi
