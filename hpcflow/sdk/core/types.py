@@ -174,6 +174,8 @@ class ResourceSpecArgs(TypedDict):
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.
     scheduler_args: NotRequired[dict[str, Any]]
+    #: Whether to inherit raw scheduler directives; defaults to True.
+    inherit_directives: NotRequired[bool]
     #: Additional arguments to pass to the shell.
     shell_args: NotRequired[dict[str, Any]]
     #: Which OS to use.

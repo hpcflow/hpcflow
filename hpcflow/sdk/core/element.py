@@ -34,6 +34,7 @@ from hpcflow.sdk.core.utils import (
     check_valid_py_identifier,
     dict_values_process_flat,
     get_enum_by_name_or_val,
+    merge_scheduler_args,
     split_param_label,
 )
 from hpcflow.sdk.log import TimeIt
@@ -384,6 +385,8 @@ class ElementResources(JSONLike):
 
     #: Additional arguments to pass to the scheduler.
     scheduler_args: dict[str, Any] = field(default_factory=dict)
+    #: Whether to inherit raw scheduler directives from configuration.
+    inherit_directives: bool = True
     #: Additional arguments to pass to the shell.
     shell_args: dict[str, Any] = field(default_factory=dict)
     #: Which OS to use.
@@ -594,11 +597,9 @@ class ElementResources(JSONLike):
 
         # merge defaults scheduler args from config:
         cfg_defs = cfg_sched.get("defaults", {})
-        cfg_opts = cfg_defs.pop("options", {})
-        opts = {**cfg_opts, **self.scheduler_args.get("options", {})}
-        if opts:
-            self.scheduler_args["options"] = opts
-        self.scheduler_args = {**cfg_defs, **self.scheduler_args}
+        self.scheduler_args = merge_scheduler_args(
+            cfg_defs, self.scheduler_args, self.inherit_directives
+        )
 
     @TimeIt.decorator
     def validate_against_machine(self):
@@ -1378,7 +1379,22 @@ class ElementIteration(AppAware):
         for scope in action._get_possible_scopes_reversed():
             # loop from least-specific to most so higher-specificity scopes take precedence:
             if scope_res := resource_specs.get(scope.to_string()):
-                resources.update((k, v) for k, v in scope_res.items() if v is not None)
+                inherit = scope_res.get("inherit_directives") is not False
+                resources["scheduler_args"] = merge_scheduler_args(
+                    resources.get("scheduler_args", {}),
+                    scope_res.get("scheduler_args") or {},
+                    inherit,
+                )
+                # Once discarded, configuration directives must not be reintroduced.
+                resources["inherit_directives"] = (
+                    resources.get("inherit_directives", True) and inherit
+                )
+                for key, value in scope_res.items():
+                    if value is not None and key not in (
+                        "scheduler_args",
+                        "inherit_directives",
+                    ):
+                        resources[key] = value
 
         if set_defaults:
             # used in e.g. `Rule.test` if testing resource rules on element iterations,

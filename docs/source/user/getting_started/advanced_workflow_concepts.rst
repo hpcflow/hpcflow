@@ -76,8 +76,21 @@
 
   Anything specified under `directives` is passed directly to the scheduler as a jobscript command (i.e. isn't processed by {{ app_name }} at all).
 
-  If you have set resource options at the top level (for the whole workflow), but would like to "unset" them for a particular task,
-  you can pass an empty dictionary:
+  Scheduler directives are merged by key: scheduler configuration defaults are overridden
+  by workflow-level resources, then by task-level resources at the same scope.
+  More specific action scopes override less specific scopes. Unchanged directives, such
+  as a default ``--account``, are retained when overriding another directive such as
+  ``--time``. List-valued directives are replaced as a whole, not concatenated.
+
+  ``inherit_directives`` defaults to ``true``. Set it to ``false`` to discard raw
+  directives inherited from configuration or broader resources, then apply only the
+  local directives. This also applies to the deprecated ``scheduler_args.options``.
+  More-specific scopes can inherit this new baseline; discarded configuration defaults
+  are not restored. Resource-derived directives such as partition and core requests
+  are unaffected.
+
+  An empty ``directives: {}`` now adds no overrides; it no longer clears inherited
+  directives. To clear them for a particular task, use:
 
   .. code-block:: yaml
 
@@ -85,8 +98,9 @@
       resources:
         main:
           num_cores: 16
+          inherit_directives: false
           scheduler_args:
-            directives: {} # "Clear" any previous directives which have been set.
+            directives: {}
 
 
   Task sequences

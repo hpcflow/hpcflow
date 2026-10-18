@@ -2634,6 +2634,8 @@ class ResourceSpec(JSONLike):
         How long to run for.
     scheduler_args: dict[str, Any]
         Additional arguments to pass to the scheduler.
+    inherit_directives: bool
+        Whether to inherit raw scheduler directives. Defaults to True when resolved.
     shell_args: dict[str, Any]
         Additional arguments to pass to the shell.
     os_name: str
@@ -2683,6 +2685,7 @@ class ResourceSpec(JSONLike):
         "combine_scripts",
         "time_limit",
         "scheduler_args",
+        "inherit_directives",
         "shell_args",
         "os_name",
         "environments",
@@ -2762,6 +2765,7 @@ class ResourceSpec(JSONLike):
         SLURM_num_tasks_per_node: str | None = None,
         SLURM_num_nodes: str | None = None,
         SLURM_num_cpus_per_task: str | None = None,
+        inherit_directives: bool | None = None,
     ):
         #: Which scope does this apply to.
         self.scope = self.__parse_thing(self._app.ActionScope, scope)
@@ -2797,6 +2801,7 @@ class ResourceSpec(JSONLike):
         self._combine_scripts = combine_scripts
         self._time_limit = time_limit
         self._scheduler_args = scheduler_args
+        self._inherit_directives = inherit_directives
         self._shell_args = shell_args
 
         # user-specified SGE-specific parameters:
@@ -2936,6 +2941,7 @@ class ResourceSpec(JSONLike):
             self._combine_scripts = None
             self._time_limit = None
             self._scheduler_args = None
+            self._inherit_directives = None
             self._shell_args = None
             self._os_name = None
             self._environments = None
@@ -3096,6 +3102,11 @@ class ResourceSpec(JSONLike):
         How long to run for.
         """
         return self._get_value("time_limit")
+
+    @property
+    def inherit_directives(self) -> bool | None:
+        """Whether to inherit directives; None leaves the broader policy unchanged."""
+        return self._get_value("inherit_directives")
 
     @property
     def scheduler_args(self) -> Mapping:  # TODO: TypedDict
