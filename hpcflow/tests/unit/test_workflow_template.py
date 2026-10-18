@@ -57,15 +57,13 @@ def test_workflow_template_vars_defaults_used(tmp_path):
 
 def test_workflow_template_vars_False_no_substitution(tmp_path):
     # read a yaml template, check variables are not substituted, when `variables=False`:
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: workflow_1
         tasks:
           - schema: test_t1_conditional_OS            
             inputs:
               p1: <<var:my_var>>
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml, variables=False)
     assert wkt.tasks[0].element_sets[0].inputs[0].value == "<<var:my_var>>"
 

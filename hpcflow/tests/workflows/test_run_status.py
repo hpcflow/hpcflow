@@ -107,16 +107,14 @@ def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
-        cmd = dedent(
-            """\
+        cmd = dedent("""\
             try {
                 Get-Content "<<file:my_input_file>>" -ErrorAction Stop
             } catch {
                 Write-Host "File does not exist."
                 exit 1 
             }
-        """
-        )
+        """)
     else:
         cmd = "cat <<file:my_input_file>>"
 

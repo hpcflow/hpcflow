@@ -1272,8 +1272,7 @@ def test_input_source_inputs_from_multiple_element_sets_with_sub_parameter_seque
 
 
 def test_input_source_task_ref_equivalence(tmp_path):
-    yml = dedent(
-        """\
+    yml = dedent("""\
     name: test
     template_components:
       task_schemas:
@@ -1331,8 +1330,7 @@ def test_input_source_task_ref_equivalence(tmp_path):
           p1: 
             - task.t1_1.input
         
-    """
-    )
+    """)
     wk = hf.Workflow.from_YAML_string(YAML_str=yml, path=tmp_path)
 
     all_sources = (task.elements[0].input_sources["inputs.p1"] for task in wk.tasks[1:])

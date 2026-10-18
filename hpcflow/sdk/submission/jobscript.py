@@ -2135,13 +2135,11 @@ class Jobscript(JSONLike):
             script_str, future_imports_i = extract_py_from_future_imports(script_str)
             future_imports.update(future_imports_i)
             script_funcs_lst.append(
-                dedent(
-                    """\
+                dedent("""\
                 def {act_name}(*args, **kwargs):
                 {script_str}
                     return {main_func_name}(*args, **kwargs)
-                """
-                ).format(
+                """).format(
                     act_name=act_name,
                     script_str=indent(script_str, tab_indent),
                     main_func_name=main_func_name,
@@ -2154,8 +2152,7 @@ class Jobscript(JSONLike):
         else:
             sub_log_path = '""'
 
-        py_imports = dedent(
-            """\
+        py_imports = dedent("""\
             import os
             from collections import defaultdict
             from pathlib import Path
@@ -2170,30 +2167,26 @@ class Jobscript(JSONLike):
 
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
-            """
-        ).format(
+            """).format(
             app_module=self._app.module,
             app_caps=app_caps,
             log_path=sub_log_path,
         )
 
-        py_main_block_workflow_load = dedent(
-            """\
+        py_main_block_workflow_load = dedent("""\
                 app.load_config(
                     overrides={{"log_file_path": log_path}},
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )
                 wk = app.Workflow(wk_path)
-            """
-        ).format(
+            """).format(
             cfg_dir=self._app.config.config_directory,
             cfg_invoc_key=self._app.config.config_key,
             app_caps=app_caps,
         )
 
-        func_invoc_lines = dedent(
-            """\
+        func_invoc_lines = dedent("""\
                 import pprint
                 if not run.action.is_OFP and run.action.script_data_out_has_direct:
                     outputs = func(**func_kwargs)
@@ -2203,13 +2196,11 @@ class Jobscript(JSONLike):
                 else:
                     outputs = {}
                     func(**func_kwargs)
-            """
-        )
+            """)
 
         script_funcs = "\n".join(script_funcs_lst)
         script_names_str = "[" + ", ".join(f"{i}" for i in script_names) + "]"
-        main = dedent(
-            """\
+        main = dedent("""\
             {py_imports}
             
             sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
@@ -2525,8 +2516,7 @@ class Jobscript(JSONLike):
             set_end_multi_times_fp.close()
             save_multi_times_fp.close()
             loop_term_times_fp.close()
-        """
-        ).format(
+        """).format(
             py_imports=py_imports,
             py_main_block_workflow_load=indent(py_main_block_workflow_load, tab_indent),
             app_caps=self._app.package_name.upper(),
@@ -2548,13 +2538,11 @@ class Jobscript(JSONLike):
             if future_imports
             else ""
         )
-        script = dedent(
-            """\
+        script = dedent("""\
             {future_imports_str}{script_funcs}
             if __name__ == "__main__":
             {main}
-        """
-        ).format(
+        """).format(
             future_imports_str=future_imports_str,
             script_funcs=script_funcs,
             main=indent(main, tab_indent),

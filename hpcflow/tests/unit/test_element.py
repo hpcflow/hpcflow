@@ -468,8 +468,7 @@ def test_slice(tmp_path: Path):
 
 
 def test_element_get_with_list_index_sequence(tmp_path: Path):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         tasks:
           - schema: test_t1_ps
@@ -478,16 +477,14 @@ def test_element_get_with_list_index_sequence(tmp_path: Path):
             sequences:
               - path: inputs.p1.0
                 values: [9]
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[0].elements[0].get("inputs.p1") == [9, 1]
 
 
 def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         tasks:
           - schema: test_t1_ps
@@ -499,8 +496,7 @@ def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
             sequences:
               - path: inputs.p1.0.1
                 values: [9, 99]
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[0].elements[0].get("inputs.p1") == [
@@ -514,8 +510,7 @@ def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
 
 
 def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         template_components:
           task_schemas:
@@ -534,8 +529,7 @@ def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
             groups:
               - name: my_group
           - schema: test_group_schema
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[1].elements[0].get("inputs") == {
@@ -552,8 +546,7 @@ def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
 
 
 def test_element_get_group_sequence_obj(tmp_path: Path, reload_template_components):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         template_components:
           task_schemas:
@@ -588,8 +581,7 @@ def test_element_get_group_sequence_obj(tmp_path: Path, reload_template_componen
             groups:
               - name: my_group
           - schema: test_group_schema
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[1].elements[0].get("inputs") == {

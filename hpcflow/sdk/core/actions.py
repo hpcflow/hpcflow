@@ -3555,8 +3555,7 @@ class Action(JSONLike):
         script_str = add_import_timing(script_str)
 
         app_caps = self._app.package_name.upper()
-        py_imports = dedent(
-            """\
+        py_imports = dedent("""\
             _user_script_load_time = time.perf_counter() - _script_start - _user_import_time
 
             import argparse
@@ -3579,15 +3578,13 @@ class Action(JSONLike):
 
             with app.redirect_std_to_file(std_path) as run_std:
 
-            """
-        ).format(app_module=self._app.module, app_caps=app_caps)
+            """).format(app_module=self._app.module, app_caps=app_caps)
 
         # we must load the workflow (must be python):
         # (note: we previously only loaded the workflow if there were any direct inputs
         # or outputs; now we always load so we can use the method
         # `get_py_script_func_kwargs`)
-        py_main_block_workflow_load = dedent(
-            """\
+        py_main_block_workflow_load = dedent("""\
                 with TimeIt("script.load_workflow"):
                     app.load_config(
                         overrides={{"log_file_path": Path(log_path)}},
@@ -3602,8 +3599,7 @@ class Action(JSONLike):
                         run_std.preamble = run_std_preamble
                         if TimeIt.active:
                             TimeIt.file_preamble = run_std_preamble
-            """
-        ).format(
+            """).format(
             cfg_dir=self._app.config.config_directory,
             cfg_invoc_key=self._app.config.config_key,
             app_caps=app_caps,
@@ -3612,8 +3608,7 @@ class Action(JSONLike):
         tab_indent = "    "
         tab_indent_2 = 2 * tab_indent
 
-        func_kwargs_str = dedent(
-            """\
+        func_kwargs_str = dedent("""\
                 with TimeIt("script.prepare_inputs"):
                     blk_act_key = (
                         os.environ["{app_caps}_JS_IDX"],
@@ -3631,22 +3626,18 @@ class Action(JSONLike):
                             add_script_files=True,
                             blk_act_key=blk_act_key,
                         )
-        """
-        ).format(app_caps=app_caps)
+        """).format(app_caps=app_caps)
 
         script_main_func = Path(script_name).stem
         func_invoke_str = f"{script_main_func}(**func_kwargs)"
         if not self.is_OFP and "direct" in self.script_data_out_grouped:
-            py_main_block_invoke = dedent(
-                f"""\
+            py_main_block_invoke = dedent(f"""\
                 with TimeIt("script.user_work"):
                     _work_start = time.perf_counter()
                     outputs = {func_invoke_str}
                     _user_work_time = time.perf_counter() - _work_start
-                """
-            )
-            py_main_block_outputs = dedent(
-                """\
+                """)
+            py_main_block_outputs = dedent("""\
                 with TimeIt("script.outputs"):
                     with (
                         app.redirect_std_to_file(std_path, preamble=run_std_preamble),
@@ -3654,41 +3645,33 @@ class Action(JSONLike):
                     ):
                         for name_i, out_i in outputs.items():
                             wk.set_parameter_value(param_id=EAR.data_idx[f"outputs.{name_i}"], value=out_i)
-                """
-            )
+                """)
         elif self.is_OFP:
-            py_main_block_invoke = dedent(
-                f"""\
+            py_main_block_invoke = dedent(f"""\
                 with TimeIt("script.user_work"):
                     _work_start = time.perf_counter()
                     output = {func_invoke_str}
                     _user_work_time = time.perf_counter() - _work_start
-                """
-            )
+                """)
             assert self.output_file_parsers[0].output
-            py_main_block_outputs = dedent(
-                """\
+            py_main_block_outputs = dedent("""\
                 with TimeIt("script.outputs"):
                     with (
                         app.redirect_std_to_file(std_path, preamble=run_std_preamble),
                         wk._store.parameters_metadata_cache(),
                     ):
                         wk.save_parameter(name="outputs.{output_typ}", value=output, EAR_ID=run_id)
-                """
-            ).format(output_typ=self.output_file_parsers[0].output.typ)
+                """).format(output_typ=self.output_file_parsers[0].output.typ)
         else:
-            py_main_block_invoke = dedent(
-                f"""\
+            py_main_block_invoke = dedent(f"""\
                 with TimeIt("script.user_work"):
                     _work_start = time.perf_counter()
                     {func_invoke_str}
                     _user_work_time = time.perf_counter() - _work_start
-                """
-            )
+                """)
             py_main_block_outputs = ""
 
-        py_main_block_timing = dedent(
-            """\
+        py_main_block_timing = dedent("""\
             _script_time = time.perf_counter() - _script_start
             _script_orchestration_time = _script_time - _user_work_time
 
@@ -3705,23 +3688,20 @@ class Action(JSONLike):
                     print(f"User script load time:     {{_user_script_load_time:.6f}} s")
                     print(f"App import time:           {{_app_import_time:.6f}} s")                
                     TimeIt.summarise_string()
-            """
-        ).format(app_caps=app_caps)
+            """).format(app_caps=app_caps)
         wk_load = (
             "\n" + indent(py_main_block_workflow_load, tab_indent_2)
             if py_main_block_workflow_load
             else ""
         )
-        py_main_block = dedent(
-            """\
+        py_main_block = dedent("""\
             if __name__ == "__main__":
             {py_imports}{wk_load}
             {func_kwargs}
             {invoke}
             {outputs}
             {timing}
-            """
-        ).format(
+            """).format(
             py_imports=indent(py_imports, tab_indent),
             wk_load=wk_load,
             func_kwargs=indent(func_kwargs_str, tab_indent_2),
@@ -3730,12 +3710,10 @@ class Action(JSONLike):
             timing=indent(py_main_block_timing, tab_indent),
         )
 
-        out = dedent(
-            """\
+        out = dedent("""\
             {script_str}
             {main_block}
-        """
-        ).format(
+        """).format(
             script_str=script_str,
             main_block=py_main_block,
         )
