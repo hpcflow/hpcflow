@@ -497,6 +497,7 @@ class WorkflowTemplate(JSONLike):
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
                     condition = task_dat.pop("condition", None)
+                    disable_array_outputs = task_dat.pop("disable_array_outputs", None)
                     es_dat = cast("WorkflowTemplateElementSetData", task_dat)
                     new_task_dat: WorkflowTemplateTaskData = {
                         "schema": schema_list,
@@ -504,6 +505,8 @@ class WorkflowTemplate(JSONLike):
                         "output_labels": out_labels,
                         "condition": condition,
                     }
+                    if disable_array_outputs is not None:
+                        new_task_dat["disable_array_outputs"] = disable_array_outputs
                     task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
                 for elem_set in task_lst[task_idx]["element_sets"]:
@@ -587,7 +590,11 @@ class WorkflowTemplate(JSONLike):
                                         base_data[s_idx]["element_sets"][es_idx][
                                             k
                                         ].update(dat)
-                                    elif k in ("output_labels", "condition"):
+                                    elif k in (
+                                        "output_labels",
+                                        "condition",
+                                        "disable_array_outputs",
+                                    ):
                                         # task-level attributes; just overwrite
                                         base_data[s_idx][k] = dat
                                     else:

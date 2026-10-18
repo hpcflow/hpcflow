@@ -365,6 +365,8 @@ class WorkflowTemplateTaskData(TypedDict):
     output_labels: NotRequired[list[str]]
     #: The condition to consider, if known.
     condition: NotRequired[str | None]
+    #: Output parameter paths to exclude from array-output storage.
+    disable_array_outputs: NotRequired[list[str]]
 
 
 class WorkflowTemplateElementSetData(TypedDict):

@@ -485,6 +485,43 @@ def test_task_disable_array_outputs() -> None:
     assert task.to_dict()["disable_array_outputs"] == ["p1.a"]
 
 
+@pytest.mark.parametrize("use_element_sets", [False, True])
+def test_task_disable_array_outputs_from_YAML(
+    use_element_sets: bool, reload_template_components
+) -> None:
+    task_params = (
+        "    element_sets:\n      - inputs:\n          p1: 1\n"
+        if use_element_sets
+        else "    inputs:\n      p1: 1\n"
+    )
+    wkt_yaml = (
+        dedent(
+            """\
+            name: disable_array_outputs_YAML
+            template_components:
+              task_schemas:
+                - objective: array_output_task
+                  inputs:
+                    - parameter: p1
+                  outputs:
+                    - parameter: p2
+                  actions:
+                    - script: test.py
+            tasks:
+              - schema: array_output_task
+                disable_array_outputs: [p2.a]
+            """
+        )
+        + task_params
+    )
+    wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
+
+    task = wkt.tasks[0]
+    assert task.disable_array_outputs == ["p2.a"]
+    assert task.element_sets[0].inputs[0].value == 1
+    assert task.to_dict()["disable_array_outputs"] == ["p2.a"]
+
+
 def test_list_array_outputs(empty_workflow: Workflow) -> None:
     assert empty_workflow.list_array_outputs() == []
     root = Path(empty_workflow._store.path) / "parameters" / "array_outputs"
