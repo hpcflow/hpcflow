@@ -1,4 +1,37 @@
 
+<a name="v0.3.0a10"></a>
+## [v0.3.0a10](https://github.com/hpcflow/hpcflow/compare/v0.3.0a9...v0.3.0a10) - 2026.10.18
+
+### ♻ Code Refactoring
+
+* rename `max_concurrency` to `max_scheduler_concurrency`
+* rename `max_array_items` resource item to `max_concurrency`
+
+### ✨ Features
+
+* option `--modify-js` to modify generated jobscripts prior to subission
+* implement `max_array_size`
+* compatibility for max_array_items -> max_concurrency
+* add resource item `max_array_size` [not yet impl.]
+
+### 🐛 Bug Fixes
+
+* remove prints
+* missing path in test `test_inapplicable_jobscript_action`
+* merging task insert IDs in merge_jobscripts_across_tasks
+* type checking
+* early return in `ensure_max_array_size`
+* jobscript dependencies when using `max_array_size`
+* enforce `max_array_size` before merging jobscripts across tasks
+* use native int in Zarr's get_jobscript_block_task_elements_map
+* type checking
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a9"></a>
 ## [v0.3.0a9](https://github.com/hpcflow/hpcflow/compare/v0.3.0a8...v0.3.0a9) - 2026.10.06
 
