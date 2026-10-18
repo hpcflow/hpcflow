@@ -1,7 +1,13 @@
 import numpy as np
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.test_utils import make_schemas, make_workflow
-from hpcflow.sdk.submission.jobscript import is_jobscript_array, resolve_jobscript_blocks
+from hpcflow.sdk.submission.jobscript import (
+    JS_BLK_EAR_ID_FILL_VALUE,
+    JS_BLK_TASK_ELEMENTS_FILL_VALUE,
+    ensure_max_array_size,
+    is_jobscript_array,
+    resolve_jobscript_blocks,
+)
 
 import pytest
 
@@ -824,3 +830,119 @@ def test_min_jobscripts_true_non_mergeable(tmp_path):
     )
     sub = wk.add_submission(status=False, force_array=True, min_jobscripts=True)
     assert len(sub.jobscripts) == 3
+
+
+def test_ensure_max_array_size_does_nothing_when_within_limit():
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+            (7, 8, 9),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+        },
+        "EAR_ID": np.array([[11, 12, 13]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    element_deps = {
+        0: [1],
+        1: [2],
+    }
+
+    original_ear_id = js_data["EAR_ID"].copy()
+    original_element_deps = {key: value.copy() for key, value in element_deps.items()}
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    assert result is js_data
+    assert result_deps is element_deps
+
+    np.testing.assert_array_equal(result["EAR_ID"], original_ear_id)
+    assert result["task_insert_IDs"] == [10]
+    assert result["task_elements"] == {
+        0: [100],
+        1: [101],
+        2: [102],
+    }
+    assert result_deps == original_element_deps
+
+
+def test_ensure_max_array_size_does_nothing_for_non_array_jobscript():
+    js_data = {
+        "is_array": False,
+    }
+    element_deps = {0: [1]}
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    assert result is js_data
+    assert result_deps is element_deps
+
+
+def test_ensure_max_array_size_wraps_elements_over_max_size():
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+            3: [103],
+            4: [104],
+        },
+        "EAR_ID": np.array([[11, 12, 13, 14, 15]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    element_deps = {
+        0: [10],
+        1: [11],
+        2: [12],
+        3: [13],
+        4: [14],
+    }
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    np.testing.assert_array_equal(
+        result["EAR_ID"],
+        np.array(
+            [
+                [11, 12, 13],
+                [14, 15, JS_BLK_EAR_ID_FILL_VALUE],
+            ]
+        ),
+    )
+
+    assert result["task_insert_IDs"] == [10, 10]
+
+    assert result["task_actions"] == [
+        (1, 2, 3),
+        (1, 2, 3),
+        (4, 5, 6),
+        (4, 5, 6),
+    ]
+
+    assert result["task_elements"] == {
+        0: [100, 103],
+        1: [101, 104],
+        2: [102, JS_BLK_TASK_ELEMENTS_FILL_VALUE],
+    }
+
+    assert result_deps == {
+        0: [10, 13],
+        1: [11, 14],
+        2: [12],
+    }
