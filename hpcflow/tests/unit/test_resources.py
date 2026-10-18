@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.errors import UnsupportedSchedulerError
+from hpcflow.sdk.core.json_like import JSONed
+from hpcflow.sdk.core.types import ResourceSpecArgs
 from hpcflow.sdk.submission.schedulers.slurm import SlurmPosix
 
 
@@ -21,15 +23,17 @@ def test_scheduler_directives_merge_with_defaults(
     clear: bool,
     inherit: bool,
 ) -> None:
-    defaults = {
+    defaults: dict[str, dict[str, str | list[str] | None]] = {
         "directives": {
             "--account": "default-account",
             "--time": "00:10:00",
             "--export": ["ALL", "DEFAULT=1"],
         }
     }
-    workflow_args = {"directives": {"--time": "00:20:00", "--qos": "workflow-qos"}}
-    task_args = {
+    workflow_args: dict[str, dict[str, str | list[str] | None]] = {
+        "directives": {"--time": "00:20:00", "--qos": "workflow-qos"}
+    }
+    task_args: dict[str, dict[str, str | list[str] | None]] = {
         "directives": {
             "--time": "00:30:00",
             "--exclusive": None,
@@ -41,19 +45,21 @@ def test_scheduler_directives_merge_with_defaults(
             workflow_args["directives"] = {}
         else:
             task_args["directives"] = {}
-    workflow_resources = (
+    workflow_resources: dict[str, ResourceSpecArgs] | None = (
         {"any": {"scheduler_args": workflow_args}}
         if level in ("workflow", "both", "scoped")
         else None
     )
-    task_resources = (
+    task_resources: dict[str, ResourceSpecArgs] | None = (
         {"main" if level == "scoped" else "any": {"scheduler_args": task_args}}
         if level in ("task", "both", "scoped")
         else None
     )
     if level == "workflow":
+        assert workflow_resources is not None
         workflow_resources["any"]["inherit_directives"] = inherit
     else:
+        assert task_resources is not None
         task_resources["main" if level == "scoped" else "any"][
             "inherit_directives"
         ] = inherit
@@ -124,7 +130,7 @@ def test_scheduler_directives_merge_with_defaults(
 
 @pytest.mark.parametrize("method", ["merge_other", "merge_one"])
 def test_scheduler_args_merge_preserves_inputs_and_empty_directives(method: str) -> None:
-    lower_args = {
+    lower_args: dict[str, JSONed] = {
         "directives": {"--account": "account", "--time": "00:10:00"},
         "options": {"--legacy": "value"},
         "submit_cmd": "custom-sbatch",
@@ -180,6 +186,12 @@ def test_scheduler_args_defaults_merge(monkeypatch: pytest.MonkeyPatch, key: str
 def test_directive_inheritance_resumes_after_barrier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str, scope: str, key: str
 ) -> None:
+    task_resources: dict[str, ResourceSpecArgs] = {
+        scope: {
+            "inherit_directives": True,
+            "scheduler_args": {key: {"--time": "00:20:00"}},
+        }
+    }
     template = hf.WorkflowTemplate(
         name="inheritance_barrier",
         resources={
@@ -192,12 +204,7 @@ def test_directive_inheritance_resumes_after_barrier(
             hf.Task(
                 schema=hf.task_schemas.test_t1_bash,
                 inputs={"p1": 101},
-                resources={
-                    scope: {
-                        "inherit_directives": True,
-                        "scheduler_args": {key: {"--time": "00:20:00"}},
-                    }
-                },
+                resources=task_resources,
             )
         ],
     )
