@@ -5288,12 +5288,12 @@ class Workflow(AppAware):
         """Read a saved array output for one run ID or an iterable of run IDs.
 
         Return an :class:`ArrayOutput` with data and all per-run metadata selected
-        including repeated IDs. By default, sort lexicographically by element index,
-        iteration index, action index, then run index. Equal keys retain their requested
-        order. With ``sort=False``, preserve the requested order. Data, metadata, and
-        shapes are reordered together. For a scalar ID, ``data``
-        is that run's array. For multiple IDs it is stacked when no shape metadata
-        is present and all shapes match, otherwise it is a list.
+        including repeated IDs. By default, sort lexicographically by task insert ID,
+        element index, iteration index, action index, then run index. Equal keys retain
+        their requested order. With ``sort=False``, preserve the requested order. Data,
+        metadata, and shapes are reordered together. For a scalar ID, ``data`` is that
+        run's array. For multiple IDs it is stacked when no shape metadata is present
+        and all shapes match, otherwise it is a list.
 
         Archives are Zstandard-compressed NPZ files in 500-file shard directories.
         Earlier uncompressed NPZ archives are not supported.
@@ -5385,7 +5385,13 @@ class Workflow(AppAware):
             order = np.lexsort(
                 tuple(
                     combined_metadata[key]
-                    for key in ("run_idx", "action_idx", "iteration_idx", "element_idx")
+                    for key in (
+                        "run_idx",
+                        "action_idx",
+                        "iteration_idx",
+                        "element_idx",
+                        "task_insert_ID",
+                    )
                 )
             )
             output_arrays = [output_arrays[idx] for idx in order]

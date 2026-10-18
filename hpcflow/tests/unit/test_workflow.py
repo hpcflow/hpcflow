@@ -355,6 +355,7 @@ def test_get_array_output_sort(
         ("element_idx", "iteration_idx", "action_idx", "run_idx")
     ):
         metadata[key] = keys[:, column]
+    metadata["task_insert_ID"] = np.array([20, 10, 20, 10, 20, 10])
     data = np.repeat(np.arange(6)[:, None], 6, axis=1)
     shapes = np.arange(1, 7)[:, None] if variable_shapes else None
     archive = _ArrayOutputArchive(data=data, shape=shapes, **metadata)
@@ -371,7 +372,7 @@ def test_get_array_output_sort(
     else:
         output = empty_workflow.get_array_output("p1.a", requested, sort=sort)
 
-    expected = requested if sort is False else [5, 4, 3, 2, 2, 1, 0]
+    expected = requested if sort is False else [5, 3, 1, 4, 2, 2, 0]
     assert isinstance(output.data, list if variable_shapes else np.ndarray)
     for actual, idx in zip(output.data, expected):
         np.testing.assert_array_equal(
