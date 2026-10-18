@@ -100,9 +100,29 @@
     Tips for SLURM
     **************
 
-    {{ app_name }} currently has a fault such that it doesn't select a SLURM partition
-    based on the resources requested in your workflow file.
-    As such, users must manually define this in their workflow files e.g.
+    {{ app_name }} selects the first compatible partition from ``schedulers.slurm.partitions``
+    in the config file, based on the resources requested in your workflow file.
+    Partition constraints (``num_cores``, ``num_cores_per_node``, ``num_nodes``, and
+    ``parallel_modes``) are optional; omitted or empty constraints are unrestricted.
+    Numeric constraints use ``[start, step, stop]`` with an inclusive stop.
+    For example, the following selects ``ukaea-spr`` for a single-core job:
+
+    .. code-block:: yaml
+
+      schedulers:
+        slurm:
+          defaults:
+            directives:
+              --account: UKAEA-AP002-CPU
+              --time: "00:10:00"
+          partitions:
+            ukaea-spr:
+              num_cores: [1, 1, 1]
+
+    To select a partition explicitly and validate it against the configured constraints,
+    set ``SLURM_partition`` in your workflow resources. If no partition matches
+    automatically, no partition directive is added and SLURM uses its default.
+    You can also specify raw scheduler directives, for example:
 
     .. code-block:: yaml
 

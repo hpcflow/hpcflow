@@ -13,6 +13,7 @@ from typing import Generic, TypeVar, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.core.utils import merge_scheduler_args
 from hpcflow.sdk.utils.hashing import get_hash
 
 if TYPE_CHECKING:
@@ -955,8 +956,23 @@ class ResourceList(ObjectList["ResourceSpec"]):
         the list if we didn't already have it.
         """
         if our_spec is not None:
+            inherit = our_spec.inherit_directives is not False
+            if (
+                our_spec.scheduler_args is not None
+                or other_spec.scheduler_args is not None
+            ):
+                our_spec._scheduler_args = merge_scheduler_args(
+                    other_spec.scheduler_args or {},
+                    our_spec.scheduler_args or {},
+                    inherit,
+                )
+            if not inherit or other_spec.inherit_directives is False:
+                our_spec._inherit_directives = False
             for k, v in other_spec._get_members().items():
-                if getattr(our_spec, k, None) is None:
+                if k in ("scheduler_args", "inherit_directives"):
+                    continue
+                current = getattr(our_spec, k, None)
+                if current is None:
                     setattr(our_spec, f"_{k}", copy.deepcopy(v))
         else:
             self.add_object(copy.deepcopy(other_spec))
