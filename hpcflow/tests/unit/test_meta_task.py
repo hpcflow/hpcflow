@@ -7,8 +7,7 @@ from hpcflow.sdk.config.errors import UnknownMetaTaskConstitutiveSchema
 
 
 def test_basic_meta_task_workflow(tmp_path, reload_template_components):
-    wk_yaml = dedent(
-        """\
+    wk_yaml = dedent("""\
         name: test_meta_task
         template_components:
           task_schemas:
@@ -73,8 +72,7 @@ def test_basic_meta_task_workflow(tmp_path, reload_template_components):
               p1: 100
           - schema: system_analysis
           - schema: s3
-        """
-    )
+        """)
     wk = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path)
 
     # basic check of param dependendices
@@ -195,8 +193,7 @@ def test_basic_meta_task_workflow_API(tmp_path):
 def test_meta_task_custom_parametrisation(tmp_path, reload_template_components):
     """test customising the parametrisation of inputs, sequences, and resources within the
     `tasks` list."""
-    wk_yaml = dedent(
-        """\
+    wk_yaml = dedent("""\
         name: test_metatask_multi_element_sets_custom_parametrisation
         template_components:
           task_schemas:
@@ -250,8 +247,7 @@ def test_meta_task_custom_parametrisation(tmp_path, reload_template_components):
               s1.1: # sequences list in second element set is replaced with this list:
                 - path: inputs.p2
                   values: [300, 301]
-        """
-    )
+        """)
     wk = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path)
 
     assert wk.tasks.s1_1.template.element_sets[0].resources[0].num_cores == 2  # modified
@@ -277,8 +273,7 @@ def test_meta_task_custom_parametrisation(tmp_path, reload_template_components):
 def test_meta_task_custom_parametrisation_raises_on_bad_schema_name(
     tmp_path, reload_template_components
 ):
-    wk_yaml = dedent(
-        """\
+    wk_yaml = dedent("""\
       name: test_metatask_raise_on_bad_schema_name
       template_components:
         task_schemas:
@@ -319,7 +314,6 @@ def test_meta_task_custom_parametrisation_raises_on_bad_schema_name(
             BAD_SCHEMA_NAME: # should raise!
               any:
                 num_cores: 2
-      """
-    )
+      """)
     with pytest.raises(UnknownMetaTaskConstitutiveSchema):
         wk = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path)

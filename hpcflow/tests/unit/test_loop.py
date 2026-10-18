@@ -49,8 +49,7 @@ def test_loop_tasks_names(tmp_path: Path, store: str):
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
 def test_loop_task_names_yaml_template(tmp_path: Path, store: str):
-    wk_yaml = dedent(
-        """\
+    wk_yaml = dedent("""\
     name: test_loops
     loops:
       - tasks: [test_t1_conditional_OS]
@@ -60,8 +59,7 @@ def test_loop_task_names_yaml_template(tmp_path: Path, store: str):
       - schema: test_t1_conditional_OS
         inputs:
           p1: 100
-    """
-    )
+    """)
     wf = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path, store=store)
 
     assert wf.loops[0].template.task_insert_IDs == (0,)

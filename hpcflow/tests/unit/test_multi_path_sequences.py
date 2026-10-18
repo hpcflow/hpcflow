@@ -138,8 +138,7 @@ def test_MPS_element_outputs(tmp_path):
 
 
 def test_MPS_latin_hypercube_sequence_values():
-    wft_yaml = dedent(
-        """\
+    wft_yaml = dedent("""\
         name: test_latin_hypercube_sampling
         template_components:
           task_schemas:
@@ -154,8 +153,7 @@ def test_MPS_latin_hypercube_sequence_values():
               - paths: [inputs.p1.a, inputs.p1.b]
                 values::from_latin_hypercube:
                   num_samples: 5
-    """
-    )
+    """)
     wft = hf.WorkflowTemplate.from_YAML_string(wft_yaml)
     es = wft.tasks[0].element_sets[0]
     assert len(es.multi_path_sequences) == 1
@@ -201,8 +199,7 @@ def test_MPS_latin_hypercube_sequence_bounds():
 
 
 def test_MPS_move_from_sequences_list():
-    wft_yaml = dedent(
-        """\
+    wft_yaml = dedent("""\
         name: test_latin_hypercube_sampling
         template_components:
           task_schemas:
@@ -235,8 +232,7 @@ def test_MPS_move_from_sequences_list():
               - paths: [inputs.p3.a, inputs.p3.b] # actually a multi-path sequence
                 values::from_latin_hypercube:
                   num_samples: 4
-    """
-    )
+    """)
     wft = hf.WorkflowTemplate.from_YAML_string(wft_yaml)
     es = wft.tasks[0].element_sets[0]
     mps_lst = es.multi_path_sequences

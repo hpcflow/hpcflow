@@ -26,15 +26,13 @@ def test_basic_jinja_template(tmp_path):
     run_dir = wk.get_all_EARs()[0].get_directory()
     rendered = run_dir.joinpath(jinja_template_name)
 
-    expected = dedent(
-        """\
+    expected = dedent("""\
         Hola, George!
 
         This is a template, with a loop. Here are your specified fruits:
         - apple
         - orange
-        """
-    )
+        """)
 
     assert rendered.is_file()
     assert rendered.read_text() == expected
@@ -64,15 +62,13 @@ def test_jinja_template_path_with_resource_var(tmp_path):
     run_dir = wk.get_all_EARs()[0].get_directory()
     rendered = run_dir.joinpath(jinja_template_name)
 
-    expected = dedent(
-        """\
+    expected = dedent("""\
         Hola, George!
 
         This is a template, with a loop. Here are your specified fruits:
         - apple
         - orange
-        """
-    )
+        """)
 
     assert rendered.is_file()
     assert rendered.read_text() == expected
@@ -107,15 +103,13 @@ def test_builtin_jinja_template_path_with_env_var(tmp_path, reload_template_comp
     run_dir = wk.get_all_EARs()[0].get_directory()
     rendered = run_dir.joinpath(jinja_template_name)
 
-    expected = dedent(
-        """\
+    expected = dedent("""\
         Hola, George!
 
         This is a template, with a loop. Here are your specified fruits:
         - apple
         - orange
-        """
-    )
+        """)
 
     assert rendered.is_file()
     assert rendered.read_text() == expected
@@ -145,15 +139,13 @@ def test_builtin_jinja_template_path_with_param_var(tmp_path):
     run_dir = wk.get_all_EARs()[0].get_directory()
     rendered = run_dir.joinpath(jinja_template_name)
 
-    expected = dedent(
-        """\
+    expected = dedent("""\
         Hola, George!
 
         This is a template, with a loop. Here are your specified fruits:
         - apple
         - orange
-        """
-    )
+        """)
 
     assert rendered.is_file()
     assert rendered.read_text() == expected

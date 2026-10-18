@@ -85,7 +85,7 @@ def test_import_from_json_like(tmp_path):
 
 
 def test_imports_defined_on_workflow_template(tmp_path):
-    (s1, s2) = make_schemas(
+    s1, s2 = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
     )
@@ -110,7 +110,7 @@ def test_imports_defined_on_workflow_template(tmp_path):
 
 
 def test_import_source_selected_by_default(tmp_path):
-    (s1, s2) = make_schemas(
+    s1, s2 = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
     )
@@ -131,7 +131,7 @@ def test_import_source_selected_by_default(tmp_path):
 
 
 def test_import_source_selected_explicit(tmp_path):
-    (s1, s2) = make_schemas(
+    s1, s2 = make_schemas(
         ({"p1": NullDefault.NULL}, ("p2",), "t1a"),
         ({"p2": NullDefault.NULL}, ("p3",), "t1b"),
     )

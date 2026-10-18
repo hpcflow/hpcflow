@@ -131,7 +131,7 @@ class DirectScheduler(Scheduler[DirectRef]):
     ) -> list[psutil.Process] | None:
         """Wait until the specified jobscripts have completed."""
         procs = cls.__get_jobscript_processes(js_refs)
-        (gone, alive) = psutil.wait_procs(procs, callback=callback)
+        gone, alive = psutil.wait_procs(procs, callback=callback)
         assert not alive
         return gone if callback else None
 

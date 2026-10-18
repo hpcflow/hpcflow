@@ -584,33 +584,27 @@ def test_nth_key_raises():
 
 
 def test_read_YAML_str():
-    good_yaml = dedent(
-        """\
+    good_yaml = dedent("""\
         a: 1
         b: 2
-        """
-    )
+        """)
     assert read_YAML_str(good_yaml) == {"a": 1, "b": 2}
 
 
 def test_read_YAML_str_raise_on_bad_indent():
-    bad_yaml = dedent(
-        """\
+    bad_yaml = dedent("""\
         a: 1
           b: 2
-        """
-    )
+        """)
     with pytest.raises(YAMLError):
         read_YAML_str(bad_yaml)
 
 
 def test_read_YAML_str_raise_on_mixed_tabs_spaces():
-    bad_yaml = dedent(
-        """\
+    bad_yaml = dedent("""\
         a:
           a1: 2 # this has a space indent
         	a2: 3 # this has a tab indent
-        """
-    )
+        """)
     with pytest.raises(YAMLError):
         read_YAML_str(bad_yaml)
