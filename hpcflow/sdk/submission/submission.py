@@ -1221,6 +1221,7 @@ class Submission(JSONLike):
         print_stdout: bool = False,
         add_to_known: bool = True,
         quiet: bool = False,
+        modify_js: bool = False,
     ) -> list[int]:
         """Generate and submit the jobscripts of this submission."""
 
@@ -1293,10 +1294,20 @@ class Submission(JSONLike):
 
             try:
                 if status:
-                    status.update(
-                        f"Submitting jobscript {js.index + 1}/{len(self.jobscripts)}..."
-                    )
-                js_ref_i = js.submit(scheduler_refs, print_stdout=print_stdout)
+                    if modify_js:
+                        status.stop()
+                    else:
+                        status.update(
+                            f"Submitting jobscript {js.index + 1}/"
+                            f"{len(self.jobscripts)}..."
+                        )
+                js_ref_i = js.submit(
+                    scheduler_refs, modify_js=modify_js, print_stdout=print_stdout
+                )
+                if status and modify_js:
+                    status.start()
+                    status.update("Continuing submission...")
+
                 scheduler_refs[js.index] = (js_ref_i, js.is_array)
                 submitted_js_idx.append(js.index)
 

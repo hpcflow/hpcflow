@@ -65,6 +65,8 @@ from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write, infer_store
 from hpcflow.sdk.submission.jobscript import (
+    JS_BLK_EAR_ID_FILL_VALUE,
+    ensure_max_array_size,
     generate_EAR_resource_map,
     group_resource_map_into_jobscripts,
     is_jobscript_array,
@@ -3849,6 +3851,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         add_to_known: bool = True,
         tasks: Sequence[int] | None = None,
@@ -3870,6 +3873,10 @@ class Workflow(AppAware):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -3913,6 +3920,7 @@ class Workflow(AppAware):
                 sub_js_idx = sub.submit(
                     status=status,
                     ignore_errors=ignore_errors,
+                    modify_js=modify_js,
                     print_stdout=print_stdout,
                     add_to_known=add_to_known,
                     quiet=quiet,
@@ -3930,6 +3938,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3948,6 +3957,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3965,6 +3975,7 @@ class Workflow(AppAware):
         ignore_errors: bool = False,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         print_stdout: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
@@ -3993,6 +4004,10 @@ class Workflow(AppAware):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         print_stdout
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
@@ -4039,6 +4054,7 @@ class Workflow(AppAware):
                     ignore_errors=ignore_errors,
                     JS_parallelism=JS_parallelism,
                     min_jobscripts=min_jobscripts,
+                    modify_js=modify_js,
                     print_stdout=print_stdout,
                     status=status_,
                     add_to_known=add_to_known,
@@ -4195,9 +4211,7 @@ class Workflow(AppAware):
                 states = block_states[block_idx]
                 for js_elem_idx, state in states.items():
                     if state is JobscriptElementState.running:
-                        for task_iID, elem_idx in zip(
-                            block.task_insert_IDs, block.task_elements[js_elem_idx]
-                        ):
+                        for task_iID, elem_idx in block.task_element_indices(js_elem_idx):
                             active_elems[task_iID].add(int(elem_idx))
 
         # retrieve Element objects:
@@ -4589,8 +4603,11 @@ class Workflow(AppAware):
                     len(task_actions),
                     len(js_dat["elements"]),
                 )
-                EAR_ID_arr = np.empty(EAR_idx_arr_shape, dtype=np.int32)
-                EAR_ID_arr[:] = -1
+                EAR_ID_arr = np.full(
+                    EAR_idx_arr_shape,
+                    fill_value=JS_BLK_EAR_ID_FILL_VALUE,
+                    dtype=np.int32,
+                )
 
                 new_js_idx = len(submission_jobscripts)
 
@@ -4626,16 +4643,22 @@ class Workflow(AppAware):
                         EAR_ID_arr[js_act_idx][js_elem_idx] = EAR_ID_i
 
                     # get indices of EARs that this element depends on:
-                    EAR_deps_EAR_idx = [
+                    EAR_deps_EAR_idx = set(
                         dep_ear_id
                         for main_ear_id in all_EAR_IDs
                         for dep_ear_id in all_EAR_objs[main_ear_id].get_EAR_dependencies()
                         if dep_ear_id not in EAR_ID_arr
-                    ]
+                    )
                     if EAR_deps_EAR_idx:
-                        all_element_deps.setdefault(new_js_idx, {})[
-                            js_elem_idx
-                        ] = EAR_deps_EAR_idx
+                        all_element_deps.setdefault(new_js_idx, {})[js_elem_idx] = list(
+                            EAR_deps_EAR_idx
+                        )
+
+                js_i, deps_new = ensure_max_array_size(
+                    js_i, all_element_deps.get(new_js_idx, {})
+                )
+                if deps_new:
+                    all_element_deps[new_js_idx] = deps_new
 
                 submission_jobscripts[new_js_idx] = js_i
 
