@@ -1,4 +1,25 @@
 
+<a name="v0.3.0a11"></a>
+## [v0.3.0a11](https://github.com/hpcflow/hpcflow/compare/v0.3.0a10...v0.3.0a11) - 2026.10.18
+
+### 🐛 Bug Fixes
+
+* remove unused
+* run pytest within file context
+* remove debug prints
+* more: add some debug prints for win pyinstaller testing
+* add some debug prints for win pyinstaller testing
+* bump pyinstaller to allow "allow intermixed nested sub-processes"
+* use bugfix github support branch
+
+### 👷 Build changes
+
+* revert build-exes tag back to main
+* update poetry lock
+* merge in develop
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a10"></a>
 ## [v0.3.0a10](https://github.com/hpcflow/hpcflow/compare/v0.3.0a9...v0.3.0a10) - 2026.10.18
 
