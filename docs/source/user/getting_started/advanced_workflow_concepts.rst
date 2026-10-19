@@ -184,7 +184,10 @@
      ``generates_files``. The files an input file generator writes and the files a
      parser reads (``from_files``) are already declared. Every declared file is
      available as an ``output_files.<label>`` (or ``input_files.<label>``)
-     parameter, so downstream tasks can depend on it.
+     parameter, so downstream tasks can depend on it. An action that declares
+     ``input_files`` or ``output_files`` is given its own working directory
+     (``requires_dir`` defaults to ``true``), so there is no need to set it
+     explicitly.
   2. **Select** which declared files to retain as workflow artifacts with the task
      schema's ``save_files`` policy. A task may set its own ``save_files`` to replace
      the schema's policy.

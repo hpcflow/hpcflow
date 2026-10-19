@@ -115,6 +115,15 @@ def test_action_output_files_preserved_on_expand() -> None:
     assert [f.label for f in schema.actions[0].output_files] == ["declared"]
 
 
+def test_action_declared_files_imply_requires_dir() -> None:
+    file = hf.FileSpec(label="f", name="f.txt")
+    assert hf.Action(commands=[hf.Command("ls")]).requires_dir is False
+    assert hf.Action(commands=[hf.Command("ls")], output_files=[file]).requires_dir
+    assert hf.Action(commands=[hf.Command("ls")], input_files=[file]).requires_dir
+    with pytest.raises(ValueError, match="requires a working directory"):
+        hf.Action(commands=[hf.Command("ls")], output_files=[file], requires_dir=False)
+
+
 def test_action_files_from_json_like_labels() -> None:
     """Action `input_files`/`output_files` given as labels (as in YAML task schemas)
     resolve against the shared command files."""

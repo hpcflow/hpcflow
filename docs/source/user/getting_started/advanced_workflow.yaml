@@ -48,7 +48,6 @@ template_components:
             - scope:
                 type: any
               environment: python_env
-          requires_dir: true
         - script: <<script:/full/path/to/process_input_file.py>>
           script_exe: python_script
           environments:
@@ -57,7 +56,6 @@ template_components:
               environment: python_env
           output_files:
             - processed_file
-          requires_dir: true
 
   command_files:
     - label: my_input_file

@@ -2082,6 +2082,10 @@ class Action(JSONLike):
     clean_up: list[~hpcflow.app.FileSpec]
         Output files to remove from the working directory once they have been saved as
         workflow artifacts.
+    requires_dir: bool
+        Whether the action needs its own working (execute) directory. Defaults to True
+        if the action has input file generators, output file parsers, a Jinja template,
+        or declares ``input_files`` or ``output_files``; otherwise False.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -2238,12 +2242,19 @@ class Action(JSONLike):
         if requires_dir is None:
             # TODO: once Jinja templates are written to the shared subs dir, we can omit
             # from here:
-            requires_dir = (
-                True
-                if self.input_file_generators
+            requires_dir = bool(
+                self.input_file_generators
                 or self.output_file_parsers
                 or self.jinja_template
-                else False
+                or self.input_files
+                or self.output_files
+            )
+        elif not requires_dir and (self.input_files or self.output_files):
+            # without a working directory, input files cannot be staged and output
+            # files cannot be found (and so would silently never be saved):
+            raise ValueError(
+                "An action that declares `input_files` or `output_files` requires a "
+                "working directory; remove `requires_dir: false`."
             )
         self.requires_dir = requires_dir
 

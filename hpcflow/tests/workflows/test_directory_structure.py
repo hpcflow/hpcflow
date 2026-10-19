@@ -102,7 +102,6 @@ def test_task_save_files_policy(
             hf.Action(
                 commands=[hf.Command(command)],
                 output_files=[retained_file, discarded_file],
-                requires_dir=True,
             )
         ],
     )
