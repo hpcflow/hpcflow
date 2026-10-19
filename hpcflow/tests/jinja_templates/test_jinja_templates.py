@@ -14,7 +14,12 @@ def test_basic_jinja_template(tmp_path):
             hf.SchemaInput(parameter=hf.Parameter("name")),
             hf.SchemaInput(parameter=hf.Parameter("fruits")),
         ],
-        actions=[hf.Action(jinja_template=f"test/{jinja_template_name}")],
+        actions=[
+            hf.Action(
+                jinja_template=f"test/{jinja_template_name}",
+                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+            )
+        ],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
     wk = hf.Workflow.from_template_data(
@@ -23,8 +28,7 @@ def test_basic_jinja_template(tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    run_dir = wk.get_all_EARs()[0].get_directory()
-    rendered = run_dir.joinpath(jinja_template_name)
+    rendered = wk.task_artifacts_path / jinja_template_name
 
     expected = dedent("""\
         Hola, George!
@@ -48,7 +52,10 @@ def test_jinja_template_path_with_resource_var(tmp_path):
             hf.SchemaInput(parameter=hf.Parameter("fruits")),
         ],
         actions=[
-            hf.Action(jinja_template=f"<<resource:resources_id>>/{jinja_template_name}")
+            hf.Action(
+                jinja_template=f"<<resource:resources_id>>/{jinja_template_name}",
+                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+            )
         ],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
@@ -59,8 +66,7 @@ def test_jinja_template_path_with_resource_var(tmp_path):
         resources={"any": {"resources_id": "test"}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    run_dir = wk.get_all_EARs()[0].get_directory()
-    rendered = run_dir.joinpath(jinja_template_name)
+    rendered = wk.task_artifacts_path / jinja_template_name
 
     expected = dedent("""\
         Hola, George!
@@ -90,7 +96,12 @@ def test_builtin_jinja_template_path_with_env_var(tmp_path, reload_template_comp
             hf.SchemaInput(parameter=hf.Parameter("name")),
             hf.SchemaInput(parameter=hf.Parameter("fruits")),
         ],
-        actions=[hf.Action(jinja_template=f"<<env:key>>/{jinja_template_name}")],
+        actions=[
+            hf.Action(
+                jinja_template=f"<<env:key>>/{jinja_template_name}",
+                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+            )
+        ],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
     wk = hf.Workflow.from_template_data(
@@ -100,8 +111,7 @@ def test_builtin_jinja_template_path_with_env_var(tmp_path, reload_template_comp
         environments={"null_env": {"key": "test"}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    run_dir = wk.get_all_EARs()[0].get_directory()
-    rendered = run_dir.joinpath(jinja_template_name)
+    rendered = wk.task_artifacts_path / jinja_template_name
 
     expected = dedent("""\
         Hola, George!
@@ -125,7 +135,12 @@ def test_builtin_jinja_template_path_with_param_var(tmp_path):
             hf.SchemaInput(parameter=hf.Parameter("fruits")),
             hf.SchemaInput(parameter=hf.Parameter("key")),
         ],
-        actions=[hf.Action(jinja_template=f"<<parameter:key>>/{jinja_template_name}")],
+        actions=[
+            hf.Action(
+                jinja_template=f"<<parameter:key>>/{jinja_template_name}",
+                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+            )
+        ],
     )
     t1 = hf.Task(
         schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"], "key": "test"}
@@ -136,8 +151,7 @@ def test_builtin_jinja_template_path_with_param_var(tmp_path):
         path=tmp_path,
     )
     wk.submit(wait=True, add_to_known=False, status=False)
-    run_dir = wk.get_all_EARs()[0].get_directory()
-    rendered = run_dir.joinpath(jinja_template_name)
+    rendered = wk.task_artifacts_path / jinja_template_name
 
     expected = dedent("""\
         Hola, George!

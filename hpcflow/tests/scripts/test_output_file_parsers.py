@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 
 import pytest
@@ -44,10 +45,9 @@ def test_output_file_parser_parses_file(tmp_path):
 
     wk.submit(wait=True, add_to_known=False)
 
-    # check the command successfully generated the output file:
+    # Check the output file was saved before execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
+    out_file_path = Path(run_0.get("output_files.my_output_file"))
     out_file_contents = out_file_path.read_text()
     assert out_file_contents.strip() == str(p2_val_expected)
 
@@ -263,10 +263,9 @@ def test_env_specifier_in_output_file_parser_script_path(
 
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    # check the command successfully generated the output file:
+    # Check the output file was saved before execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
+    out_file_path = Path(run_0.get("output_files.my_output_file"))
     out_file_contents = out_file_path.read_text()
     assert out_file_contents.strip() == str(p2_val_expected)
 
@@ -308,11 +307,12 @@ def test_no_script_no_output_saves_files(tmp_path):
     wk.submit(wait=True, add_to_known=False, status=False)
 
     # check the output file is saved to artifacts:
-    run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
+    runs = wk.get_all_EARs()
+    assert all(run.success for run in runs)
+    out_file_path = Path(runs[-1].get("output_files.my_output_file"))
     out_file_contents = out_file_path.read_text()
     assert out_file_contents.strip() == str(p2_val_expected)
+    assert not wk.execution_path.exists()
 
     # check no scripts generated
     assert not any(wk.submissions[0].scripts_path.iterdir())

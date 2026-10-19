@@ -152,6 +152,29 @@
         :language: YAML
 
 
+  Execution directories
+  ---------------------
+
+  Execution paths are assigned during submission, but directories are created only
+  when an element action run (EAR) starts. Input files are staged at that point;
+  files already present in the shared working directory are preserved so that
+  later actions can use changes made by earlier actions. Skipped EARs do not
+  create execution directories.
+
+  Actions within an element iteration share their working directory. By default,
+  after the final action/run completes successfully, its execution directories are
+  deleted, provided all runs in that iteration succeeded and none were skipped.
+  Set the ``delete_execute_dir`` configuration item to ``False`` to retain them.
+  Cleanup happens after output parameters, saved files, and directory snapshots
+  have been persisted, including when the final action does not itself require a
+  directory. Failed or skipped iterations retain their directories for inspection.
+
+  Files that must remain available after successful completion must be explicitly
+  saved (for example, with ``save_files``). Unsaved working files are deleted when
+  the execution directory is removed. ``Action.clean_up`` remains a per-action,
+  per-file option: selected saved files are removed from the execution directory
+  after being copied to workflow artifacts, even when the directory is retained.
+
   Task schema shortcuts
   ---------------------
 

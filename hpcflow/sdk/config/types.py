@@ -101,6 +101,8 @@ class ConfigDescriptor(TypedDict):
     show_tracebacks: NotRequired[bool]
     #: Use Rich to render tracebacks.
     use_rich_tracebacks: NotRequired[bool]
+    #: Delete execution directories after successful task iterations.
+    delete_execute_dir: NotRequired[bool]
 
 
 class InvocationDescriptor(TypedDict):

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 
 import pytest
@@ -44,10 +45,9 @@ def test_input_file_generator_creates_file(tmp_path):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    # check the input file is written
+    # Generated input files remain available as artifacts after execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    inp_file_path = exec_path.joinpath(inp_file.name.name)
+    inp_file_path = Path(run_0.get("input_files.my_input_file"))
     inp_file_contents = inp_file_path.read_text()
     assert inp_file_contents.strip() == str(p1_val)
 
@@ -107,16 +107,14 @@ def test_inapplicable_jobscript_action(tmp_path):
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    # check the input files are written
+    # Check generated and supplied input files remain available after cleanup.
     run_e0 = wk.get_all_EARs()[0]
-    exec_path = run_e0.get_directory()
-    existing_inp_file_path = exec_path.joinpath(inp_file.name.name)
+    existing_inp_file_path = Path(run_e0.get("input_files.my_input_file"))
     inp_file_contents = existing_inp_file_path.read_text()
     assert inp_file_contents.strip() == str(p1_val)
 
     run_e1 = wk.get_all_EARs()[2]
-    exec_path = run_e1.get_directory()
-    existing_inp_file_path = exec_path.joinpath(inp_file.name.name)
+    existing_inp_file_path = Path(run_e1.get("input_files.my_input_file"))
     inp_file_contents = existing_inp_file_path.read_text()
     assert inp_file_contents.strip() == existing_inp_file_value
 
@@ -302,10 +300,9 @@ def test_env_specifier_in_input_file_generator_script_path(
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    # check the input file is written
+    # Check the generated input file was saved before execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    inp_file_path = exec_path.joinpath(inp_file.name.name)
+    inp_file_path = Path(run_0.get("input_files.my_input_file"))
     inp_file_contents = inp_file_path.read_text()
     assert inp_file_contents.strip() == str(p1_val)
 

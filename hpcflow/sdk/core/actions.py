@@ -14,6 +14,7 @@ import contextlib
 from collections import defaultdict
 from pathlib import Path
 import re
+import shutil
 import textwrap
 import warnings
 from functools import partial
@@ -827,6 +828,25 @@ class ElementActionRun(AppAware):
         Get the working directory, if one is required.
         """
         return self.workflow.get_run_directories(run_ids=[self.id_])[0]
+
+    def prepare_directory(self) -> Path | None:
+        """Create the working directory and stage input files when this run starts."""
+        if not self.action.requires_dir:
+            return None
+        run_dir = self.get_directory()
+        if run_dir is None:
+            raise RuntimeError(f"No execution directory assigned to EAR {self.id_}.")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for path in self.get("input_files", {}).values():
+            if path:
+                paths = path if isinstance(path, list) else [path]
+                for source in paths:
+                    source = Path(source)
+                    destination = run_dir / source.name
+                    # Earlier actions may already have modified this shared input file.
+                    if not destination.exists():
+                        shutil.copy(source, destination)
+        return run_dir
 
     def get_app_log_path(self) -> Path:
         assert self.submission_idx is not None
@@ -2059,8 +2079,8 @@ class Action(JSONLike):
         How to determine whether to run the action.
     save_files: list[str]
         The names of files to be explicitly saved after each step.
-    clean_up: list[str]
-        The names of files to be deleted after each step.
+    clean_up: list[~hpcflow.app.FileSpec]
+        Files to delete after they have been saved.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -2153,7 +2173,7 @@ class Action(JSONLike):
         output_files: list[FileSpec] | None = None,
         rules: list[ActionRule] | None = None,
         save_files: list[FileSpec] | None = None,
-        clean_up: list[str] | None = None,
+        clean_up: list[FileSpec] | None = None,
         requires_dir: bool | None = None,
     ):
 
@@ -2560,7 +2580,7 @@ class Action(JSONLike):
     def short_name(self):
         out = self.script or self.jinja_template or self.program
         if not out:
-            out = self.commands[0].command
+            out = (self.commands[0].command if self.commands else None) or repr(self)
         return textwrap.shorten(out, width=90)
 
     def __eq__(self, other: Any) -> bool:

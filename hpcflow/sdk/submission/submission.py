@@ -724,7 +724,7 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def _write_scripts(
         self, cache: ObjectCache, status: Status | None = None
-    ) -> tuple[dict[int, int | None], NDArray, dict[int, list[Path]]]:
+    ) -> tuple[dict[int, int | None], NDArray]:
         """Write to disk all action scripts associated with this submission."""
         # TODO: rename this method
 
@@ -744,9 +744,6 @@ class Submission(JSONLike):
         cmd_hashes = defaultdict(set)
         num_runs_tot = sum(len(js.all_EAR_IDs) for js in self.jobscripts)
         run_indices = np.ones((num_runs_tot, 9), dtype=int) * -1
-        run_inp_files = defaultdict(
-            list
-        )  # keys are `run_idx`, values are Paths to copy to run dir
         run_cmd_file_names: dict[int, int | None] = {}  # None if no commands to write
         run_idx = 0
 
@@ -840,11 +837,6 @@ class Submission(JSONLike):
                         else:
                             run_cmd_file_names[run.id_] = None
 
-                    if run.action.requires_dir:
-                        # TODO: what is type of `path`?
-                        for name, path in run.get("input_files", {}).items():
-                            if path:
-                                run_inp_files[run_idx].append(path)
                     run_idx += 1
 
         for run_ids in cmd_hashes.values():
@@ -930,7 +922,7 @@ class Submission(JSONLike):
             with script_path.open("wt", newline="\n") as fp:
                 fp.write(script_str)
 
-        return run_cmd_file_names, run_indices, run_inp_files
+        return run_cmd_file_names, run_indices
 
     @TimeIt.decorator
     def _calculate_run_dir_indices(
@@ -1018,13 +1010,13 @@ class Submission(JSONLike):
         return run_dir_arr, run_ids
 
     @TimeIt.decorator
-    def _write_execute_dirs(
+    def _set_execute_dirs(
         self,
         run_indices: NDArray,
-        run_inp_files: dict[int, list[Path]],
         cache: ObjectCache,
         status: Status | None = None,
-    ):
+    ) -> None:
+        """Persist execution paths without creating directories or staging files."""
 
         if status:
             status.update("Adding new submission: resolving execution directories...")
@@ -1034,23 +1026,6 @@ class Submission(JSONLike):
         # set run dirs in persistent array:
         if run_idx.size:
             self.workflow._store.set_run_dirs(run_dir_arr, run_idx)
-
-        # retrieve run directories as paths. array is not yet commited, so pass in
-        # directly:
-        run_dirs = self.workflow.get_run_directories(dir_indices_arr=run_dir_arr)
-
-        if status:
-            status.update("Adding new submission: making execution directories...")
-
-        # make directories
-        for idx, run_dir in enumerate(run_dirs):
-            assert run_dir
-            run_dir.mkdir(parents=True, exist_ok=True)
-            inp_files_i = run_inp_files.get(run_idx[idx])
-            if inp_files_i:
-                # copy (TODO: optionally symlink) any input files:
-                for path_i in inp_files_i:
-                    shutil.copy(path_i, run_dir)
 
     @staticmethod
     def get_unique_schedulers_of_jobscripts(

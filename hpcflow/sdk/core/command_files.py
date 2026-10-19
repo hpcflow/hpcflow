@@ -353,8 +353,8 @@ class OutputFileParser(JSONLike):
         Whether this script can be aborted.
     save_files: list[str]
         The files that should be saved to the persistent store for the workflow.
-    clean_up: list[str]
-        The files that should be immediately removed.
+    clean_up: list[FileSpec]
+        Saved files that should be immediately removed.
     rules: list[~hpcflow.app.ActionRule]
         Rules for whether to enable this parser.
     """
@@ -421,7 +421,7 @@ class OutputFileParser(JSONLike):
     save_files: InitVar[list[FileSpec] | bool] = True
     _save_files: list[FileSpec] = field(init=False)
     #: The files that should be immediately removed.
-    clean_up: list[str] = field(default_factory=list)
+    clean_up: list[FileSpec] = field(default_factory=list)
     #: Rules for whether to enable this parser.
     rules: list[ActionRule] = field(default_factory=list)
     #: Whether the parser requires a working directory.

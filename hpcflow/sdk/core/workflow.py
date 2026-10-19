@@ -3341,9 +3341,54 @@ class Workflow(AppAware):
 
             new_run_skips.update(self.__apply_task_conditions(run))
 
-            self._store.set_EAR_end(run.id_, exit_code, success, run.action.requires_dir)
+            self._store.set_EAR_end(
+                run.id_, exit_code, success, run.action.requires_dir and not run.skip
+            )
 
+        self._clean_up_execute_dirs(run, success)
         return new_run_skips
+
+    def _clean_up_execute_dirs(self, run: ElementActionRun, success: bool) -> None:
+        """Remove an iteration's working directories after its final successful run."""
+        delete_execute_dir = (self.template.config or {}).get("delete_execute_dir")
+        if delete_execute_dir is None:
+            delete_execute_dir = self._app.config.get("delete_execute_dir")
+        if delete_execute_dir is False:
+            return
+        if not success or run.skip:
+            return
+        action_runs = run.element_iteration.EAR_IDs
+        final_action = max(idx for idx, ids in action_runs.items() if ids)
+        if run.id_ != action_runs[final_action][-1]:
+            return
+
+        run_ids = list(run.element_iteration.EAR_IDs_flat)
+        other_runs = self.get_EARs_from_IDs([i for i in run_ids if i != run.id_])
+        if any(i.skip or not i.success for i in other_runs):
+            return
+
+        directories = {
+            path for path in self.get_run_directories(run_ids=run_ids) if path is not None
+        }
+        execution_path = self.execution_path.resolve()
+        for directory in sorted(
+            directories, key=lambda path: len(path.parts), reverse=True
+        ):
+            resolved = directory.resolve()
+            if not resolved.is_relative_to(execution_path) or directory.is_symlink():
+                raise RuntimeError(f"Unsafe execution directory for cleanup: {directory}")
+            if not directory.exists():
+                continue
+            # Windows cannot remove the current working directory.
+            if Path.cwd().resolve().is_relative_to(resolved):
+                assert run.submission_idx is not None
+                os.chdir(
+                    Submission.get_tmp_path(self.submissions_path, run.submission_idx)
+                )
+            self._app.submission_logger.debug(
+                f"Removing execution directory after EAR {run.id_}: {directory}."
+            )
+            shutil.rmtree(directory)
 
     def set_multi_run_ends(
         self,
@@ -3362,6 +3407,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        completed_runs: list[tuple[ElementActionRun, bool]] = []
 
         with self._store.cached_load(), self.batch_update():
             run_ids = []
@@ -3611,11 +3657,14 @@ class Workflow(AppAware):
                     run_dirs.append(run_dir)
                     exit_codes.append(exit_code)
                     successes.append(success)
+                    completed_runs.append((run, success))
 
                     new_run_skips.update(self.__apply_task_conditions(run))
 
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
+        for run, success in completed_runs:
+            self._clean_up_execute_dirs(run, success)
         return new_run_skips
 
     def set_EAR_skip(self, skip_reasons: dict[int, SkipReason]) -> None:
@@ -4371,9 +4420,9 @@ class Workflow(AppAware):
             status.update("Adding new submission: writing scripts and command files...")
 
         # write scripts and command files where possible to the submission directory:
-        cmd_file_IDs, run_indices, run_inp_files = sub_obj._write_scripts(cache, status)
+        cmd_file_IDs, run_indices = sub_obj._write_scripts(cache, status)
 
-        sub_obj._write_execute_dirs(run_indices, run_inp_files, cache, status)
+        sub_obj._set_execute_dirs(run_indices, cache, status)
 
         if status:
             status.update("Adding new submission: updating the store...")
@@ -4686,13 +4735,6 @@ class Workflow(AppAware):
                     )
 
                 run_dir = None
-                if run.action.requires_dir:
-                    run_dir = run.get_directory()
-                    assert run_dir
-                    self._app.submission_logger.debug(
-                        f"changing directory to run execution directory: {run_dir}."
-                    )
-                    os.chdir(run_dir)
                 self._app.submission_logger.debug(f"{run.skip=}; {run.skip_reason=}")
 
             if not self.__apply_group_task_conditions(run):
@@ -4701,6 +4743,12 @@ class Workflow(AppAware):
 
             # check if we should skip:
             if not run.skip:
+                run_dir = run.prepare_directory()
+                if run_dir is not None:
+                    self._app.submission_logger.debug(
+                        f"changing directory to run execution directory: {run_dir}."
+                    )
+                    os.chdir(run_dir)
                 with TimeIt("execute_run.write_data_in_files"):
                     try:
                         with run.raise_on_failure_threshold() as unset_params:
@@ -4748,6 +4796,9 @@ class Workflow(AppAware):
                         )
 
                     # TODO: pass on unset_params to script as environment variable
+
+                    if not cmd_file_path:
+                        self.set_EAR_start(run_ID, run_dir, port_number=None)
 
                     if run.action.jinja_template_or_template_path:
                         # TODO: write Jinja templates in shared submissions directory
@@ -4896,7 +4947,10 @@ class Workflow(AppAware):
                 if run.skip:
                     ret_code = SKIPPED_EXIT_CODE
                 elif not (has_commands or run.action.jinja_template):
-                    ret_code = NO_COMMANDS_EXIT_CODE
+                    saves_files = run.action.save_files or any(
+                        ofp._save_files for ofp in run.action.output_file_parsers
+                    )
+                    ret_code = 0 if saves_files else NO_COMMANDS_EXIT_CODE
                 elif run.action.jinja_template:
                     ret_code = 0
                 else:
