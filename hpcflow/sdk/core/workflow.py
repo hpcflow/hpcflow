@@ -5178,14 +5178,19 @@ class Workflow(AppAware):
         return self._store.fs
 
     def list_array_outputs(self) -> list[str]:
-        """Return sorted names with compressed archives in 500-file shards."""
+        """Return sorted names with compressed archives in 500-file shards.
+
+        Internal ``__mask__`` archives (masked-array masks) are excluded.
+        """
         root = (Path(self._store.path) / "parameters" / "array_outputs").as_posix()
         if not self._array_output_fs.exists(root):
             return []
         return sorted(
             {
-                Path(path).parent.parent.name
+                name
                 for path in self._array_output_fs.glob(f"{root}/*/*/*.npz.zst")
+                for name in [Path(path).parent.parent.name]
+                if not name.endswith(".__mask__")
             }
         )
 

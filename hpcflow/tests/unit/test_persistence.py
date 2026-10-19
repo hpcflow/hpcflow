@@ -25,6 +25,7 @@ from hpcflow.sdk.core.parameters import NullDefault
 from hpcflow.app import app as hf
 
 if TYPE_CHECKING:
+    from hpcflow.sdk.core.workflow import Workflow
     from hpcflow.sdk.persistence.zarr import ZarrPersistentStore
 
 
@@ -368,7 +369,26 @@ def test_zarr_masked_output_array_decode(
     workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
     param_ID = run.data_idx["outputs.p1"]
     arrays = workflow._store.get_parameter_data_array_group(param_ID)
-    assert len(list(arrays.keys())) == (5 if disabled else 2)
+    archive_root = Path(workflow._store.path) / "parameters" / "array_outputs"
+    if disabled:
+        # data and masks of both masked arrays, plus the plain array:
+        assert len(list(arrays.keys())) == 5
+        assert not archive_root.exists()
+    else:
+        # enabled outputs never touch legacy Zarr groups; masks use sibling archives:
+        assert arrays is None
+        assert sorted(p.name for p in archive_root.iterdir()) == [
+            "p1.masked",
+            "p1.masked.__mask__",
+            "p1.other_masked",
+            "p1.other_masked.__mask__",
+            "p1.plain",
+        ]
+        assert workflow.list_array_outputs() == [
+            "p1.masked",
+            "p1.other_masked",
+            "p1.plain",
+        ]
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
@@ -385,6 +405,200 @@ def test_zarr_masked_output_array_decode(
         np.testing.assert_array_equal(stored[name].data, expected.data)
         np.testing.assert_array_equal(stored[name].mask, expected.mask)
         assert stored[name].fill_value == expected.fill_value
+
+
+def test_zarr_masked_output_nomask_round_trips(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A masked array with ``nomask`` gets a full boolean mask archive."""
+    workflow, run = zarr_array_workflow
+    value = np.ma.array([4.0, 5.0, 6.0])
+    assert value.mask is np.ma.nomask
+    workflow.save_parameter("outputs.p1", {"m": value}, EAR_ID=run.id_)
+    mask_archive = workflow.get_array_output("p1.m.__mask__", run.id_)
+    np.testing.assert_array_equal(mask_archive.data, [False, False, False])
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+
+    stored = workflow.get_parameter_data(run.data_idx["outputs.p1"], dataset_copy=True)
+    assert isinstance(stored["m"], np.ma.MaskedArray)
+    np.testing.assert_array_equal(stored["m"].data, value.data)
+    np.testing.assert_array_equal(stored["m"].mask, [False, False, False])
+
+
+def _legacy_shard_groups(workflow: Workflow) -> list[str]:
+    root = Path(workflow._store.path) / "parameters" / "arrays"
+    return sorted(
+        str(path.relative_to(root)).replace("\\", "/")
+        for path in root.rglob(".zgroup")
+        if path.parent != root
+    )
+
+
+@pytest.mark.parametrize("disabled", [[], ["p1"]])
+def test_zarr_legacy_shard_groups_created_only_when_needed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, disabled: list[str]
+) -> None:
+    """Shard groups are not created for NPZ-only workflows, even with masked arrays."""
+    workflow = hf.Workflow.from_template_data(
+        template_name="shard_test",
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    "shard_test",
+                    inputs=[hf.Parameter("p2")],
+                    outputs=[hf.Parameter("p1")],
+                    actions=[hf.Action(script="test.py")],
+                ),
+                inputs=[hf.InputValue("p2", 5)],
+                disable_array_outputs=disabled,
+            )
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    # workflow creation (inputs without arrays) must not create any shard group:
+    assert _legacy_shard_groups(workflow) == []
+
+    run = list(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID]))[0]
+    monkeypatch.setattr(run, "_run_file_ID", 6)
+    original_get_runs = workflow.get_EARs_from_IDs
+    monkeypatch.setattr(
+        workflow,
+        "get_EARs_from_IDs",
+        lambda IDs: run if isinstance(IDs, int) else original_get_runs(IDs),
+    )
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_file_lookup",
+        lambda IDs, file_offset=0: {0: {6 + file_offset: {run.id_: 0}}},
+    )
+
+    masked = np.ma.array([1.0, 2.0], mask=[False, True], fill_value=-1.0)
+    workflow.save_parameter(
+        "outputs.p1", {"a": np.arange(3), "m": masked}, EAR_ID=run.id_
+    )
+    param_ID = cast(int, run.data_idx["outputs.p1"])
+
+    if disabled:
+        assert _legacy_shard_groups(workflow) == [
+            "params_0-124999999/.zgroup",
+            "params_0-124999999/params_0-249999/.zgroup",
+            "params_0-124999999/params_0-249999/params_0-499/.zgroup",
+            f"params_0-124999999/params_0-249999/params_0-499/param_{param_ID}/.zgroup",
+        ]
+    else:
+        assert _legacy_shard_groups(workflow) == []
+
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
+    np.testing.assert_array_equal(stored["a"], np.arange(3))
+    np.testing.assert_array_equal(stored["m"].mask, masked.mask)
+
+
+def test_zarr_array_input_creates_legacy_shard_group(tmp_path: Path) -> None:
+    """Inputs holding arrays still use legacy storage, created lazily on append."""
+    workflow = hf.Workflow.from_template_data(
+        template_name="array_input_test",
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    "array_input_test",
+                    inputs=[hf.Parameter("p2")],
+                    actions=[hf.Action(script="test.py")],
+                ),
+                inputs=[hf.InputValue("p2", np.arange(4))],
+            )
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    groups = _legacy_shard_groups(workflow)
+    assert groups[:3] == [
+        "params_0-124999999/.zgroup",
+        "params_0-124999999/params_0-249999/.zgroup",
+        "params_0-124999999/params_0-249999/params_0-499/.zgroup",
+    ]
+    assert any(
+        group.startswith("params_0-124999999/params_0-249999/params_0-499/param_")
+        for group in groups[3:]
+    )
+    assert not (Path(workflow._store.path) / "parameters" / "array_outputs").exists()
+
+
+def test_zarr_legacy_shard_group_concurrent_creation_is_tolerated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulate another run creating the same shard inside ``require_group``'s window.
+
+    ``Group.require_group`` checks ``contains_group`` and then calls ``init_group``,
+    which re-checks and raises ``ContainsGroupError`` if the group appeared in between.
+    Reproduce this deterministically by making the first check report "absent" once
+    while the group really exists.
+    """
+    import zarr.hierarchy  # type: ignore
+    from zarr.errors import ContainsGroupError  # type: ignore
+    from zarr.storage import contains_group as real_contains_group  # type: ignore
+    from zarr.storage import init_group  # type: ignore
+
+    workflow = hf.Workflow.from_template_data(
+        template_name="shard_race_test",
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    "shard_race_test",
+                    inputs=[hf.Parameter("p2")],
+                    outputs=[hf.Parameter("p1")],
+                    actions=[hf.Action(script="test.py")],
+                ),
+                inputs=[hf.InputValue("p2", 5)],
+                disable_array_outputs=["p1"],
+            )
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    assert _legacy_shard_groups(workflow) == []
+    run = list(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID]))[0]
+    param_ID = cast(int, run.data_idx["outputs.p1"])
+    store = cast("ZarrPersistentStore", workflow._store)
+    outer, mid, inner, _ = store._param_data_arr_grp_names(param_ID)
+    arrays_group = store._get_parameter_user_array_group(mode="r+")
+    inner_path = f"{arrays_group.path}/{outer}/{mid}/{inner}"
+
+    # "another run" creates the shard out-of-band:
+    init_group(arrays_group.store, path=inner_path)
+
+    lied = False
+
+    def lying_contains_group(store_, path=None):
+        nonlocal lied
+        if not lied and path == inner_path:
+            lied = True
+            return False
+        return real_contains_group(store_, path)
+
+    monkeypatch.setattr(zarr.hierarchy, "contains_group", lying_contains_group)
+
+    # the unguarded primitive reproduces the race:
+    with pytest.raises(ContainsGroupError):
+        store._get_or_create_parameter_data_array_inner_group(param_ID, mode="r+")
+    assert lied
+    lied = False
+
+    # the guarded accessor retries and returns the (existing) group:
+    group = store._require_legacy_array_inner_group(param_ID)
+    assert lied
+    assert group.path == inner_path
 
 
 @pytest.mark.parametrize("remove_directory", [False, True])
