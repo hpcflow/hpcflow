@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a14"></a>
+## [v0.3.0a14](https://github.com/hpcflow/hpcflow/compare/v0.3.0a13...v0.3.0a14) - 2026.10.19
+
+### 🐛 Bug Fixes
+
+* **slurm:** avoid duplicate partition directives
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a13"></a>
 ## [v0.3.0a13](https://github.com/hpcflow/hpcflow/compare/v0.3.0a12...v0.3.0a13) - 2026.10.18
 
