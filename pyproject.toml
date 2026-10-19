@@ -105,6 +105,8 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 name = "cz_customize"
 version = "0.3.0a14"
 tag_format = "v$version"
+# Breaking changes bump the minor version while the major version is 0:
+major_version_zero = true
 version_files = [
     "pyproject.toml:version",
     "hpcflow/_version.py"
