@@ -57,6 +57,7 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
+from hpcflow.sdk.core.task_schema import split_save_files_policy
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
@@ -109,6 +110,7 @@ if TYPE_CHECKING:
     from rich.status import Status
     from ..typing import DataIndex, ParamSource, PathLike, TemplateComponents
     from .actions import ElementActionRun, UnsetParamTracker
+    from .command_files import FileSpec
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
@@ -493,12 +495,14 @@ class WorkflowTemplate(JSONLike):
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
                     condition = task_dat.pop("condition", None)
+                    save_files = task_dat.pop("save_files", None)
                     es_dat = cast("WorkflowTemplateElementSetData", task_dat)
                     new_task_dat: WorkflowTemplateTaskData = {
                         "schema": schema_list,
                         "element_sets": [es_dat],
                         "output_labels": out_labels,
                         "condition": condition,
+                        "save_files": save_files,
                     }
                     task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
@@ -2874,6 +2878,279 @@ class Workflow(AppAware):
             clean_up=clean_up,
         )
 
+    @staticmethod
+    def _get_file_retention_policy(run: ElementActionRun) -> bool | list[str]:
+        """Resolve the file-retention policy for a run: the task's policy if set,
+        otherwise the task schema's policy. An unset policy retains nothing."""
+        policy = run.task.template.save_files
+        if policy is None:
+            policy = run.action.task_schema.save_files
+        return False if policy is None else policy
+
+    @staticmethod
+    def _policy_selects_label(policy: bool | list[str], label: str) -> bool:
+        return policy if isinstance(policy, bool) else label in policy
+
+    def _save_run_file(
+        self,
+        run: ElementActionRun,
+        run_dir: Path,
+        file: FileSpec,
+        data_idx_key: str,
+        policy: bool | list[str],
+        clean_up: bool,
+        always_set: bool,
+        is_aborted: bool,
+        success: bool,
+        exit_code: int,
+    ) -> tuple[bool, int]:
+        """Save a declared file produced by a run.
+
+        The file contents are copied to the workflow artifacts if the file is selected by
+        the retention policy, or if a run in another element iteration depends on it.
+        If `always_set` is True, the file parameter is set to reference the working
+        directory copy even when its contents are not retained, so that later runs in
+        the same iteration can use it. A missing file puts the run into an error state
+        (unless aborted). Returns the (possibly updated) `success` and `exit_code`.
+        """
+        param_id = run.data_idx.get(data_idx_key)
+        selected = self._policy_selects_label(policy, file.label)
+        retain = selected or (
+            param_id is not None
+            and self._has_file_dependents_outside_iteration(run, param_id)
+        )
+        if not retain and not always_set:
+            return success, exit_code
+
+        self._app.logger.debug(
+            f"Saving file {file.label!r} for EAR ID {run.id_!r} (retain={retain!r})."
+        )
+        file_paths = file.value(directory=run_dir)
+        for path_i in file_paths if isinstance(file_paths, list) else [file_paths]:
+            full_path = run_dir.joinpath(path_i)
+            if not full_path.exists():
+                self._app.logger.debug(
+                    f"expected file {path_i!r} ({file.label!r}) does not exist, so "
+                    f"setting run to an error state (if not aborted)."
+                )
+                if not is_aborted and success:
+                    success = False
+                    exit_code = 1  # TODO more custom exit codes?
+            else:
+                self._set_file_if_unset(
+                    param_id=param_id,
+                    store_contents=retain,
+                    is_input=False,
+                    path=full_path,
+                    clean_up=selected and clean_up,
+                )
+        return success, exit_code
+
+    def _save_run_files(
+        self,
+        run: ElementActionRun,
+        run_dir: Path,
+        block_act_key: BlockActionKey,
+        is_aborted: bool,
+        success: bool,
+        exit_code: int,
+    ) -> tuple[bool, int]:
+        """Persist files produced by a completed run: input-file-generator files,
+        script/program-generated parameter files, and declared output files (including
+        output-file-parser source files, parser-generated files, and clean-up files).
+        Returns the (possibly updated) `success` and `exit_code`."""
+        policy = self._get_file_retention_policy(run)
+        action = run.action
+
+        for IFG_i in action.input_file_generators:
+            success, exit_code = self._save_run_file(
+                run=run,
+                run_dir=run_dir,
+                file=IFG_i.input_file,
+                data_idx_key=f"input_files.{IFG_i.input_file.label}",
+                policy=policy,
+                clean_up=False,
+                always_set=True,
+                is_aborted=is_aborted,
+                success=success,
+                exit_code=exit_code,
+            )
+
+        if action.script_data_out_has_files:
+            try:
+                run._param_save("script", block_act_key, run_dir)
+            except FileNotFoundError:
+                self._app.logger.debug(
+                    f"script did not generate an expected output parameter file "
+                    f"(block_act_key={block_act_key!r}), so setting run to an error "
+                    f"state (if not aborted)."
+                )
+                if not is_aborted and success:
+                    success = False
+                    exit_code = 1  # TODO more custom exit codes?
+
+        if action.program_data_out_has_files:
+            try:
+                run._param_save("program", block_act_key, run_dir)
+            except FileNotFoundError:
+                self._app.logger.debug(
+                    f"program did not generate an expected output parameter file "
+                    f"(block_act_key={block_act_key!r}), so setting run to an error "
+                    f"state (if not aborted)."
+                )
+                if not is_aborted and success:
+                    success = False
+                    exit_code = 1  # TODO more custom exit codes?
+
+        parser_files = [
+            file
+            for OFP_i in action.output_file_parsers
+            for file in (*OFP_i.output_files, *OFP_i.generates_files, *OFP_i.clean_up)
+        ]
+        clean_up_labels = {file.label for file in action.clean_up} | {
+            file.label for OFP_i in action.output_file_parsers for file in OFP_i.clean_up
+        }
+        output_files = {
+            file.label: file
+            for file in (*action.output_files, *action.clean_up, *parser_files)
+        }
+        for file in output_files.values():
+            success, exit_code = self._save_run_file(
+                run=run,
+                run_dir=run_dir,
+                file=file,
+                data_idx_key=f"output_files.{file.label}",
+                policy=policy,
+                clean_up=file.label in clean_up_labels,
+                always_set=False,
+                is_aborted=is_aborted,
+                success=success,
+                exit_code=exit_code,
+            )
+        return success, exit_code
+
+    def _save_policy_path_files(self, run: ElementActionRun) -> None:
+        """Save working-directory files matching the ``path:`` entries of a run's
+        file-retention policy.
+
+        This happens once per element iteration, when its final run completes
+        (whether or not that run was skipped or successful), so that files modified by
+        multiple actions are saved in their final state. Saved files are not associated
+        with a parameter. Explicit paths that do not exist are logged; glob patterns may
+        match nothing.
+        """
+        policy = self._get_file_retention_policy(run)
+        if isinstance(policy, bool):
+            return
+        _, path_patterns = split_save_files_policy(policy)
+        if not path_patterns:
+            return
+
+        EAR_IDs = run.element_iteration.EAR_IDs
+        run_ids = [id_ for act_idx in sorted(EAR_IDs) for id_ in EAR_IDs[act_idx]]
+        if not run_ids or run.id_ != run_ids[-1]:
+            return
+
+        directories = {
+            path for path in self.get_run_directories(run_ids=run_ids) if path is not None
+        }
+        for directory in sorted(directories):
+            if not directory.is_dir():
+                continue
+            for pattern in path_patterns:
+                if any(char in pattern for char in "*?["):
+                    matches = sorted(directory.glob(pattern))
+                else:
+                    matches = [directory.joinpath(pattern)]
+                    if not matches[0].exists():
+                        self._app.logger.warning(
+                            f"`save_files` path {pattern!r} does not exist in working "
+                            f"directory {str(directory)!r} (EAR ID {run.id_!r})."
+                        )
+                        continue
+                for match in matches:
+                    if not match.is_file():
+                        continue
+                    self._app.logger.debug(
+                        f"Saving `save_files` path {str(match)!r} for EAR ID {run.id_!r}."
+                    )
+                    self._set_file(
+                        param_id=None,
+                        store_contents=True,
+                        is_input=False,
+                        path=match,
+                    )
+
+    def _has_file_dependents_outside_iteration(
+        self, run: ElementActionRun, param_id: int | list[int]
+    ) -> bool:
+        parameter_ids = {param_id} if isinstance(param_id, int) else set(param_id)
+        return any(
+            dependent.element_iteration.id_ != run.element_iteration.id_
+            and any(
+                (
+                    value in parameter_ids
+                    if isinstance(value, int)
+                    else isinstance(value, list)
+                    and bool(parameter_ids.intersection(value))
+                )
+                for value in dependent.data_idx.values()
+            )
+            for dependent in run.get_dependent_EARs(as_objects=True)
+        )
+
+    def _unset_deleted_execute_file_refs(
+        self, run_ids: Sequence[int], directories: set[Path]
+    ) -> None:
+        directory_paths = {path.resolve() for path in directories}
+        parameter_ids: set[int] = set()
+        for run in self.get_EARs_from_IDs(run_ids):
+            for key, value in run.data_idx.items():
+                if not key.startswith(
+                    ("input_files.", "output_files.")
+                ) or not isinstance(value, int):
+                    continue
+                parameter_ids.add(value)
+
+        ephemeral_parameter_ids: set[int] = set()
+        for parameter in self._store.get_parameters(parameter_ids):
+            if parameter.file is None or parameter.file["store_contents"]:
+                continue
+            file_path = (Path(self.path) / parameter.file["path"]).resolve()
+            if any(file_path.is_relative_to(directory) for directory in directory_paths):
+                ephemeral_parameter_ids.add(parameter.id_)
+
+        if ephemeral_parameter_ids:
+            with self._store.cached_load(), self.batch_update():
+                for parameter_id in ephemeral_parameter_ids:
+                    self._store.unset_parameter_value(parameter_id, save=False)
+
+    def _set_file_if_unset(
+        self,
+        param_id: int | list[int] | None,
+        store_contents: bool,
+        is_input: bool,
+        path: Path,
+        clean_up: bool = False,
+    ) -> None:
+        if (
+            isinstance(param_id, int)
+            and self._store.get_parameter_set_statuses([param_id])[0]
+        ):
+            # already saved by an earlier run (e.g. an output-file-parser source file
+            # saved when the main action completed); still honour a clean-up request:
+            if clean_up and store_contents and path.is_file():
+                self._app.logger.info(f"deleting already-saved file {str(path)!r}")
+                path.unlink()
+            return
+        self._set_file(
+            param_id=param_id,
+            store_contents=store_contents,
+            is_input=is_input,
+            path=path,
+            clean_up=clean_up,
+        )
+
     @overload
     def get_task_unique_names(
         self, map_to_insert_ID: Literal[False] = False
@@ -3155,7 +3432,6 @@ class Workflow(AppAware):
         self._app.logger.debug(
             f"Setting end for run ID {run.id_!r} with exit code {exit_code!r}."
         )
-        param_id: int | list[int] | None
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
@@ -3173,155 +3449,16 @@ class Workflow(AppAware):
                 run_dir = run.get_directory()
                 if run_dir:
                     assert isinstance(run_dir, Path)
-                    for IFG_i in run.action.input_file_generators:
-                        inp_file = IFG_i.input_file
-                        self._app.logger.debug(
-                            f"Saving EAR input file: {inp_file.label!r} for EAR ID "
-                            f"{run.id_!r}."
-                        )
-                        param_id = run.data_idx[f"input_files.{inp_file.label}"]
+                    success, exit_code = self._save_run_files(
+                        run=run,
+                        run_dir=run_dir,
+                        block_act_key=block_act_key,
+                        is_aborted=is_aborted,
+                        success=success,
+                        exit_code=exit_code,
+                    )
 
-                        file_paths = inp_file.value(directory=run_dir)
-                        for path_i in (
-                            file_paths if isinstance(file_paths, list) else [file_paths]
-                        ):
-                            full_path = run_dir.joinpath(path_i)
-                            if not full_path.exists():
-                                self._app.logger.debug(
-                                    f"expected input file {path_i!r} does not "
-                                    f"exist, so setting run to an error state "
-                                    f"(if not aborted)."
-                                )
-                                if not is_aborted and success is True:
-                                    # this is unlikely to happen, but could happen
-                                    # if the input file is deleted in between
-                                    # the input file generator completing and this
-                                    # code being run
-                                    success = False
-                                    exit_code = 1  # TODO more custom exit codes?
-                            else:
-                                self._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,  # TODO: make optional according to IFG
-                                    is_input=False,
-                                    path=full_path,
-                                )
-
-                    if run.action.script_data_out_has_files:
-                        try:
-                            run._param_save("script", block_act_key, run_dir)
-                        except FileNotFoundError:
-                            self._app.logger.debug(
-                                f"script did not generate an expected output parameter "
-                                f"file (block_act_key={block_act_key!r}), so setting run "
-                                f"to an error state (if not aborted)."
-                            )
-                            if not is_aborted and success is True:
-                                success = False
-                                exit_code = 1  # TODO more custom exit codes?
-
-                    if run.action.program_data_out_has_files:
-                        try:
-                            run._param_save("program", block_act_key, run_dir)
-                        except FileNotFoundError:
-                            self._app.logger.debug(
-                                f"program did not generate an expected output parameter "
-                                f"file (block_act_key={block_act_key!r}), so setting run "
-                                f"to an error state (if not aborted)."
-                            )
-                            if not is_aborted and success is True:
-                                success = False
-                                exit_code = 1  # TODO more custom exit codes?
-
-                    # Save action-level files: (TODO: refactor with below for OFPs)
-                    for save_file_j in run.action.save_files:
-                        self._app.logger.debug(
-                            f"Saving file: {save_file_j.label!r} for EAR ID "
-                            f"{run.id_!r}."
-                        )
-                        try:
-                            param_id = run.data_idx[f"output_files.{save_file_j.label}"]
-                        except KeyError:
-                            # We might be saving a file that is not a defined
-                            # "output file"; this will avoid saving a reference in the
-                            # parameter data:
-                            param_id = None
-
-                        file_paths = save_file_j.value(directory=run_dir)
-                        self._app.logger.debug(
-                            f"Saving output file paths: {file_paths!r}"
-                        )
-
-                        for path_i in (
-                            file_paths if isinstance(file_paths, list) else [file_paths]
-                        ):
-                            full_path = run_dir.joinpath(path_i)
-                            if not full_path.exists():
-                                self._app.logger.debug(
-                                    f"expected file to save {path_i!r} does not "
-                                    f"exist, so setting run to an error state "
-                                    f"(if not aborted)."
-                                )
-                                if not is_aborted and success is True:
-                                    # this is unlikely to happen, but could happen
-                                    # if the input file is deleted in between
-                                    # the input file generator completing and this
-                                    # code being run
-                                    success = False
-                                    exit_code = 1  # TODO more custom exit codes?
-                            else:
-                                self._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,
-                                    is_input=False,
-                                    path=full_path,
-                                    clean_up=(save_file_j in run.action.clean_up),
-                                )
-
-                    for OFP_i in run.action.output_file_parsers:
-                        for save_file_j in OFP_i._save_files:
-                            self._app.logger.debug(
-                                f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
-                                f"{run.id_!r}."
-                            )
-                            try:
-                                param_id = run.data_idx[
-                                    f"output_files.{save_file_j.label}"
-                                ]
-                            except KeyError:
-                                # We might be saving a file that is not a defined
-                                # "output file"; this will avoid saving a reference in the
-                                # parameter data:
-                                param_id = None
-
-                            file_paths = save_file_j.value(directory=run_dir)
-                            self._app.logger.debug(
-                                f"Saving EAR output file paths: {file_paths!r}"
-                            )
-
-                            for path_i in (
-                                file_paths
-                                if isinstance(file_paths, list)
-                                else [file_paths]
-                            ):
-                                full_path = run_dir.joinpath(path_i)
-                                if not full_path.exists():
-                                    self._app.logger.debug(
-                                        f"expected output file parser `save_files` file "
-                                        f"{path_i!r} does not exist, so setting run "
-                                        f"to an error state (if not aborted)."
-                                    )
-                                    if not is_aborted and success is True:
-                                        success = False
-                                        exit_code = 1  # TODO more custom exit codes?
-                                else:
-                                    self._set_file(
-                                        param_id=param_id,
-                                        store_contents=True,  # TODO: make optional according to OFP
-                                        is_input=False,
-                                        path=full_path,
-                                        clean_up=(save_file_j in OFP_i.clean_up),
-                                    )
+            self._save_policy_path_files(run)
 
             if (
                 run.resources.skip_downstream_on_failure
@@ -3341,9 +3478,55 @@ class Workflow(AppAware):
 
             new_run_skips.update(self.__apply_task_conditions(run))
 
-            self._store.set_EAR_end(run.id_, exit_code, success, run.action.requires_dir)
+            self._store.set_EAR_end(
+                run.id_, exit_code, success, run.action.requires_dir and not run.skip
+            )
 
+        self._clean_up_execute_dirs(run, success)
         return new_run_skips
+
+    def _clean_up_execute_dirs(self, run: ElementActionRun, success: bool) -> None:
+        """Remove an iteration's working directories after its final successful run."""
+        delete_execute_dir = (self.template.config or {}).get("delete_execute_dir")
+        if delete_execute_dir is None:
+            delete_execute_dir = self._app.config.get("delete_execute_dir")
+        if delete_execute_dir is False:
+            return
+        if not success or run.skip:
+            return
+        action_runs = run.element_iteration.EAR_IDs
+        final_action = max(idx for idx, ids in action_runs.items() if ids)
+        if run.id_ != action_runs[final_action][-1]:
+            return
+
+        run_ids = list(run.element_iteration.EAR_IDs_flat)
+        other_runs = self.get_EARs_from_IDs([i for i in run_ids if i != run.id_])
+        if any(i.skip or not i.success for i in other_runs):
+            return
+
+        directories = {
+            path for path in self.get_run_directories(run_ids=run_ids) if path is not None
+        }
+        self._unset_deleted_execute_file_refs(run_ids, directories)
+        execution_path = self.execution_path.resolve()
+        for directory in sorted(
+            directories, key=lambda path: len(path.parts), reverse=True
+        ):
+            resolved = directory.resolve()
+            if not resolved.is_relative_to(execution_path) or directory.is_symlink():
+                raise RuntimeError(f"Unsafe execution directory for cleanup: {directory}")
+            if not directory.exists():
+                continue
+            # Windows cannot remove the current working directory.
+            if Path.cwd().resolve().is_relative_to(resolved):
+                assert run.submission_idx is not None
+                os.chdir(
+                    Submission.get_tmp_path(self.submissions_path, run.submission_idx)
+                )
+            self._app.submission_logger.debug(
+                f"Removing execution directory after EAR {run.id_}: {directory}."
+            )
+            shutil.rmtree(directory)
 
     def set_multi_run_ends(
         self,
@@ -3358,10 +3541,10 @@ class Workflow(AppAware):
         skipped. Also save any generated input/output files."""
 
         self._app.logger.debug(f"Setting end for multiple run IDs.")
-        param_id: int | list[int] | None
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        completed_runs: list[tuple[ElementActionRun, bool]] = []
 
         with self._store.cached_load(), self.batch_update():
             run_ids = []
@@ -3395,188 +3578,21 @@ class Workflow(AppAware):
                         run_dir = run.get_directory()
                         if run_dir:
                             assert isinstance(run_dir, Path)
-                            for IFG_i in run.action.input_file_generators:
-                                self._app.logger.info(f"setting IFG file {IFG_i!r}")
-                                inp_file = IFG_i.input_file
-                                self._app.logger.debug(
-                                    f"Saving EAR input file: {inp_file.label!r} for EAR "
-                                    f"ID {run.id_!r}."
-                                )
-                                param_id = run.data_idx[f"input_files.{inp_file.label}"]
-
-                                file_paths = inp_file.value(directory=run_dir)
-                                for path_i in (
-                                    file_paths
-                                    if isinstance(file_paths, list)
-                                    else [file_paths]
-                                ):
-                                    full_path = run_dir.joinpath(path_i)
-                                    if not full_path.exists():
-                                        self._app.logger.debug(
-                                            f"expected input file {path_i!r} does not "
-                                            f"exist, so setting run to an error state "
-                                            f"(if not aborted)."
-                                        )
-                                        if not is_aborted and success is True:
-                                            # this is unlikely to happen, but could happen
-                                            # if the input file is deleted in between
-                                            # the input file generator completing and this
-                                            # code being run
-                                            success = False
-                                            exit_code = 1  # TODO more custom exit codes?
-                                    else:
-                                        self._set_file(
-                                            param_id=param_id,
-                                            store_contents=True,  # TODO: make optional according to IFG
-                                            is_input=False,
-                                            path=full_path,
-                                        )
-
-                            if run.action.script_data_out_has_files:
-                                self._app.logger.info(
-                                    f"saving script-generated parameters."
-                                )
-                                try:
-                                    run._param_save("script", block_act_key, run_dir)
-                                except FileNotFoundError:
-                                    # script did not generate the output parameter file,
-                                    # so set a failed exit code (if we did not abort the
-                                    # run):
-                                    self._app.logger.debug(
-                                        f"script did not generate an expected output "
-                                        f"parameter file (block_act_key="
-                                        f"{block_act_key!r}), so setting run to an error "
-                                        f"state (if not aborted)."
-                                    )
-                                    if not is_aborted and success is True:
-                                        success = False
-                                        exit_code = 1  # TODO more custom exit codes?
-
-                            if run.action.program_data_out_has_files:
-                                self._app.logger.info(
-                                    f"saving program-generated parameters."
-                                )
-                                try:
-                                    run._param_save("program", block_act_key, run_dir)
-                                except FileNotFoundError:
-                                    # program did not generate the output parameter file,
-                                    # so set a failed exit code (if we did not abort the
-                                    # run):
-                                    self._app.logger.debug(
-                                        f"program did not generate an expected output "
-                                        f"parameter file (block_act_key="
-                                        f"{block_act_key!r}), so setting run to an error "
-                                        f"state (if not aborted)."
-                                    )
-                                    if not is_aborted and success is True:
-                                        success = False
-                                        exit_code = 1  # TODO more custom exit codes?
-
-                            # Save action-level files: (TODO: refactor with below for OFPs)
-                            for save_file_j in run.action.save_files:
-                                self._app.logger.info(
-                                    f"saving action-level file {save_file_j!r}."
-                                )
-                                self._app.logger.debug(
-                                    f"Saving file: {save_file_j.label!r} for EAR ID "
-                                    f"{run.id_!r}."
-                                )
-                                try:
-                                    param_id = run.data_idx[
-                                        f"output_files.{save_file_j.label}"
-                                    ]
-                                except KeyError:
-                                    # We might be saving a file that is not a defined
-                                    # "output file"; this will avoid saving a reference in
-                                    # the parameter data:
-                                    param_id = None
-
-                                file_paths = save_file_j.value(directory=run_dir)
-                                self._app.logger.debug(
-                                    f"Saving output file paths: {file_paths!r}"
-                                )
-                                for path_i in (
-                                    file_paths
-                                    if isinstance(file_paths, list)
-                                    else [file_paths]
-                                ):
-                                    full_path = run_dir.joinpath(path_i)
-                                    if not full_path.exists():
-                                        self._app.logger.debug(
-                                            f"expected file to save {path_i!r} does not "
-                                            f"exist, so setting run to an error state "
-                                            f"(if not aborted)."
-                                        )
-                                        if not is_aborted and success is True:
-                                            # this is unlikely to happen, but could happen
-                                            # if the input file is deleted in between
-                                            # the input file generator completing and this
-                                            # code being run
-                                            success = False
-                                            exit_code = 1  # TODO more custom exit codes?
-                                    else:
-                                        self._set_file(
-                                            param_id=param_id,
-                                            store_contents=True,
-                                            is_input=False,
-                                            path=full_path,
-                                            clean_up=(save_file_j in run.action.clean_up),
-                                        )
-
-                            for OFP_i in run.action.output_file_parsers:
-                                self._app.logger.info(
-                                    f"saving files from OFP: {OFP_i!r}."
-                                )
-                                for save_file_j in OFP_i._save_files:
-                                    self._app.logger.debug(
-                                        f"Saving EAR output file: {save_file_j.label!r} "
-                                        f"for EAR ID {run.id_!r}."
-                                    )
-                                    try:
-                                        param_id = run.data_idx[
-                                            f"output_files.{save_file_j.label}"
-                                        ]
-                                    except KeyError:
-                                        # We might be saving a file that is not a defined
-                                        # "output file"; this will avoid saving a
-                                        # reference in the parameter data:
-                                        param_id = None
-
-                                    file_paths = save_file_j.value(directory=run_dir)
-                                    self._app.logger.debug(
-                                        f"Saving EAR output file paths: {file_paths!r}"
-                                    )
-
-                                    for path_i in (
-                                        file_paths
-                                        if isinstance(file_paths, list)
-                                        else [file_paths]
-                                    ):
-                                        full_path = run_dir.joinpath(path_i)
-                                        if not full_path.exists():
-                                            self._app.logger.debug(
-                                                f"expected output file parser `save_files` file "
-                                                f"{path_i!r} does not exist, so setting run "
-                                                f"to an error state (if not aborted)."
-                                            )
-                                            if not is_aborted and success is True:
-                                                success = False
-                                                exit_code = (
-                                                    1  # TODO more custom exit codes?
-                                                )
-                                        else:
-                                            self._set_file(
-                                                param_id=param_id,
-                                                store_contents=True,  # TODO: make optional according to OFP
-                                                is_input=False,
-                                                path=full_path,
-                                                clean_up=(save_file_j in OFP_i.clean_up),
-                                            )
+                            success, exit_code = self._save_run_files(
+                                run=run,
+                                run_dir=run_dir,
+                                block_act_key=block_act_key,
+                                is_aborted=is_aborted,
+                                success=success,
+                                exit_code=exit_code,
+                            )
 
                     else:
                         self._app.logger.info(
                             f"run was skipped: reason: {run.skip_reason!r}."
                         )
+
+                    self._save_policy_path_files(run)
 
                     if (
                         run.resources.skip_downstream_on_failure
@@ -3611,11 +3627,14 @@ class Workflow(AppAware):
                     run_dirs.append(run_dir)
                     exit_codes.append(exit_code)
                     successes.append(success)
+                    completed_runs.append((run, success))
 
                     new_run_skips.update(self.__apply_task_conditions(run))
 
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
+        for run, success in completed_runs:
+            self._clean_up_execute_dirs(run, success)
         return new_run_skips
 
     def set_EAR_skip(self, skip_reasons: dict[int, SkipReason]) -> None:
@@ -4371,9 +4390,9 @@ class Workflow(AppAware):
             status.update("Adding new submission: writing scripts and command files...")
 
         # write scripts and command files where possible to the submission directory:
-        cmd_file_IDs, run_indices, run_inp_files = sub_obj._write_scripts(cache, status)
+        cmd_file_IDs, run_indices = sub_obj._write_scripts(cache, status)
 
-        sub_obj._write_execute_dirs(run_indices, run_inp_files, cache, status)
+        sub_obj._set_execute_dirs(run_indices, cache, status)
 
         if status:
             status.update("Adding new submission: updating the store...")
@@ -4686,13 +4705,6 @@ class Workflow(AppAware):
                     )
 
                 run_dir = None
-                if run.action.requires_dir:
-                    run_dir = run.get_directory()
-                    assert run_dir
-                    self._app.submission_logger.debug(
-                        f"changing directory to run execution directory: {run_dir}."
-                    )
-                    os.chdir(run_dir)
                 self._app.submission_logger.debug(f"{run.skip=}; {run.skip_reason=}")
 
             if not self.__apply_group_task_conditions(run):
@@ -4701,6 +4713,12 @@ class Workflow(AppAware):
 
             # check if we should skip:
             if not run.skip:
+                run_dir = run.prepare_directory()
+                if run_dir is not None:
+                    self._app.submission_logger.debug(
+                        f"changing directory to run execution directory: {run_dir}."
+                    )
+                    os.chdir(run_dir)
                 with TimeIt("execute_run.write_data_in_files"):
                     try:
                         with run.raise_on_failure_threshold() as unset_params:
@@ -4748,6 +4766,9 @@ class Workflow(AppAware):
                         )
 
                     # TODO: pass on unset_params to script as environment variable
+
+                    if not cmd_file_path:
+                        self.set_EAR_start(run_ID, run_dir, port_number=None)
 
                     if run.action.jinja_template_or_template_path:
                         # TODO: write Jinja templates in shared submissions directory
@@ -4896,7 +4917,10 @@ class Workflow(AppAware):
                 if run.skip:
                     ret_code = SKIPPED_EXIT_CODE
                 elif not (has_commands or run.action.jinja_template):
-                    ret_code = NO_COMMANDS_EXIT_CODE
+                    # an action with no commands is valid if it exists only to declare
+                    # output files (e.g. an output file parser without a script):
+                    declares_files = bool(run.action.output_files)
+                    ret_code = 0 if declares_files else NO_COMMANDS_EXIT_CODE
                 elif run.action.jinja_template:
                     ret_code = 0
                 else:

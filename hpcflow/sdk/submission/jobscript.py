@@ -2300,6 +2300,8 @@ class Jobscript(JSONLike):
                                 block_act_run_dirs_non_skipped.append(j)
                                                      
                         if block_act_run_IDs_non_skipped:
+                            for run_id in block_act_run_IDs_non_skipped:
+                                runs[run_id].prepare_directory()
                             set_start_multi_tic = time.perf_counter()
                             app.logger.info("setting run starts.")
                             wk.set_multi_run_starts(block_act_run_IDs_non_skipped, block_act_run_dirs_non_skipped, port)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from typing_extensions import TypedDict
 import pytest
 
@@ -45,6 +45,111 @@ def test_task_schema_equality() -> None:
     t1a = hf.TaskSchema("t1", actions=[])
     t1b = hf.TaskSchema("t1", actions=[])
     assert t1a == t1b
+
+
+def test_task_schema_save_files_policy() -> None:
+    file = hf.FileSpec(label="result", name="result.txt")
+    schema = hf.TaskSchema(
+        "t1",
+        actions=[hf.Action(output_files=[file])],
+        save_files=["result"],
+    )
+    assert schema.save_files == ["result"]
+    assert schema != hf.TaskSchema(
+        "t1", actions=[hf.Action(output_files=[file])], save_files=[]
+    )
+
+    with pytest.raises(ValueError, match="Unknown file labels"):
+        hf.TaskSchema("t1", actions=[], save_files=["missing"])
+
+    with pytest.raises(TypeError, match="save_files"):
+        hf.TaskSchema(
+            "t1",
+            actions=[],
+            save_files=cast("bool | list[str] | None", "result"),
+        )
+
+
+def test_task_schema_save_files_policy_paths() -> None:
+    schema = hf.TaskSchema(
+        "t1", actions=[], save_files=["path:logs/*.log", "path:sub/output.txt"]
+    )
+    assert schema.save_files == ["path:logs/*.log", "path:sub/output.txt"]
+
+    for bad in ("path:", "path:/abs/file.txt", "path:C:\\file.txt", "path:../x.txt"):
+        with pytest.raises(ValueError, match="path:"):
+            hf.TaskSchema("t1", actions=[], save_files=[bad])
+
+
+def test_task_schema_file_labels_include_parser_generated_files() -> None:
+    src = hf.FileSpec(label="src", name="src.txt")
+    gen = hf.FileSpec(label="gen", name="gen.png")
+    schema = hf.TaskSchema(
+        "t1",
+        outputs=[hf.SchemaOutput("p1")],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo hi")],
+                output_file_parsers=[
+                    hf.OutputFileParser(
+                        output_files=[src],
+                        output=hf.Parameter("p1"),
+                        generates_files=[gen],
+                    )
+                ],
+            )
+        ],
+        save_files=["src", "gen"],
+    )
+    assert schema.get_file_labels() == {"src", "gen"}
+    # the parser's expanded action declares the generated file as an output file:
+    parser_action = next(act for act in schema.actions if act.output_file_parsers)
+    assert {f.label for f in parser_action.output_files} == {"src", "gen"}
+
+
+def test_action_output_files_preserved_on_expand() -> None:
+    declared = hf.FileSpec(label="declared", name="declared.txt")
+    schema = hf.TaskSchema(
+        "t1", actions=[hf.Action(commands=[hf.Command("ls")], output_files=[declared])]
+    )
+    assert [f.label for f in schema.actions[0].output_files] == ["declared"]
+
+
+def test_action_declared_files_imply_requires_dir() -> None:
+    file = hf.FileSpec(label="f", name="f.txt")
+    assert hf.Action(commands=[hf.Command("ls")]).requires_dir is False
+    assert hf.Action(commands=[hf.Command("ls")], output_files=[file]).requires_dir
+    assert hf.Action(commands=[hf.Command("ls")], input_files=[file]).requires_dir
+    with pytest.raises(ValueError, match="requires a working directory"):
+        hf.Action(commands=[hf.Command("ls")], output_files=[file], requires_dir=False)
+
+
+def test_action_files_from_json_like_labels() -> None:
+    """Action `input_files`/`output_files` given as labels (as in YAML task schemas)
+    resolve against the shared command files."""
+    in_file = hf.FileSpec(label="in_f", name="in.txt")
+    out_file = hf.FileSpec(label="out_f", name="out.txt")
+    shared = {"command_files": hf.CommandFilesList([in_file, out_file])}
+    act = hf.Action.from_json_like(
+        {
+            "commands": [{"command": "ls"}],
+            "input_files": ["in_f"],
+            "output_files": ["out_f"],
+        },
+        shared,
+    )
+    assert act.input_files == [in_file]
+    assert act.output_files == [out_file]
+
+
+def test_removed_save_files_settings_raise() -> None:
+    file = hf.FileSpec(label="f", name="f.txt")
+    with pytest.raises(ValueError, match="removed"):
+        hf.Action.from_json_like({"save_files": ["f"]}, {"command_files": [file]})
+    with pytest.raises(ValueError, match="removed"):
+        hf.OutputFileParser.from_json_like(
+            {"from_files": ["f"], "save_files": True}, {"command_files": [file]}
+        )
 
 
 def test_init_with_str_objective(action_a1: Action) -> None:

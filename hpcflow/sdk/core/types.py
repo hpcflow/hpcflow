@@ -367,6 +367,8 @@ class WorkflowTemplateTaskData(TypedDict):
     output_labels: NotRequired[list[str]]
     #: The condition to consider, if known.
     condition: NotRequired[str | None]
+    #: The file-retention policy, if known.
+    save_files: NotRequired[bool | list[str] | None]
 
 
 class WorkflowTemplateElementSetData(TypedDict):

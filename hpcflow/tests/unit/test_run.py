@@ -10,6 +10,166 @@ from hpcflow.sdk.core.actions import SkipReason
 from hpcflow.sdk.core.test_utils import make_workflow_to_run_command
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_execute_directory_is_prepared_on_demand(tmp_path: Path, store: str):
+    source = tmp_path / "input.txt"
+    source.write_text("original", encoding="utf-8")
+    file_spec = hf.FileSpec(label="input", name="input.txt")
+    schema = hf.TaskSchema(
+        objective="lazy_directory",
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo <<file:input>>")],
+                input_file_generators=[
+                    hf.InputFileGenerator(input_file=file_spec, inputs=[])
+                ],
+                requires_dir=True,
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="lazy_directory",
+        path=tmp_path,
+        store=store,
+        tasks=[
+            hf.Task(
+                schema=schema,
+                input_files=[hf.InputFile(file_spec, path=source)],
+            )
+        ],
+    )
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.get_directory()
+    assert directory is not None
+    assert not directory.exists()
+
+    assert run.prepare_directory() == directory
+    staged = directory / source.name
+    assert staged.read_text() == "original"
+    staged.write_text("modified", encoding="utf-8")
+    run.prepare_directory()
+    assert staged.read_text() == "modified"
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("final_requires_dir", [False, True])
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_final_action_execute_directory_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bulk: bool,
+    final_requires_dir: bool,
+    exit_code: int,
+):
+    schema = hf.TaskSchema(
+        objective="directory_cleanup",
+        actions=[
+            hf.Action(commands=[hf.Command("echo first")], requires_dir=True),
+            hf.Action(
+                commands=[hf.Command("echo final")],
+                requires_dir=final_requires_dir,
+            ),
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="directory_cleanup",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema)],
+    )
+    wk.add_submission()
+    runs = wk.get_all_EARs()
+    directory = runs[0].prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(runs[0].id_, directory, None)
+    (directory / "intermediate.txt").write_text("keep until final action")
+    wk.set_EAR_end((0, 0, 0), runs[0], 0)
+    assert directory.is_dir()
+
+    final_dir = runs[1].prepare_directory()
+    if bulk:
+        wk.set_multi_run_starts([runs[1].id_], [final_dir], 1234)
+        wk.set_multi_run_ends({(0, 0, 1): [(runs[1], exit_code, final_dir)]})
+    else:
+        wk.set_EAR_start(runs[1].id_, final_dir, None)
+        wk.set_EAR_end((0, 0, 1), runs[1], exit_code)
+    assert directory.exists() is (exit_code != 0)
+    first = wk.get_EARs_from_IDs([runs[0].id_])[0]
+    assert first.dir_diff is not None
+    assert "intermediate.txt" in first.dir_diff.files_created
+
+
+def test_execute_directory_retained_after_missing_saved_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    schema = hf.TaskSchema(
+        objective="missing_file",
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo ready")],
+                requires_dir=True,
+                output_files=[hf.FileSpec(label="missing", name="missing.txt")],
+            )
+        ],
+        save_files=["missing"],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="missing_file", path=tmp_path, tasks=[hf.Task(schema=schema)]
+    )
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(run.id_, directory, None)
+    wk.set_EAR_end((0, 0, 0), run, 0)
+    assert directory.is_dir()
+    assert not wk.get_EARs_from_IDs([run.id_])[0].success
+
+
+def test_skipped_run_does_not_create_execute_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    wk = make_workflow_to_run_command("echo skipped", path=tmp_path, requires_dir=True)
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.get_directory()
+    assert directory is not None
+    wk.set_EAR_skip({run.id_: SkipReason.UPSTREAM_FAILURE})
+    monkeypatch.chdir(tmp_path)
+    wk._execute_run(0, (0, 0, 0), run.id_)
+    assert not directory.exists()
+
+
+def test_execute_directory_cleanup_is_per_element_iteration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    schema = hf.TaskSchema(
+        objective="separate_directories",
+        actions=[hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="separate_directories",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema, repeats=2)],
+        loops=[hf.Loop(tasks=[0], num_iterations=2)],
+    )
+    wk.add_submission()
+    runs = wk.get_all_EARs()
+    directories = [run.prepare_directory() for run in runs]
+    assert len(set(directories)) == 4
+    for index, (run, directory) in enumerate(zip(runs, directories)):
+        assert directory is not None
+        monkeypatch.chdir(directory)
+        wk.set_EAR_start(run.id_, directory, None)
+        wk.set_EAR_end((0, 0, 0), run, 0)
+        assert not directory.exists()
+        assert all(
+            path is not None and path.is_dir() for path in directories[index + 1 :]
+        )
+
+
 def test_compose_commands_no_shell_var(tmp_path: Path):
     ts = hf.TaskSchema(
         objective="test_compose_commands",
