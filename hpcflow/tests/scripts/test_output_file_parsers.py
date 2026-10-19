@@ -31,6 +31,7 @@ def test_output_file_parser_parses_file(tmp_path):
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
         outputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))],
+        save_files=["my_output_file"],
         actions=[act],
     )
 

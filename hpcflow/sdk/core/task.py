@@ -45,6 +45,7 @@ from hpcflow.sdk.core.input_sources import (
     validate_specified_source,
 )
 from hpcflow.sdk.core.parameters import ParameterValue
+from hpcflow.sdk.core.task_schema import validate_save_files_policy
 from hpcflow.sdk.core.utils import (
     get_duplicate_items,
     get_in_container,
@@ -792,6 +793,8 @@ class Task(JSONLike):
         only the intersection of element sub-sets for all parameters are included.
     element_sets: list[ElementSet]
     output_labels: list[OutputLabel]
+    save_files: bool | list[str] | None
+        Optional file-retention policy replacing the task schema's policy.
     condition: str
         A string reference to a parameter in a preceding task in the format
         "task.TASK_NAME.inputs.PARAMETER_NAME" or "task.TASK_NAME.outputs.PARAMETER_NAME",
@@ -851,6 +854,7 @@ class Task(JSONLike):
         condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
+        save_files: bool | list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
         # (lists of) strs e.g.: Task(
@@ -882,6 +886,10 @@ class Task(JSONLike):
                 raise TypeError(f"Not a TaskSchema object: {item!r}")
 
         self._schemas = _schemas
+        self.save_files = validate_save_files_policy(
+            save_files,
+            set().union(*(schema_i.get_file_labels() for schema_i in _schemas)),
+        )
 
         self._element_sets = self._app.ElementSet.ensure_element_sets(
             inputs=inputs,

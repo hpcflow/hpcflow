@@ -75,6 +75,24 @@ class TaskObjective(JSONLike):
         return string
 
 
+def validate_save_files_policy(
+    policy: bool | list[str] | None, file_labels: set[str]
+) -> bool | list[str] | None:
+    """Validate a file-retention policy against the files declared by a schema."""
+    if policy is None or isinstance(policy, bool):
+        return policy
+    if not isinstance(policy, list) or not all(
+        isinstance(label, str) for label in policy
+    ):
+        raise TypeError("save_files must be a bool, a list of file labels, or None.")
+    unknown_labels = set(policy) - file_labels
+    if unknown_labels:
+        raise ValueError(
+            f"Unknown file labels in save_files: {sorted(unknown_labels)!r}."
+        )
+    return policy
+
+
 class TaskSchema(JSONLike):
     """Class to represent the inputs, outputs and implementation mechanism of a given
     task.
@@ -103,6 +121,9 @@ class TaskSchema(JSONLike):
     environment_presets:
         Information about default execution environments. Can be overridden in specific
         cases in the concrete tasks.
+    save_files:
+        File labels to retain as workflow artifacts. ``True`` retains all declared
+        files, ``False`` retains none, and ``None`` preserves existing action settings.
     """
 
     _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
@@ -152,6 +173,7 @@ class TaskSchema(JSONLike):
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
         parameter_dependencies: Sequence[str] | None = None,
+        save_files: bool | list[str] | None = None,
         _hash_value: str | None = None,
     ):
         #: This is a string representing the objective of the task schema.
@@ -178,12 +200,14 @@ class TaskSchema(JSONLike):
         #: Additional parameters that the actions of this schema should depend on (e.g.
         # for the purposes of jobscript scheduling).
         self.parameter_dependencies = list(parameter_dependencies or [])
+        self.save_files = save_files
         self._hash_value = _hash_value
 
         self._set_parent_refs()
 
         self._validate()
         self.actions = self.__expand_actions()
+        self.save_files = validate_save_files_policy(save_files, self.get_file_labels())
         #: The version of this task schema.
         self.version = version
         self._task_template: TaskTemplate | None = None  # assigned by parent Task
@@ -211,6 +235,22 @@ class TaskSchema(JSONLike):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name!r})"
+
+    def get_file_labels(self) -> set[str]:
+        """Get the labels of files declared by this schema's actions."""
+        labels: set[str] = set()
+        for action in self.actions:
+            labels.update(file.label for file in action.output_files)
+            labels.update(file.label for file in action.save_files)
+            labels.update(file.label for file in action.clean_up)
+            labels.update(
+                generator.input_file.label for generator in action.input_file_generators
+            )
+            for parser in action.output_file_parsers:
+                labels.update(file.label for file in parser.output_files)
+                labels.update(file.label for file in parser._save_files)
+                labels.update(file.label for file in parser.clean_up)
+        return labels
 
     @classmethod
     def __parameters(cls) -> ParametersList:
@@ -667,6 +707,7 @@ class TaskSchema(JSONLike):
             and self.implementation == other.implementation
             and self.inputs == other.inputs
             and self.outputs == other.outputs
+            and self.save_files == other.save_files
             and self.version == other.version
             and self._hash_value == other._hash_value
         )

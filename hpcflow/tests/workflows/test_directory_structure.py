@@ -72,6 +72,53 @@ def test_execute_directory_lifecycle(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("task_save_files", "expected_files"),
+    [
+        (None, {"retained.txt"}),
+        (["discarded"], {"discarded.txt"}),
+        (True, {"retained.txt", "discarded.txt"}),
+        (False, set()),
+        ([], set()),
+    ],
+)
+def test_task_save_files_policy(
+    tmp_path: Path,
+    task_save_files: bool | list[str] | None,
+    expected_files: set[str],
+):
+    retained_file = hf.FileSpec(label="retained", name="retained.txt")
+    discarded_file = hf.FileSpec(label="discarded", name="discarded.txt")
+    command = (
+        "Set-Content retained.txt 'retained'; " "Set-Content discarded.txt 'discarded'"
+        if os.name == "nt"
+        else "printf retained > retained.txt; printf discarded > discarded.txt"
+    )
+    schema = hf.TaskSchema(
+        objective="file_retention",
+        save_files=["retained"],
+        actions=[
+            hf.Action(
+                commands=[hf.Command(command)],
+                save_files=[retained_file, discarded_file],
+                requires_dir=True,
+            )
+        ],
+    )
+    task = hf.Task(schema=schema, save_files=task_save_files)
+    wk = hf.Workflow.from_template_data(
+        template_name="file_retention",
+        path=tmp_path,
+        tasks=[task],
+    )
+
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    saved_files = {path.name for path in wk.task_artifacts_path.rglob("*.txt")}
+    assert saved_files == expected_files
+
+
+@pytest.mark.integration
 def test_std_stream_file_not_created(tmp_path):
     """Normally, the app standard stream file should not be written."""
     wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)

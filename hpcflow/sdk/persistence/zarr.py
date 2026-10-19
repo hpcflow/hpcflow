@@ -44,6 +44,7 @@ from hpcflow.sdk.core.utils import (
     get_in_container,
 )
 from hpcflow.sdk.persistence.base import (
+    _UNSET_PARAMETER_VALUE,
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
@@ -1770,7 +1771,10 @@ class ZarrPersistentStore(
 
         for param_id, (value, is_file) in set_parameters.items():
             param_i = params[param_id]
-            if is_file:
+            is_unset = value is _UNSET_PARAMETER_VALUE
+            if is_unset:
+                param_i = param_i.unset()
+            elif is_file:
                 param_i = param_i.set_file(value)
             else:
                 param_i = param_i.set_data(value)
@@ -1796,8 +1800,12 @@ class ZarrPersistentStore(
             param_updates[src_run_ID].append(
                 (
                     param_i.source["output_idx"],
-                    param_i.encode(
-                        root_group=current_inner_group, arr_path=parameter_name
+                    (
+                        None
+                        if is_unset
+                        else param_i.encode(
+                            root_group=current_inner_group, arr_path=parameter_name
+                        )
                     ),
                 )
             )

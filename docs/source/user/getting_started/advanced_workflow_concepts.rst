@@ -175,6 +175,25 @@
   per-file option: selected saved files are removed from the execution directory
   after being copied to workflow artifacts, even when the directory is retained.
 
+  A task schema can define the default artifact file labels with ``save_files``.
+  A task instance can provide its own ``save_files`` value to replace that policy:
+  ``True`` saves every declared file, ``False`` saves none, and a list saves only
+  the listed labels. If neither level sets a policy, action-level ``save_files``
+  settings retain their existing behavior. Files required by downstream tasks are
+  retained as needed even if they are not selected as artifacts.
+
+  .. code-block:: yaml
+
+      task_schemas:
+        - objective: simulate
+          save_files: [stdout_file]
+          actions: ...
+
+      tasks:
+        - schema: simulate
+          # Optional per-task replacement of the schema policy:
+          save_files: [stdout_file, result_file]
+
   Task schema shortcuts
   ---------------------
 

@@ -109,6 +109,7 @@ if TYPE_CHECKING:
     from rich.status import Status
     from ..typing import DataIndex, ParamSource, PathLike, TemplateComponents
     from .actions import ElementActionRun, UnsetParamTracker
+    from .command_files import FileSpec
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
@@ -2874,6 +2875,90 @@ class Workflow(AppAware):
             clean_up=clean_up,
         )
 
+    @staticmethod
+    def _select_files_by_policy(
+        files: Sequence[FileSpec], policy: bool | list[str]
+    ) -> list[FileSpec]:
+        if policy is True:
+            selected = files
+        elif policy is False:
+            selected = ()
+        else:
+            selected = [file for file in files if file.label in policy]
+        return list({file.label: file for file in selected}.values())
+
+    @staticmethod
+    def _get_file_retention_policy(run: ElementActionRun) -> bool | list[str] | None:
+        task_policy = run.task.template.save_files
+        if task_policy is not None:
+            return task_policy
+        return run.action.task_schema.save_files
+
+    def _has_file_dependents_outside_iteration(
+        self, run: ElementActionRun, param_id: int | list[int]
+    ) -> bool:
+        parameter_ids = {param_id} if isinstance(param_id, int) else set(param_id)
+        return any(
+            dependent.element_iteration.id_ != run.element_iteration.id_
+            and any(
+                (
+                    value in parameter_ids
+                    if isinstance(value, int)
+                    else isinstance(value, list)
+                    and bool(parameter_ids.intersection(value))
+                )
+                for value in dependent.data_idx.values()
+            )
+            for dependent in run.get_dependent_EARs(as_objects=True)
+        )
+
+    def _unset_deleted_execute_file_refs(
+        self, run_ids: Sequence[int], directories: set[Path]
+    ) -> None:
+        directory_paths = {path.resolve() for path in directories}
+        parameter_ids: set[int] = set()
+        for run in self.get_EARs_from_IDs(run_ids):
+            for key, value in run.data_idx.items():
+                if not key.startswith(
+                    ("input_files.", "output_files.")
+                ) or not isinstance(value, int):
+                    continue
+                parameter_ids.add(value)
+
+        ephemeral_parameter_ids: set[int] = set()
+        for parameter in self._store.get_parameters(parameter_ids):
+            if parameter.file is None or parameter.file["store_contents"]:
+                continue
+            file_path = (Path(self.path) / parameter.file["path"]).resolve()
+            if any(file_path.is_relative_to(directory) for directory in directory_paths):
+                ephemeral_parameter_ids.add(parameter.id_)
+
+        if ephemeral_parameter_ids:
+            with self._store.cached_load(), self.batch_update():
+                for parameter_id in ephemeral_parameter_ids:
+                    self._store.unset_parameter_value(parameter_id, save=False)
+
+    def _set_file_if_unset(
+        self,
+        param_id: int | list[int] | None,
+        store_contents: bool,
+        is_input: bool,
+        path: Path,
+        clean_up: bool = False,
+    ) -> None:
+        if (
+            isinstance(param_id, int)
+            and self._store.get_parameter_set_statuses([param_id])[0]
+        ):
+            return
+        self._set_file(
+            param_id=param_id,
+            store_contents=store_contents,
+            is_input=is_input,
+            path=path,
+            clean_up=clean_up,
+        )
+
     @overload
     def get_task_unique_names(
         self, map_to_insert_ID: Literal[False] = False
@@ -3180,6 +3265,13 @@ class Workflow(AppAware):
                             f"{run.id_!r}."
                         )
                         param_id = run.data_idx[f"input_files.{inp_file.label}"]
+                        policy = self._get_file_retention_policy(run)
+                        retain_input = (
+                            policy is None
+                            or policy is True
+                            or (isinstance(policy, list) and inp_file.label in policy)
+                            or self._has_file_dependents_outside_iteration(run, param_id)
+                        )
 
                         file_paths = inp_file.value(directory=run_dir)
                         for path_i in (
@@ -3200,9 +3292,9 @@ class Workflow(AppAware):
                                     success = False
                                     exit_code = 1  # TODO more custom exit codes?
                             else:
-                                self._set_file(
+                                self._set_file_if_unset(
                                     param_id=param_id,
-                                    store_contents=True,  # TODO: make optional according to IFG
+                                    store_contents=retain_input,
                                     is_input=False,
                                     path=full_path,
                                 )
@@ -3234,7 +3326,25 @@ class Workflow(AppAware):
                                 exit_code = 1  # TODO more custom exit codes?
 
                     # Save action-level files: (TODO: refactor with below for OFPs)
-                    for save_file_j in run.action.save_files:
+                    policy = self._get_file_retention_policy(run)
+                    action_files = (
+                        run.action.save_files
+                        if policy is None
+                        else self._select_files_by_policy(
+                            [
+                                *run.action.output_files,
+                                *run.action.save_files,
+                                *run.action.clean_up,
+                            ],
+                            True,
+                        )
+                    )
+                    for save_file_j in action_files:
+                        selected = (
+                            policy is None
+                            or policy is True
+                            or (isinstance(policy, list) and save_file_j.label in policy)
+                        )
                         self._app.logger.debug(
                             f"Saving file: {save_file_j.label!r} for EAR ID "
                             f"{run.id_!r}."
@@ -3246,6 +3356,14 @@ class Workflow(AppAware):
                             # "output file"; this will avoid saving a reference in the
                             # parameter data:
                             param_id = None
+
+                        has_external_dependents = (
+                            not selected
+                            and param_id is not None
+                            and self._has_file_dependents_outside_iteration(run, param_id)
+                        )
+                        if not selected and not has_external_dependents:
+                            continue
 
                         file_paths = save_file_j.value(directory=run_dir)
                         self._app.logger.debug(
@@ -3270,16 +3388,38 @@ class Workflow(AppAware):
                                     success = False
                                     exit_code = 1  # TODO more custom exit codes?
                             else:
-                                self._set_file(
+                                self._set_file_if_unset(
                                     param_id=param_id,
-                                    store_contents=True,
+                                    store_contents=selected or has_external_dependents,
                                     is_input=False,
                                     path=full_path,
-                                    clean_up=(save_file_j in run.action.clean_up),
+                                    clean_up=(
+                                        selected and save_file_j in run.action.clean_up
+                                    ),
                                 )
 
                     for OFP_i in run.action.output_file_parsers:
-                        for save_file_j in OFP_i._save_files:
+                        parser_files = (
+                            OFP_i._save_files
+                            if policy is None
+                            else self._select_files_by_policy(
+                                [
+                                    *OFP_i.output_files,
+                                    *OFP_i._save_files,
+                                    *OFP_i.clean_up,
+                                ],
+                                True,
+                            )
+                        )
+                        for save_file_j in parser_files:
+                            selected = (
+                                policy is None
+                                or policy is True
+                                or (
+                                    isinstance(policy, list)
+                                    and save_file_j.label in policy
+                                )
+                            )
                             self._app.logger.debug(
                                 f"Saving EAR output file: {save_file_j.label!r} for EAR ID "
                                 f"{run.id_!r}."
@@ -3293,6 +3433,16 @@ class Workflow(AppAware):
                                 # "output file"; this will avoid saving a reference in the
                                 # parameter data:
                                 param_id = None
+
+                            has_external_dependents = (
+                                not selected
+                                and param_id is not None
+                                and self._has_file_dependents_outside_iteration(
+                                    run, param_id
+                                )
+                            )
+                            if not selected and not has_external_dependents:
+                                continue
 
                             file_paths = save_file_j.value(directory=run_dir)
                             self._app.logger.debug(
@@ -3315,12 +3465,16 @@ class Workflow(AppAware):
                                         success = False
                                         exit_code = 1  # TODO more custom exit codes?
                                 else:
-                                    self._set_file(
+                                    self._set_file_if_unset(
                                         param_id=param_id,
-                                        store_contents=True,  # TODO: make optional according to OFP
+                                        store_contents=(
+                                            selected or has_external_dependents
+                                        ),
                                         is_input=False,
                                         path=full_path,
-                                        clean_up=(save_file_j in OFP_i.clean_up),
+                                        clean_up=(
+                                            selected and save_file_j in OFP_i.clean_up
+                                        ),
                                     )
 
             if (
@@ -3370,6 +3524,7 @@ class Workflow(AppAware):
         directories = {
             path for path in self.get_run_directories(run_ids=run_ids) if path is not None
         }
+        self._unset_deleted_execute_file_refs(run_ids, directories)
         execution_path = self.execution_path.resolve()
         for directory in sorted(
             directories, key=lambda path: len(path.parts), reverse=True
@@ -3449,6 +3604,18 @@ class Workflow(AppAware):
                                     f"ID {run.id_!r}."
                                 )
                                 param_id = run.data_idx[f"input_files.{inp_file.label}"]
+                                policy = self._get_file_retention_policy(run)
+                                retain_input = (
+                                    policy is None
+                                    or policy is True
+                                    or (
+                                        isinstance(policy, list)
+                                        and inp_file.label in policy
+                                    )
+                                    or self._has_file_dependents_outside_iteration(
+                                        run, param_id
+                                    )
+                                )
 
                                 file_paths = inp_file.value(directory=run_dir)
                                 for path_i in (
@@ -3471,9 +3638,9 @@ class Workflow(AppAware):
                                             success = False
                                             exit_code = 1  # TODO more custom exit codes?
                                     else:
-                                        self._set_file(
+                                        self._set_file_if_unset(
                                             param_id=param_id,
-                                            store_contents=True,  # TODO: make optional according to IFG
+                                            store_contents=retain_input,
                                             is_input=False,
                                             path=full_path,
                                         )
@@ -3519,7 +3686,28 @@ class Workflow(AppAware):
                                         exit_code = 1  # TODO more custom exit codes?
 
                             # Save action-level files: (TODO: refactor with below for OFPs)
-                            for save_file_j in run.action.save_files:
+                            policy = self._get_file_retention_policy(run)
+                            action_files = (
+                                run.action.save_files
+                                if policy is None
+                                else self._select_files_by_policy(
+                                    [
+                                        *run.action.output_files,
+                                        *run.action.save_files,
+                                        *run.action.clean_up,
+                                    ],
+                                    True,
+                                )
+                            )
+                            for save_file_j in action_files:
+                                selected = (
+                                    policy is None
+                                    or policy is True
+                                    or (
+                                        isinstance(policy, list)
+                                        and save_file_j.label in policy
+                                    )
+                                )
                                 self._app.logger.info(
                                     f"saving action-level file {save_file_j!r}."
                                 )
@@ -3536,6 +3724,16 @@ class Workflow(AppAware):
                                     # "output file"; this will avoid saving a reference in
                                     # the parameter data:
                                     param_id = None
+
+                                has_external_dependents = (
+                                    not selected
+                                    and param_id is not None
+                                    and self._has_file_dependents_outside_iteration(
+                                        run, param_id
+                                    )
+                                )
+                                if not selected and not has_external_dependents:
+                                    continue
 
                                 file_paths = save_file_j.value(directory=run_dir)
                                 self._app.logger.debug(
@@ -3561,19 +3759,44 @@ class Workflow(AppAware):
                                             success = False
                                             exit_code = 1  # TODO more custom exit codes?
                                     else:
-                                        self._set_file(
+                                        self._set_file_if_unset(
                                             param_id=param_id,
-                                            store_contents=True,
+                                            store_contents=(
+                                                selected or has_external_dependents
+                                            ),
                                             is_input=False,
                                             path=full_path,
-                                            clean_up=(save_file_j in run.action.clean_up),
+                                            clean_up=(
+                                                selected
+                                                and save_file_j in run.action.clean_up
+                                            ),
                                         )
 
                             for OFP_i in run.action.output_file_parsers:
                                 self._app.logger.info(
                                     f"saving files from OFP: {OFP_i!r}."
                                 )
-                                for save_file_j in OFP_i._save_files:
+                                parser_files = (
+                                    OFP_i._save_files
+                                    if policy is None
+                                    else self._select_files_by_policy(
+                                        [
+                                            *OFP_i.output_files,
+                                            *OFP_i._save_files,
+                                            *OFP_i.clean_up,
+                                        ],
+                                        True,
+                                    )
+                                )
+                                for save_file_j in parser_files:
+                                    selected = (
+                                        policy is None
+                                        or policy is True
+                                        or (
+                                            isinstance(policy, list)
+                                            and save_file_j.label in policy
+                                        )
+                                    )
                                     self._app.logger.debug(
                                         f"Saving EAR output file: {save_file_j.label!r} "
                                         f"for EAR ID {run.id_!r}."
@@ -3587,6 +3810,16 @@ class Workflow(AppAware):
                                         # "output file"; this will avoid saving a
                                         # reference in the parameter data:
                                         param_id = None
+
+                                    has_external_dependents = (
+                                        not selected
+                                        and param_id is not None
+                                        and self._has_file_dependents_outside_iteration(
+                                            run, param_id
+                                        )
+                                    )
+                                    if not selected and not has_external_dependents:
+                                        continue
 
                                     file_paths = save_file_j.value(directory=run_dir)
                                     self._app.logger.debug(
@@ -3611,12 +3844,17 @@ class Workflow(AppAware):
                                                     1  # TODO more custom exit codes?
                                                 )
                                         else:
-                                            self._set_file(
+                                            self._set_file_if_unset(
                                                 param_id=param_id,
-                                                store_contents=True,  # TODO: make optional according to OFP
+                                                store_contents=(
+                                                    selected or has_external_dependents
+                                                ),
                                                 is_input=False,
                                                 path=full_path,
-                                                clean_up=(save_file_j in OFP_i.clean_up),
+                                                clean_up=(
+                                                    selected
+                                                    and save_file_j in OFP_i.clean_up
+                                                ),
                                             )
 
                     else:

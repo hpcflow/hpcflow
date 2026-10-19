@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from typing_extensions import TypedDict
 import pytest
 
@@ -45,6 +45,29 @@ def test_task_schema_equality() -> None:
     t1a = hf.TaskSchema("t1", actions=[])
     t1b = hf.TaskSchema("t1", actions=[])
     assert t1a == t1b
+
+
+def test_task_schema_save_files_policy() -> None:
+    file = hf.FileSpec(label="result", name="result.txt")
+    schema = hf.TaskSchema(
+        "t1",
+        actions=[hf.Action(save_files=[file])],
+        save_files=["result"],
+    )
+    assert schema.save_files == ["result"]
+    assert schema != hf.TaskSchema(
+        "t1", actions=[hf.Action(save_files=[file])], save_files=[]
+    )
+
+    with pytest.raises(ValueError, match="Unknown file labels"):
+        hf.TaskSchema("t1", actions=[], save_files=["missing"])
+
+    with pytest.raises(TypeError, match="save_files"):
+        hf.TaskSchema(
+            "t1",
+            actions=[],
+            save_files=cast("bool | list[str] | None", "result"),
+        )
 
 
 def test_init_with_str_objective(action_a1: Action) -> None:

@@ -7,7 +7,18 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_input_file_generator_creates_file(tmp_path):
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize(
+    ("schema_save_files", "task_save_files", "saved"),
+    [
+        (["my_input_file"], None, True),
+        (["my_input_file"], [], False),
+        ([], ["my_input_file"], True),
+    ],
+)
+def test_input_file_generator_creates_file(
+    tmp_path, store, schema_save_files, task_save_files, saved
+):
 
     hf.config._show(metadata=True)
     hf.print_envs()
@@ -22,6 +33,7 @@ def test_input_file_generator_creates_file(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        save_files=schema_save_files,
         actions=[
             hf.Action(
                 commands=[hf.Command(cmd)],
@@ -37,19 +49,26 @@ def test_input_file_generator_creates_file(tmp_path):
         ],
     )
     p1_val = 101
-    t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
+    t1 = hf.Task(schema=s1, inputs={"p1": p1_val}, save_files=task_save_files)
     wk = hf.Workflow.from_template_data(
         tasks=[t1],
         template_name="input_file_generator_test",
         path=tmp_path,
+        store=store,
     )
     wk.submit(wait=True, add_to_known=False)
 
-    # Generated input files remain available as artifacts after execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    inp_file_path = Path(run_0.get("input_files.my_input_file"))
-    inp_file_contents = inp_file_path.read_text()
-    assert inp_file_contents.strip() == str(p1_val)
+    param_id = run_0.data_idx["input_files.my_input_file"]
+    assert wk.is_parameter_set(param_id) is saved, wk.get_parameter(param_id)
+    artifact_paths = list(wk.task_artifacts_path.rglob(inp_file.value()))
+    assert bool(artifact_paths) is saved
+    if saved:
+        inp_file_path = Path(run_0.get("input_files.my_input_file"))
+        inp_file_contents = inp_file_path.read_text()
+        assert inp_file_contents.strip() == str(p1_val)
+    else:
+        assert not run_0.get_directory().exists()
 
     # check the command successfully printed the file contents to stdout:
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
