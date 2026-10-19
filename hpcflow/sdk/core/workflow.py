@@ -495,12 +495,14 @@ class WorkflowTemplate(JSONLike):
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
                     condition = task_dat.pop("condition", None)
+                    save_files = task_dat.pop("save_files", None)
                     es_dat = cast("WorkflowTemplateElementSetData", task_dat)
                     new_task_dat: WorkflowTemplateTaskData = {
                         "schema": schema_list,
                         "element_sets": [es_dat],
                         "output_labels": out_labels,
                         "condition": condition,
+                        "save_files": save_files,
                     }
                     task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
