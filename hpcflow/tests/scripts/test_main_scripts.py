@@ -1067,7 +1067,7 @@ def test_shell_env_vars(tmp_path: Path):
         actions=[
             hf.Action(
                 script="<<script:main_script_test_shell_env_vars.py>>",
-                save_files=[hf.FileSpec(label="env_vars", name="env_vars.json")],
+                output_files=[hf.FileSpec(label="env_vars", name="env_vars.json")],
                 script_data_in="direct",
                 script_data_out="direct",
                 script_exe="python_script",
@@ -1075,6 +1075,7 @@ def test_shell_env_vars(tmp_path: Path):
                 requires_dir=True,
             )
         ],
+        save_files=["env_vars"],
     )
     tasks = [
         hf.Task(

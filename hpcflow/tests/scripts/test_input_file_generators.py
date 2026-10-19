@@ -11,6 +11,7 @@ from hpcflow.app import app as hf
 @pytest.mark.parametrize(
     ("schema_save_files", "task_save_files", "saved"),
     [
+        (None, None, False),
         (["my_input_file"], None, True),
         (["my_input_file"], [], False),
         ([], ["my_input_file"], True),
@@ -95,6 +96,7 @@ def test_inapplicable_jobscript_action(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        save_files=["my_input_file"],
         actions=[
             hf.Action(
                 commands=[hf.Command(cmd)],
@@ -292,6 +294,7 @@ def test_env_specifier_in_input_file_generator_script_path(
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        save_files=["my_input_file"],
         actions=[
             hf.Action(
                 commands=[hf.Command(cmd)],

@@ -598,12 +598,13 @@ def test_task_save_files_overrides_schema_policy() -> None:
     file = hf.FileSpec(label="result", name="result.txt")
     schema = hf.TaskSchema(
         "t1",
-        actions=[hf.Action(save_files=[file])],
+        actions=[hf.Action(output_files=[file])],
         save_files=["result"],
     )
     assert hf.Task(schema=schema).save_files is None
     assert hf.Task(schema=schema, save_files=[]).save_files == []
     assert hf.Task(schema=schema, save_files=["result"]).save_files == ["result"]
+    assert hf.Task(schema=schema, save_files=["path:*.log"]).save_files == ["path:*.log"]
 
     with pytest.raises(ValueError, match="Unknown file labels"):
         hf.Task(schema=schema, save_files=["missing"])

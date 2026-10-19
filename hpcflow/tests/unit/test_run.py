@@ -109,9 +109,10 @@ def test_execute_directory_retained_after_missing_saved_file(
             hf.Action(
                 commands=[hf.Command("echo ready")],
                 requires_dir=True,
-                save_files=[hf.FileSpec(label="missing", name="missing.txt")],
+                output_files=[hf.FileSpec(label="missing", name="missing.txt")],
             )
         ],
+        save_files=["missing"],
     )
     wk = hf.Workflow.from_template_data(
         template_name="missing_file", path=tmp_path, tasks=[hf.Task(schema=schema)]

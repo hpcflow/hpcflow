@@ -39,10 +39,11 @@ def test_execute_directory_lifecycle(
                     hf.Command(f"exit {exit_code}"),
                 ],
                 requires_dir=True,
-                save_files=[result_file],
+                output_files=[result_file],
                 clean_up=[result_file],
             ),
         ],
+        save_files=["result"],
     )
     wk = hf.Workflow.from_template_data(
         template_name="directory_lifecycle",
@@ -100,7 +101,7 @@ def test_task_save_files_policy(
         actions=[
             hf.Action(
                 commands=[hf.Command(command)],
-                save_files=[retained_file, discarded_file],
+                output_files=[retained_file, discarded_file],
                 requires_dir=True,
             )
         ],
@@ -116,6 +117,75 @@ def test_task_save_files_policy(
 
     saved_files = {path.name for path in wk.task_artifacts_path.rglob("*.txt")}
     assert saved_files == expected_files
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize(
+    ("task_save_files", "expected_files"),
+    [
+        (None, {"a.log", "b.log", "declared.txt"}),
+        (["path:other.txt"], {"other.txt"}),
+    ],
+)
+def test_save_files_path_entries(
+    tmp_path: Path,
+    exit_code: int,
+    task_save_files: list[str] | None,
+    expected_files: set[str],
+):
+    """Working-directory files selected by `path:` entries are saved once, when the
+    iteration's final run completes, regardless of its exit code."""
+    declared = hf.FileSpec(label="declared", name="declared.txt")
+    if os.name == "nt":
+        cmd_1 = (
+            "Set-Content a.log 'a'; New-Item -ItemType Directory sub | Out-Null; "
+            "Set-Content sub/b.log 'b'; Set-Content other.txt 'other'; "
+            "Set-Content declared.txt 'declared'"
+        )
+        cmd_2 = "Add-Content a.log 'a2'"
+    else:
+        cmd_1 = (
+            "echo a > a.log; mkdir sub; echo b > sub/b.log; echo other > other.txt; "
+            "echo declared > declared.txt"
+        )
+        cmd_2 = "echo a2 >> a.log"
+    schema = hf.TaskSchema(
+        objective="save_files_paths",
+        save_files=["declared", "path:*.log", "path:sub/b.log", "path:missing.txt"],
+        actions=[
+            hf.Action(
+                commands=[hf.Command(cmd_1)],
+                output_files=[declared],
+                requires_dir=True,
+            ),
+            hf.Action(
+                commands=[hf.Command(cmd_2), hf.Command(f"exit {exit_code}")],
+                requires_dir=True,
+            ),
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="save_files_paths",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema, save_files=task_save_files)],
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    saved = {
+        path.name
+        for path in wk.task_artifacts_path.rglob("*")
+        if path.is_file() and path.suffix in {".log", ".txt"}
+    }
+    assert saved == expected_files
+    if "a.log" in expected_files:
+        # saved after the final action modified it:
+        a_log = next(wk.task_artifacts_path.rglob("a.log"))
+        assert a_log.read_text().split() == ["a", "a2"]
+        b_log = next(wk.task_artifacts_path.rglob("b.log"))
+        assert b_log.parent.name == "sub"
+    directories = [i for i in wk.get_run_directories() if i is not None]
+    assert all(path.exists() is (exit_code != 0) for path in directories)
 
 
 @pytest.mark.integration

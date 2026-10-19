@@ -17,9 +17,10 @@ def test_basic_jinja_template(tmp_path):
         actions=[
             hf.Action(
                 jinja_template=f"test/{jinja_template_name}",
-                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+                output_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
             )
         ],
+        save_files=["rendered"],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
     wk = hf.Workflow.from_template_data(
@@ -54,9 +55,10 @@ def test_jinja_template_path_with_resource_var(tmp_path):
         actions=[
             hf.Action(
                 jinja_template=f"<<resource:resources_id>>/{jinja_template_name}",
-                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+                output_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
             )
         ],
+        save_files=["rendered"],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
     wk = hf.Workflow.from_template_data(
@@ -99,9 +101,10 @@ def test_builtin_jinja_template_path_with_env_var(tmp_path, reload_template_comp
         actions=[
             hf.Action(
                 jinja_template=f"<<env:key>>/{jinja_template_name}",
-                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+                output_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
             )
         ],
+        save_files=["rendered"],
     )
     t1 = hf.Task(schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"]})
     wk = hf.Workflow.from_template_data(
@@ -138,9 +141,10 @@ def test_builtin_jinja_template_path_with_param_var(tmp_path):
         actions=[
             hf.Action(
                 jinja_template=f"<<parameter:key>>/{jinja_template_name}",
-                save_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
+                output_files=[hf.FileSpec(label="rendered", name=jinja_template_name)],
             )
         ],
+        save_files=["rendered"],
     )
     t1 = hf.Task(
         schema=s1, inputs={"name": "George", "fruits": ["apple", "orange"], "key": "test"}

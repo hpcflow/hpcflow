@@ -2074,13 +2074,14 @@ class Action(JSONLike):
     input_files: list[~hpcflow.app.FileSpec]
         The input files to the action's commands.
     output_files: list[~hpcflow.app.FileSpec]
-        The output files from the action's commands.
+        The output files from the action's commands. Declared output files are
+        available as ``output_files.<label>`` parameters and can be selected for
+        retention as workflow artifacts via the task schema's ``save_files`` policy.
     rules: list[ActionRule]
         How to determine whether to run the action.
-    save_files: list[str]
-        The names of files to be explicitly saved after each step.
     clean_up: list[~hpcflow.app.FileSpec]
-        Files to delete after they have been saved.
+        Output files to remove from the working directory once they have been saved as
+        workflow artifacts.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -2106,12 +2107,14 @@ class Action(JSONLike):
             name="input_files",
             is_multiple=True,
             class_name="FileSpec",
+            shared_data_primary_key="label",
             shared_data_name="command_files",
         ),
         ChildObjectSpec(
             name="output_files",
             is_multiple=True,
             class_name="FileSpec",
+            shared_data_primary_key="label",
             shared_data_name="command_files",
         ),
         ChildObjectSpec(
@@ -2126,13 +2129,6 @@ class Action(JSONLike):
             class_name="ActionRule",
             is_multiple=True,
             parent_ref="action",
-        ),
-        ChildObjectSpec(
-            name="save_files",
-            class_name="FileSpec",
-            is_multiple=True,
-            shared_data_primary_key="label",
-            shared_data_name="command_files",
         ),
         ChildObjectSpec(
             name="clean_up",
@@ -2172,7 +2168,6 @@ class Action(JSONLike):
         input_files: list[FileSpec] | None = None,
         output_files: list[FileSpec] | None = None,
         rules: list[ActionRule] | None = None,
-        save_files: list[FileSpec] | None = None,
         clean_up: list[FileSpec] | None = None,
         requires_dir: bool | None = None,
     ):
@@ -2237,9 +2232,7 @@ class Action(JSONLike):
         self.output_files = self.__resolve_output_files(output_files or [])
         #: How to determine whether to run the action.
         self.rules = rules or []
-        #: The names of files to be explicitly saved after each step.
-        self.save_files = save_files or []
-        #: The names of files to be deleted after each step.
+        #: Output files to remove from the working directory once saved as artifacts.
         self.clean_up = clean_up or []
 
         if requires_dir is None:
@@ -2496,6 +2489,18 @@ class Action(JSONLike):
         format."""
         # TODO: should set `requires_dir` to True if this is True?
         return bool(self.program_data_out_grouped)  # TODO: test
+
+    @classmethod
+    def from_json_like(  # type: ignore[override]
+        cls, json_like: dict[str, Any], shared_data: Mapping | None = None
+    ) -> Self:
+        if isinstance(json_like, Mapping) and "save_files" in json_like:
+            raise ValueError(
+                "The action `save_files` setting has been removed. Declare files "
+                "produced by the action with `output_files`, and select files to retain "
+                "as artifacts with the task schema (or task) `save_files` policy."
+            )
+        return super().from_json_like(json_like, shared_data)
 
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
@@ -3079,7 +3084,6 @@ class Action(JSONLike):
             act_i._from_expand = True
             inp_acts.append(act_i)
 
-        out_files: list[FileSpec] = []
         out_acts: list[Action] = []
         for ofp in self.output_file_parsers:
             script_exe = "python_script"
@@ -3096,12 +3100,10 @@ class Action(JSONLike):
                 script_exe=script_exe,
                 script_pass_env_spec=ofp.script_pass_env_spec,
                 abortable=ofp.abortable,
+                output_files=list(ofp.generates_files),
                 requires_dir=ofp.requires_dir,
             )
             act_i._task_schema = self.task_schema
-            for j in ofp.output_files:
-                if j not in out_files:
-                    out_files.append(j)
             act_i.process_action_data_formats()
             act_i._from_expand = True
             out_acts.append(act_i)
@@ -3151,8 +3153,7 @@ class Action(JSONLike):
             abortable=self.abortable,
             rules=main_rules,
             input_files=inp_files,
-            output_files=out_files,
-            save_files=self.save_files,
+            output_files=list(self.output_files),
             clean_up=self.clean_up,
             requires_dir=self.requires_dir,
         )

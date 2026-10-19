@@ -6,11 +6,14 @@ template_components:
         - parameter: input_data
         - parameter: path
           default_value: input_file.json
+      save_files: # A copy of any declared files listed here will be saved in the artifacts directory
+        - my_input_file
+        - processed_file
       actions:
         - script: <<script:/path/to/generate_input_file.py>>
           script_data_in: direct
           script_exe: python_script
-          save_files: # A copy of any command files listed here will be saved in the the artifacts directory
+          output_files: # Declare the command files this action produces
             - my_input_file
           environments:
             - scope:
@@ -22,7 +25,7 @@ template_components:
             - scope:
                 type: any
               environment: python_env
-          save_files:
+          output_files:
             - processed_file
 
   command_files:

@@ -169,30 +169,68 @@
   have been persisted, including when the final action does not itself require a
   directory. Failed or skipped iterations retain their directories for inspection.
 
-  Files that must remain available after successful completion must be explicitly
-  saved (for example, with ``save_files``). Unsaved working files are deleted when
-  the execution directory is removed. ``Action.clean_up`` remains a per-action,
-  per-file option: selected saved files are removed from the execution directory
-  after being copied to workflow artifacts, even when the directory is retained.
+  Files that must remain available after successful completion must be selected
+  for retention with ``save_files`` (see below). Unsaved working files are deleted
+  when the execution directory is removed.
 
-  A task schema can define the default artifact file labels with ``save_files``.
-  A task instance can provide its own ``save_files`` value to replace that policy:
-  ``True`` saves every declared file, ``False`` saves none, and a list saves only
-  the listed labels. If neither level sets a policy, action-level ``save_files``
-  settings retain their existing behavior. Files required by downstream tasks are
-  retained as needed even if they are not selected as artifacts.
+  Retaining files as artifacts
+  ----------------------------
+
+  Deciding which files to keep is split into two independent steps:
+
+  1. **Declare** the files that actions produce. Files written by an action's
+     commands or script are declared in the action's ``output_files``; files
+     written by an output file parser script are declared in the parser's
+     ``generates_files``. The files an input file generator writes and the files a
+     parser reads (``from_files``) are already declared. Every declared file is
+     available as an ``output_files.<label>`` (or ``input_files.<label>``)
+     parameter, so downstream tasks can depend on it.
+  2. **Select** which declared files to retain as workflow artifacts with the task
+     schema's ``save_files`` policy. A task may set its own ``save_files`` to replace
+     the schema's policy.
+
+  By default no files are retained: a task schema with no ``save_files`` policy keeps
+  nothing (apart from files required by runs in other element iterations or
+  downstream tasks, which are always retained). The policy may be:
+
+  * ``true`` -- retain every declared file;
+  * ``false`` or ``[]`` -- retain nothing;
+  * a list of declared file labels, optionally together with ``path:``-prefixed
+    entries that select arbitrary files within the working directory by relative
+    path (glob patterns such as ``path:logs/*.log`` are allowed).
+
+  Label entries are validated against the files declared by the schema. ``path:``
+  entries must be relative to the working directory and must not contain ``..``.
+  Files matched by ``path:`` entries are copied to the artifacts directory once, when
+  the element iteration's final run completes (whatever its outcome), so files that
+  several actions modify are saved in their final state. Unlike declared files they
+  are not associated with a parameter, so they cannot be consumed by downstream
+  tasks; a non-glob ``path:`` entry that does not exist is logged rather than
+  treated as an error.
 
   .. code-block:: yaml
 
       task_schemas:
         - objective: simulate
-          save_files: [stdout_file]
-          actions: ...
+          save_files: [stdout_file, path:restart/*.dat]
+          actions:
+            - commands: ...
+              output_files: [stdout_file, result_file]
+              output_file_parsers:
+                summary:
+                  from_files: [result_file]
+                  generates_files: [summary_plot]
+                  script: <<script:summarise.py>>
 
       tasks:
         - schema: simulate
-          # Optional per-task replacement of the schema policy:
-          save_files: [stdout_file, result_file]
+          # Replaces the schema policy rather than adding to it:
+          save_files: [stdout_file, result_file, summary_plot]
+
+  ``clean_up`` (available on actions and on output file parsers) lists declared files
+  that should be removed from the working directory once they have been saved. It only
+  applies to files selected by the ``save_files`` policy, and is mainly useful when
+  ``delete_execute_dir`` is ``False``.
 
   Task schema shortcuts
   ---------------------
@@ -245,11 +283,15 @@
             - command_file1
             - command_file2
           script: <<script:your_processing_script.py>>
-          save_files:
-            - command_file_you_want_to_save
+          generates_files: # Files written by the parser script itself (if any)
+            - command_file_written_by_parser
           inputs:
             - input1
             - input2
+
+  Files read by the parser (``from_files``) and files it writes (``generates_files``)
+  are retained as artifacts only if selected by the task schema's ``save_files``
+  policy.
 
   The output_file_parser script that is run as the action should return one variable,
   rather than a dictionary. This is different behaviour to

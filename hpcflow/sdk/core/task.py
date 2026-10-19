@@ -794,7 +794,8 @@ class Task(JSONLike):
     element_sets: list[ElementSet]
     output_labels: list[OutputLabel]
     save_files: bool | list[str] | None
-        Optional file-retention policy replacing the task schema's policy.
+        Optional file-retention policy replacing the task schema's policy. Accepts the
+        same values as the task schema ``save_files`` setting.
     condition: str
         A string reference to a parameter in a preceding task in the format
         "task.TASK_NAME.inputs.PARAMETER_NAME" or "task.TASK_NAME.outputs.PARAMETER_NAME",
