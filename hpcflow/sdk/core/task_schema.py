@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import copy
 from dataclasses import dataclass
 from importlib import import_module
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Literal
 from html import escape
 from collections import defaultdict
@@ -75,6 +76,63 @@ class TaskObjective(JSONLike):
         return string
 
 
+#: Prefix marking a ``save_files`` entry as a working-directory path rather than a
+#: declared file label.
+SAVE_FILES_PATH_PREFIX = "path:"
+
+
+def split_save_files_policy(policy: list[str]) -> tuple[list[str], list[str]]:
+    """Split a list-valued ``save_files`` policy into declared file labels and
+    ``path:``-prefixed working-directory paths (with the prefix removed)."""
+    labels: list[str] = []
+    paths: list[str] = []
+    for entry in policy:
+        if entry.startswith(SAVE_FILES_PATH_PREFIX):
+            paths.append(entry.removeprefix(SAVE_FILES_PATH_PREFIX).strip())
+        else:
+            labels.append(entry)
+    return labels, paths
+
+
+def _validate_save_files_path(path: str) -> None:
+    posix = PurePosixPath(path.replace("\\", "/"))
+    if not path:
+        raise ValueError("`path:` entries in save_files must not be empty.")
+    if posix.is_absolute() or PureWindowsPath(path).drive or ".." in posix.parts:
+        raise ValueError(
+            f"`path:` entries in save_files must be relative to the working directory "
+            f"and must not contain '..': {path!r}."
+        )
+
+
+def validate_save_files_policy(
+    policy: bool | list[str] | None, file_labels: set[str]
+) -> bool | list[str] | None:
+    """Validate a file-retention policy against the files declared by a schema.
+
+    A list-valued policy may contain declared file labels and ``path:``-prefixed
+    paths (optionally with glob patterns) relative to the working directory.
+    """
+    if policy is None or isinstance(policy, bool):
+        return policy
+    if not isinstance(policy, list) or not all(
+        isinstance(label, str) for label in policy
+    ):
+        raise TypeError(
+            "save_files must be a bool, a list of file labels and/or `path:` entries, "
+            "or None."
+        )
+    labels, paths = split_save_files_policy(policy)
+    unknown_labels = set(labels) - file_labels
+    if unknown_labels:
+        raise ValueError(
+            f"Unknown file labels in save_files: {sorted(unknown_labels)!r}."
+        )
+    for path in paths:
+        _validate_save_files_path(path)
+    return policy
+
+
 class TaskSchema(JSONLike):
     """Class to represent the inputs, outputs and implementation mechanism of a given
     task.
@@ -110,6 +168,12 @@ class TaskSchema(JSONLike):
         EAR output ndarrays use Zstandard-compressed NPZ instead of legacy Zarr groups,
         with up to 500 archives per shard directory. This is a temporary storage
         workaround specific to the Zarr store.
+    save_files:
+        Files to retain as workflow artifacts. ``True`` retains all declared files,
+        ``False`` or ``None`` (default) retains none, and a list retains the listed
+        declared file labels plus any ``path:``-prefixed working-directory paths
+        (which may include glob patterns). Files required by downstream tasks are
+        always retained. Tasks may override this policy.
     """
 
     _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
@@ -159,6 +223,7 @@ class TaskSchema(JSONLike):
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
         parameter_dependencies: Sequence[str] | None = None,
+        save_files: bool | list[str] | None = None,
         _hash_value: str | None = None,
         disable_array_outputs: list[str] | None = None,
     ):
@@ -188,12 +253,14 @@ class TaskSchema(JSONLike):
         self.parameter_dependencies = list(parameter_dependencies or [])
         #: Output paths excluded from the temporary NPZ array storage workaround.
         self.disable_array_outputs = list(disable_array_outputs or [])
+        self.save_files = save_files
         self._hash_value = _hash_value
 
         self._set_parent_refs()
 
         self._validate()
         self.actions = self.__expand_actions()
+        self.save_files = validate_save_files_policy(save_files, self.get_file_labels())
         #: The version of this task schema.
         self.version = version
         self._task_template: TaskTemplate | None = None  # assigned by parent Task
@@ -221,6 +288,21 @@ class TaskSchema(JSONLike):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name!r})"
+
+    def get_file_labels(self) -> set[str]:
+        """Get the labels of files declared by this schema's actions."""
+        labels: set[str] = set()
+        for action in self.actions:
+            labels.update(file.label for file in action.output_files)
+            labels.update(file.label for file in action.clean_up)
+            labels.update(
+                generator.input_file.label for generator in action.input_file_generators
+            )
+            for parser in action.output_file_parsers:
+                labels.update(file.label for file in parser.output_files)
+                labels.update(file.label for file in parser.generates_files)
+                labels.update(file.label for file in parser.clean_up)
+        return labels
 
     @classmethod
     def __parameters(cls) -> ParametersList:
@@ -678,6 +760,7 @@ class TaskSchema(JSONLike):
             and self.inputs == other.inputs
             and self.outputs == other.outputs
             and self.disable_array_outputs == other.disable_array_outputs
+            and self.save_files == other.save_files
             and self.version == other.version
             and self._hash_value == other._hash_value
         )

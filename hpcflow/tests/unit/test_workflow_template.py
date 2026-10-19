@@ -68,6 +68,30 @@ def test_workflow_template_vars_False_no_substitution(tmp_path):
     assert wkt.tasks[0].element_sets[0].inputs[0].value == "<<var:my_var>>"
 
 
+def test_workflow_template_task_save_files_from_YAML():
+    """A task-level `save_files` policy is a task attribute, not an element-set one."""
+    wkt_yaml = dedent("""\
+        name: workflow_1
+        template_components:
+          command_files:
+            - label: result
+              name:
+                name: result.txt
+          task_schemas:
+            - objective: write_result
+              actions:
+                - commands:
+                    - command: echo hi > result.txt
+                  output_files: [result]
+        tasks:
+          - schema: write_result
+            save_files: [result, "path:*.log"]
+    """)
+    wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
+    assert wkt.tasks[0].save_files == ["result", "path:*.log"]
+    assert len(wkt.tasks[0].element_sets) == 1
+
+
 def test_env_preset_merge_simple():
     s1 = hf.TaskSchema(
         objective="s1",

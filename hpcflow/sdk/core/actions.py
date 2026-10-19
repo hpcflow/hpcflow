@@ -14,6 +14,7 @@ import contextlib
 from collections import defaultdict
 from pathlib import Path
 import re
+import shutil
 import textwrap
 import warnings
 from functools import partial
@@ -832,6 +833,25 @@ class ElementActionRun(AppAware):
         Get the working directory, if one is required.
         """
         return self.workflow.get_run_directories(run_ids=[self.id_])[0]
+
+    def prepare_directory(self) -> Path | None:
+        """Create the working directory and stage input files when this run starts."""
+        if not self.action.requires_dir:
+            return None
+        run_dir = self.get_directory()
+        if run_dir is None:
+            raise RuntimeError(f"No execution directory assigned to EAR {self.id_}.")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for path in self.get("input_files", {}).values():
+            if path:
+                paths = path if isinstance(path, list) else [path]
+                for source in paths:
+                    source = Path(source)
+                    destination = run_dir / source.name
+                    # Earlier actions may already have modified this shared input file.
+                    if not destination.exists():
+                        shutil.copy(source, destination)
+        return run_dir
 
     def get_app_log_path(self) -> Path:
         assert self.submission_idx is not None
@@ -2059,13 +2079,18 @@ class Action(JSONLike):
     input_files: list[~hpcflow.app.FileSpec]
         The input files to the action's commands.
     output_files: list[~hpcflow.app.FileSpec]
-        The output files from the action's commands.
+        The output files from the action's commands. Declared output files are
+        available as ``output_files.<label>`` parameters and can be selected for
+        retention as workflow artifacts via the task schema's ``save_files`` policy.
     rules: list[ActionRule]
         How to determine whether to run the action.
-    save_files: list[str]
-        The names of files to be explicitly saved after each step.
-    clean_up: list[str]
-        The names of files to be deleted after each step.
+    clean_up: list[~hpcflow.app.FileSpec]
+        Output files to remove from the working directory once they have been saved as
+        workflow artifacts.
+    requires_dir: bool
+        Whether the action needs its own working (execute) directory. Defaults to True
+        if the action has input file generators, output file parsers, a Jinja template,
+        or declares ``input_files`` or ``output_files``; otherwise False.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -2091,12 +2116,14 @@ class Action(JSONLike):
             name="input_files",
             is_multiple=True,
             class_name="FileSpec",
+            shared_data_primary_key="label",
             shared_data_name="command_files",
         ),
         ChildObjectSpec(
             name="output_files",
             is_multiple=True,
             class_name="FileSpec",
+            shared_data_primary_key="label",
             shared_data_name="command_files",
         ),
         ChildObjectSpec(
@@ -2111,13 +2138,6 @@ class Action(JSONLike):
             class_name="ActionRule",
             is_multiple=True,
             parent_ref="action",
-        ),
-        ChildObjectSpec(
-            name="save_files",
-            class_name="FileSpec",
-            is_multiple=True,
-            shared_data_primary_key="label",
-            shared_data_name="command_files",
         ),
         ChildObjectSpec(
             name="clean_up",
@@ -2157,8 +2177,7 @@ class Action(JSONLike):
         input_files: list[FileSpec] | None = None,
         output_files: list[FileSpec] | None = None,
         rules: list[ActionRule] | None = None,
-        save_files: list[FileSpec] | None = None,
-        clean_up: list[str] | None = None,
+        clean_up: list[FileSpec] | None = None,
         requires_dir: bool | None = None,
     ):
 
@@ -2222,20 +2241,25 @@ class Action(JSONLike):
         self.output_files = self.__resolve_output_files(output_files or [])
         #: How to determine whether to run the action.
         self.rules = rules or []
-        #: The names of files to be explicitly saved after each step.
-        self.save_files = save_files or []
-        #: The names of files to be deleted after each step.
+        #: Output files to remove from the working directory once saved as artifacts.
         self.clean_up = clean_up or []
 
         if requires_dir is None:
             # TODO: once Jinja templates are written to the shared subs dir, we can omit
             # from here:
-            requires_dir = (
-                True
-                if self.input_file_generators
+            requires_dir = bool(
+                self.input_file_generators
                 or self.output_file_parsers
                 or self.jinja_template
-                else False
+                or self.input_files
+                or self.output_files
+            )
+        elif not requires_dir and (self.input_files or self.output_files):
+            # without a working directory, input files cannot be staged and output
+            # files cannot be found (and so would silently never be saved):
+            raise ValueError(
+                "An action that declares `input_files` or `output_files` requires a "
+                "working directory; remove `requires_dir: false`."
             )
         self.requires_dir = requires_dir
 
@@ -2482,6 +2506,18 @@ class Action(JSONLike):
         # TODO: should set `requires_dir` to True if this is True?
         return bool(self.program_data_out_grouped)  # TODO: test
 
+    @classmethod
+    def from_json_like(  # type: ignore[override]
+        cls, json_like: dict[str, Any], shared_data: Mapping | None = None
+    ) -> Self:
+        if isinstance(json_like, Mapping) and "save_files" in json_like:
+            raise ValueError(
+                "The action `save_files` setting has been removed. Declare files "
+                "produced by the action with `output_files`, and select files to retain "
+                "as artifacts with the task schema (or task) `save_files` policy."
+            )
+        return super().from_json_like(json_like, shared_data)
+
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
         d = super()._postprocess_to_dict(d)
@@ -2565,7 +2601,7 @@ class Action(JSONLike):
     def short_name(self):
         out = self.script or self.jinja_template or self.program
         if not out:
-            out = self.commands[0].command
+            out = (self.commands[0].command if self.commands else None) or repr(self)
         return textwrap.shorten(out, width=90)
 
     def __eq__(self, other: Any) -> bool:
@@ -3064,7 +3100,6 @@ class Action(JSONLike):
             act_i._from_expand = True
             inp_acts.append(act_i)
 
-        out_files: list[FileSpec] = []
         out_acts: list[Action] = []
         for ofp in self.output_file_parsers:
             script_exe = "python_script"
@@ -3081,12 +3116,10 @@ class Action(JSONLike):
                 script_exe=script_exe,
                 script_pass_env_spec=ofp.script_pass_env_spec,
                 abortable=ofp.abortable,
+                output_files=list(ofp.generates_files),
                 requires_dir=ofp.requires_dir,
             )
             act_i._task_schema = self.task_schema
-            for j in ofp.output_files:
-                if j not in out_files:
-                    out_files.append(j)
             act_i.process_action_data_formats()
             act_i._from_expand = True
             out_acts.append(act_i)
@@ -3136,8 +3169,7 @@ class Action(JSONLike):
             abortable=self.abortable,
             rules=main_rules,
             input_files=inp_files,
-            output_files=out_files,
-            save_files=self.save_files,
+            output_files=list(self.output_files),
             clean_up=self.clean_up,
             requires_dir=self.requires_dir,
         )

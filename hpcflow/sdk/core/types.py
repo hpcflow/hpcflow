@@ -369,6 +369,8 @@ class WorkflowTemplateTaskData(TypedDict):
     condition: NotRequired[str | None]
     #: Output parameter paths to exclude from array-output storage.
     disable_array_outputs: NotRequired[list[str]]
+    #: The file-retention policy, if known.
+    save_files: NotRequired[bool | list[str] | None]
 
 
 class WorkflowTemplateElementSetData(TypedDict):

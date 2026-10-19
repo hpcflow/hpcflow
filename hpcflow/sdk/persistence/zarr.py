@@ -44,6 +44,7 @@ from hpcflow.sdk.core.utils import (
     get_in_container,
 )
 from hpcflow.sdk.persistence.base import (
+    _UNSET_PARAMETER_VALUE,
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
@@ -1860,7 +1861,10 @@ class ZarrPersistentStore(
 
         for param_id, (value, is_file) in set_parameters.items():
             param_i = params[param_id]
-            if is_file:
+            is_unset = value is _UNSET_PARAMETER_VALUE
+            if is_unset:
+                param_i = param_i.unset()
+            elif is_file:
                 param_i = param_i.set_file(value)
             else:
                 param_i = param_i.set_data(value)
@@ -1885,10 +1889,10 @@ class ZarrPersistentStore(
             src_run_ID = param_i.source["EAR_ID"]
             context = (
                 self._get_array_output_context(param_id, param_i.source)
-                if not is_file
+                if not (is_file or is_unset)
                 else None
             )
-            if not is_file and context is None:
+            if not (is_file or is_unset) and context is None:
                 raise ValueError(
                     f"Cannot resolve output name for parameter {param_id} "
                     f"from EAR {src_run_ID}."
@@ -1896,10 +1900,14 @@ class ZarrPersistentStore(
             param_updates[src_run_ID].append(
                 (
                     param_i.source["output_idx"],
-                    param_i.encode(
-                        root_group=current_inner_group,
-                        arr_path=parameter_name,
-                        array_output_context=context,
+                    (
+                        None
+                        if is_unset
+                        else param_i.encode(
+                            root_group=current_inner_group,
+                            arr_path=parameter_name,
+                            array_output_context=context,
+                        )
                     ),
                 )
             )

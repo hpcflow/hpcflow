@@ -1,4 +1,24 @@
 
+<a name="v0.3.0a15"></a>
+## [v0.3.0a15](https://github.com/hpcflow/hpcflow/compare/v0.3.0a14...v0.3.0a15) - 2026.10.19
+
+### ✨ Features
+
+* implement task-schema and task file retention policies
+* make execution dirs on demand, and delete after element-iteration finishes
+
+### 🐛 Bug Fixes
+
+* missing test scripts
+* require a working directory for actions that declare files
+* keep task-level `save_files` out of the element set when loading templates
+
+### 👷 Build changes
+
+* keep major version at zero for breaking changes
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a14"></a>
 ## [v0.3.0a14](https://github.com/hpcflow/hpcflow/compare/v0.3.0a13...v0.3.0a14) - 2026.10.19
 

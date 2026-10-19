@@ -11,6 +11,10 @@ Default config file
 .. literalinclude:: _generated/default_config.yaml
    :language: yaml
 
+The ``delete_execute_dir`` setting defaults to ``True``. Set it to ``False`` to
+retain successful execution directories for inspection. This setting can also be
+overridden in a workflow template's ``config`` mapping.
+
 Validation schema
 ~~~~~~~~~~~~~~~~~
 

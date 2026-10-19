@@ -163,9 +163,10 @@
 
 
   When running a workflow with {{ app_name }}, the required files are copied into a directory
-  that {{ app_name }} creates, and any output files are saved into the ``execute`` directory.
-  If you want to keep any of theses files, you should tell {{ app_name }} to copy them to the ``artifacts``
-  directory using ``save_files``:
+  that {{ app_name }} creates, and any output files are written to the ``execute`` directory,
+  which is deleted once the task's actions complete successfully. To keep any of these
+  files, declare them as ``output_files`` of the action that produces them, and select the
+  ones to copy to the ``artifacts`` directory with the task schema's ``save_files`` policy:
 
   .. code-block:: yaml
 
@@ -175,11 +176,17 @@
         - parameter: my_input
         outputs:
         - parameter: my_output
+        save_files:
+        - my_command_file
         actions:
         - environments: ...
           commands: ...
-          save_files:
+          output_files:
           - my_command_file
+
+  A task can replace the schema's policy with its own ``save_files`` value; see
+  :ref:`advanced workflow concepts <user/getting_started/advanced_workflow_concepts:Retaining files as artifacts>`
+  for the full set of options, including ``path:``-prefixed entries for arbitrary files.
 
 
   Example workflow
