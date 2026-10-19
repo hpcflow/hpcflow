@@ -339,7 +339,7 @@ class SlurmPosix(QueuedScheduler):
         return True
 
     def __format_core_request_lines(self, resources: ElementResources) -> Iterator[str]:
-        if resources.SLURM_partition:
+        if resources.SLURM_partition and "--partition" not in self.directives:
             yield f"{self.js_cmd} --partition {resources.SLURM_partition}"
         if resources.SLURM_num_nodes:  # TODO: option for --exclusive ?
             yield f"{self.js_cmd} --nodes {resources.SLURM_num_nodes}"

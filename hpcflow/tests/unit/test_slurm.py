@@ -33,6 +33,24 @@ def test_partition_selection_formats_directive_with_defaults() -> None:
     assert "#SBATCH --time 00:10:00" in directives.splitlines()
 
 
+def test_partition_directive_overrides_selected_partition() -> None:
+    resources = hf.ElementResources(scheduler="slurm")
+    SlurmPosix.process_resources(
+        resources,
+        {
+            "defaults": {},
+            "partitions": {"selected-by-resources": {"num_cores": [1, 1, 1]}},
+        },
+    )
+    directives = SlurmPosix(directives={"--partition": "specified-in-directives"})
+    jobscript = directives.format_directives(
+        resources, num_elements=1, is_array=False, sub_idx=0, js_idx=0
+    )
+
+    partition_lines = [line for line in jobscript.splitlines() if "--partition" in line]
+    assert partition_lines == ["#SBATCH --partition specified-in-directives"]
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 @pytest.mark.parametrize(
     "partition",
