@@ -358,6 +358,8 @@ def test_split_param_label():
     assert split_param_label("p1[one]") == ("p1", "one")
     assert split_param_label("p1.sub.data") == ("p1.sub.data", None)
     assert split_param_label("p1[one].sub.data") == ("p1.sub.data", "one")
+    assert split_param_label("inputs.p1.h_0_sl-sl") == ("inputs.p1.h_0_sl-sl", None)
+    assert split_param_label("p1[one].h_0_sl-sl.0") == ("p1.h_0_sl-sl.0", "one")
 
 
 def test_process_string_nodes():
