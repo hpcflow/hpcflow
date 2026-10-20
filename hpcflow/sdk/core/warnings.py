@@ -79,6 +79,24 @@ class DeprecationWarning_(CompactWarning, DeprecationWarning):
 # visible:
 warnings.simplefilter("always", DeprecationWarning_)
 
+_warned_once: set[tuple[type[Warning], str]] = set()
+
+
+def warn_once(warning: Warning, stacklevel: int = 2) -> None:
+    """Issue `warning` unless an identical warning (same category and message) has
+    already been issued in this process.
+
+    This is useful for warnings that could otherwise be issued many times in quick
+    succession, such as when loading legacy data where every persisted object carries
+    a since-removed attribute. Note that, unlike the standard `warnings` module
+    registry, this deduplicates across call sites.
+    """
+    key = (type(warning), str(warning))
+    if key in _warned_once:
+        return
+    _warned_once.add(key)
+    warnings.warn(warning, stacklevel=stacklevel + 1)
+
 
 class SecretExposedWarning(CompactWarning, UserWarning):
     """Warning that a secret credential might be exposed."""

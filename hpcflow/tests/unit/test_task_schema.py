@@ -143,9 +143,14 @@ def test_action_files_from_json_like_labels() -> None:
     assert act.output_files == [out_file]
 
 
-def test_legacy_save_files_settings_migrated() -> None:
+def test_legacy_save_files_settings_migrated(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pre-existing persisted workflows carry action/parser `save_files`; these load
-    with a deprecation warning and are mapped onto the new declarations."""
+    with a (once-only) deprecation warning and are mapped onto the new declarations."""
+    from hpcflow.sdk.core import warnings as hf_warnings
+
+    # each legacy variant warns once per process; start from a clean registry:
+    monkeypatch.setattr(hf_warnings, "_warned_once", set())
+
     f1 = hf.FileSpec(label="f1", name="f1.txt")
     f2 = hf.FileSpec(label="f2", name="f2.txt")
     shared = {"command_files": hf.CommandFilesList([f1, f2])}
@@ -157,13 +162,18 @@ def test_legacy_save_files_settings_migrated() -> None:
     assert act.output_files == [f1]
     assert act.requires_dir
 
-    # an empty legacy list (as serialised for every expanded action) is silent:
+    # an empty legacy list (as serialised for every expanded action) is silent, and the
+    # same warning is not re-issued for a second legacy action:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         act = hf.Action.from_json_like(
             {"commands": [{"command": "ls"}], "save_files": []}, shared
         )
-    assert act.output_files == []
+        assert act.output_files == []
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": ["f2"]}, shared
+        )
+        assert act.output_files == [f2]
 
     # parser: files not in `from_files` were written by the parser script:
     with pytest.warns(DeprecationWarning, match="generates_files"):
@@ -173,10 +183,17 @@ def test_legacy_save_files_settings_migrated() -> None:
     assert ofp.output_files == [f1]
     assert ofp.generates_files == [f2]
 
-    # parser: `True`/`[]`/`False` only concerned retention, so are ignored:
+    # parser: `True`/`[]`/`False` only concerned retention, so are ignored (and share a
+    # single warning):
+    with pytest.warns(DeprecationWarning, match="ignored"):
+        ofp = hf.OutputFileParser.from_json_like(
+            {"from_files": ["f1"], "save_files": True}, shared
+        )
+    assert ofp.generates_files == []
     legacy: bool | list[str]
-    for legacy in (True, [], False):
-        with pytest.warns(DeprecationWarning, match="ignored"):
+    for legacy in ([], False):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             ofp = hf.OutputFileParser.from_json_like(
                 {"from_files": ["f1"], "save_files": legacy}, shared
             )

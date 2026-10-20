@@ -4,7 +4,6 @@ Model of files that hold commands.
 
 from __future__ import annotations
 import copy
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,7 +17,10 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
 from hpcflow.sdk.core.zarr_io import zarr_decode
 from hpcflow.sdk.core.values import process_demo_data_strings
-from hpcflow.sdk.core.warnings import warn_output_file_parser_save_files_deprecated
+from hpcflow.sdk.core.warnings import (
+    warn_once,
+    warn_output_file_parser_save_files_deprecated,
+)
 
 if TYPE_CHECKING:
     import os
@@ -457,7 +459,7 @@ class OutputFileParser(JSONLike):
                     *(json_like.get("generates_files") or []),
                     *generated,
                 ]
-            warnings.warn(
+            warn_once(
                 warn_output_file_parser_save_files_deprecated(
                     "generates_files" if generated else None
                 )

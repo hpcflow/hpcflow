@@ -57,6 +57,7 @@ from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
 from hpcflow.sdk.core.warnings import (
     warn_action_save_files_deprecated,
+    warn_once,
     warn_script_data_files_use_opt_deprecated,
 )
 
@@ -2518,7 +2519,7 @@ class Action(JSONLike):
                 json_like["output_files"] = out_files + [
                     i for i in legacy if i not in out_files
                 ]
-                warnings.warn(warn_action_save_files_deprecated("output_files"))
+                warn_once(warn_action_save_files_deprecated("output_files"))
         return super().from_json_like(json_like, shared_data)
 
     @override
