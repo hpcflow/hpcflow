@@ -17,6 +17,10 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
 from hpcflow.sdk.core.zarr_io import zarr_decode
 from hpcflow.sdk.core.values import process_demo_data_strings
+from hpcflow.sdk.core.warnings import (
+    warn_once,
+    warn_output_file_parser_save_files_deprecated,
+)
 
 if TYPE_CHECKING:
     import os
@@ -435,11 +439,30 @@ class OutputFileParser(JSONLike):
         cls, json_like: dict[str, Any], shared_data: Mapping | None = None
     ) -> Self:
         if isinstance(json_like, Mapping) and "save_files" in json_like:
-            raise ValueError(
-                "The output file parser `save_files` setting has been removed. Declare "
-                "files produced by the parser script with `generates_files`, and select "
-                "files to retain as artifacts with the task schema (or task) "
-                "`save_files` policy."
+            # backwards compatibility: `save_files` was removed in favour of declaring
+            # parser-written files in `generates_files` and selecting files to retain
+            # via the task schema policy. Entries that are not parser input files are
+            # assumed to be written by the parser script.
+            json_like = dict(json_like)
+            legacy = json_like.pop("save_files")
+            from_files = list(json_like.get("from_files") or [])
+            # `True` meant "save all `from_files`", which are already declared:
+            legacy = [] if isinstance(legacy, bool) or not legacy else list(legacy)
+            generated = [
+                i
+                for i in legacy
+                if i not in from_files
+                and i not in (json_like.get("generates_files") or [])
+            ]
+            if generated:
+                json_like["generates_files"] = [
+                    *(json_like.get("generates_files") or []),
+                    *generated,
+                ]
+            warn_once(
+                warn_output_file_parser_save_files_deprecated(
+                    "generates_files" if generated else None
+                )
             )
         return super().from_json_like(json_like, shared_data)
 

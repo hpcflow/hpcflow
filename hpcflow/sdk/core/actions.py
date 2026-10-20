@@ -55,7 +55,11 @@ from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.utils.hashing import get_hash
-from hpcflow.sdk.core.warnings import warn_script_data_files_use_opt_deprecated
+from hpcflow.sdk.core.warnings import (
+    warn_action_save_files_deprecated,
+    warn_once,
+    warn_script_data_files_use_opt_deprecated,
+)
 
 from jinja2 import (
     Environment as JinjaEnvironment,
@@ -2511,11 +2515,16 @@ class Action(JSONLike):
         cls, json_like: dict[str, Any], shared_data: Mapping | None = None
     ) -> Self:
         if isinstance(json_like, Mapping) and "save_files" in json_like:
-            raise ValueError(
-                "The action `save_files` setting has been removed. Declare files "
-                "produced by the action with `output_files`, and select files to retain "
-                "as artifacts with the task schema (or task) `save_files` policy."
-            )
+            # backwards compatibility: `save_files` was removed in favour of declaring
+            # files in `output_files` and selecting them via the task schema policy.
+            json_like = dict(json_like)
+            legacy = json_like.pop("save_files") or []
+            if legacy:
+                out_files = list(json_like.get("output_files") or [])
+                json_like["output_files"] = out_files + [
+                    i for i in legacy if i not in out_files
+                ]
+                warn_once(warn_action_save_files_deprecated("output_files"))
         return super().from_json_like(json_like, shared_data)
 
     @override
