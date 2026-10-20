@@ -18,7 +18,7 @@ import time
 import numpy as np
 from numpy.ma.core import MaskedArray
 import zarr  # type: ignore
-from zarr.errors import BoundsCheckError  # type: ignore
+from zarr.errors import BoundsCheckError, ContainsGroupError  # type: ignore
 from zarr.storage import DirectoryStore, FSStore  # type: ignore
 from zarr.util import guess_chunks  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
@@ -61,7 +61,11 @@ from hpcflow.sdk.persistence.types import (
     ZarrAttrsDict,
 )
 from hpcflow.sdk.persistence.store_resource import ZarrAttrsStoreResource
-from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write
+from hpcflow.sdk.persistence.utils import (
+    ARRAY_OUTPUT_MASK_SUFFIX,
+    ask_pw_on_auth_exc,
+    atomic_write,
+)
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
 from hpcflow.sdk.log import TimeIt
@@ -94,6 +98,7 @@ if TYPE_CHECKING:
     from ..submission.types import ResolvedJobscriptBlockDependencies
     from .types import TypeLookup
     from ..app import BaseApp
+    from ..core.actions import ElementActionRun
     from ..core.json_like import JSONed, JSONDocument
     from ..typing import ParamSource, PathLike, DataIndex
     from rich.status import Status
@@ -158,17 +163,43 @@ def _zarr_get_coord_selection(arr: Array, selection: Any, logger: Logger):
     return _inner(arr, selection)
 
 
+_ARRAY_OUTPUT_MASK_SUFFIX = ARRAY_OUTPUT_MASK_SUFFIX
+"""Suffix for the NPZ archive holding the mask of a masked-array output."""
+
+
+def _resolve_legacy_root_group(root_group: Group | Callable[[], Group]) -> Group:
+    """Return the legacy array root group, creating shard groups on first use."""
+    return root_group() if callable(root_group) else root_group
+
+
 @TimeIt.decorator
 def _encode_numpy_array(
     obj: NDArray,
     type_lookup: TypeLookup,
     path: list[int],
-    root_group: Group,
+    root_group: Group | Callable[[], Group],
     arr_path: list[int],
     root_encoder: Callable,
+    array_output_context: tuple[ElementActionRun, str] | None = None,
+    array_output_name_suffix: str | None = None,
 ) -> int:
+    """Encode an EAR output array in NPZ, or use legacy Zarr storage.
+
+    ``root_group`` may be a callable so that legacy shard groups are only created
+    when an array actually needs legacy storage.
+    """
+    if array_output_context is not None:
+        run, output_name = array_output_context
+        name = ".".join((output_name, *(str(component) for component in path)))
+        if not run.task._is_array_output_disabled(name):
+            if array_output_name_suffix:
+                name = f"{name}.{array_output_name_suffix}"
+            run.workflow._save_array_output(run, name, obj)
+            type_lookup["arrays"].append([path, None])
+            return len(type_lookup["arrays"]) - 1
+
     # Might need to generate new group:
-    param_arr_group = root_group.require_group(arr_path)
+    param_arr_group = _resolve_legacy_root_group(root_group).require_group(arr_path)
     new_idx = (
         max((int(i.removeprefix("arr_")) for i in param_arr_group.keys()), default=-1) + 1
     )
@@ -189,11 +220,14 @@ def _decode_numpy_arrays(
     obj: dict | None,
     type_lookup: TypeLookup,
     path: list[int],
-    arr_group: Group,
+    arr_group: Group | None,
     dataset_copy: bool,
+    array_output_context: tuple[ElementActionRun, str] | None = None,
+    array_output_cache: dict[str, NDArray] | None = None,
+    array_output_name_suffix: str | None = None,
 ):
     # Yuck! Type lies! Zarr's internal types are not modern Python types.
-    arrays = cast("Iterable[tuple[list[int], int]]", type_lookup.get("arrays", []))
+    arrays = cast("Iterable[tuple[list[int], int | None]]", type_lookup.get("arrays", []))
     obj_: dict | NDArray | None = obj
     for arr_path, arr_idx in arrays:
         try:
@@ -201,9 +235,54 @@ def _decode_numpy_arrays(
         except ValueError:
             continue
 
-        dataset: NDArray = arr_group.get(f"arr_{arr_idx}")
-        if dataset_copy:
-            dataset = dataset[:]
+        dataset: NDArray
+        archive_path = None
+        if array_output_context is not None:
+            run, output_name = array_output_context
+            name = ".".join((output_name, *(str(component) for component in arr_path)))
+            is_disabled = run.task._is_array_output_disabled(name)
+            if array_output_name_suffix:
+                name = f"{name}.{array_output_name_suffix}"
+            # the shard archive for this run, or the consolidated archive, if either
+            # exists:
+            archive_path = (
+                run.workflow._resolve_array_output_archive_path(name, run.run_file_ID)
+                if run.run_file_ID is not None
+                else None
+            )
+            if (arr_idx is None or not is_disabled) and archive_path is not None:
+                if array_output_cache is not None and name in array_output_cache:
+                    dataset = array_output_cache[name]
+                else:
+                    output_data = run.workflow.get_array_output(name, run.id_).data
+                    if not isinstance(output_data, np.ndarray):
+                        raise TypeError(f"Expected a single array for EAR {run.id_}.")
+                    dataset = output_data
+                    if array_output_cache is not None:
+                        array_output_cache[name] = dataset
+            else:
+                if arr_idx is None:
+                    expected = (
+                        run.workflow._get_array_output_archive_path(name, run.run_file_ID)
+                        if run.run_file_ID is not None
+                        else None
+                    )
+                    raise FileNotFoundError(
+                        f"Missing NPZ archive for array output {name!r}: {expected}."
+                    )
+                if arr_group is None or f"arr_{arr_idx}" not in arr_group:
+                    raise ValueError(f"Missing legacy array dataset arr_{arr_idx}.")
+                dataset = arr_group[f"arr_{arr_idx}"]
+                if dataset_copy:
+                    dataset = dataset[...]
+        else:
+            if arr_idx is None:
+                raise ValueError("Cannot decode an NPZ array without its output context.")
+            if arr_group is None or f"arr_{arr_idx}" not in arr_group:
+                raise ValueError(f"Missing legacy array dataset arr_{arr_idx}.")
+            dataset = arr_group[f"arr_{arr_idx}"]
+            if dataset_copy:
+                dataset = dataset[...]
 
         if rel_path:
             set_in_container(obj_, rel_path, dataset)
@@ -218,20 +297,42 @@ def _encode_masked_array(
     obj: MaskedArray,
     type_lookup: TypeLookup,
     path: list[int],
-    root_group: Group,
+    root_group: Group | Callable[[], Group],
     arr_path: list[int],
     root_encoder: Callable,
+    array_output_context: tuple[ElementActionRun, str] | None = None,
 ):
-    """Encode a masked array as two normal arrays, and return the fill value."""
+    """Encode a masked array as two normal arrays, and return the fill value.
+
+    For enabled EAR outputs both data and mask are written to NPZ archives (the mask
+    to a sibling ``<name>.__mask__`` archive), so no legacy Zarr group is required.
+    """
     # no need to add "array" entries to the type lookup, so pass an empty `type_lookup`:
     type_lookup_: TypeLookup = defaultdict(list)
     data_idx = _encode_numpy_array(
-        obj.data, type_lookup_, path, root_group, arr_path, root_encoder
+        obj.data,
+        type_lookup_,
+        path,
+        root_group,
+        arr_path,
+        root_encoder,
+        array_output_context,
     )
+    # `nomask` is a 0-d scalar; expand so the mask always has the data's shape:
+    mask = np.ma.getmaskarray(obj)
     mask_idx = _encode_numpy_array(
-        cast("NDArray", obj.mask), type_lookup_, path, root_group, arr_path, root_encoder
+        mask,
+        type_lookup_,
+        path,
+        root_group,
+        arr_path,
+        root_encoder,
+        array_output_context,
+        array_output_name_suffix=_ARRAY_OUTPUT_MASK_SUFFIX,
     )
-    type_lookup["masked_arrays"].append([path, [data_idx, mask_idx]])
+    type_lookup["masked_arrays"].append(
+        [path, [type_lookup_["arrays"][data_idx][1], type_lookup_["arrays"][mask_idx][1]]]
+    )
     return obj.fill_value.item()
 
 
@@ -240,12 +341,14 @@ def _decode_masked_arrays(
     obj: dict,
     type_lookup: TypeLookup,
     path: list[int],
-    arr_group: Group,
+    arr_group: Group | None,
     dataset_copy: bool,
+    array_output_context: tuple[ElementActionRun, str] | None = None,
+    array_output_cache: dict[str, NDArray] | None = None,
 ):
     # Yuck! Type lies! Zarr's internal types are not modern Python types.
     masked_arrays = cast(
-        "Iterable[tuple[list[int], tuple[int, int]]]",
+        "Iterable[tuple[list[int], tuple[int | None, int | None]]]",
         type_lookup.get("masked_arrays", []),
     )
     obj_: dict | MaskedArray = obj
@@ -256,8 +359,27 @@ def _decode_masked_arrays(
             continue
 
         fill_value = get_in_container(obj_, rel_path)
-        data = arr_group.get(f"arr_{data_idx}")
-        mask = arr_group.get(f"arr_{mask_idx}")
+        if isinstance(fill_value, MaskedArray):
+            continue
+        data = _decode_numpy_arrays(
+            obj=None,
+            type_lookup=defaultdict(list, arrays=[[arr_path, data_idx]]),
+            path=arr_path,
+            arr_group=arr_group,
+            dataset_copy=dataset_copy,
+            array_output_context=array_output_context,
+            array_output_cache=array_output_cache,
+        )
+        mask = _decode_numpy_arrays(
+            obj=None,
+            type_lookup=defaultdict(list, arrays=[[arr_path, mask_idx]]),
+            path=arr_path,
+            arr_group=arr_group,
+            dataset_copy=dataset_copy,
+            array_output_context=array_output_context,
+            array_output_cache=array_output_cache,
+            array_output_name_suffix=_ARRAY_OUTPUT_MASK_SUFFIX,
+        )
         dataset: MaskedArray = MaskedArray(data=data, mask=mask, fill_value=fill_value)
 
         if rel_path:
@@ -513,6 +635,9 @@ class ZarrStoreParameter(StoreParameter):
     """
     Represents a parameter in a Zarr persistent store.
     """
+
+    _all_encoders: ClassVar[dict[type, Callable]] = {}
+    _all_decoders: ClassVar[dict[str, Callable]] = {}
 
     _encoders: ClassVar[dict[type, Callable]] = {  # keys are types
         **StoreParameter._encoders,
@@ -1653,55 +1778,53 @@ class ZarrPersistentStore(
                     )
                     sub["jobscripts"][js_idx].update(js_meta_i)
 
+    _LEGACY_GROUP_CREATE_ATTEMPTS = 5
+
     @TimeIt.decorator
-    def _create_parameter_array_shards(
-        self, params: Sequence[StoreParameter]
-    ) -> dict[tuple[str, str, str], Group]:
-        """Create parameter-array shards and return their inner groups."""
+    def _require_legacy_array_inner_group(self, parameter_idx: int) -> Group:
+        """Create or open the legacy shard inner group, tolerating concurrent creation.
 
-        # One representative parameter ID per shard.
-        shard_param_ids: dict[tuple[str, str, str], int] = {}
+        Zarr's ``Group.require_group`` is check-then-create: if another run creates
+        the same shard between the existence check and the metadata write, zarr raises
+        ``ContainsGroupError``. The group then exists, so retrying simply opens it.
+        Both writers produce identical ``.zgroup`` content via atomic replace, so no
+        corruption is possible.
+        """
+        last_exc: ContainsGroupError | None = None
+        for _ in range(self._LEGACY_GROUP_CREATE_ATTEMPTS):
+            try:
+                return self._get_or_create_parameter_data_array_inner_group(
+                    parameter_idx, mode="r+"
+                )
+            except ContainsGroupError as exc:
+                last_exc = exc
+                self.logger.debug(
+                    "Legacy array shard group for parameter %d was created concurrently;"
+                    " retrying.",
+                    parameter_idx,
+                )
+        assert last_exc is not None
+        raise last_exc
 
-        for param in params:
-            outer_name, mid_name, inner_name, _ = self._param_data_arr_grp_names(
-                param.id_
-            )
-            shard_key = (outer_name, mid_name, inner_name)
-            shard_param_ids.setdefault(shard_key, param.id_)
+    @TimeIt.decorator
+    def _legacy_array_group_factory(self, parameter_idx: int) -> Callable[[], Group]:
+        """Return a factory that creates the legacy shard inner group on first use.
 
-        if not shard_param_ids:
-            return {}
+        Shard groups are only needed when an array is stored in legacy Zarr datasets
+        (inputs, ``disable_array_outputs`` outputs). Enabled EAR output arrays use NPZ
+        archives, so for such workflows no ``parameters/arrays`` shard groups are
+        created at all. Run-time creation may race with other runs; see
+        :meth:`_require_legacy_array_inner_group`.
+        """
+        group: Group | None = None
 
-        root = self._get_parameter_user_array_group(mode="r+")
+        def _factory() -> Group:
+            nonlocal group
+            if group is None:
+                group = self._require_legacy_array_inner_group(parameter_idx)
+            return group
 
-        current_outer_name = None
-        current_mid_name = None
-        outer_group = None
-        mid_group = None
-
-        shard_groups: dict[tuple[str, str, str], Group] = {}
-
-        # sort by parameter ID so outer/mid groups are traversed monotonically.
-        for shard_key, _ in sorted(
-            shard_param_ids.items(),
-            key=lambda item: item[1],
-        ):
-            outer_name, mid_name, inner_name = shard_key
-
-            if outer_name != current_outer_name:
-                outer_group = root.require_group(outer_name)
-                current_outer_name = outer_name
-                current_mid_name = None
-
-            if mid_name != current_mid_name:
-                assert outer_group is not None
-                mid_group = outer_group.require_group(mid_name)
-                current_mid_name = mid_name
-
-            assert mid_group is not None
-            shard_groups[shard_key] = mid_group.require_group(inner_name)
-
-        return shard_groups
+        return _factory
 
     @TimeIt.decorator
     def _append_parameters(self, params: Sequence[StoreParameter]):
@@ -1716,9 +1839,9 @@ class ZarrPersistentStore(
         src_enc: list[dict] = []
         local_ins_enc: dict[tuple[int, int], Any] = {}
 
-        # create every shard now, including those containing unset EAR outputs;
-        # this avoids concurrent shard creation during workflow execution.
-        shard_groups = self._create_parameter_array_shards(params)
+        # legacy shard groups are created lazily, only if an array needs legacy storage;
+        # share one factory per shard so the group is opened at most once:
+        shard_factories: dict[tuple[str, str, str], Callable[[], Group]] = {}
 
         with self.__mutate_attrs(src_arr) as attrs:
             for param_i in params:
@@ -1726,9 +1849,13 @@ class ZarrPersistentStore(
                     self._param_data_arr_grp_names(param_i.id_)
                 )
                 shard_key = (outer_name, mid_name, inner_name)
+                if param_i.is_set and shard_key not in shard_factories:
+                    shard_factories[shard_key] = self._legacy_array_group_factory(
+                        param_i.id_
+                    )
 
                 dat_i = param_i.encode(
-                    root_group=shard_groups[shard_key] if param_i.is_set else None,
+                    root_group=shard_factories[shard_key] if param_i.is_set else None,
                     arr_path=parameter_name if param_i.is_set else None,
                 )
                 param_enc.append(dat_i)
@@ -1757,6 +1884,18 @@ class ZarrPersistentStore(
             f"PersistentStore._append_parameters: finished adding {len(params)} parameters."
         )
 
+    def _get_array_output_context(
+        self, param_id: int, source: ParamSource
+    ) -> tuple[ElementActionRun, str] | None:
+        """Resolve the source run and root output name for array serialization."""
+        if source["type"] != "EAR_output":
+            return None
+        run = self.workflow.get_EARs_from_IDs(source["EAR_ID"])
+        for name, index in run.data_idx.items():
+            if name.startswith("outputs.") and index == param_id:
+                return run, name.removeprefix("outputs.")
+        return None
+
     def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
         """Set multiple unset persistent parameters."""
         self._ensure_all_encoders()
@@ -1766,8 +1905,8 @@ class ZarrPersistentStore(
 
         param_updates = defaultdict(list)
 
-        current_shard_key = None
-        current_inner_group = None
+        # legacy shard groups are created lazily, only if an array needs legacy storage:
+        shard_factories: dict[tuple[str, str, str], Callable[[], Group]] = {}
 
         for param_id, (value, is_file) in set_parameters.items():
             param_i = params[param_id]
@@ -1787,16 +1926,21 @@ class ZarrPersistentStore(
                 self._param_data_arr_grp_names(param_i.id_)
             )
             shard_key = (outer_name, mid_name, inner_name)
-            if shard_key != current_shard_key:
-                current_inner_group = (
-                    self._get_or_create_parameter_data_array_inner_group(
-                        param_i.id_,
-                        mode="r+",
-                    )
-                )
-                current_shard_key = shard_key
+            if shard_key not in shard_factories:
+                shard_factories[shard_key] = self._legacy_array_group_factory(param_i.id_)
+            current_inner_group = shard_factories[shard_key]
 
             src_run_ID = param_i.source["EAR_ID"]
+            context = (
+                self._get_array_output_context(param_id, param_i.source)
+                if not (is_file or is_unset)
+                else None
+            )
+            if not (is_file or is_unset) and context is None:
+                raise ValueError(
+                    f"Cannot resolve output name for parameter {param_id} "
+                    f"from EAR {src_run_ID}."
+                )
             param_updates[src_run_ID].append(
                 (
                     param_i.source["output_idx"],
@@ -1804,7 +1948,9 @@ class ZarrPersistentStore(
                         None
                         if is_unset
                         else param_i.encode(
-                            root_group=current_inner_group, arr_path=parameter_name
+                            root_group=current_inner_group,
+                            arr_path=parameter_name,
+                            array_output_context=context,
                         )
                     ),
                 )
@@ -2673,16 +2819,37 @@ class ZarrPersistentStore(
             )
 
             param_dat, src_dat = self._get_base_parameters(id_lst)
-            new_params = {
-                k: ZarrStoreParameter.decode(
+            new_params = {}
+            for k, v in param_dat.items():
+                context = None
+                if (
+                    isinstance(v, dict)
+                    and v.get("type_lookup")
+                    and src_dat[k]["type"] == "EAR_output"
+                    and (
+                        self.workflow._array_output_fs.exists(
+                            (Path(self.path) / "parameters" / "array_outputs").as_posix()
+                        )
+                        or any(
+                            index is None
+                            for _, index in v["type_lookup"].get("arrays", [])
+                        )
+                        or any(
+                            indices[0] is None
+                            for _, indices in v["type_lookup"].get("masked_arrays", [])
+                        )
+                    )
+                ):
+                    context = self._get_array_output_context(k, src_dat[k])
+                new_params[k] = ZarrStoreParameter.decode(
                     id_=k,
                     data=v,
                     source=src_dat[k],
                     arr_group=self.get_parameter_data_array_group(k),
                     dataset_copy=dataset_copy,
+                    array_output_context=context,
+                    array_output_cache={},
                 )
-                for k, v in param_dat.items()
-            }
             self.parameter_cache.update(new_params)
             params.update(new_params)
 

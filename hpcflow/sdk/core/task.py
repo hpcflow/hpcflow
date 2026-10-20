@@ -87,7 +87,7 @@ if TYPE_CHECKING:
         Resources,
         RepeatsDescriptorType,
     )
-    from .workflow import Workflow, WorkflowTemplate
+    from .workflow import ArrayOutput, Workflow, WorkflowTemplate
 
     StrSeq = TypeVar("StrSeq", bound=Sequence[str])
 
@@ -807,6 +807,13 @@ class Task(JSONLike):
         into `resources` using the "any" scope. If False, these presets are ignored.
         This is required on first initialisation, but not on subsequent
         re-initialisation from a persistent workflow.
+    disable_array_outputs: list[str]
+        Dot-delimited output paths to store only in the legacy Zarr groups.
+        The optional ``outputs.`` prefix is accepted. A containing parameter path
+        disables all nested arrays. Task and schema exclusions are combined.
+        By default output ndarrays use Zstandard-compressed NPZ instead of legacy
+        Zarr groups, with run-file IDs sharded into directories of up to 500 files.
+        This is a temporary storage workaround specific to the Zarr store.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -855,6 +862,7 @@ class Task(JSONLike):
         condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
+        disable_array_outputs: list[str] | None = None,
         save_files: bool | list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
@@ -909,6 +917,7 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
+        self.disable_array_outputs = list(disable_array_outputs or [])
         self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
@@ -1901,6 +1910,158 @@ class WorkflowTask(AppAware):
         Get the iterations known by the task's elements.
         """
         return {itr.id_: itr for elem in self.elements for itr in elem.iterations}
+
+    @TimeIt.decorator
+    def list_array_outputs(self) -> list[str]:
+        """Return array output directory names for this task's output parameters.
+
+        Names are sorted and exclude the optional ``outputs.`` prefix. No NPZ
+        files are inspected; an existing directory does not guarantee that this
+        task has saved entries.
+        """
+        return [
+            name
+            for name in self.workflow.list_array_outputs()
+            if any(
+                name == root or name.startswith(f"{root}.")
+                for schema in self.template.schemas
+                for root in schema.output_types
+            )
+            and not self._is_array_output_disabled(name)
+        ]
+
+    def _is_array_output_disabled(self, name: str) -> bool:
+        """Check task/schema exclusions, including containing parameter paths."""
+        name = name.removeprefix("outputs.")
+        return any(
+            bool(disabled) and (name == disabled or name.startswith(f"{disabled}."))
+            for output in (
+                *self.template.disable_array_outputs,
+                *(
+                    output
+                    for schema in self.template.schemas
+                    for output in schema.disable_array_outputs
+                ),
+            )
+            for disabled in [output.removeprefix("outputs.")]
+        )
+
+    @TimeIt.decorator
+    def get_array_output(
+        self,
+        name: str,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+    ) -> ArrayOutput:
+        """Read an array output from this task's producing action runs.
+
+        The optional ``outputs.`` prefix is accepted. Task- and schema-level
+        ``disable_array_outputs`` exclusions are combined. Only runs of the root
+        parameter's first source action from
+        :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
+        are sorted lexicographically by element index, iteration index, action index,
+        then run index. With ``sort=False``, order follows
+        :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
+        workflow reader; missing saved data therefore raises rather than being skipped.
+
+        ``iteration_idx=None`` selects each element's final non-loop-skipped
+        iteration; an integer or sequence selects those iteration indices explicitly.
+        ``element_idx=None`` includes all elements; an integer or sequence selects
+        those element indices. Sequences filter without reordering or duplicating runs.
+
+        Raises
+        ------
+        ValueError
+            If the output is disabled or no producing runs are found.
+        """
+        output_name = name.removeprefix("outputs.")
+        if self._is_array_output_disabled(output_name):
+            raise ValueError(
+                f"Array output {name!r} is disabled for task {self.unique_name!r}."
+            )
+
+        root_name = output_name.split(".", 1)[0]
+        source_action_idx: int | None = None
+        action_offset = 0
+        for schema in self.template.schemas:
+            flow = schema.get_action_parameter_flow()
+            sources = flow.get(root_name, {}).get("sources", [])
+            if sources and sources[0] >= 0:
+                source_action_idx = action_offset + sources[0]
+                break
+            action_offset += len(schema.actions)
+
+        run_IDs = self.workflow.get_EAR_IDs_of_tasks([self.insert_ID])
+        runs_by_ID = {run.id_: run for run in self.workflow.get_EARs_from_IDs(run_IDs)}
+        iteration_indices = (
+            None
+            if iteration_idx is None
+            else {iteration_idx} if isinstance(iteration_idx, int) else set(iteration_idx)
+        )
+        element_indices = (
+            None
+            if element_idx is None
+            else {element_idx} if isinstance(element_idx, int) else set(element_idx)
+        )
+        latest_iteration_IDs: dict[int, int | None] = {}
+        if iteration_idx is None and source_action_idx is not None:
+            for run in runs_by_ID.values():
+                if run.element_action.action_idx != source_action_idx:
+                    continue
+                if run.element.id_ not in latest_iteration_IDs and (
+                    element_indices is None or run.element.index in element_indices
+                ):
+                    latest = run.element.latest_iteration_non_skipped
+                    latest_iteration_IDs[run.element.id_] = (
+                        latest.id_ if latest is not None else None
+                    )
+        applicable_run_IDs = [
+            run_ID
+            for run_ID in run_IDs
+            if source_action_idx is not None
+            and runs_by_ID[run_ID].element_action.action_idx == source_action_idx
+            and (
+                element_indices is None
+                or runs_by_ID[run_ID].element.index in element_indices
+            )
+            and (
+                runs_by_ID[run_ID].element_iteration.id_
+                == latest_iteration_IDs[runs_by_ID[run_ID].element.id_]
+                if iteration_indices is None
+                else runs_by_ID[run_ID].element_iteration.index in iteration_indices
+            )
+        ]
+        if not applicable_run_IDs:
+            raise ValueError(
+                f"No producing runs found for array output {name!r} "
+                f"in task {self.unique_name!r}."
+            )
+        return self.workflow.get_array_output(name, applicable_run_IDs, sort=sort)
+
+    def export_array_output(
+        self,
+        name: str,
+        path: str | Path,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export this task's selected array output to a single ``.npy`` file.
+
+        Filters and sorting follow :meth:`get_array_output`. All selected arrays
+        must have matching shapes. Write to exactly ``path`` and return that path.
+        Existing files raise FileExistsError unless ``overwrite=True``.
+        """
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(
+            name, iteration_idx=iteration_idx, element_idx=element_idx, sort=sort
+        )
+        return self.workflow._export_array_output(output, path, overwrite=overwrite)
 
     @staticmethod
     @TimeIt.decorator

@@ -21,6 +21,7 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+import warnings
 from typing_extensions import Self
 
 from hpcflow.sdk.core.enums import (
@@ -477,6 +478,21 @@ class ElementResources(JSONLike):
         # compatibility for redefinition of `max_array_items` to `max_scheduler_concurrency`
         if "max_array_items" in json_like:
             json_like["max_scheduler_concurrency"] = json_like.pop("max_array_items")
+
+        given_keys = set(k for k in json_like)
+        bad_keys = given_keys - {
+            *cls._app.ResourceSpec.ALLOWED_PARAMETERS,
+            "platform",
+            "CPU_arch",
+            "executable_extension",
+        }
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+
+        if bad_keys:
+            good_keys = cls._app.ResourceSpec._allowed_params_quoted()
+            print(f"Allowed resource item names are: {good_keys}.")
 
         return cls(**json_like)
 

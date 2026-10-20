@@ -50,6 +50,7 @@ from hpcflow.sdk.cli_common import (
     zip_log_opt,
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
+    zip_consolidate_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -659,6 +660,77 @@ def _make_workflow_CLI(app: BaseApp):
         """Get a parameter value by data index."""
         click.echo(wf.get_parameter_data(index))
 
+    @workflow.command(name="export-array-output")
+    @click.argument("name")
+    @click.argument("output_path", type=click.Path(dir_okay=False))
+    @click.option("--task", type=click.INT, metavar="TASK_INSERT_ID")
+    @click.option(
+        "--run-id", type=click.INT, multiple=True, help="Repeat for each run ID."
+    )
+    @click.option("--element-idx", type=click.INT, multiple=True)
+    @click.option("--iteration-idx", type=click.INT, multiple=True)
+    @click.option("--sort/--no-sort", default=True, show_default=True)
+    @click.option("--overwrite", is_flag=True, help="Replace an existing output file.")
+    @_pass_workflow
+    def export_array_output(
+        wf: Workflow,
+        name: str,
+        output_path: str,
+        task: int | None,
+        run_id: tuple[int, ...],
+        element_idx: tuple[int, ...],
+        iteration_idx: tuple[int, ...],
+        sort: bool,
+        overwrite: bool,
+    ):
+        """Export NAME as one NPY file at OUTPUT_PATH.
+
+        Without --task or --run-id, export all saved runs for NAME. With --task, select by
+        task insert ID and optionally filter elements and iterations (repeatable).
+        By default use all elements and their final non-skipped iterations.
+        Inconsistent selected shapes raise an error. Existing files require --overwrite.
+        """
+        if task is None:
+            if element_idx or iteration_idx:
+                raise click.UsageError(
+                    "--element-idx and --iteration-idx require --task."
+                )
+            destination = wf.export_array_output(
+                name, run_id or None, output_path, sort=sort, overwrite=overwrite
+            )
+        else:
+            if run_id:
+                raise click.UsageError("--run-id cannot be combined with --task.")
+            destination = wf.tasks.get(insert_ID=task).export_array_output(
+                name,
+                output_path,
+                element_idx=element_idx or None,
+                iteration_idx=iteration_idx or None,
+                sort=sort,
+                overwrite=overwrite,
+            )
+        click.echo(destination)
+
+    @workflow.command(name="consolidate-array-outputs")
+    @click.argument("names", nargs=-1)
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="If True, display a live status while consolidating.",
+    )
+    @_pass_workflow
+    def consolidate_array_outputs(wf: Workflow, names: tuple[str, ...], status: bool):
+        """Merge shard archives of array outputs into one file per output.
+
+        Each NAME's shard archives are merged into a single
+        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        removed. With no NAMES, consolidate every array output. Safe to repeat: runs
+        saved after an earlier consolidation are folded in.
+        """
+        results = wf.consolidate_array_outputs(names or None, status=status)
+        for name, path in results.items():
+            click.echo(f"{name}: {path}")
+
     @workflow.command(name="get-param-source")
     @click.argument("index", type=click.INT)
     @_pass_workflow
@@ -691,6 +763,7 @@ def _make_workflow_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @_pass_workflow
     def zip_workflow(
         wf: Workflow,
@@ -699,6 +772,7 @@ def _make_workflow_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
     ):
         """Generate a copy of the workflow in the zip file format in the current working
         directory."""
@@ -709,6 +783,7 @@ def _make_workflow_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 
@@ -1072,6 +1147,7 @@ def _make_zip_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @workflow_ref_type_opt
     def zip_workflow(
         workflow_ref: str,
@@ -1080,6 +1156,7 @@ def _make_zip_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
         ref_type: str | None,
     ):
         """Generate a copy of the specified workflow in the zip file format in the
@@ -1097,6 +1174,7 @@ def _make_zip_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 

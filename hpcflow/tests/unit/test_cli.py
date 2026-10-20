@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 import pytest
 
 from click.testing import CliRunner
@@ -6,8 +7,142 @@ import click.exceptions
 
 from hpcflow import __version__
 from hpcflow.app import app as hf
-from hpcflow.sdk.cli import ErrorPropagatingClickContext
+from hpcflow.sdk.cli import (
+    ErrorPropagatingClickContext,
+    _make_workflow_CLI,
+    _make_zip_CLI,
+)
+from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.cli_common import BoolOrString
+
+
+@pytest.mark.parametrize(
+    ("options", "task"),
+    [
+        ([], False),
+        (["--run-id", "10", "--run-id", "19"], False),
+        (["--task", "3", "--element-idx", "1", "--iteration-idx", "0"], True),
+        (["--task", "0"], True),
+    ],
+)
+@pytest.mark.parametrize("sort", [False, True])
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_cli_export_array_output(
+    tmp_path: Path, options: list[str], task: bool, sort: bool, overwrite: bool
+):
+    workflow = Mock(spec=Workflow)
+    destination = tmp_path / "export.npy"
+    target = workflow.tasks.get.return_value if task else workflow
+    target.export_array_output.return_value = destination
+    command = _make_workflow_CLI(hf).commands["export-array-output"]
+    result = CliRunner().invoke(
+        command,
+        [
+            "p1.a",
+            str(destination),
+            *options,
+            "--sort" if sort else "--no-sort",
+            *(["--overwrite"] if overwrite else []),
+        ],
+        obj=workflow,
+    )
+    assert result.exit_code == 0, result.output
+    if task:
+        workflow.tasks.get.assert_called_once_with(insert_ID=int(options[1]))
+        target.export_array_output.assert_called_once_with(
+            "p1.a",
+            str(destination),
+            element_idx=(1,) if len(options) > 2 else None,
+            iteration_idx=(0,) if len(options) > 2 else None,
+            sort=sort,
+            overwrite=overwrite,
+        )
+    else:
+        target.export_array_output.assert_called_once_with(
+            "p1.a",
+            (10, 19) if options else None,
+            str(destination),
+            sort=sort,
+            overwrite=overwrite,
+        )
+    assert str(destination) in result.output
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--task", "0", "--run-id", "1"],
+        ["--run-id", "1", "--element-idx", "0"],
+        ["--run-id", "1", "--iteration-idx", "0"],
+    ],
+)
+def test_cli_export_array_output_invalid_options(tmp_path: Path, options: list[str]):
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["export-array-output"]
+    result = CliRunner().invoke(
+        command, ["p1.a", str(tmp_path / "export.npy"), *options], obj=workflow
+    )
+    assert result.exit_code == 2
+    workflow.export_array_output.assert_not_called()
+    workflow.tasks.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("args", "names", "status"),
+    [
+        ([], None, True),
+        (["--no-status"], None, False),
+        (["p1.a"], ("p1.a",), True),
+        (["p1.a", "p2", "--status"], ("p1.a", "p2"), True),
+    ],
+)
+def test_cli_consolidate_array_outputs(
+    tmp_path: Path, args: list[str], names: tuple[str, ...] | None, status: bool
+):
+    workflow = Mock(spec=Workflow)
+    workflow.consolidate_array_outputs.return_value = {
+        "p1.a": tmp_path / "p1.a" / "consolidated.npz.zst",
+        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.npz.zst",
+    }
+    command = _make_workflow_CLI(hf).commands["consolidate-array-outputs"]
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    workflow.consolidate_array_outputs.assert_called_once_with(names, status=status)
+    assert result.output.splitlines() == [
+        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.npz.zst'}",
+        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.npz.zst'}",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("args", "consolidate"),
+    [([], True), (["--consolidate"], True), (["--no-consolidate"], False)],
+)
+@pytest.mark.parametrize("top_level", [False, True])
+def test_cli_zip_consolidate_option(
+    tmp_path: Path, args: list[str], consolidate: bool, top_level: bool
+):
+    workflow = Mock(spec=Workflow)
+    workflow.zip.return_value = str(tmp_path / "wk.zip")
+    if top_level:
+        app = Mock(wraps=hf)
+        app._resolve_workflow_reference.return_value = str(tmp_path / "wk")
+        app.Workflow = Mock(return_value=workflow)
+        command = _make_zip_CLI(app)
+        result = CliRunner().invoke(command, ["wk", *args])
+    else:
+        command = _make_workflow_CLI(hf).commands["zip"]
+        result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    workflow.zip.assert_called_once_with(
+        path=".",
+        overwrite=False,
+        log=None,
+        include_execute=False,
+        include_rechunk_backups=False,
+        consolidate=consolidate,
+    )
+    assert str(tmp_path / "wk.zip") in result.output
 
 
 def test_version(cli_runner) -> None:

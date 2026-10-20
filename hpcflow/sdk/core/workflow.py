@@ -7,7 +7,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from io import BytesIO
 
 from datetime import datetime, timezone
 from functools import wraps
@@ -28,6 +29,7 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
+import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
 import rich.console
@@ -62,7 +64,13 @@ from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
-from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, infer_store
+from hpcflow.sdk.persistence.utils import (
+    ARRAY_OUTPUT_CONSOLIDATED_NAME,
+    ARRAY_OUTPUT_MASK_SUFFIX,
+    ask_pw_on_auth_exc,
+    atomic_write,
+    infer_store,
+)
 from hpcflow.sdk.submission.jobscript import (
     JS_BLK_EAR_ID_FILL_VALUE,
     ensure_max_array_size,
@@ -76,6 +84,7 @@ from hpcflow.sdk.submission.jobscript import (
 from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.submission import Submission
+from hpcflow.sdk.submission.run_file_resolver import get_run_multi_chunk_path
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.core.utils import (
@@ -88,6 +97,7 @@ from hpcflow.sdk.core.utils import (
     current_timestamp,
     normalise_timestamp,
     parse_timestamp,
+    get_in_container,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
@@ -495,6 +505,7 @@ class WorkflowTemplate(JSONLike):
                     # add a single element set, and update the schema to a list:
                     out_labels = task_dat.pop("output_labels", [])
                     condition = task_dat.pop("condition", None)
+                    disable_array_outputs = task_dat.pop("disable_array_outputs", None)
                     save_files = task_dat.pop("save_files", None)
                     es_dat = cast("WorkflowTemplateElementSetData", task_dat)
                     new_task_dat: WorkflowTemplateTaskData = {
@@ -504,6 +515,8 @@ class WorkflowTemplate(JSONLike):
                         "condition": condition,
                         "save_files": save_files,
                     }
+                    if disable_array_outputs is not None:
+                        new_task_dat["disable_array_outputs"] = disable_array_outputs
                     task_lst[task_idx] = new_task_dat
                 # move sequences with `paths` (note: plural) to multi_path_sequences:
                 for elem_set in task_lst[task_idx]["element_sets"]:
@@ -587,7 +600,11 @@ class WorkflowTemplate(JSONLike):
                                         base_data[s_idx]["element_sets"][es_idx][
                                             k
                                         ].update(dat)
-                                    elif k in ("output_labels", "condition"):
+                                    elif k in (
+                                        "output_labels",
+                                        "condition",
+                                        "disable_array_outputs",
+                                    ):
                                         # task-level attributes; just overwrite
                                         base_data[s_idx][k] = dat
                                     else:
@@ -1000,6 +1017,73 @@ def resolve_fsspec(
             path_s = str(Path(path_s).resolve())
 
     return fs, path_s, pw
+
+
+@dataclass(frozen=True)
+class ArrayOutput:
+    """Saved output array data and metadata in requested run-ID order.
+
+    For a scalar run ID, ``data`` is that run's array; metadata arrays still have
+    one entry. For multiple IDs, ``data`` is stacked when no shape metadata is
+    present and all shapes match, otherwise it is a list. ``shape`` is omitted
+    when none of the source archives has shape metadata.
+    """
+
+    name: str
+    data: np.ndarray | list[np.ndarray]
+    task_insert_ID: np.ndarray
+    task_idx: np.ndarray
+    element_idx: np.ndarray
+    element_ID: np.ndarray
+    iteration_idx: np.ndarray
+    iteration_ID: np.ndarray
+    action_idx: np.ndarray
+    run_idx: np.ndarray
+    run_ID: np.ndarray
+    shape: np.ndarray | None = None
+
+    @property
+    def dtype(self) -> np.dtype:
+        """Data dtype, or NumPy's common dtype for list-backed arrays."""
+        if isinstance(self.data, np.ndarray):
+            return self.data.dtype
+        return np.result_type(*(array.dtype for array in self.data))
+
+    def __repr__(self) -> str:
+        attributes = []
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.name == "name":
+                formatted = repr(self.name)
+            elif field.name == "data":
+                formatted = (
+                    f"{self.data.shape}"
+                    if isinstance(self.data, np.ndarray)
+                    else f"{shorten_list_str(array.shape for array in self.data)}"
+                )
+            else:
+                formatted = "None" if value is None else shorten_list_str(value.tolist())
+            attributes.append(f"    {field.name}={formatted},")
+            if field.name == "name":
+                attributes.append(f"    dtype={self.dtype},")
+        return f"{self.__class__.__name__}(\n" + "\n".join(attributes) + "\n)"
+
+
+@dataclass(frozen=True)
+class _ArrayOutputArchive:
+    """Array data and per-run metadata loaded from an array-output NPZ archive."""
+
+    data: np.ndarray
+    task_insert_ID: np.ndarray
+    task_idx: np.ndarray
+    element_idx: np.ndarray
+    element_ID: np.ndarray
+    iteration_idx: np.ndarray
+    iteration_ID: np.ndarray
+    action_idx: np.ndarray
+    run_idx: np.ndarray
+    run_ID: np.ndarray
+    shape: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -2670,6 +2754,7 @@ class Workflow(AppAware):
         overwrite: bool = False,
         include_execute: bool = False,
         include_rechunk_backups: bool = False,
+        consolidate: bool = True,
         status: bool = True,
     ) -> str:
         """
@@ -2681,7 +2766,13 @@ class Workflow(AppAware):
             Path at which to create the new zipped workflow. If this is an existing
             directory, the zip file will be created within this directory. Otherwise,
             this path is assumed to be the full file path to the new zip file.
+        consolidate:
+            If True (default), first consolidate array-output shard archives into a
+            single file per output (see :meth:`consolidate_array_outputs`); zipping many
+            small shard files is much slower than zipping one file per output.
         """
+        if consolidate and self._store._features.edit:
+            self.consolidate_array_outputs(status=status)
         return self._store.zip(
             path=path,
             log=log,
@@ -5079,6 +5170,12 @@ class Workflow(AppAware):
     ):
         """
         Save a parameter where an EAR can find it.
+
+        With the Zarr store, output ndarrays use Zstandard-compressed NPZ archives
+        instead of legacy array datasets unless excluded by task/schema
+        ``disable_array_outputs``.
+        This is a temporary storage workaround. The JSON store
+        retains its existing encoding and does not write NPZ archives.
         """
         self._app.logger.info(f"save parameter {name!r} for EAR_ID {EAR_ID}.")
         self._app.logger.debug(f"save parameter {name!r} value is {value!r}.")
@@ -5086,6 +5183,623 @@ class Workflow(AppAware):
             EAR = self.get_EARs_from_IDs(EAR_ID)
             param_id = EAR.data_idx[name]
             self.set_parameter_value(param_id, value)
+
+    @property
+    def _array_output_fs(self) -> AbstractFileSystem:
+        if self._store.fs is None:
+            raise RuntimeError("Array outputs require a store filesystem.")
+        return self._store.fs
+
+    def _list_array_output_names(self, *, include_internal: bool = False) -> list[str]:
+        """Return sorted output names that have shard or consolidated archives."""
+        root = (Path(self._store.path) / "parameters" / "array_outputs").as_posix()
+        if not self._array_output_fs.exists(root):
+            return []
+        fs = self._array_output_fs
+        names = {
+            Path(path).parent.parent.name for path in fs.glob(f"{root}/*/*/*.npz.zst")
+        }
+        names |= {
+            Path(path).parent.name
+            for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_CONSOLIDATED_NAME}")
+        }
+        if not include_internal:
+            names = {n for n in names if not n.endswith(f".{ARRAY_OUTPUT_MASK_SUFFIX}")}
+        return sorted(names)
+
+    def list_array_outputs(self) -> list[str]:
+        """Return sorted names of outputs with array archives.
+
+        Both shard archives (``<shard>/<file>.npz.zst``) and consolidated archives
+        (see :meth:`consolidate_array_outputs`) are considered. Internal ``__mask__``
+        archives (masked-array masks) are excluded.
+        """
+        return self._list_array_output_names()
+
+    def _get_array_output_root(self, name: str) -> Path:
+        """Return the directory holding all archives for one array output."""
+        return self._get_array_output_archive_path(name, 0).parent.parent
+
+    def _get_array_output_consolidated_path(self, name: str) -> Path:
+        """Return the path of the single-file consolidated archive for an output."""
+        return self._get_array_output_root(name) / ARRAY_OUTPUT_CONSOLIDATED_NAME
+
+    def _list_array_output_shard_paths(self, name: str) -> list[Path]:
+        """Return sorted shard archive paths (``<shard>/<file>.npz.zst``) for an output."""
+        root = self._get_array_output_root(name).as_posix()
+        return sorted(
+            Path(path) for path in self._array_output_fs.glob(f"{root}/*/*.npz.zst")
+        )
+
+    def _list_array_output_archive_paths(self, name: str) -> list[Path]:
+        """Return all archive paths for an output: shards, then consolidated (if any)."""
+        paths = self._list_array_output_shard_paths(name)
+        consolidated = self._get_array_output_consolidated_path(name)
+        if self._array_output_fs.exists(consolidated.as_posix()):
+            paths.append(consolidated)
+        return paths
+
+    def _resolve_array_output_archive_path(
+        self, name: str, run_file_ID: int
+    ) -> Path | None:
+        """Return the archive that holds a run's entry, or None if neither exists.
+
+        Prefer the run's shard archive; otherwise fall back to the consolidated archive.
+        Runs saved after consolidation live in new shard archives, so both may coexist.
+        """
+        shard = self._get_array_output_archive_path(name, run_file_ID)
+        if self._array_output_fs.exists(shard.as_posix()):
+            return shard
+        consolidated = self._get_array_output_consolidated_path(name)
+        if self._array_output_fs.exists(consolidated.as_posix()):
+            return consolidated
+        return None
+
+    def _load_array_output_archive(
+        self, name: str, path: Path, cache: dict[Path, _ArrayOutputArchive]
+    ) -> _ArrayOutputArchive:
+        """Load an archive via ``cache``; a missing shard falls back to the consolidated
+        archive, which is then cached under the shard path as well."""
+        if path not in cache:
+            try:
+                cache[path] = self._read_array_output_archive(path)
+            except FileNotFoundError:
+                consolidated = self._get_array_output_consolidated_path(name)
+                if path == consolidated:
+                    raise
+                if consolidated not in cache:
+                    try:
+                        cache[consolidated] = self._read_array_output_archive(
+                            consolidated
+                        )
+                    except FileNotFoundError:
+                        raise FileNotFoundError(
+                            f"No array-output archive for {name!r}: neither {path} "
+                            f"nor {consolidated} exists."
+                        ) from None
+                cache[path] = cache[consolidated]
+        return cache[path]
+
+    def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
+        """Return a Zstandard-compressed NPZ path, sharded at 500 files per directory.
+
+        Run-file IDs use the same quotient/remainder mapping as ``base_multi``.
+        """
+        output_name = name.removeprefix("outputs.")
+        if not output_name or any(
+            not component
+            or component in {".", ".."}
+            or "/" in component
+            or "\\" in component
+            for component in output_name.split(".")
+        ):
+            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
+        root = Path(self._store.path) / "parameters" / "array_outputs" / output_name
+        return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
+            ".npz.zst"
+        )
+
+    def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
+        """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
+        value = np.asarray(value)
+        if value.dtype.hasobject:
+            raise TypeError(
+                f"Array output {name!r} has object dtype, which cannot be "
+                "stored without pickle."
+            )
+        if EAR.run_file_ID is None:
+            raise ValueError(
+                f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
+            )
+        archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+        metadata_values = {
+            "task_insert_ID": EAR.task.insert_ID,
+            "task_idx": EAR.task.index,
+            "element_idx": EAR.element.index,
+            "element_ID": EAR.element.id_,
+            "iteration_idx": EAR.element_iteration.index,
+            "iteration_ID": EAR.element_iteration.id_,
+            "action_idx": EAR.element_action.action_idx,
+            "run_idx": EAR.index,
+            "run_ID": EAR.id_,
+        }
+
+        array_data = value[np.newaxis, ...]
+        shapes = np.asarray([value.shape], dtype=np.int32)
+        stored_metadata: dict[str, np.ndarray] = {
+            key: np.asarray([metadata_value], dtype=np.int32)
+            for key, metadata_value in metadata_values.items()
+        }
+        if archive_path.exists():
+            archive = self._read_array_output_archive(archive_path)
+            previous_data = archive.data
+            if previous_data.dtype != value.dtype:
+                raise TypeError(
+                    f"Array output {name!r} has dtype {value.dtype}, "
+                    f"but existing values have dtype {previous_data.dtype}."
+                )
+            if previous_data.ndim != value.ndim + 1:
+                raise ValueError(
+                    f"Array output {name!r} has {value.ndim} "
+                    f"dimensions, but existing values have "
+                    f"{previous_data.ndim - 1} dimensions."
+                )
+
+            if archive.shape is not None:
+                previous_shapes = archive.shape
+            else:
+                previous_shapes = np.broadcast_to(
+                    previous_data.shape[1:],
+                    (previous_data.shape[0], value.ndim),
+                ).copy()
+            shapes = np.concatenate((previous_shapes, shapes), axis=0)
+
+            max_shape = tuple(
+                max(previous_data.shape[axis + 1], value.shape[axis])
+                for axis in range(value.ndim)
+            )
+            expanded_data = np.zeros(
+                (previous_data.shape[0] + 1, *max_shape), dtype=previous_data.dtype
+            )
+            previous_slices: tuple[slice, ...] = tuple(
+                slice(0, size) for size in previous_data.shape[1:]
+            )
+            previous_index: tuple[slice, ...] = (
+                slice(None, -1),
+                *previous_slices,
+            )
+            expanded_data[previous_index] = previous_data
+            value_slices: tuple[slice, ...] = tuple(
+                slice(0, size) for size in value.shape
+            )
+            value_index: tuple[int | slice, ...] = (-1, *value_slices)
+            expanded_data[value_index] = value
+            array_data = expanded_data
+
+            for key in metadata_values:
+                stored_metadata[key] = np.append(
+                    getattr(archive, key),
+                    np.asarray([metadata_values[key]], dtype=np.int64),
+                )
+
+        archive_data = {"data": array_data, **stored_metadata}
+        if not np.all(shapes == shapes[0]):
+            archive_data["shape"] = shapes
+
+        buffer = BytesIO()
+        np.savez(buffer, **archive_data)
+        atomic_write(
+            archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
+        )
+
+    @TimeIt.decorator
+    def get_array_output(
+        self, name: str, run_IDs: int | Iterable[int] | None = None, *, sort: bool = True
+    ) -> ArrayOutput:
+        """Read a saved array output for one run ID or an iterable of run IDs.
+
+        Return an :class:`ArrayOutput` with data and all per-run metadata selected
+        including repeated IDs. By default, sort lexicographically by task insert ID,
+        element index, iteration index, action index, then run index. Equal keys retain
+        their requested order. With ``sort=False``, preserve the requested order. Data,
+        metadata, and shapes are reordered together. For a scalar ID, ``data`` is that
+        run's array. For multiple IDs it is stacked when no shape metadata is present
+        and all shapes match, otherwise it is a list.
+
+        Archives are Zstandard-compressed NPZ files in 500-file shard directories,
+        optionally merged into one ``consolidated.npz.zst`` per output by
+        :meth:`consolidate_array_outputs`; both forms are read transparently.
+        Earlier uncompressed NPZ archives are not supported.
+        With ``run_IDs=None``, include every saved run for this output, across tasks
+        and iterations. With ``sort=False``, archives are visited in path order.
+        """
+        loaded_archives: dict[Path, _ArrayOutputArchive] = {}
+        run_files: list[tuple[int, Path]]
+        if run_IDs is None:
+            is_single_run = False
+            run_files = []
+            for archive_path in self._list_array_output_archive_paths(name):
+                archive = self._read_array_output_archive(archive_path)
+                loaded_archives[archive_path] = archive
+                run_files.extend((int(run_ID), archive_path) for run_ID in archive.run_ID)
+        elif isinstance(run_IDs, (int, np.integer)):
+            is_single_run = True
+            requested_run_IDs = [int(cast(int, run_IDs))]
+            EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
+            EARs: list[ElementActionRun] = [cast(ElementActionRun, EAR)]
+        else:
+            is_single_run = False
+            requested_run_IDs = [int(run_ID) for run_ID in cast("Iterable[int]", run_IDs)]
+            EAR_result_list = cast(
+                list[ElementActionRun], self.get_EARs_from_IDs(requested_run_IDs)
+            )
+            EARs_by_ID = {EAR.id_: EAR for EAR in EAR_result_list}
+            EARs = [EARs_by_ID[run_ID] for run_ID in requested_run_IDs]
+
+        if run_IDs is not None:
+            run_files = []
+            for run_ID, EAR in zip(requested_run_IDs, EARs):
+                if EAR.run_file_ID is None:
+                    raise ValueError(
+                        f"Cannot read array output {name!r}: EAR {run_ID} has no "
+                        "run_file_ID."
+                    )
+                # the shard path; loading falls back to the consolidated archive:
+                run_files.append(
+                    (run_ID, self._get_array_output_archive_path(name, EAR.run_file_ID))
+                )
+        if not run_files:
+            raise ValueError(f"No saved runs selected for array output {name!r}.")
+        output_arrays: list[np.ndarray] = []
+        metadata: dict[str, list[np.ndarray]] = {
+            field.name: []
+            for field in fields(ArrayOutput)
+            if field.name not in {"name", "data", "shape"}
+        }
+        output_shapes: list[tuple[int, ...]] = []
+        has_shape_metadata = False
+        for run_ID, archive_path in run_files:
+            archive = self._load_array_output_archive(name, archive_path, loaded_archives)
+            data, shapes = archive.data, archive.shape
+            has_shape_metadata |= shapes is not None
+            matching_indices = np.flatnonzero(archive.run_ID == run_ID)
+            if len(matching_indices) != 1:
+                raise ValueError(
+                    f"Expected one entry for run ID {run_ID} in array-output archive "
+                    f"for {name!r}, found {len(matching_indices)}."
+                )
+
+            archive_idx = int(matching_indices[0])
+            if shapes is None:
+                array_shape = data.shape[1:]
+            else:
+                array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+            array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
+            output_arrays.append(np.array(data[archive_idx][array_slices]))
+            output_shapes.append(array_shape)
+            for key, values in metadata.items():
+                values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
+
+        combined_metadata = {
+            key: np.concatenate(values) for key, values in metadata.items()
+        }
+        if sort and not is_single_run:
+            order = np.lexsort(
+                tuple(
+                    combined_metadata[key]
+                    for key in (
+                        "run_idx",
+                        "action_idx",
+                        "iteration_idx",
+                        "element_idx",
+                        "task_insert_ID",
+                    )
+                )
+            )
+            output_arrays = [output_arrays[idx] for idx in order]
+            output_shapes = [output_shapes[idx] for idx in order]
+            combined_metadata = {
+                key: values[order] for key, values in combined_metadata.items()
+            }
+
+        result_data: np.ndarray | list[np.ndarray]
+        if is_single_run:
+            result_data = output_arrays[0]
+        elif not has_shape_metadata and all(
+            array.shape == output_arrays[0].shape for array in output_arrays[1:]
+        ):
+            result_data = np.stack(output_arrays)
+        else:
+            result_data = output_arrays
+        return ArrayOutput(
+            name=name.removeprefix("outputs."),
+            data=result_data,
+            **combined_metadata,
+            shape=(
+                np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
+            ),
+        )
+
+    def export_array_output(
+        self,
+        name: str,
+        run_IDs: int | Iterable[int] | None = None,
+        path: str | Path | None = None,
+        *,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export the selected array output to a single NumPy ``.npy`` file.
+
+        Selection, sorting, and scalar-run shape follow :meth:`get_array_output`.
+        List-backed results are stacked if all selected shapes match; otherwise
+        raise ValueError before writing. Write to exactly ``path`` (no automatic
+        suffix) and return that path. ``path`` is required; omit ``run_IDs`` to
+        export every saved run. Existing files raise FileExistsError unless
+        ``overwrite=True``.
+        """
+        if path is None:
+            raise TypeError("export_array_output requires an output path.")
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(name, run_IDs, sort=sort)
+        return self._export_array_output(output, path, overwrite=overwrite)
+
+    @staticmethod
+    def _export_array_output(
+        output: ArrayOutput, path: str | Path, *, overwrite: bool = False
+    ) -> Path:
+        destination = Path(path)
+        if not overwrite and destination.exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        data = output.data
+        if isinstance(data, list):
+            if not data or any(array.shape != data[0].shape for array in data[1:]):
+                raise ValueError(
+                    f"Cannot export array output {output.name!r}: "
+                    "selected array shapes are inconsistent or empty."
+                )
+            data = np.stack(data)
+        buffer = BytesIO()
+        np.save(buffer, data, allow_pickle=False)
+        if overwrite:
+            atomic_write(destination, buffer.getvalue())
+        else:
+            with destination.open("xb") as stream:
+                stream.write(buffer.getvalue())
+        return destination
+
+    @TimeIt.decorator
+    def consolidate_array_outputs(
+        self,
+        names: str | Iterable[str] | None = None,
+        *,
+        status: bool = True,
+    ) -> dict[str, Path]:
+        """Merge each output's shard archives into one ``consolidated.npz.zst`` file.
+
+        For every selected output, all shard archives (``<shard>/<file>.npz.zst``) and
+        any existing consolidated archive are merged, sorted by run ID, written
+        atomically to ``parameters/array_outputs/<name>/consolidated.npz.zst``, verified
+        by re-reading, and only then are the shard files removed. Runs saved later go to
+        new shard archives, so consolidation may be repeated to fold them in. Readers
+        (:meth:`get_array_output`, parameter decoding) handle both forms transparently.
+
+        Parameters
+        ----------
+        names
+            Output name(s) to consolidate (``outputs.`` prefix optional). ``None``
+            consolidates every output with array archives. Masked-array mask archives
+            (``<name>.__mask__``) are consolidated with their data.
+        status
+            Show a live status while consolidating.
+
+        Returns
+        -------
+        Mapping from output name to its consolidated archive path. Outputs that had
+        nothing to consolidate (already consolidated) map to the existing path.
+
+        Raises
+        ------
+        TypeError
+            If the store is read-only (e.g. a zipped workflow), or shards of one output
+            have different dtypes.
+        ValueError
+            If a named output has no archives, shards differ in dimensionality, or a
+            run ID appears more than once.
+        """
+        if not self._store._features.edit:
+            raise TypeError(
+                "Consolidating array outputs requires an editable workflow store; "
+                "unzip the workflow first."
+            )
+        if names is None:
+            selected = self._list_array_output_names(include_internal=True)
+        else:
+            requested = [names] if isinstance(names, str) else list(names)
+            selected = []
+            for name in requested:
+                name = name.removeprefix("outputs.")
+                if not self._list_array_output_archive_paths(name):
+                    raise ValueError(f"No array-output archives found for {name!r}.")
+                selected.append(name)
+                mask_name = f"{name}.{ARRAY_OUTPUT_MASK_SUFFIX}"
+                if self._list_array_output_archive_paths(mask_name):
+                    selected.append(mask_name)
+            selected = list(dict.fromkeys(selected))
+
+        results: dict[str, Path] = {}
+        status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
+            rich.console.Console().status("Consolidating array outputs...")
+            if status
+            else nullcontext()
+        )
+        with status_context as status_obj:
+            for name in selected:
+                if status_obj is not None:
+                    status_obj.update(f"Consolidating array output {name!r}...")
+                path = self._consolidate_array_output(name)
+                if path is not None:
+                    results[name] = path
+        return results
+
+    def _consolidate_array_output(self, name: str) -> Path | None:
+        """Consolidate one output; return the archive path, or None if no archives."""
+        shard_paths = self._list_array_output_shard_paths(name)
+        consolidated_path = self._get_array_output_consolidated_path(name)
+        has_consolidated = consolidated_path.is_file()
+        if not shard_paths:
+            return consolidated_path if has_consolidated else None
+
+        # existing consolidated data first, then shards in path order:
+        sources = ([consolidated_path] if has_consolidated else []) + shard_paths
+        archives = [self._read_array_output_archive(path) for path in sources]
+        merged = self._merge_array_output_archives(name, archives)
+
+        buffer = BytesIO()
+        np.savez(buffer, **cast("dict[str, Any]", merged))
+        atomic_write(
+            consolidated_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
+        )
+
+        # verify before discarding the shards:
+        expected_count = sum(len(archive.run_ID) for archive in archives)
+        verified = self._read_array_output_archive(consolidated_path)
+        if len(verified.run_ID) != expected_count:
+            raise RuntimeError(
+                f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
+                f"entries; expected {expected_count}. Shard archives were left intact."
+            )
+        for shard_path in shard_paths:
+            shard_path.unlink()
+            try:
+                shard_path.parent.rmdir()  # remove the shard directory once empty
+            except OSError:
+                pass
+        return consolidated_path
+
+    @staticmethod
+    def _merge_array_output_archives(
+        name: str, archives: Sequence[_ArrayOutputArchive]
+    ) -> dict[str, np.ndarray]:
+        """Merge archives into NPZ contents, sorted by run ID.
+
+        Entries are zero-padded to the largest shape; ``shape`` is included only when
+        entry shapes differ, matching :meth:`_save_array_output`.
+        """
+        dtypes = {archive.data.dtype for archive in archives}
+        if len(dtypes) > 1:
+            raise TypeError(
+                f"Cannot consolidate array output {name!r}: archives have different "
+                f"dtypes: {sorted(str(dtype) for dtype in dtypes)}."
+            )
+        ndims = {archive.data.ndim for archive in archives}
+        if len(ndims) > 1:
+            raise ValueError(
+                f"Cannot consolidate array output {name!r}: archives have different "
+                f"dimensionality: {sorted(ndim - 1 for ndim in ndims)}."
+            )
+        ndim = archives[0].data.ndim - 1
+        total = sum(len(archive.run_ID) for archive in archives)
+
+        shapes = np.concatenate(
+            [
+                (
+                    archive.shape
+                    if archive.shape is not None
+                    else np.broadcast_to(
+                        np.asarray(archive.data.shape[1:], dtype=np.int32),
+                        (len(archive.run_ID), ndim),
+                    )
+                )
+                for archive in archives
+            ],
+            axis=0,
+        ).astype(np.int32)
+        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+        data = np.zeros((total, *max_shape), dtype=archives[0].data.dtype)
+        offset = 0
+        for archive in archives:
+            count = len(archive.run_ID)
+            region: tuple[slice, ...] = (
+                slice(offset, offset + count),
+                *(slice(0, dim) for dim in archive.data.shape[1:]),
+            )
+            data[region] = archive.data
+            offset += count
+
+        metadata_names = [
+            field.name
+            for field in fields(_ArrayOutputArchive)
+            if field.name not in {"data", "shape"}
+        ]
+        metadata = {
+            key: np.concatenate([getattr(archive, key) for archive in archives])
+            for key in metadata_names
+        }
+        run_IDs = metadata["run_ID"]
+        unique_IDs, counts = np.unique(run_IDs, return_counts=True)
+        if np.any(counts > 1):
+            raise ValueError(
+                f"Cannot consolidate array output {name!r}: run IDs appear more than "
+                f"once: {unique_IDs[counts > 1].tolist()}."
+            )
+        order = np.argsort(run_IDs, kind="stable")
+        merged: dict[str, np.ndarray] = {
+            "data": data[order],
+            **{key: values[order] for key, values in metadata.items()},
+        }
+        shapes = shapes[order]
+        if not np.all(shapes == shapes[0]):
+            merged["shape"] = shapes
+        return merged
+
+    @TimeIt.decorator
+    def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
+        """Decompress, load, and validate an array-output NPZ archive."""
+        compressed = self._store.get_binary_file(path)
+        buffer = BytesIO(zstd.ZstdDecompressor().decompress(compressed))
+        with np.load(buffer, allow_pickle=False) as archive:
+            required_names = [
+                field.name
+                for field in fields(_ArrayOutputArchive)
+                if field.name != "shape"
+            ]
+            if not all(name in archive.files for name in required_names):
+                raise ValueError(
+                    f"Array-output archive {path} has an unsupported format."
+                )
+
+            arrays = {name: archive[name] for name in required_names}
+            data = arrays["data"]
+            run_ids = arrays["run_ID"]
+            shapes = archive["shape"] if "shape" in archive.files else None
+            if data.ndim < 1 or run_ids.ndim != 1:
+                raise ValueError(
+                    f"Array-output archive {path} has invalid data or run_ID dimensions."
+                )
+            if len(data) != len(run_ids):
+                raise ValueError(
+                    f"Array-output archive {path} has mismatched data and run_ID lengths."
+                )
+            for name, metadata in arrays.items():
+                if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
+                    raise ValueError(
+                        f"Array-output archive {path} has invalid {name} metadata."
+                    )
+            if shapes is not None and (
+                shapes.shape != (len(data), data.ndim - 1)
+                or np.any(shapes < 0)
+                or np.any(shapes > data.shape[1:])
+            ):
+                raise ValueError(
+                    f"Array-output archive {path} has invalid shape metadata."
+                )
+            return _ArrayOutputArchive(**arrays, shape=shapes)
 
     def show_all_EAR_statuses(self) -> None:
         """

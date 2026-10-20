@@ -317,3 +317,40 @@ def test_meta_task_custom_parametrisation_raises_on_bad_schema_name(
       """)
     with pytest.raises(UnknownMetaTaskConstitutiveSchema):
         wk = hf.Workflow.from_YAML_string(wk_yaml, path=tmp_path)
+
+
+def test_meta_task_disable_array_outputs_from_YAML(reload_template_components):
+    wkt_yaml = dedent("""\
+        name: test_meta_task_disable_array_outputs
+        template_components:
+          task_schemas:
+            - objective: s1
+              inputs:
+                - parameter: p1
+              outputs:
+                - parameter: p2
+              actions:
+                - script: test.py
+          meta_task_schemas:
+            - objective: system_analysis
+              inputs:
+                - parameter: p1
+              outputs:
+                - parameter: p2
+        meta_tasks:
+          system_analysis:
+            - schema: s1
+              disable_array_outputs: [p2.a]
+              inputs:
+                p1: 100
+        tasks:
+          - schema: system_analysis
+          - schema: system_analysis
+            disable_array_outputs:
+              s1: [p2.b]
+        """)
+    wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
+
+    assert wkt.tasks[0].disable_array_outputs == ["p2.a"]
+    assert wkt.tasks[1].disable_array_outputs == ["p2.b"]
+    assert wkt.tasks[0].element_sets[0].inputs[0].value == 100

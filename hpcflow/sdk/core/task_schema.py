@@ -161,6 +161,13 @@ class TaskSchema(JSONLike):
     environment_presets:
         Information about default execution environments. Can be overridden in specific
         cases in the concrete tasks.
+    disable_array_outputs:
+        A list of dot-delimited output parameter paths, relative to the ``outputs``
+        namespace, to store only in legacy Zarr groups. The ``outputs.`` prefix is
+        optional. Containing parameter paths disable all nested arrays. By default
+        EAR output ndarrays use Zstandard-compressed NPZ instead of legacy Zarr groups,
+        with up to 500 archives per shard directory. This is a temporary storage
+        workaround specific to the Zarr store.
     save_files:
         Files to retain as workflow artifacts. ``True`` retains all declared files,
         ``False`` or ``None`` (default) retains none, and a list retains the listed
@@ -218,6 +225,7 @@ class TaskSchema(JSONLike):
         parameter_dependencies: Sequence[str] | None = None,
         save_files: bool | list[str] | None = None,
         _hash_value: str | None = None,
+        disable_array_outputs: list[str] | None = None,
     ):
         #: This is a string representing the objective of the task schema.
         self.objective = self.__coerce_objective(objective)
@@ -243,6 +251,8 @@ class TaskSchema(JSONLike):
         #: Additional parameters that the actions of this schema should depend on (e.g.
         # for the purposes of jobscript scheduling).
         self.parameter_dependencies = list(parameter_dependencies or [])
+        #: Output paths excluded from the temporary NPZ array storage workaround.
+        self.disable_array_outputs = list(disable_array_outputs or [])
         self.save_files = save_files
         self._hash_value = _hash_value
 
@@ -749,6 +759,7 @@ class TaskSchema(JSONLike):
             and self.implementation == other.implementation
             and self.inputs == other.inputs
             and self.outputs == other.outputs
+            and self.disable_array_outputs == other.disable_array_outputs
             and self.save_files == other.save_files
             and self.version == other.version
             and self._hash_value == other._hash_value
@@ -1161,6 +1172,7 @@ class MetaTaskSchema(TaskSchema):
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
         _hash_value: str | None = None,
+        disable_array_outputs: list[str] | None = None,
     ):
         super().__init__(
             objective=objective,
@@ -1173,4 +1185,5 @@ class MetaTaskSchema(TaskSchema):
             environment_presets=environment_presets,
             doc=doc,
             _hash_value=_hash_value,
+            disable_array_outputs=disable_array_outputs,
         )

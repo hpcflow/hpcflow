@@ -1,7 +1,12 @@
 from __future__ import annotations
 import copy
+from io import BytesIO
 import os
 import pytest
+import numpy as np
+import zstandard as zstd
+from types import SimpleNamespace
+from unittest.mock import Mock
 from typing import TYPE_CHECKING
 
 from valida.conditions import Value  # type: ignore
@@ -17,6 +22,7 @@ from hpcflow.sdk.core.errors import (
     UnsetParameterDataError,
 )
 from hpcflow.sdk.core.parameters import NullDefault
+from hpcflow.sdk.core.object_list import ObjectList
 from hpcflow.sdk.core.test_utils import (
     make_schemas,
     make_tasks,
@@ -31,6 +37,7 @@ if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
     from hpcflow.sdk.core.command_files import FileSpec
     from hpcflow.sdk.core.parameters import Parameter
+    from hpcflow.sdk.core.json_like import JSONable
     from hpcflow.sdk.core.task_schema import TaskSchema
     from hpcflow.sdk.core.workflow import Workflow
 
@@ -57,6 +64,353 @@ def workflow_w0(tmp_path: Path) -> Workflow:
 
     wkt = hf.WorkflowTemplate(name="workflow_w0", tasks=[t1, t2])
     return hf.Workflow.from_template(wkt, path=tmp_path)
+
+
+@pytest.mark.parametrize("name", ["p1.a", "outputs.p1.a"])
+@pytest.mark.parametrize("sort", [False, True])
+def test_task_get_array_output(
+    workflow_w0: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    sort: bool,
+) -> None:
+    task = workflow_w0.tasks[0]
+    monkeypatch.setattr(
+        task.template.schemas[0],
+        "get_action_parameter_flow",
+        Mock(return_value={"p1": {"sources": [7, 8, 9], "sinks": [-1]}}),
+    )
+    get_IDs = Mock(return_value=[12, 10, 11])
+    monkeypatch.setattr(workflow_w0, "get_EAR_IDs_of_tasks", get_IDs)
+    get_runs = Mock(
+        return_value=[
+            SimpleNamespace(id_=10, element_action=SimpleNamespace(action_idx=8)),
+            SimpleNamespace(
+                id_=11, run_file_ID=6, element_action=SimpleNamespace(action_idx=7)
+            ),
+            SimpleNamespace(
+                id_=12, run_file_ID=6, element_action=SimpleNamespace(action_idx=7)
+            ),
+        ]
+    )
+    monkeypatch.setattr(workflow_w0, "get_EARs_from_IDs", get_runs)
+    read_output = Mock()
+    monkeypatch.setattr(workflow_w0, "get_array_output", read_output)
+    monkeypatch.setattr(
+        workflow_w0, "_get_array_output_archive_path", Mock(return_value=Mock())
+    )
+    read_archive = Mock(return_value=SimpleNamespace(run_ID=np.array([11, 12])))
+    monkeypatch.setattr(workflow_w0, "_read_array_output_archive", read_archive)
+
+    for run in get_runs.return_value:
+        run.element_iteration = SimpleNamespace(index=0)
+    output = task.get_array_output(name, iteration_idx=0, sort=sort)
+
+    assert output is read_output.return_value
+    get_IDs.assert_called_once_with([task.insert_ID])
+    get_runs.assert_called_once_with([12, 10, 11])
+    read_output.assert_called_once_with(name, [12, 11], sort=sort)
+    read_archive.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "stress",
+        "vol_avg_equivalent_stress",
+        "vol_avg_equivalent_strain",
+        "vol_avg_equivalent_plastic_strain",
+    ],
+)
+def test_task_get_array_output_uses_first_source_for_nested_outputs(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    task = workflow_w0.tasks[0]
+    name = f"VE_response.phase_data.{field}.data"
+    monkeypatch.setattr(
+        task.template.schemas[0],
+        "get_action_parameter_flow",
+        Mock(return_value={"VE_response": {"sources": [7, 8, 9], "sinks": [-1]}}),
+    )
+    runs = {
+        run_ID: SimpleNamespace(
+            id_=run_ID,
+            run_file_ID=file_ID,
+            element_action=SimpleNamespace(action_idx=7 if run_ID in (10, 12) else 8),
+        )
+        for run_ID, file_ID in [(10, 7), (11, 6), (12, 6), (13, 8), (14, None)]
+    }
+    monkeypatch.setattr(
+        workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[12, 11, 13, 14, 10])
+    )
+    monkeypatch.setattr(
+        workflow_w0,
+        "get_EARs_from_IDs",
+        lambda IDs: runs[IDs] if isinstance(IDs, int) else [runs[ID] for ID in IDs],
+    )
+    for run_ID, file_ID in [(10, 7), (12, 6)]:
+        path = workflow_w0._get_array_output_archive_path(name, file_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        buffer = BytesIO()
+        np.savez(
+            buffer,
+            allow_pickle=False,
+            data=np.array([[run_ID, run_ID + 1]]),
+            **{
+                key: np.array([run_ID])
+                for key in (
+                    "task_insert_ID",
+                    "task_idx",
+                    "element_idx",
+                    "element_ID",
+                    "iteration_idx",
+                    "iteration_ID",
+                    "action_idx",
+                    "run_idx",
+                    "run_ID",
+                )
+            },
+        )
+        path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
+
+    read_archive = Mock(wraps=workflow_w0._read_array_output_archive)
+    monkeypatch.setattr(workflow_w0, "_read_array_output_archive", read_archive)
+    for run in runs.values():
+        run.element_iteration = SimpleNamespace(index=0)
+    output = task.get_array_output(name, iteration_idx=0)
+
+    assert read_archive.call_count == 2
+    np.testing.assert_array_equal(output.run_ID, [10, 12])
+    np.testing.assert_array_equal(output.data, [[10, 11], [12, 13]])
+    np.testing.assert_array_equal(output.element_ID, [10, 12])
+    with pytest.raises(ValueError, match="run ID 11.*found 0"):
+        workflow_w0.get_array_output(name, 11)
+
+
+@pytest.mark.parametrize("has_runs", [False, True])
+def test_task_get_array_output_without_producing_runs(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch, has_runs: bool
+) -> None:
+    task = workflow_w0.tasks[0]
+    monkeypatch.setattr(
+        workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[10] if has_runs else [])
+    )
+    monkeypatch.setattr(
+        workflow_w0,
+        "get_EARs_from_IDs",
+        Mock(
+            return_value=(
+                [SimpleNamespace(id_=10, get_parameter_names=Mock(return_value=["p2"]))]
+                if has_runs
+                else []
+            )
+        ),
+    )
+    read_output = Mock()
+    monkeypatch.setattr(workflow_w0, "get_array_output", read_output)
+
+    with pytest.raises(ValueError, match="No producing runs found"):
+        task.get_array_output("p1.a")
+
+    read_output.assert_not_called()
+
+
+def test_task_list_array_outputs_checks_directories_only(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = workflow_w0.tasks[0]
+    task.template.schemas[0].outputs = [
+        hf.SchemaOutput(parameter=hf.Parameter(name)) for name in ("a", "shared", "z")
+    ]
+    task.template.disable_array_outputs = ["outputs.a"]
+    read_archive = Mock(side_effect=AssertionError("Listing must not read NPZ files"))
+    monkeypatch.setattr(workflow_w0, "_read_array_output_archive", read_archive)
+
+    assert task.list_array_outputs() == []
+    for name in ["shared", "z.data", "a.data", "other_task"]:
+        directory = workflow_w0._get_array_output_archive_path(name, 0).parent
+        directory.mkdir(parents=True)
+        (directory / "0.npz.zst").touch()
+    assert task.list_array_outputs() == ["shared", "z.data"]
+    read_archive.assert_not_called()
+
+
+def test_task_get_array_output_disabled(workflow_w0: Workflow) -> None:
+    workflow_w0.tasks[0].template.disable_array_outputs = ["p1"]
+    with pytest.raises(ValueError, match="is disabled"):
+        workflow_w0.tasks[0].get_array_output("p1.a")
+
+
+def test_task_without_array_output_fields() -> None:
+    schema = hf.TaskSchema.from_json_like({"objective": "legacy_task", "actions": []})
+    assert schema is not None
+    schemas: ObjectList[JSONable] = ObjectList([schema])
+    task = hf.Task.from_json_like(
+        {"schema": ["legacy_task"]},
+        shared_data={"task_schemas": schemas},
+    )
+    assert task is not None
+    assert task.disable_array_outputs == []
+    assert task.schemas[0].disable_array_outputs == []
+    assert not hasattr(task, "array_outputs")
+    assert "array_outputs" not in task.to_dict()
+
+
+@pytest.mark.parametrize("sort", [False, True])
+def test_task_export_array_output(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sort: bool
+) -> None:
+    task = workflow_w0.tasks[0]
+    output = Mock(data=np.arange(6).reshape(2, 3))
+    read_output = Mock(return_value=output)
+    monkeypatch.setattr(task, "get_array_output", read_output)
+    path = tmp_path / "task.npy"
+
+    assert (
+        task.export_array_output(
+            "p1.a", path, iteration_idx=[0, 2], element_idx=1, sort=sort
+        )
+        == path
+    )
+    read_output.assert_called_once_with(
+        "p1.a", iteration_idx=[0, 2], element_idx=1, sort=sort
+    )
+    np.testing.assert_array_equal(np.load(path, allow_pickle=False), output.data)
+    original = path.read_bytes()
+    with pytest.raises(FileExistsError):
+        task.export_array_output("p1.a", path)
+    assert path.read_bytes() == original
+    output.data = np.arange(3)
+    task.export_array_output("p1.a", path, overwrite=True)
+    np.testing.assert_array_equal(np.load(path, allow_pickle=False), output.data)
+
+
+@pytest.mark.parametrize(
+    ("iteration_idx", "element_idx", "expected"),
+    [
+        (None, None, [11, 13]),
+        (None, 0, [11]),
+        (None, 1, [13]),
+        (0, None, [10, 13]),
+        (1, None, [11, 14]),
+        (2, 0, [12]),
+        (0, 1, [13]),
+        ([1, 0, 1], (1, 0), [10, 11, 13, 14]),
+        ((0, 2), [0], [10, 12]),
+        (None, [1, 0, 1], [11, 13]),
+        ([1], None, [11, 14]),
+        ([], None, []),
+        (None, [], []),
+    ],
+)
+def test_task_get_array_output_filters_elements_and_iterations(
+    workflow_w0: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+    iteration_idx: int | list[int] | tuple[int, ...] | None,
+    element_idx: int | list[int] | tuple[int, ...] | None,
+    expected: list[int],
+) -> None:
+    task = workflow_w0.tasks[0]
+    monkeypatch.setattr(
+        task.template.schemas[0],
+        "get_action_parameter_flow",
+        Mock(return_value={"p1": {"sources": [7, 8], "sinks": [-1]}}),
+    )
+    elements = []
+    for idx, skipped in enumerate(([False, False, True], [False, True])):
+        element = SimpleNamespace(
+            id_=100 + idx,
+            index=idx,
+            iterations=[
+                SimpleNamespace(id_=idx * 10 + i, index=i, loop_skipped=skip)
+                for i, skip in enumerate(skipped)
+            ],
+        )
+        element.latest_iteration_non_skipped = next(
+            iteration
+            for iteration in reversed(element.iterations)
+            if not iteration.loop_skipped
+        )
+        elements.append(element)
+    runs = [
+        SimpleNamespace(
+            id_=10 + i,
+            element=element,
+            element_iteration=iteration,
+            element_action=SimpleNamespace(action_idx=7),
+        )
+        for i, (element, iteration) in enumerate(
+            (element, iteration)
+            for element in elements
+            for iteration in element.iterations
+        )
+    ]
+    monkeypatch.setattr(
+        workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[r.id_ for r in runs])
+    )
+    monkeypatch.setattr(workflow_w0, "get_EARs_from_IDs", Mock(return_value=runs))
+    read_output = Mock()
+    monkeypatch.setattr(workflow_w0, "get_array_output", read_output)
+
+    if not expected:
+        with pytest.raises(ValueError, match="No producing runs found"):
+            task.get_array_output(
+                "p1.a", iteration_idx=iteration_idx, element_idx=element_idx
+            )
+        read_output.assert_not_called()
+        return
+
+    assert (
+        task.get_array_output(
+            "p1.a", iteration_idx=iteration_idx, element_idx=element_idx
+        )
+        is read_output.return_value
+    )
+    read_output.assert_called_once_with("p1.a", expected, sort=True)
+
+
+def test_task_get_array_output_schema_action_offset(
+    workflow_w0: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = workflow_w0.tasks[0]
+    template = SimpleNamespace(
+        disable_array_outputs=[],
+        schemas=[
+            SimpleNamespace(
+                actions=[None, None],
+                disable_array_outputs=[],
+                get_action_parameter_flow=Mock(return_value={}),
+            ),
+            SimpleNamespace(
+                actions=[None, None, None],
+                disable_array_outputs=[],
+                get_action_parameter_flow=Mock(
+                    return_value={"p1": {"sources": [1, 2], "sinks": [-1]}}
+                ),
+            ),
+        ],
+        insert_ID=task.insert_ID,
+    )
+    monkeypatch.setattr(task, "_template", template)
+    monkeypatch.setattr(workflow_w0, "get_EAR_IDs_of_tasks", Mock(return_value=[10, 11]))
+    get_runs = Mock(
+        return_value=[
+            SimpleNamespace(id_=10, element_action=SimpleNamespace(action_idx=1)),
+            SimpleNamespace(id_=11, element_action=SimpleNamespace(action_idx=3)),
+        ]
+    )
+    monkeypatch.setattr(
+        workflow_w0,
+        "get_EARs_from_IDs",
+        get_runs,
+    )
+    read_output = Mock()
+    monkeypatch.setattr(workflow_w0, "get_array_output", read_output)
+
+    for run in get_runs.return_value:
+        run.element_iteration = SimpleNamespace(index=0)
+    assert task.get_array_output("p1.a", iteration_idx=0) is read_output.return_value
+    read_output.assert_called_once_with("p1.a", [11], sort=True)
 
 
 @pytest.fixture
