@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a19"></a>
+## [v0.3.0a19](https://github.com/hpcflow/hpcflow/compare/v0.3.0a18...v0.3.0a19) - 2026.10.20
+
+### ✨ Features
+
+* add random row sampling to file-based sequence value methods
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a18"></a>
 ## [v0.3.0a18](https://github.com/hpcflow/hpcflow/compare/v0.3.0a17...v0.3.0a18) - 2026.10.20
 
