@@ -50,6 +50,7 @@ from hpcflow.sdk.cli_common import (
     zip_log_opt,
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
+    zip_consolidate_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -762,6 +763,7 @@ def _make_workflow_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @_pass_workflow
     def zip_workflow(
         wf: Workflow,
@@ -770,6 +772,7 @@ def _make_workflow_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
     ):
         """Generate a copy of the workflow in the zip file format in the current working
         directory."""
@@ -780,6 +783,7 @@ def _make_workflow_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 
@@ -1143,6 +1147,7 @@ def _make_zip_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @workflow_ref_type_opt
     def zip_workflow(
         workflow_ref: str,
@@ -1151,6 +1156,7 @@ def _make_zip_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
         ref_type: str | None,
     ):
         """Generate a copy of the specified workflow in the zip file format in the
@@ -1168,6 +1174,7 @@ def _make_zip_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 

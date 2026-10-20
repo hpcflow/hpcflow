@@ -294,6 +294,16 @@ zip_log_opt = click.option("--log", help="Path to a log file to use during zippi
 zip_include_execute_opt = click.option("--include-execute", is_flag=True)
 #: Standard option
 zip_include_rechunk_backups_opt = click.option("--include-rechunk-backups", is_flag=True)
+#: Standard option
+zip_consolidate_opt = click.option(
+    "--consolidate/--no-consolidate",
+    default=True,
+    show_default=True,
+    help=(
+        "Consolidate array-output shard archives into one file per output before "
+        "zipping, which makes zipping much faster."
+    ),
+)
 
 #: Standard option
 unzip_path_opt = click.option(
@@ -506,6 +516,7 @@ _add_doc_from_help(
     zip_log_opt,
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
+    zip_consolidate_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,

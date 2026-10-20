@@ -2754,6 +2754,7 @@ class Workflow(AppAware):
         overwrite: bool = False,
         include_execute: bool = False,
         include_rechunk_backups: bool = False,
+        consolidate: bool = True,
         status: bool = True,
     ) -> str:
         """
@@ -2765,7 +2766,13 @@ class Workflow(AppAware):
             Path at which to create the new zipped workflow. If this is an existing
             directory, the zip file will be created within this directory. Otherwise,
             this path is assumed to be the full file path to the new zip file.
+        consolidate:
+            If True (default), first consolidate array-output shard archives into a
+            single file per output (see :meth:`consolidate_array_outputs`); zipping many
+            small shard files is much slower than zipping one file per output.
         """
+        if consolidate and self._store._features.edit:
+            self.consolidate_array_outputs(status=status)
         return self._store.zip(
             path=path,
             log=log,

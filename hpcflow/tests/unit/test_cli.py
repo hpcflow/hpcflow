@@ -7,7 +7,11 @@ import click.exceptions
 
 from hpcflow import __version__
 from hpcflow.app import app as hf
-from hpcflow.sdk.cli import ErrorPropagatingClickContext, _make_workflow_CLI
+from hpcflow.sdk.cli import (
+    ErrorPropagatingClickContext,
+    _make_workflow_CLI,
+    _make_zip_CLI,
+)
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.cli_common import BoolOrString
 
@@ -108,6 +112,37 @@ def test_cli_consolidate_array_outputs(
         f"p1.a: {tmp_path / 'p1.a' / 'consolidated.npz.zst'}",
         f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.npz.zst'}",
     ]
+
+
+@pytest.mark.parametrize(
+    ("args", "consolidate"),
+    [([], True), (["--consolidate"], True), (["--no-consolidate"], False)],
+)
+@pytest.mark.parametrize("top_level", [False, True])
+def test_cli_zip_consolidate_option(
+    tmp_path: Path, args: list[str], consolidate: bool, top_level: bool
+):
+    workflow = Mock(spec=Workflow)
+    workflow.zip.return_value = str(tmp_path / "wk.zip")
+    if top_level:
+        app = Mock(wraps=hf)
+        app._resolve_workflow_reference.return_value = str(tmp_path / "wk")
+        app.Workflow = Mock(return_value=workflow)
+        command = _make_zip_CLI(app)
+        result = CliRunner().invoke(command, ["wk", *args])
+    else:
+        command = _make_workflow_CLI(hf).commands["zip"]
+        result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    workflow.zip.assert_called_once_with(
+        path=".",
+        overwrite=False,
+        log=None,
+        include_execute=False,
+        include_rechunk_backups=False,
+        consolidate=consolidate,
+    )
+    assert str(tmp_path / "wk.zip") in result.output
 
 
 def test_version(cli_runner) -> None:

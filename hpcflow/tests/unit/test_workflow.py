@@ -696,6 +696,36 @@ def test_consolidate_array_outputs(
     read_archive.assert_not_called()
 
 
+@pytest.mark.parametrize("consolidate", [None, False, True])
+def test_zip_consolidates_array_outputs(
+    empty_workflow: Workflow, tmp_path: Path, consolidate: bool | None
+) -> None:
+    import zipfile
+
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+    _write_array_output_archive(empty_workflow, "p1.a", 500, [101], np.array([[3, 4]]))
+    if consolidate is None:
+        zip_path = empty_workflow.zip(path=str(tmp_path), status=False)
+    else:
+        zip_path = empty_workflow.zip(
+            path=str(tmp_path), status=False, consolidate=consolidate
+        )
+
+    expected = (
+        ["0/6.npz.zst", "1/0.npz.zst"]
+        if consolidate is False
+        else ["consolidated.npz.zst"]
+    )
+    assert _archive_files(empty_workflow, "p1.a") == expected
+    with zipfile.ZipFile(zip_path) as archive:
+        members = sorted(
+            name.split("parameters/array_outputs/p1.a/", 1)[1]
+            for name in archive.namelist()
+            if "parameters/array_outputs/p1.a/" in name and name.endswith(".npz.zst")
+        )
+    assert members == expected
+
+
 def test_consolidate_array_outputs_selection(empty_workflow: Workflow) -> None:
     assert empty_workflow.consolidate_array_outputs(status=False) == {}
     with pytest.raises(ValueError, match="No array-output archives found for 'nope'"):
