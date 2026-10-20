@@ -170,6 +170,9 @@ class ResourceSpecArgs(TypedDict):
     max_scheduler_concurrency: NotRequired[int]
     #: If using array jobs, what is the maximum permitted size of a job array.
     max_array_size: NotRequired[int]
+    #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
+    #: wrapped actions are executed by each array item: ``"element"`` or ``"action"``.
+    array_wrap_order: NotRequired[str]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.

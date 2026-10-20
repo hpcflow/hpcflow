@@ -23,7 +23,11 @@ from typing import (
 )
 from typing_extensions import Self
 
-from hpcflow.sdk.core.enums import ParallelMode
+from hpcflow.sdk.core.enums import (
+    ARRAY_WRAP_ORDERS,
+    DEFAULT_ARRAY_WRAP_ORDER,
+    ParallelMode,
+)
 from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import UnsupportedOSError, UnsupportedSchedulerError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
@@ -300,6 +304,12 @@ class ElementResources(JSONLike):
         concurrently.
     max_array_size: int
         If using array jobs, what is the maximum permitted size of a job array.
+    array_wrap_order: str
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) runs
+        all actions of one element before moving to the next wrapped element;
+        ``"action"`` runs one action for all wrapped elements before moving to the next
+        action.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -374,6 +384,10 @@ class ElementResources(JSONLike):
     max_scheduler_concurrency: int | None = None
     #: If using array jobs, what is the maximum permitted size of a job array.
     max_array_size: int | None = None
+    #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
+    #: wrapped actions are executed by each array item: ``"element"`` (default) or
+    #: ``"action"``.
+    array_wrap_order: str | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
@@ -442,6 +456,14 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
+        if self.array_wrap_order is not None:
+            self.array_wrap_order = self.array_wrap_order.lower().strip()
+            if self.array_wrap_order not in ARRAY_WRAP_ORDERS:
+                raise ValueError(
+                    f"`array_wrap_order` must be one of {ARRAY_WRAP_ORDERS!r}, but "
+                    f"{self.array_wrap_order!r} was specified."
+                )
+
         if self.num_MPI_ranks is None and self.num_cores is not None:
             self.num_MPI_ranks = self.num_cores
 
@@ -487,6 +509,10 @@ class ElementResources(JSONLike):
         # contribution to the hash, so always set it to `False` if unset at this point:
         if self.combine_scripts is None:
             dct["combine_scripts"] = False
+
+        # likewise, an unset `array_wrap_order` is equivalent to the default:
+        if self.array_wrap_order is None:
+            dct["array_wrap_order"] = DEFAULT_ARRAY_WRAP_ORDER
 
         return get_hash(dct)
 
