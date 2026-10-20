@@ -83,6 +83,33 @@ def test_cli_export_array_output_invalid_options(tmp_path: Path, options: list[s
     workflow.tasks.get.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("args", "names", "status"),
+    [
+        ([], None, True),
+        (["--no-status"], None, False),
+        (["p1.a"], ("p1.a",), True),
+        (["p1.a", "p2", "--status"], ("p1.a", "p2"), True),
+    ],
+)
+def test_cli_consolidate_array_outputs(
+    tmp_path: Path, args: list[str], names: tuple[str, ...] | None, status: bool
+):
+    workflow = Mock(spec=Workflow)
+    workflow.consolidate_array_outputs.return_value = {
+        "p1.a": tmp_path / "p1.a" / "consolidated.npz.zst",
+        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.npz.zst",
+    }
+    command = _make_workflow_CLI(hf).commands["consolidate-array-outputs"]
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    workflow.consolidate_array_outputs.assert_called_once_with(names, status=status)
+    assert result.output.splitlines() == [
+        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.npz.zst'}",
+        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.npz.zst'}",
+    ]
+
+
 def test_version(cli_runner) -> None:
     result = cli_runner(["--version"])
     assert result.output.strip() == f"hpcFlow, version {__version__}"

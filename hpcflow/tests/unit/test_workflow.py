@@ -1,7 +1,7 @@
 from __future__ import annotations
 import copy
 from io import BytesIO
-from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass
+from dataclasses import FrozenInstanceError, dataclass, fields, is_dataclass, replace
 from pathlib import Path
 from textwrap import dedent
 from types import SimpleNamespace
@@ -573,6 +573,243 @@ def test_list_array_outputs(empty_workflow: Workflow) -> None:
     assert empty_workflow.list_array_outputs() == ["a.output", "shared", "z.output"]
     assert first.list_array_outputs() == ["shared", "z.output"]
     assert second.list_array_outputs() == ["a.output", "shared"]
+
+
+def _write_array_output_archive(
+    workflow: Workflow,
+    name: str,
+    run_file_ID: int,
+    run_IDs: list[int],
+    data: np.ndarray,
+    shape: np.ndarray | None = None,
+) -> Path:
+    """Write a shard archive with simple, run-ID-derived metadata."""
+    path = workflow._get_array_output_archive_path(name, run_file_ID)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ids = np.asarray(run_IDs)
+    buffer = BytesIO()
+    np.savez(
+        buffer,
+        allow_pickle=False,
+        data=data,
+        task_insert_ID=np.zeros_like(ids),
+        task_idx=np.zeros_like(ids),
+        element_idx=ids - 100,
+        element_ID=ids - 90,
+        iteration_idx=np.zeros_like(ids),
+        iteration_ID=ids - 80,
+        action_idx=np.zeros_like(ids),
+        run_idx=ids - 70,
+        run_ID=ids,
+        **({"shape": shape} if shape is not None else {}),
+    )
+    path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
+    return path
+
+
+def _archive_files(workflow: Workflow, name: str) -> list[str]:
+    root = workflow._get_array_output_root(name)
+    return sorted(
+        str(path.relative_to(root)).replace("\\", "/")
+        for path in root.rglob("*")
+        if path.is_file()
+    )
+
+
+@pytest.mark.parametrize("ragged", [False, True])
+def test_consolidate_array_outputs(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch, ragged: bool
+) -> None:
+    ears_by_ID = {
+        100: SimpleNamespace(run_file_ID=6, id_=100),
+        101: SimpleNamespace(run_file_ID=500, id_=101),
+        102: SimpleNamespace(run_file_ID=501, id_=102),
+    }
+    monkeypatch.setattr(
+        empty_workflow,
+        "get_EARs_from_IDs",
+        lambda run_IDs: (
+            ears_by_ID[run_IDs]
+            if isinstance(run_IDs, int)
+            else [ears_by_ID[run_ID] for run_ID in run_IDs]
+        ),
+    )
+    second = np.array([3, 4, 5]) if ragged else np.array([3, 4])
+    # two shards in different shard directories (0/6 and 1/0), newest run first:
+    _write_array_output_archive(empty_workflow, "p1.a", 500, [101], second[None])
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+    assert _archive_files(empty_workflow, "p1.a") == ["0/6.npz.zst", "1/0.npz.zst"]
+
+    results = empty_workflow.consolidate_array_outputs(status=False)
+
+    consolidated = empty_workflow._get_array_output_consolidated_path("p1.a")
+    assert results == {"p1.a": consolidated}
+    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.npz.zst"]
+    assert not (consolidated.parent / "0").exists()
+    assert empty_workflow.list_array_outputs() == ["p1.a"]
+    archive = empty_workflow._read_array_output_archive(consolidated)
+    np.testing.assert_array_equal(archive.run_ID, [100, 101])  # sorted by run ID
+    if ragged:
+        np.testing.assert_array_equal(archive.data, [[1, 2, 0], [3, 4, 5]])
+        np.testing.assert_array_equal(archive.shape, [[2], [3]])
+    else:
+        np.testing.assert_array_equal(archive.data, [[1, 2], [3, 4]])
+        assert archive.shape is None
+
+    # all three reader routes resolve to the consolidated archive:
+    output_all = empty_workflow.get_array_output("p1.a")
+    np.testing.assert_array_equal(output_all.run_ID, [100, 101])
+    np.testing.assert_array_equal(output_all.data[1], second)
+    np.testing.assert_array_equal(output_all.element_ID, [10, 11])
+    output_sel = empty_workflow.get_array_output("p1.a", [101, 100], sort=False)
+    np.testing.assert_array_equal(output_sel.run_ID, [101, 100])
+    np.testing.assert_array_equal(output_sel.data[0], second)
+    np.testing.assert_array_equal(
+        empty_workflow.get_array_output("p1.a", 100).data, [1, 2]
+    )
+    assert empty_workflow._resolve_array_output_archive_path("p1.a", 6) == consolidated
+
+    # a run saved after consolidation lands in a new shard and is folded in on repeat:
+    _write_array_output_archive(empty_workflow, "p1.a", 501, [102], np.array([[6, 7]]))
+    assert _archive_files(empty_workflow, "p1.a") == [
+        "1/1.npz.zst",
+        "consolidated.npz.zst",
+    ]
+    assert empty_workflow._resolve_array_output_archive_path("p1.a", 501) != consolidated
+    np.testing.assert_array_equal(
+        empty_workflow.get_array_output("p1.a").run_ID, [100, 101, 102]
+    )
+    assert empty_workflow.consolidate_array_outputs("outputs.p1.a") == {
+        "p1.a": consolidated
+    }
+    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.npz.zst"]
+    archive = empty_workflow._read_array_output_archive(consolidated)
+    np.testing.assert_array_equal(archive.run_ID, [100, 101, 102])
+    np.testing.assert_array_equal(archive.data[2][:2], [6, 7])
+
+    # nothing left to merge: no-op that still reports the existing archive
+    read_archive = Mock(wraps=empty_workflow._read_array_output_archive)
+    monkeypatch.setattr(empty_workflow, "_read_array_output_archive", read_archive)
+    assert empty_workflow.consolidate_array_outputs(status=False) == {
+        "p1.a": consolidated
+    }
+    read_archive.assert_not_called()
+
+
+def test_consolidate_array_outputs_selection(empty_workflow: Workflow) -> None:
+    assert empty_workflow.consolidate_array_outputs(status=False) == {}
+    with pytest.raises(ValueError, match="No array-output archives found for 'nope'"):
+        empty_workflow.consolidate_array_outputs("nope", status=False)
+
+    for name in ("p1.m", "p1.m.__mask__", "p1.other"):
+        _write_array_output_archive(empty_workflow, name, 6, [100], np.array([[1.0]]))
+
+    # naming a masked output consolidates its mask archive too; others untouched:
+    results = empty_workflow.consolidate_array_outputs(["p1.m"], status=False)
+    assert sorted(results) == ["p1.m", "p1.m.__mask__"]
+    assert _archive_files(empty_workflow, "p1.m") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.m.__mask__") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.other") == ["0/6.npz.zst"]
+    assert empty_workflow.list_array_outputs() == ["p1.m", "p1.other"]
+
+    # consolidating everything includes internal mask archives:
+    results = empty_workflow.consolidate_array_outputs(status=False)
+    assert sorted(results) == ["p1.m", "p1.m.__mask__", "p1.other"]
+    assert _archive_files(empty_workflow, "p1.other") == ["consolidated.npz.zst"]
+
+
+def test_consolidate_array_outputs_verification_failure_keeps_shards(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+    _write_array_output_archive(empty_workflow, "p1.a", 7, [101], np.array([[3, 4]]))
+    consolidated = empty_workflow._get_array_output_consolidated_path("p1.a")
+    real_read = empty_workflow._read_array_output_archive
+
+    def corrupt_read(path: Path):
+        archive = real_read(path)
+        if path == consolidated:
+            # simulate a truncated re-read of the freshly written archive
+            return replace(archive, run_ID=archive.run_ID[:1])
+        return archive
+
+    monkeypatch.setattr(empty_workflow, "_read_array_output_archive", corrupt_read)
+    with pytest.raises(RuntimeError, match="holds 1 entries; expected 2"):
+        empty_workflow.consolidate_array_outputs(status=False)
+    assert _archive_files(empty_workflow, "p1.a") == [
+        "0/6.npz.zst",
+        "0/7.npz.zst",
+        "consolidated.npz.zst",
+    ]
+
+
+def _make_archive(
+    data: np.ndarray, run_IDs: list[int], shape: np.ndarray | None = None
+) -> _ArrayOutputArchive:
+    zeros = np.zeros(len(run_IDs), dtype=np.int64)
+    return _ArrayOutputArchive(
+        data=data,
+        task_insert_ID=zeros,
+        task_idx=zeros,
+        element_idx=zeros,
+        element_ID=zeros,
+        iteration_idx=zeros,
+        iteration_ID=zeros,
+        action_idx=zeros,
+        run_idx=zeros,
+        run_ID=np.asarray(run_IDs),
+        shape=shape,
+    )
+
+
+def test_merge_array_output_archives() -> None:
+    merge = hf.Workflow._merge_array_output_archives
+    with pytest.raises(TypeError, match="different dtypes"):
+        merge(
+            "x",
+            [
+                _make_archive(np.zeros((1, 2)), [0]),
+                _make_archive(np.zeros((1, 2), dtype=int), [1]),
+            ],
+        )
+    with pytest.raises(ValueError, match="different dimensionality"):
+        merge(
+            "x",
+            [
+                _make_archive(np.zeros((1, 2)), [0]),
+                _make_archive(np.zeros((1, 2, 2)), [1]),
+            ],
+        )
+    with pytest.raises(ValueError, match=r"more than once: \[0\]"):
+        merge(
+            "x",
+            [_make_archive(np.zeros((1, 2)), [0]), _make_archive(np.zeros((1, 2)), [0])],
+        )
+
+    # 0-d entries: no shape metadata, sorted by run ID
+    merged = merge(
+        "x",
+        [
+            _make_archive(np.array([5.0, 6.0]), [3, 1]),
+            _make_archive(np.array([7.0]), [2]),
+        ],
+    )
+    np.testing.assert_array_equal(merged["data"], [6.0, 7.0, 5.0])
+    np.testing.assert_array_equal(merged["run_ID"], [1, 2, 3])
+    assert "shape" not in merged
+
+    # existing shape metadata is preserved and combined with implied shapes
+    merged = merge(
+        "x",
+        [
+            _make_archive(np.array([[1, 0], [2, 3]]), [1, 0], shape=np.array([[1], [2]])),
+            _make_archive(np.array([[4, 5, 6]]), [2]),
+        ],
+    )
+    np.testing.assert_array_equal(merged["run_ID"], [0, 1, 2])
+    np.testing.assert_array_equal(merged["data"], [[2, 3, 0], [1, 0, 0], [4, 5, 6]])
+    np.testing.assert_array_equal(merged["shape"], [[2], [1], [3]])
+    assert merged["shape"].dtype == np.int32
 
 
 @pytest.mark.parametrize("as_list", [False, True])

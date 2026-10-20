@@ -710,6 +710,26 @@ def _make_workflow_CLI(app: BaseApp):
             )
         click.echo(destination)
 
+    @workflow.command(name="consolidate-array-outputs")
+    @click.argument("names", nargs=-1)
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="If True, display a live status while consolidating.",
+    )
+    @_pass_workflow
+    def consolidate_array_outputs(wf: Workflow, names: tuple[str, ...], status: bool):
+        """Merge shard archives of array outputs into one file per output.
+
+        Each NAME's shard archives are merged into a single
+        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        removed. With no NAMES, consolidate every array output. Safe to repeat: runs
+        saved after an earlier consolidation are folded in.
+        """
+        results = wf.consolidate_array_outputs(names or None, status=status)
+        for name, path in results.items():
+            click.echo(f"{name}: {path}")
+
     @workflow.command(name="get-param-source")
     @click.argument("index", type=click.INT)
     @_pass_workflow

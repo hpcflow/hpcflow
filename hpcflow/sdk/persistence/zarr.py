@@ -61,7 +61,11 @@ from hpcflow.sdk.persistence.types import (
     ZarrAttrsDict,
 )
 from hpcflow.sdk.persistence.store_resource import ZarrAttrsStoreResource
-from hpcflow.sdk.persistence.utils import ask_pw_on_auth_exc, atomic_write
+from hpcflow.sdk.persistence.utils import (
+    ARRAY_OUTPUT_MASK_SUFFIX,
+    ask_pw_on_auth_exc,
+    atomic_write,
+)
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
 from hpcflow.sdk.log import TimeIt
@@ -159,7 +163,7 @@ def _zarr_get_coord_selection(arr: Array, selection: Any, logger: Logger):
     return _inner(arr, selection)
 
 
-_ARRAY_OUTPUT_MASK_SUFFIX = "__mask__"
+_ARRAY_OUTPUT_MASK_SUFFIX = ARRAY_OUTPUT_MASK_SUFFIX
 """Suffix for the NPZ archive holding the mask of a masked-array output."""
 
 
@@ -239,16 +243,14 @@ def _decode_numpy_arrays(
             is_disabled = run.task._is_array_output_disabled(name)
             if array_output_name_suffix:
                 name = f"{name}.{array_output_name_suffix}"
+            # the shard archive for this run, or the consolidated archive, if either
+            # exists:
             archive_path = (
-                run.workflow._get_array_output_archive_path(name, run.run_file_ID)
+                run.workflow._resolve_array_output_archive_path(name, run.run_file_ID)
                 if run.run_file_ID is not None
                 else None
             )
-            if (
-                (arr_idx is None or not is_disabled)
-                and archive_path is not None
-                and run.workflow._array_output_fs.exists(archive_path.as_posix())
-            ):
+            if (arr_idx is None or not is_disabled) and archive_path is not None:
                 if array_output_cache is not None and name in array_output_cache:
                     dataset = array_output_cache[name]
                 else:
@@ -260,8 +262,13 @@ def _decode_numpy_arrays(
                         array_output_cache[name] = dataset
             else:
                 if arr_idx is None:
+                    expected = (
+                        run.workflow._get_array_output_archive_path(name, run.run_file_ID)
+                        if run.run_file_ID is not None
+                        else None
+                    )
                     raise FileNotFoundError(
-                        f"Missing NPZ archive for array output {name!r}: {archive_path}."
+                        f"Missing NPZ archive for array output {name!r}: {expected}."
                     )
                 if arr_group is None or f"arr_{arr_idx}" not in arr_group:
                     raise ValueError(f"Missing legacy array dataset arr_{arr_idx}.")

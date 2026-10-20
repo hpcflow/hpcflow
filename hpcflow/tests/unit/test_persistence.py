@@ -329,12 +329,18 @@ def test_zarr_legacy_output_decode_without_array_archives(
     assert stored["text"] == "legacy"
 
 
+@pytest.mark.parametrize("consolidate", [False, True])
 def test_zarr_zip_reads_array_outputs(
-    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    consolidate: bool,
 ) -> None:
     workflow, run = zarr_array_workflow
     value = np.arange(6).reshape(2, 3)
     workflow.save_parameter("outputs.p1", {"data": value}, EAR_ID=run.id_)
+    if consolidate:
+        assert sorted(workflow.consolidate_array_outputs(status=False)) == ["p1.data"]
     zip_workflow = hf.Workflow(workflow.zip(path=tmp_path, status=False))
     zip_run = cast(Any, zip_workflow.get_EARs_from_IDs(run.id_))
     monkeypatch.setattr(zip_run, "_run_file_ID", 6)
@@ -355,6 +361,44 @@ def test_zarr_zip_reads_array_outputs(
     np.testing.assert_array_equal(
         zip_workflow.get_parameter_data(run.data_idx["outputs.p1"])["data"], value
     )
+    with pytest.raises(TypeError, match="editable workflow store"):
+        zip_workflow.consolidate_array_outputs(status=False)
+
+
+def test_zarr_consolidated_array_outputs_decode(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parameter decoding reads data and masks from consolidated archives."""
+    workflow, run = zarr_array_workflow
+    masked = np.ma.array([1.0, 2.0, 3.0], mask=[False, True, False], fill_value=-1.0)
+    values = {"a": np.arange(4), "m": masked}
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    results = workflow.consolidate_array_outputs(status=False)
+    assert sorted(results) == ["p1.a", "p1.m", "p1.m.__mask__"]
+    archive_root = Path(workflow._store.path) / "parameters" / "array_outputs"
+    assert sorted(
+        str(path.relative_to(archive_root)).replace("\\", "/")
+        for path in archive_root.rglob("*.npz.zst")
+    ) == [
+        "p1.a/consolidated.npz.zst",
+        "p1.m.__mask__/consolidated.npz.zst",
+        "p1.m/consolidated.npz.zst",
+    ]
+    assert workflow.list_array_outputs() == ["p1.a", "p1.m"]
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+
+    stored = workflow.get_parameter_data(run.data_idx["outputs.p1"], dataset_copy=True)
+
+    np.testing.assert_array_equal(stored["a"], values["a"])
+    assert isinstance(stored["m"], np.ma.MaskedArray)
+    np.testing.assert_array_equal(stored["m"].data, masked.data)
+    np.testing.assert_array_equal(stored["m"].mask, masked.mask)
+    assert stored["m"].fill_value == -1.0
 
 
 @pytest.mark.parametrize("disabled", [False, True])
