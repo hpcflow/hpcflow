@@ -1,4 +1,17 @@
 
+<a name="v0.3.0a16"></a>
+## [v0.3.0a16](https://github.com/hpcflow/hpcflow/compare/v0.3.0a15...v0.3.0a16) - 2026.10.20
+
+### 🐛 Bug Fixes
+
+* issue legacy save_files deprecation warnings only once per process
+* load workflows that predate the removal of action/parser `save_files`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a15"></a>
 ## [v0.3.0a15](https://github.com/hpcflow/hpcflow/compare/v0.3.0a14...v0.3.0a15) - 2026.10.19
 
