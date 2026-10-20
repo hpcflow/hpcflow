@@ -18,6 +18,7 @@ from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import (
+    ARRAY_WRAP_ORDERS,
     InputSourceType,
     ParallelMode,
     ParameterPropagationMode,
@@ -2629,6 +2630,12 @@ class ResourceSpec(JSONLike):
         concurrently.
     max_array_size: int
         If using array jobs, what is the maximum permitted size of a job array.
+    array_wrap_order: str
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) runs
+        all actions of one element before moving to the next wrapped element;
+        ``"action"`` runs one action for all wrapped elements before moving to the next
+        action.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -2685,6 +2692,7 @@ class ResourceSpec(JSONLike):
         "use_job_array",
         "max_scheduler_concurrency",
         "max_array_size",
+        "array_wrap_order",
         "write_app_logs",
         "combine_jobscript_std",
         "combine_scripts",
@@ -2752,6 +2760,7 @@ class ResourceSpec(JSONLike):
         use_job_array: bool | None = None,
         max_scheduler_concurrency: int | None = None,
         max_array_size: int | None = None,
+        array_wrap_order: str | None = None,
         write_app_logs: bool | None = None,
         combine_jobscript_std: bool | None = None,
         combine_scripts: bool | None = None,
@@ -2801,6 +2810,7 @@ class ResourceSpec(JSONLike):
         self._use_job_array = use_job_array
         self._max_scheduler_concurrency = max_scheduler_concurrency
         self._max_array_size = max_array_size
+        self._array_wrap_order = self._process_array_wrap_order(array_wrap_order)
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
         self._combine_scripts = combine_scripts
@@ -2941,6 +2951,7 @@ class ResourceSpec(JSONLike):
             self._use_job_array = None
             self._max_scheduler_concurrency = None
             self._max_array_size = None
+            self._array_wrap_order = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
             self._combine_scripts = None
@@ -2982,6 +2993,16 @@ class ResourceSpec(JSONLike):
     def _process_rng_spawn_key(value: int | list[int] | None) -> list[int] | None:
         if isinstance(value, int):
             return [value]
+        return value
+
+    @classmethod
+    def _process_array_wrap_order(cls, value: str | None) -> str | None:
+        value = cls._process_string(value)
+        if value is not None and value not in ARRAY_WRAP_ORDERS:
+            raise ValueError(
+                f"`array_wrap_order` must be one of {ARRAY_WRAP_ORDERS!r}, but "
+                f"{value!r} was specified."
+            )
         return value
 
     def _setter_persistent_check(self):
@@ -3088,6 +3109,15 @@ class ResourceSpec(JSONLike):
         If using array jobs, what is the maximum permitted size of a job array.
         """
         return self._get_value("max_array_size")
+
+    @property
+    def array_wrap_order(self) -> str | None:
+        """
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) or
+        ``"action"``.
+        """
+        return self._get_value("array_wrap_order")
 
     @property
     def write_app_logs(self) -> bool:

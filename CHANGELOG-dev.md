@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a17"></a>
+## [v0.3.0a17](https://github.com/hpcflow/hpcflow/compare/v0.3.0a16...v0.3.0a17) - 2026.10.20
+
+### ✨ Features
+
+* add `array_wrap_order` resource item for `max_array_size` wrapping
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a16"></a>
 ## [v0.3.0a16](https://github.com/hpcflow/hpcflow/compare/v0.3.0a15...v0.3.0a16) - 2026.10.20
 
