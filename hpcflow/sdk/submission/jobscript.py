@@ -14,7 +14,7 @@ from typing_extensions import override
 
 import numpy as np
 from hpcflow.sdk.core import SKIPPED_EXIT_CODE
-from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.enums import DEFAULT_ARRAY_WRAP_ORDER, EARStatus
 from hpcflow.sdk.core.errors import (
     JobscriptSubmissionFailure,
     NotSubmitMachineError,
@@ -606,6 +606,12 @@ def ensure_max_array_size(
     """For array jobscripts, if the array size is greater than the permitted size,
     stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
     compliance.
+
+    The order in which the wrapped actions are stacked is controlled by the
+    ``array_wrap_order`` resource item. With ``"element"`` (the default), all actions of
+    a given element are run before moving on to the next wrapped element. With
+    ``"action"``, a given action is run for all wrapped elements before moving on to the
+    next action.
     """
 
     if not js_data["is_array"]:
@@ -615,12 +621,16 @@ def ensure_max_array_size(
     if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
         return js_data, element_deps
 
+    wrap_order = js_data["resources"].array_wrap_order or DEFAULT_ARRAY_WRAP_ORDER
+    element_major = wrap_order == "element"
+
     dtype = js_data["EAR_ID"].dtype
     EAR_ID_rs, n_blocks, col_map = reshape_max_width(
         js_data["EAR_ID"],
         max_width=max_size,
         dtype=dtype,
         fill=JS_BLK_EAR_ID_FILL_VALUE,
+        block_major=element_major,
     )
 
     col_map_counts = Counter(range(max_size))
@@ -631,7 +641,14 @@ def ensure_max_array_size(
     }
 
     task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
-    task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
+    if element_major:
+        # rows are ordered: all actions of block 0, then all actions of block 1, etc.
+        task_actions_rs = list(js_data["task_actions"]) * n_blocks
+    else:
+        # rows are ordered: action 0 of each block, then action 1 of each block, etc.
+        task_actions_rs = [
+            acts for acts in js_data["task_actions"] for _ in range(n_blocks)
+        ]
     task_elements_rs: dict[int, list[int]] = {}
     for js_elem, task_elems in js_data["task_elements"].items():
         new_elem = col_map.get(js_elem, js_elem)

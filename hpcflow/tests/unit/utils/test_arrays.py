@@ -1,6 +1,11 @@
 import numpy as np
 
-from hpcflow.sdk.utils.arrays import get_1D_idx, get_2D_idx, split_arr
+from hpcflow.sdk.utils.arrays import (
+    get_1D_idx,
+    get_2D_idx,
+    reshape_max_width,
+    split_arr,
+)
 
 
 def test_get_2D_idx():
@@ -38,3 +43,52 @@ def test_split_arr():
     assert np.array_equal(splt[0][1], np.array([1, 2, 3]))
     assert np.array_equal(splt[1][0], np.array([1]))
     assert np.array_equal(splt[1][1], np.array([4, 5, 6]))
+
+
+def test_reshape_max_width_row_interleaved():
+    arr = np.array([[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]])
+    out, n_blocks, col_map = reshape_max_width(arr, 3, dtype=int, fill=-1)
+    assert n_blocks == 2
+    assert col_map == {3: 0, 4: 1}
+    assert np.array_equal(
+        out,
+        np.array(
+            [
+                [0, 1, 2],
+                [3, 4, -1],
+                [5, 6, 7],
+                [8, 9, -1],
+            ]
+        ),
+    )
+
+
+def test_reshape_max_width_block_major():
+    arr = np.array([[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]])
+    out, n_blocks, col_map = reshape_max_width(
+        arr, 3, dtype=int, fill=-1, block_major=True
+    )
+    assert n_blocks == 2
+    assert col_map == {3: 0, 4: 1}
+    assert np.array_equal(
+        out,
+        np.array(
+            [
+                [0, 1, 2],
+                [5, 6, 7],
+                [3, 4, -1],
+                [8, 9, -1],
+            ]
+        ),
+    )
+
+
+def test_reshape_max_width_no_wrap_needed():
+    arr = np.array([[0, 1, 2], [3, 4, 5]])
+    for block_major in (False, True):
+        out, n_blocks, col_map = reshape_max_width(
+            arr, 3, dtype=int, fill=-1, block_major=block_major
+        )
+        assert n_blocks == 1
+        assert col_map == {}
+        assert np.array_equal(out, arr)
