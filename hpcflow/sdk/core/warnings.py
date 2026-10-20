@@ -111,6 +111,34 @@ def warn_script_data_files_use_opt_deprecated():
     )
 
 
+def warn_action_save_files_deprecated(migrated_to: str):
+    return DeprecationWarning_(
+        f"The action attribute 'save_files' has been removed; the listed files have "
+        f"been treated as {migrated_to!r}.",
+        solution=(
+            "Please declare files produced by the action with 'output_files', and "
+            "select files to retain as artifacts with the task schema (or task) "
+            "'save_files' policy."
+        ),
+    )
+
+
+def warn_output_file_parser_save_files_deprecated(migrated_to: str | None):
+    treatment = (
+        f"the files not already in 'from_files' have been treated as {migrated_to!r}"
+        if migrated_to
+        else "it has been ignored"
+    )
+    return DeprecationWarning_(
+        f"The output file parser attribute 'save_files' has been removed; {treatment}.",
+        solution=(
+            "Please declare files written by the parser script with 'generates_files', "
+            "and select files to retain as artifacts with the task schema (or task) "
+            "'save_files' policy."
+        ),
+    )
+
+
 def warn_from_random_uniform_deprecated(app, cls_name):
     new_method = "from_uniform"
     link = get_docs_url_of_class_method(app, cls_name, new_method)
