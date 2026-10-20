@@ -36,7 +36,11 @@ from hpcflow.sdk.core.utils import (
     split_param_label,
     timedelta_format,
 )
-from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
+from hpcflow.sdk.core.values import (
+    ValuesMixin,
+    load_txt_values,
+    process_demo_data_strings,
+)
 from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
 
 if TYPE_CHECKING:
@@ -1333,10 +1337,26 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         label: str | int | None = None,
         nesting_order: float = 0,
         value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from data within a simple file.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; each line becomes one sequence value.
+        num_samples
+            If specified, randomly sample this many lines from the file, rather than
+            using all lines.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample lines with replacement when `num_samples` is specified.
         """
         return super()._from_file(
             path=path,
@@ -1344,6 +1364,9 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             label=label,
             nesting_order=nesting_order,
             value_class_method=value_class_method,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -1355,10 +1378,28 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         label: str | int | None = None,
         nesting_order: float = 0,
         value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from data within a text file using Numpy's `loadtxt`.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; each row becomes one sequence value.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt`.
         """
         return super()._from_load_txt(
             path=path,
@@ -1366,6 +1407,9 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             label=label,
             nesting_order=nesting_order,
             value_class_method=value_class_method,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -1847,6 +1891,79 @@ class MultiPathSequence(_BaseSequence):
             label=label,
         )
         obj._values_method = "from_latin_hypercube"
+        obj._values_method_args = kwargs
+        return obj
+
+    @classmethod
+    def from_load_txt(
+        cls,
+        paths: Sequence[str],
+        file_path: str | Path,
+        *,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
+        nesting_order: int | float | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Load values for multiple paths from the columns of a text file using Numpy's
+        `loadtxt`, optionally randomly sampling rows from the file.
+
+        Each column of the file is assigned to the corresponding path in `paths`, and
+        each row becomes one element.
+
+        Parameters
+        ----------
+        paths
+            List of dot-delimited paths within the parameter's nested data structure for
+            which values should be set, one per column of the file (after applying any
+            `usecols` selection).
+        file_path
+            Path to the text file.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        nesting_order
+            A nesting order for this multi-path sequence.
+        label
+            A label for this multi-path sequence.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt` (e.g. `usecols`,
+            `delimiter`, `skiprows`).
+        """
+        file_path = process_demo_data_strings(cls._app, file_path)
+        kwargs = {
+            "paths": list(paths),
+            "file_path": file_path,
+            **ValuesMixin._sampling_args(num_samples, seed, replace),
+            **kwargs,
+        }
+        load_kwargs = {
+            "ndmin": 2,
+            **{k: v for k, v in kwargs.items() if k not in ("paths", "file_path")},
+        }
+        arr = load_txt_values(file_path, **load_kwargs)
+        num_paths = len(paths)
+        if arr.ndim != 2 or arr.shape[1] != num_paths:
+            raise ValueError(
+                f"The number of columns loaded from file {str(file_path)!r} (shape: "
+                f"{arr.shape}) must be equal to the number of paths provided "
+                f"({num_paths}); consider using the `usecols` argument."
+            )
+        obj = cls(
+            paths=paths,
+            values=arr.T.tolist(),
+            nesting_order=nesting_order,
+            label=label,
+        )
+        obj._values_method = "from_load_txt"
         obj._values_method_args = kwargs
         return obj
 
@@ -2397,16 +2514,35 @@ class InputValue(AbstractInputValue, ValuesMixin):
         file_path: str | Path,
         path: str | None = None,
         label: str | int | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Generate a value from lines within a simple text file.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; the value is the list of lines.
+        num_samples
+            If specified, randomly sample this many lines from the file, rather than
+            using all lines.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample lines with replacement when `num_samples` is specified.
         """
         return super()._from_file(
             parameter=parameter,
             file_path=file_path,
             path=path,
             label=label,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -2417,16 +2553,37 @@ class InputValue(AbstractInputValue, ValuesMixin):
         file_path: str | Path,
         path: str | None = None,
         label: str | int | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Generate a value from data within a text file using Numpy's `loadtxt`.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt`.
         """
         return super()._from_load_txt(
             parameter=parameter,
             file_path=file_path,
             path=path,
             label=label,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
