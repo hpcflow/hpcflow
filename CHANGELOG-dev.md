@@ -1,4 +1,39 @@
 
+<a name="v0.3.0a18"></a>
+## [v0.3.0a18](https://github.com/hpcflow/hpcflow/compare/v0.3.0a17...v0.3.0a18) - 2026.10.20
+
+### ♻ Code Refactoring
+
+* for zarr store, encode all arrays in npz format by default, with option to disable per array
+
+### ✨ Features
+
+* consolidate array outputs before zipping by default
+* add consolidate_array_outputs API and CLI
+* add `export_array_output` and CLI
+* sort data in `get_array_output`
+* compress array output npz files with zstandard
+* add ArrayOutput obj
+* experiment with saving output arrays to npz named by run_file_ID
+
+### 🐛 Bug Fixes
+
+* avoid legacy Zarr array groups for NPZ-only outputs
+* sort first by task insert ID in `get_array_output`
+* array output methods for zarr-zip store
+* support disable_array_outputs properly in YAML template parsing
+* type checking
+* cast ParameterPropagationMode in SchemaOutput
+* allow unknown resource items in `ElementResources`
+* allow unknown resource items (for forward compatibility)
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* merge in develop
+* merge in develop
+
+
 <a name="v0.3.0a17"></a>
 ## [v0.3.0a17](https://github.com/hpcflow/hpcflow/compare/v0.3.0a16...v0.3.0a17) - 2026.10.20
 
