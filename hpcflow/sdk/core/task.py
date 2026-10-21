@@ -2551,6 +2551,99 @@ class WorkflowTask(AppAware):
             for inp_type in sources:
                 element_set.input_sources[inp_type][0].element_iters = int_task_i_lst
 
+    @staticmethod
+    def _get_resource_references(
+        value: Any, path: tuple[str | int, ...] = ()
+    ) -> Iterator[tuple[tuple[str | int, ...], str]]:
+        """Find whole-string resource references in nested input data.
+
+        Parameters
+        ----------
+        value
+            Data to inspect. Dictionary values, list items, and tuple items are
+            traversed recursively; dictionary keys are not inspected.
+        path
+            Dictionary keys and sequence indices locating ``value`` within the
+            original input. An empty tuple denotes the input itself.
+
+        Yields
+        ------
+        tuple[tuple[str | int, ...], str]
+            The location of each reference and its fully qualified resource path.
+            For example, ``{"seed": "<<resource:random_seed>>"}`` yields
+            ``(("seed",), "resources.any.random_seed")``. Explicit scopes, such as
+            ``<<resource:main.num_cores>>``, are preserved.
+
+        Notes
+        -----
+        Only strings consisting entirely of a reference are matched; references
+        embedded in surrounding text are ignored. Resource values are neither
+        looked up nor validated here, and the input data is not modified.
+        """
+        if isinstance(value, str):
+            if match := re.fullmatch(r"<<resource:([\w.]+)>>", value):
+                resource = match.group(1)
+                if "." not in resource:
+                    resource = f"any.{resource}"
+                yield path, f"resources.{resource}"
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                yield from WorkflowTask._get_resource_references(item, (*path, key))
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                yield from WorkflowTask._get_resource_references(item, (*path, index))
+
+    @TimeIt.decorator
+    def __get_input_resource_references(
+        self,
+        input_data_indices: Mapping[str, Sequence[int | list[int]]],
+    ) -> dict[int, list[tuple[tuple[str | int, ...], str]]]:
+        """Collect resource references once per input parameter ID."""
+        resource_references: dict[int, list[tuple[tuple[str | int, ...], str]]] = {}
+        for input_path, indices in input_data_indices.items():
+            if not input_path.startswith("inputs."):
+                continue
+            for parameter_id in indices:
+                if not isinstance(parameter_id, int) or parameter_id < 0:
+                    continue
+                if parameter_id not in resource_references:
+                    parameter = self.workflow.get_parameter(parameter_id)
+                    resource_references[parameter_id] = list(
+                        self._get_resource_references(parameter.data)
+                    )
+        return resource_references
+
+    @TimeIt.decorator
+    def __resolve_input_resource_references(
+        self,
+        data_index: DataIndex,
+        resource_references: Mapping[int, Sequence[tuple[tuple[str | int, ...], str]]],
+    ) -> None:
+        """Bind resource references and update an element's input parameter IDs."""
+        for input_path, parameter_id in list(data_index.items()):
+            if not input_path.startswith("inputs.") or not isinstance(parameter_id, int):
+                continue
+            if not (references := resource_references.get(parameter_id)):
+                continue
+            parameter = self.workflow.get_parameter(parameter_id)
+            value = copy.deepcopy(parameter.data)
+            for reference_path, resource_path in references:
+                resource_value = self._get_merged_parameter_data(
+                    data_index, resource_path, raise_on_missing=True, raise_on_unset=True
+                )
+                if resource_value is None:
+                    raise ValueError(
+                        f"Resource reference {resource_path!r} in input "
+                        f"{input_path!r} has no value."
+                    )
+                if reference_path:
+                    set_in_container(value, reference_path, resource_value)
+                else:
+                    value = resource_value
+            data_index[input_path] = self.workflow._add_parameter_data(
+                value, source=copy.deepcopy(parameter.source)
+            )
+
     @TimeIt.decorator
     def generate_new_elements(
         self,
@@ -2565,6 +2658,8 @@ class WorkflowTask(AppAware):
         """
         Create information about new elements in this task.
         """
+        resource_references = self.__get_input_resource_references(input_data_indices)
+
         new_elements: list[DataIndex] = []
         element_sequence_indices: dict[str, list[int]] = {}
         element_src_indices: dict[str, list[int]] = {}
@@ -2575,6 +2670,7 @@ class WorkflowTask(AppAware):
                 if input_data_indices[k][v] != -1
             }
             elem_i.update((k, v2[i_idx]) for k, v2 in output_data_indices.items())
+            self.__resolve_input_resource_references(elem_i, resource_references)
             new_elements.append(elem_i)
 
             for k, v3 in data_idx.items():
