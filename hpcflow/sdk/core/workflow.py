@@ -1086,6 +1086,25 @@ class _ArrayOutputArchive:
     shape: np.ndarray | None = None
 
 
+def _resolve_array_output_dtype(
+    name: str, existing: np.dtype, new: np.dtype, *, action: str
+) -> np.dtype:
+    """Return the dtype to store ``name`` with, given existing and new entry dtypes.
+
+    Dtypes must match exactly, except that fixed-width string dtypes of the same kind
+    (``U`` or ``S``) may differ in width, in which case the wider one is used so
+    that e.g. ``<U2`` labels and ``<U6`` labels can share an archive.
+    """
+    if existing == new:
+        return existing
+    if existing.kind == new.kind and existing.kind in "US":
+        return np.result_type(existing, new)
+    raise TypeError(
+        f"Cannot {action} array output {name!r}: dtype {new} is incompatible with "
+        f"existing dtype {existing}."
+    )
+
+
 @dataclass(frozen=True)
 class _IterationData:
     id_: int
@@ -5337,11 +5356,10 @@ class Workflow(AppAware):
         if archive_path.exists():
             archive = self._read_array_output_archive(archive_path)
             previous_data = archive.data
-            if previous_data.dtype != value.dtype:
-                raise TypeError(
-                    f"Array output {name!r} has dtype {value.dtype}, "
-                    f"but existing values have dtype {previous_data.dtype}."
-                )
+            # widen fixed-width strings (e.g. <U2 -> <U6); reject other mismatches:
+            stored_dtype = _resolve_array_output_dtype(
+                name, previous_data.dtype, value.dtype, action="append to"
+            )
             if previous_data.ndim != value.ndim + 1:
                 raise ValueError(
                     f"Array output {name!r} has {value.ndim} "
@@ -5363,7 +5381,7 @@ class Workflow(AppAware):
                 for axis in range(value.ndim)
             )
             expanded_data = np.zeros(
-                (previous_data.shape[0] + 1, *max_shape), dtype=previous_data.dtype
+                (previous_data.shape[0] + 1, *max_shape), dtype=stored_dtype
             )
             previous_slices: tuple[slice, ...] = tuple(
                 slice(0, size) for size in previous_data.shape[1:]
@@ -5691,11 +5709,11 @@ class Workflow(AppAware):
         Entries are zero-padded to the largest shape; ``shape`` is included only when
         entry shapes differ, matching :meth:`_save_array_output`.
         """
-        dtypes = {archive.data.dtype for archive in archives}
-        if len(dtypes) > 1:
-            raise TypeError(
-                f"Cannot consolidate array output {name!r}: archives have different "
-                f"dtypes: {sorted(str(dtype) for dtype in dtypes)}."
+        # widen fixed-width strings across archives; reject other dtype mismatches:
+        merged_dtype = archives[0].data.dtype
+        for archive in archives[1:]:
+            merged_dtype = _resolve_array_output_dtype(
+                name, merged_dtype, archive.data.dtype, action="consolidate"
             )
         ndims = {archive.data.ndim for archive in archives}
         if len(ndims) > 1:
@@ -5721,7 +5739,7 @@ class Workflow(AppAware):
             axis=0,
         ).astype(np.int32)
         max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
-        data = np.zeros((total, *max_shape), dtype=archives[0].data.dtype)
+        data = np.zeros((total, *max_shape), dtype=merged_dtype)
         offset = 0
         for archive in archives:
             count = len(archive.run_ID)
