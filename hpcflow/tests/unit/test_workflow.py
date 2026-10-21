@@ -794,7 +794,7 @@ def _make_archive(
 
 def test_merge_array_output_archives() -> None:
     merge = hf.Workflow._merge_array_output_archives
-    with pytest.raises(TypeError, match="different dtypes"):
+    with pytest.raises(TypeError, match="incompatible with existing dtype"):
         merge(
             "x",
             [
@@ -802,6 +802,16 @@ def test_merge_array_output_archives() -> None:
                 _make_archive(np.zeros((1, 2), dtype=int), [1]),
             ],
         )
+    # fixed-width strings of different widths are widened, not rejected:
+    merged = merge(
+        "x",
+        [
+            _make_archive(np.array([["Al", "Cu"]], dtype="U2"), [1]),
+            _make_archive(np.array([["Al-Cu", "Steel1"]], dtype="U6"), [0]),
+        ],
+    )
+    assert merged["data"].dtype == np.dtype("U6")
+    np.testing.assert_array_equal(merged["data"], [["Al-Cu", "Steel1"], ["Al", "Cu"]])
     with pytest.raises(ValueError, match="different dimensionality"):
         merge(
             "x",
@@ -909,6 +919,46 @@ def test_array_output_append_rejects_dtype_mismatch(
         empty_workflow._save_array_output(ear, "p1.a", np.array([3, 4], dtype=dtype))
 
     assert path.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize("kind", ["U", "S"])
+@pytest.mark.parametrize("widen", [True, False])
+def test_array_output_append_widens_fixed_width_strings(
+    empty_workflow: Workflow, kind: str, widen: bool
+) -> None:
+    """Fixed-width string entries of different widths share one archive."""
+
+    def make_ear(idx: int) -> Mock:
+        return Mock(
+            spec=ElementActionRun,
+            run_file_ID=6,
+            id_=100 + idx,
+            index=idx,
+            task=SimpleNamespace(insert_ID=20, index=2),
+            element=SimpleNamespace(index=idx, id_=idx),
+            element_iteration=SimpleNamespace(index=0, id_=idx),
+            element_action=SimpleNamespace(action_idx=0),
+        )
+
+    short = np.array(["Al", "Cu"], dtype=f"{kind}2")
+    long = np.array(["Al-Cu", "Steel1"], dtype=f"{kind}6")
+    first, second = (short, long) if widen else (long, short)
+    empty_workflow._save_array_output(make_ear(0), "p1.label", first)
+    empty_workflow._save_array_output(make_ear(1), "p1.label", second)
+
+    archive = empty_workflow._read_array_output_archive(
+        empty_workflow._get_array_output_archive_path("p1.label", 6)
+    )
+    assert archive.data.dtype == np.dtype(f"{kind}6")
+    np.testing.assert_array_equal(archive.data, np.stack([first, second]))
+    np.testing.assert_array_equal(archive.run_ID, [100, 101])
+
+    # same width in a different string kind is still rejected:
+    other_kind = "S" if kind == "U" else "U"
+    with pytest.raises(TypeError, match="incompatible with existing dtype"):
+        empty_workflow._save_array_output(
+            make_ear(2), "p1.label", np.array(["x", "y"], dtype=f"{other_kind}6")
+        )
 
 
 def make_workflow_w1_with_config_kwargs(
