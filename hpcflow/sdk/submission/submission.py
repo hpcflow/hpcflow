@@ -14,6 +14,7 @@ import warnings
 from contextlib import contextmanager
 
 
+from hpcflow.sdk.submission.run_file_resolver import RunMetaDataFileResolver
 from hpcflow.sdk.utils.strings import shorten_list_str
 import numpy as np
 
@@ -123,6 +124,7 @@ class Submission(JSONLike):
         at_submit_metadata: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         environments: EnvironmentsList | None = None,
+        timeit: bool = False,
     ):
         self._index = index
         self._jobscripts = jobscripts
@@ -131,6 +133,7 @@ class Submission(JSONLike):
         }
         self._JS_parallelism = JS_parallelism
         self._environments = environments  # assigned by _set_environments
+        self._timeit = timeit
 
         self._submission_parts_lst: list[SubmissionPart] | None = (
             None  # assigned on first access
@@ -180,8 +183,6 @@ class Submission(JSONLike):
             defaultdict(lambda: defaultdict(set))
         )
         with self.workflow.cached_merged_parameters():
-            # using the cache (for `run.env_spec_hashable` -> `run.resources`) should
-            # significantly speed up this loop, unless a large resources sequence is used:
             for js_idx, all_EARs_i in enumerate(self.all_EARs_by_jobscript):
                 for run in all_EARs_i:
                     env_spec_h = run.env_spec_hashable
@@ -241,6 +242,15 @@ class Submission(JSONLike):
         The index of this submission.
         """
         return self._index
+
+    @property
+    def timeit(self) -> bool:
+        """
+        Whether to time run execution function pathways as the code executes and write
+        out a summary to the app-std file. Only functions decorated by `TimeIt.decorator`
+        are included.
+        """
+        return self._timeit
 
     @property
     def environments(self) -> EnvironmentsList:
@@ -714,7 +724,7 @@ class Submission(JSONLike):
     @TimeIt.decorator
     def _write_scripts(
         self, cache: ObjectCache, status: Status | None = None
-    ) -> tuple[dict[int, int | None], NDArray, dict[int, list[Path]]]:
+    ) -> tuple[dict[int, int | None], NDArray]:
         """Write to disk all action scripts associated with this submission."""
         # TODO: rename this method
 
@@ -734,9 +744,6 @@ class Submission(JSONLike):
         cmd_hashes = defaultdict(set)
         num_runs_tot = sum(len(js.all_EAR_IDs) for js in self.jobscripts)
         run_indices = np.ones((num_runs_tot, 9), dtype=int) * -1
-        run_inp_files = defaultdict(
-            list
-        )  # keys are `run_idx`, values are Paths to copy to run dir
         run_cmd_file_names: dict[int, int | None] = {}  # None if no commands to write
         run_idx = 0
 
@@ -793,17 +800,24 @@ class Submission(JSONLike):
                                 environments=self.environments,
                                 jobscript=js,
                                 raise_on_unset=True,
+                                timeit=self.timeit,
                             )
                         run_cmd_file_names[run.id_] = None
 
                     else:
+                        env_spec_h = None
                         if run.is_snippet_script:
+                            env_spec_h = run.env_spec_hashable
                             actions_by_schema[run.action.task_schema.name][
                                 run.element_action.action_idx
-                            ].add(run.env_spec_hashable)
+                            ].add(env_spec_h)
 
                         if run.action.commands:
-                            hash_i = run.get_commands_file_hash()
+                            if env_spec_h is None:
+                                env_spec_h = run.env_spec_hashable
+                            hash_i = run.get_commands_file_hash(
+                                env_spec_hashable=env_spec_h
+                            )
                             # TODO: could further reduce number of files in the case the data
                             # indices hash is the same: if commands objects are the same and
                             # environment objects are the same, then the files will be the
@@ -813,6 +827,7 @@ class Submission(JSONLike):
                                     run.try_write_commands(
                                         environments=self.environments,
                                         jobscript=js,
+                                        timeit=self.timeit,
                                     )
                                 except OutputFileParserNoOutputError:
                                     # no commands to write, might be used just for saving
@@ -822,11 +837,6 @@ class Submission(JSONLike):
                         else:
                             run_cmd_file_names[run.id_] = None
 
-                    if run.action.requires_dir:
-                        # TODO: what is type of `path`?
-                        for name, path in run.get("input_files", {}).items():
-                            if path:
-                                run_inp_files[run_idx].append(path)
                     run_idx += 1
 
         for run_ids in cmd_hashes.values():
@@ -912,7 +922,7 @@ class Submission(JSONLike):
             with script_path.open("wt", newline="\n") as fp:
                 fp.write(script_str)
 
-        return run_cmd_file_names, run_indices, run_inp_files
+        return run_cmd_file_names, run_indices
 
     @TimeIt.decorator
     def _calculate_run_dir_indices(
@@ -1000,13 +1010,13 @@ class Submission(JSONLike):
         return run_dir_arr, run_ids
 
     @TimeIt.decorator
-    def _write_execute_dirs(
+    def _set_execute_dirs(
         self,
         run_indices: NDArray,
-        run_inp_files: dict[int, list[Path]],
         cache: ObjectCache,
         status: Status | None = None,
-    ):
+    ) -> None:
+        """Persist execution paths without creating directories or staging files."""
 
         if status:
             status.update("Adding new submission: resolving execution directories...")
@@ -1016,23 +1026,6 @@ class Submission(JSONLike):
         # set run dirs in persistent array:
         if run_idx.size:
             self.workflow._store.set_run_dirs(run_dir_arr, run_idx)
-
-        # retrieve run directories as paths. array is not yet commited, so pass in
-        # directly:
-        run_dirs = self.workflow.get_run_directories(dir_indices_arr=run_dir_arr)
-
-        if status:
-            status.update("Adding new submission: making execution directories...")
-
-        # make directories
-        for idx, run_dir in enumerate(run_dirs):
-            assert run_dir
-            run_dir.mkdir(parents=True, exist_ok=True)
-            inp_files_i = run_inp_files.get(run_idx[idx])
-            if inp_files_i:
-                # copy (TODO: optionally symlink) any input files:
-                for path_i in inp_files_i:
-                    shutil.copy(path_i, run_dir)
 
     @staticmethod
     def get_unique_schedulers_of_jobscripts(
@@ -1203,6 +1196,7 @@ class Submission(JSONLike):
         print_stdout: bool = False,
         add_to_known: bool = True,
         quiet: bool = False,
+        modify_js: bool = False,
     ) -> list[int]:
         """Generate and submit the jobscripts of this submission."""
 
@@ -1275,10 +1269,20 @@ class Submission(JSONLike):
 
             try:
                 if status:
-                    status.update(
-                        f"Submitting jobscript {js.index + 1}/{len(self.jobscripts)}..."
-                    )
-                js_ref_i = js.submit(scheduler_refs, print_stdout=print_stdout)
+                    if modify_js:
+                        status.stop()
+                    else:
+                        status.update(
+                            f"Submitting jobscript {js.index + 1}/"
+                            f"{len(self.jobscripts)}..."
+                        )
+                js_ref_i = js.submit(
+                    scheduler_refs, modify_js=modify_js, print_stdout=print_stdout
+                )
+                if status and modify_js:
+                    status.start()
+                    status.update("Continuing submission...")
+
                 scheduler_refs[js.index] = (js_ref_i, js.is_array)
                 submitted_js_idx.append(js.index)
 
@@ -1404,3 +1408,9 @@ class Submission(JSONLike):
         self.workflow.list_task_jobscripts(
             sub_idx=self.index, max_js=max_js, task_names=task_names, width=width
         )
+
+    @TimeIt.decorator
+    def get_run_multi_file_lookup(self):
+        resolver = RunMetaDataFileResolver(self.jobscripts)
+        resolver.resolve()
+        return resolver.run_file_lookup

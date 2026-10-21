@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 import copy
-from pprint import pp
-import pprint
 from typing import Dict, List, Optional, Tuple, Union, Any
 from warnings import warn
 from collections import defaultdict
@@ -715,7 +713,9 @@ class WorkflowLoop(AppAware):
                 num_added_iters=child.num_added_iterations,
             )
 
+        new_run_meta: dict[int, tuple[int, int]] = {}
         for task in self.task_objects:
+            schema_output_indices, _ = task.template.schema.get_output_indices()
             new_loop_idx = LoopIndex(iters_key_dct) + {
                 child.name: 0
                 for child in child_loops
@@ -737,64 +737,68 @@ class WorkflowLoop(AppAware):
                         new_data_idx[key] = val
 
                 for inp in task.template.all_schema_inputs:
-                    is_inp_task = False
-                    if iter_dat := self.iterable_parameters.get(inp.typ):
-                        is_inp_task = task.insert_ID == iter_dat["input_task"]
+                    for inp_lab_typ in inp.all_labelled_types:
+                        is_inp_task = False
+                        if iter_dat := self.iterable_parameters.get(inp_lab_typ):
+                            is_inp_task = task.insert_ID == iter_dat["input_task"]
 
-                    inp_key = f"inputs.{inp.typ}"
+                        inp_key = f"inputs.{inp_lab_typ}"
 
-                    if is_inp_task:
-                        assert iter_dat is not None
-                        inp_dat_idx = self.__get_looped_index(
-                            task,
-                            elem_ID,
-                            cache,
-                            iter_dat,
-                            inp,
-                            parent_loops,
-                            parent_loop_indices_,
-                            child_loops,
-                            cur_loop_idx,
-                        )
-                        new_data_idx[inp_key] = inp_dat_idx
-                    else:
-                        orig_inp_src = cache.elements[elem_ID]["input_sources"][inp_key]
-                        inp_dat_idx = None
-
-                        if orig_inp_src.source_type is InputSourceType.LOCAL:
-                            # keep locally defined inputs from original element
-                            inp_dat_idx = zi_data_idx[inp_key]
-
-                        elif orig_inp_src.source_type is InputSourceType.DEFAULT:
-                            # keep default value from original element
-                            try:
-                                inp_dat_idx = zi_data_idx[inp_key]
-                            except KeyError:
-                                # if this input is required by a conditional action, and
-                                # that condition is not met, then this input will not
-                                # exist in the action-run data index, so use the initial
-                                # iteration data index:
-                                inp_dat_idx = zi_iter_data_idx[inp_key]
-
-                        elif orig_inp_src.source_type is InputSourceType.TASK:
-                            inp_dat_idx = self.__get_task_index(
+                        if is_inp_task:
+                            assert iter_dat is not None
+                            inp_dat_idx = self.__get_looped_index(
                                 task,
-                                orig_inp_src,
-                                cache,
                                 elem_ID,
+                                cache,
+                                iter_dat,
                                 inp,
-                                inp_key,
+                                parent_loops,
                                 parent_loop_indices_,
-                                all_new_data_idx,
+                                child_loops,
+                                cur_loop_idx,
                             )
+                            new_data_idx[inp_key] = inp_dat_idx
+                        else:
+                            orig_inp_src = cache.elements[elem_ID]["input_sources"][
+                                inp_key
+                            ]
+                            inp_dat_idx = None
 
-                        if inp_dat_idx is None:
-                            raise RuntimeError(
-                                f"Could not find a source for parameter {inp.typ} "
-                                f"when adding a new iteration for task {task!r}."
-                            )
+                            if orig_inp_src.source_type is InputSourceType.LOCAL:
+                                # keep locally defined inputs from original element
+                                inp_dat_idx = zi_data_idx[inp_key]
 
-                        new_data_idx[inp_key] = inp_dat_idx
+                            elif orig_inp_src.source_type is InputSourceType.DEFAULT:
+                                # keep default value from original element
+                                try:
+                                    inp_dat_idx = zi_data_idx[inp_key]
+                                except KeyError:
+                                    # if this input is required by a conditional action,
+                                    # and that condition is not met, then this input will
+                                    # not exist in the action-run data index, so use the
+                                    # initial iteration data index:
+                                    inp_dat_idx = zi_iter_data_idx[inp_key]
+
+                            elif orig_inp_src.source_type is InputSourceType.TASK:
+                                inp_dat_idx = self.__get_task_index(
+                                    task,
+                                    orig_inp_src,
+                                    cache,
+                                    elem_ID,
+                                    inp,
+                                    inp_key,
+                                    parent_loop_indices_,
+                                    all_new_data_idx,
+                                )
+
+                            if inp_dat_idx is None:
+                                raise RuntimeError(
+                                    f"Could not find a source for parameter "
+                                    f"{inp_lab_typ} when adding a new iteration for task "
+                                    f"{task!r}."
+                                )
+
+                            new_data_idx[inp_key] = inp_dat_idx
 
                 # add any locally defined sub-parameters:
                 inp_statuses = cache.elements[elem_ID]["input_statuses"]
@@ -814,7 +818,8 @@ class WorkflowLoop(AppAware):
 
                 for out in task.template.all_schema_outputs:
                     path_i = f"outputs.{out.typ}"
-                    p_src: ParamSource = {"type": "EAR_output"}
+                    out_index = schema_output_indices[path_i]
+                    p_src: ParamSource = {"type": "EAR_output", "output_idx": out_index}
                     new_data_idx[path_i] = self.workflow._add_unset_parameter_data(p_src)
 
                 schema_params = set(i for i in new_data_idx if len(i.split(".")) == 2)
@@ -825,6 +830,8 @@ class WorkflowLoop(AppAware):
                     data_idx=new_data_idx,
                     schema_parameters=list(schema_params),
                     loop_idx=new_loop_idx,
+                    task_ID=task.insert_ID,
+                    index=cache.elements[elem_ID]["num_iters"],
                 )
                 if cache:
                     cache.add_iteration(
@@ -837,7 +844,25 @@ class WorkflowLoop(AppAware):
 
                 added_iter_IDs.append(iter_ID_i)
 
-            task.initialise_EARs(iter_IDs=added_iter_IDs)
+            init_iter_ids = task.initialise_EARs(iter_IDs=added_iter_IDs)
+            new_run_IDs = []
+            for store_iter in self.workflow.get_store_element_iterations(init_iter_ids):
+                run_IDs = list(chain.from_iterable((store_iter.EAR_IDs or {}).values()))
+                cache.iteration_run_IDs[store_iter.id_] = run_IDs
+                new_run_IDs.extend(run_IDs)
+                for run_ID in run_IDs:
+                    new_run_meta[run_ID] = (task.insert_ID, store_iter.element_ID)
+
+            # retrieve the newly-created runs once
+            for store_run in self.workflow._store.get_EARs(new_run_IDs):
+                cache.run_data_idx[store_run.id_] = store_run.data_idx
+                cache.run_pending[store_run.id_] = True
+                for key, param_ID in store_run.data_idx.items():
+                    if key.startswith("outputs."):
+                        assert isinstance(param_ID, int)
+                        cache.param_EAR_ID[param_ID] = store_run.id_
+
+        cache.run_meta.update(new_run_meta)
 
         self._increment_pending_added_iters(
             parent_loop_indices_[p_nm] for p_nm in self.parents
@@ -864,7 +889,7 @@ class WorkflowLoop(AppAware):
                     par_idx[self.name] = cur_loop_idx + 1
                     child.add_iteration(parent_loop_indices=par_idx, cache=cache)
 
-        self.__update_loop_downstream_data_idx(parent_loop_indices_)
+        self.__update_loop_downstream_data_idx(parent_loop_indices_, cache)
 
     def __get_src_ID_and_groups(
         self,
@@ -1014,30 +1039,24 @@ class WorkflowLoop(AppAware):
         assert orig_inp_src.task_source_type is not None
         key_prefix = orig_inp_src.task_source_type.name.lower()
         prev_dat_idx_key = f"{key_prefix}s.{inp.typ}"
+
+        # `cache.elements` contains only elements that are part of the loop, so this
+        # element may be absent:
+        elem_dat = cache.elements.get(elem_ID)
+        elem_in_task = (
+            elem_dat is not None and elem_dat["task_insert_ID"] == task.insert_ID
+        )
+
         new_sources: list[tuple[int, int]] = []
-        for (tiID, e_idx), _ in all_new_data_idx.items():
-            if tiID == orig_inp_src.task_ref:
-                # find which element in that task `element`
-                # depends on:
-                src_elem_IDs = cache.element_dependents[
-                    self.workflow.tasks.get(insert_ID=tiID).element_IDs[e_idx]
-                ]
-                # `cache.elements` contains only elements that are part of the loop, so
-                # indexing a dependent element may raise:
-                src_elem_IDs_i = []
-                for k, _v in src_elem_IDs.items():
-                    try:
-                        if (
-                            cache.elements[k]["task_insert_ID"] == task.insert_ID
-                            and k == elem_ID
-                            # filter src_elem_IDs_i for matching element IDs
-                        ):
-
-                            src_elem_IDs_i.append(k)
-                    except KeyError:
-                        continue
-
-                if len(src_elem_IDs_i) == 1:
+        if elem_in_task:
+            src_elem_IDs_all = self.workflow.tasks.get(
+                insert_ID=orig_inp_src.task_ref
+            ).element_IDs
+            for tiID, e_idx in all_new_data_idx:
+                if tiID != orig_inp_src.task_ref:
+                    continue
+                # find which element in that task `element` depends on:
+                if elem_ID in cache.element_dependents[src_elem_IDs_all[e_idx]]:
                     new_sources.append((tiID, e_idx))
 
         if is_group:
@@ -1059,9 +1078,11 @@ class WorkflowLoop(AppAware):
         else:
             yield from seq
 
+    @TimeIt.decorator
     def __update_loop_downstream_data_idx(
         self,
         parent_loop_indices: Mapping[str, int],
+        cache: LoopCache,
     ):
         # update data indices of loop-downstream tasks that depend on task outputs from
         # this loop:
@@ -1070,8 +1091,6 @@ class WorkflowLoop(AppAware):
         iter_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
         run_new_data_idx: dict[int, DataIndex] = defaultdict(dict)
 
-        param_sources = self.workflow.get_all_parameter_sources()
-
         # keys are parameter type, then task insert ID, then data index keys mapping to
         # their updated values:
         all_updates: dict[str, dict[int, dict[int, int]]] = defaultdict(
@@ -1079,186 +1098,207 @@ class WorkflowLoop(AppAware):
         )
 
         for task in self.downstream_tasks:
-            for elem in task.elements:
+            task_input_types = task.template.all_schema_input_types
+
+            for elem_ID in cache.task_element_IDs[task.insert_ID]:
+                elem_dat = cache.elements[elem_ID]
+
                 for param_typ, param_out_task_iID in self.output_parameters.items():
-                    if param_typ in task.template.all_schema_input_types:
-                        # this element's input *might* need updating, only if it has a
-                        # task input source type that is this loop's output task for this
-                        # parameter:
-                        elem_src = elem.input_sources[f"inputs.{param_typ}"]
-                        if (
-                            elem_src.source_type is InputSourceType.TASK
-                            and elem_src.task_source_type is TaskSourceType.OUTPUT
-                            and elem_src.task_ref == param_out_task_iID
+                    if param_typ not in task_input_types:
+                        continue
+
+                    # this element's input *might* need updating, only if it has a
+                    # task input source type that is this loop's output task for this
+                    # parameter:
+                    elem_src = elem_dat["input_sources"][f"inputs.{param_typ}"]
+                    if (
+                        elem_src.source_type is InputSourceType.TASK
+                        and elem_src.task_source_type is TaskSourceType.OUTPUT
+                        and elem_src.task_ref == param_out_task_iID
+                    ):
+
+                        for iter_ID, (loop_idx, iter_data_idx) in zip(
+                            cache.element_iteration_IDs[elem_ID],
+                            cache.data_idx[elem_ID].items(),
+                            strict=True,
                         ):
-                            for iter_i in elem.iterations:
 
-                                # do not modify element-iterations of previous iterations
-                                # of the current loop:
-                                skip_iter = False
-                                for k, v in parent_loop_indices.items():
-                                    if iter_i.loop_idx.get(k) != v:
-                                        skip_iter = True
-                                        break
+                            # do not modify element-iterations of previous iterations
+                            # of the current loop:
+                            if any(
+                                loop_idx.get(k) != v
+                                for k, v in parent_loop_indices.items()
+                            ):
+                                continue
 
-                                if skip_iter:
+                            # update the iteration data index and any pending runs:
+                            iter_old_di = iter_data_idx[f"inputs.{param_typ}"]
+
+                            is_group = True
+                            if not isinstance(iter_old_di, list):
+                                is_group = False
+                                iter_old_di = [iter_old_di]
+
+                            iter_old_run_source = [
+                                cache.param_EAR_ID[i] for i in iter_old_di
+                            ]
+                            iter_old_run_meta = [
+                                cache.run_meta[run_id] for run_id in iter_old_run_source
+                            ]
+
+                            # need to check the run source is actually from the loop
+                            # output task (it could be from a previous iteration of a
+                            # separate loop in this task):
+                            if any(
+                                t_iID != param_out_task_iID
+                                for t_iID, _ in iter_old_run_meta
+                            ):
+                                continue
+
+                            # note: we can cast to int, because output keys never
+                            # have multiple data indices (unlike input keys):
+                            iter_new_dis = [
+                                cast(
+                                    "int",
+                                    cache.get_latest_data_idx(src_elem_ID)[
+                                        f"outputs.{param_typ}"
+                                    ],
+                                )
+                                for _, src_elem_ID in iter_old_run_meta
+                            ]
+
+                            # keep track of updates so we can also update task-input
+                            # type sources:
+                            all_updates[param_typ][task.insert_ID].update(
+                                dict(zip(iter_old_di, iter_new_dis))
+                            )
+
+                            iter_new_data_idx[iter_ID][f"inputs.{param_typ}"] = (
+                                iter_new_dis if is_group else iter_new_dis[0]
+                            )
+
+                            for run_ID in cache.iteration_run_IDs.get(iter_ID, ()):
+                                if not cache.run_pending[run_ID]:
                                     continue
 
-                                # update the iteration data index and any pending runs:
-                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+                                run_di = cache.run_data_idx[run_ID]
+                                try:
+                                    old_di = run_di[f"inputs.{param_typ}"]
+                                except KeyError:
+                                    # not all actions will include this input
+                                    continue
 
                                 is_group = True
-                                if not isinstance(iter_old_di, list):
+                                if not isinstance(old_di, list):
                                     is_group = False
-                                    iter_old_di = [iter_old_di]
+                                    old_di = [old_di]
 
-                                iter_old_run_source = [
-                                    param_sources[i]["EAR_ID"] for i in iter_old_di
+                                old_run_source = [cache.param_EAR_ID[i] for i in old_di]
+                                old_run_meta = [
+                                    cache.run_meta[run_id] for run_id in old_run_source
                                 ]
-                                iter_old_run_objs = self.workflow.get_EARs_from_IDs(
-                                    iter_old_run_source
-                                )  # TODO: use cache
 
-                                # need to check the run source is actually from the loop
-                                # output task (it could be from a previous iteration of a
-                                # separate loop in this task):
+                                # need to check the run source is actually from
+                                # the loop output task (it could be from a
+                                # previous action in this element-iteration):
                                 if any(
-                                    i.task.insert_ID != param_out_task_iID
-                                    for i in iter_old_run_objs
+                                    t_iID != param_out_task_iID
+                                    for t_iID, _ in old_run_meta
                                 ):
                                     continue
 
-                                iter_new_iters = [
-                                    i.element.iterations[-1] for i in iter_old_run_objs
+                                # note: we can cast to int, because output keys
+                                # never have multiple data indices (unlike input
+                                # keys):
+                                new_dis = [
+                                    cast(
+                                        "int",
+                                        cache.get_latest_data_idx(src_elem_ID)[
+                                            f"outputs.{param_typ}"
+                                        ],
+                                    )
+                                    for _, src_elem_ID in old_run_meta
                                 ]
 
-                                # note: we can cast to int, because output keys never
-                                # have multiple data indices (unlike input keys):
-                                iter_new_dis = [
-                                    cast("int", i.get_data_idx()[f"outputs.{param_typ}"])
-                                    for i in iter_new_iters
-                                ]
-
-                                # keep track of updates so we can also update task-input
-                                # type sources:
-                                all_updates[param_typ][task.insert_ID].update(
-                                    dict(zip(iter_old_di, iter_new_dis))
+                                run_new_data_idx[run_ID][f"inputs.{param_typ}"] = (
+                                    new_dis if is_group else new_dis[0]
                                 )
 
-                                iter_new_data_idx[iter_i.id_][f"inputs.{param_typ}"] = (
+                    elif (
+                        elem_src.source_type is InputSourceType.TASK
+                        and elem_src.task_source_type is TaskSourceType.INPUT
+                    ):
+                        # parameters are that sourced from inputs of other tasks,
+                        # might need to be updated if those other tasks have
+                        # themselves had their data indices updated:
+                        assert elem_src.task_ref
+                        ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
+
+                        if ups_i:
+                            # if a further-downstream task has a task-input source
+                            # that points to this task, this will also need updating:
+                            all_updates[param_typ][task.insert_ID].update(ups_i)
+
+                        else:
+                            continue
+
+                        for iter_ID, (_, iter_data_idx) in zip(
+                            cache.element_iteration_IDs[elem_ID],
+                            cache.data_idx[elem_ID].items(),
+                            strict=True,
+                        ):
+
+                            # update the iteration data index and any pending runs:
+                            iter_old_di = iter_data_idx[f"inputs.{param_typ}"]
+
+                            is_group = True
+                            if not isinstance(iter_old_di, list):
+                                is_group = False
+                                iter_old_di = [iter_old_di]
+
+                            iter_new_dis = [ups_i.get(i, i) for i in iter_old_di]
+
+                            if iter_new_dis != iter_old_di:
+                                iter_new_data_idx[iter_ID][f"inputs.{param_typ}"] = (
                                     iter_new_dis if is_group else iter_new_dis[0]
                                 )
 
-                                for run_j in iter_i.action_runs:
-                                    if run_j.status is EARStatus.pending:
-                                        try:
-                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
-                                        except KeyError:
-                                            # not all actions will include this input
-                                            continue
+                            for run_ID in cache.iteration_run_IDs.get(iter_ID, ()):
+                                if not cache.run_pending[run_ID]:
+                                    continue
 
-                                        is_group = True
-                                        if not isinstance(old_di, list):
-                                            is_group = False
-                                            old_di = [old_di]
-
-                                        old_run_source = [
-                                            param_sources[i]["EAR_ID"] for i in old_di
-                                        ]
-                                        old_run_objs = self.workflow.get_EARs_from_IDs(
-                                            old_run_source
-                                        )  # TODO: use cache
-
-                                        # need to check the run source is actually from the loop
-                                        # output task (it could be from a previous action in this
-                                        # element-iteration):
-                                        if any(
-                                            i.task.insert_ID != param_out_task_iID
-                                            for i in old_run_objs
-                                        ):
-                                            continue
-
-                                        new_iters = [
-                                            i.element.iterations[-1] for i in old_run_objs
-                                        ]
-
-                                        # note: we can cast to int, because output keys
-                                        # never have multiple data indices (unlike input
-                                        # keys):
-                                        new_dis = [
-                                            cast(
-                                                "int",
-                                                i.get_data_idx()[f"outputs.{param_typ}"],
-                                            )
-                                            for i in new_iters
-                                        ]
-
-                                        run_new_data_idx[run_j.id_][
-                                            f"inputs.{param_typ}"
-                                        ] = (new_dis if is_group else new_dis[0])
-
-                        elif (
-                            elem_src.source_type is InputSourceType.TASK
-                            and elem_src.task_source_type is TaskSourceType.INPUT
-                        ):
-                            # parameters are that sourced from inputs of other tasks,
-                            # might need to be updated if those other tasks have
-                            # themselves had their data indices updated:
-                            assert elem_src.task_ref
-                            ups_i = all_updates.get(param_typ, {}).get(elem_src.task_ref)
-
-                            if ups_i:
-                                # if a further-downstream task has a task-input source
-                                # that points to this task, this will also need updating:
-                                all_updates[param_typ][task.insert_ID].update(ups_i)
-
-                            else:
-                                continue
-
-                            for iter_i in elem.iterations:
-
-                                # update the iteration data index and any pending runs:
-                                iter_old_di = iter_i.data_idx[f"inputs.{param_typ}"]
+                                run_di = cache.run_data_idx[run_ID]
+                                try:
+                                    old_di = run_di[f"inputs.{param_typ}"]
+                                except KeyError:
+                                    # not all actions will include this input
+                                    continue
 
                                 is_group = True
-                                if not isinstance(iter_old_di, list):
+                                if not isinstance(old_di, list):
                                     is_group = False
-                                    iter_old_di = [iter_old_di]
+                                    old_di = [old_di]
 
-                                iter_new_dis = [ups_i.get(i, i) for i in iter_old_di]
+                                new_dis = [ups_i.get(i, i) for i in old_di]
 
-                                if iter_new_dis != iter_old_di:
-                                    iter_new_data_idx[iter_i.id_][
-                                        f"inputs.{param_typ}"
-                                    ] = (iter_new_dis if is_group else iter_new_dis[0])
+                                if new_dis != old_di:
+                                    run_new_data_idx[run_ID][f"inputs.{param_typ}"] = (
+                                        new_dis if is_group else new_dis[0]
+                                    )
 
-                                for run_j in iter_i.action_runs:
-                                    if run_j.status is EARStatus.pending:
-                                        try:
-                                            old_di = run_j.data_idx[f"inputs.{param_typ}"]
-                                        except KeyError:
-                                            # not all actions will include this input
-                                            continue
-
-                                        is_group = True
-                                        if not isinstance(old_di, list):
-                                            is_group = False
-                                            old_di = [old_di]
-
-                                        new_dis = [ups_i.get(i, i) for i in old_di]
-
-                                        if new_dis != old_di:
-                                            run_new_data_idx[run_j.id_][
-                                                f"inputs.{param_typ}"
-                                            ] = (new_dis if is_group else new_dis[0])
-
-        # now update data indices (TODO: including in cache!)
         if iter_new_data_idx:
             self.workflow._store.update_iter_data_indices(iter_new_data_idx)
+            for iter_ID, updates in iter_new_data_idx.items():
+                elem_ID, iter_idx = cache.iterations[iter_ID]
+                data_idx = nth_value(cache.data_idx[elem_ID], iter_idx)
+                data_idx.update(updates)
 
         if run_new_data_idx:
             self.workflow._store.update_run_data_indices(run_new_data_idx)
+            for run_ID, updates in run_new_data_idx.items():
+                cache.run_data_idx[run_ID].update(updates)
 
+    @TimeIt.decorator
     def test_termination(self, element_iter) -> bool:
         """Check if a loop should terminate, given the specified completed element
         iteration."""

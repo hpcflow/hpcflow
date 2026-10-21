@@ -121,9 +121,9 @@ class PendingChanges(
         self.update_at_submit_metadata: dict[int, dict[str, Any]] = {}
 
         #: IDs of EARs to mark as initialised.
-        self.set_EARs_initialised: list[int] = []
+        self.set_EARs_initialised: set[int] = set()
         #: Submission IDs and commands file IDs to attach to EARs.
-        self.set_EAR_submission_data: dict[int, tuple[int, int | None]] = {}
+        self.set_EAR_submission_data: dict[int, tuple[int, int | None, int, int]] = {}
         #: IDs of EARs to mark as skipped.
         self.set_EAR_skips: dict[int, int] = {}
         #: Keys are EAR IDs and values are tuples of start time, start dir snapshot, run
@@ -293,6 +293,8 @@ class PendingChanges(
         """Commit pending tasks to disk."""
         if self.add_tasks:
             tasks = self.store.get_tasks_by_IDs(self.add_tasks)
+            for task in tasks:
+                task.num_actions = self.add_tasks[task.id_].num_actions
             task_ids = set(self.add_tasks)
             self.logger.debug(f"commit: adding pending tasks with IDs: {task_ids!r}")
             self.store._append_tasks(tasks)
@@ -420,6 +422,10 @@ class PendingChanges(
         """
         if self.add_elem_iters:
             iters = self.store.get_element_iterations(self.add_elem_iters)
+            for iter_i in iters:
+                iter_i.index = self.add_elem_iters[iter_i.id_].index
+                iter_i.task_ID = self.add_elem_iters[iter_i.id_].task_ID
+
             iter_ids = set(self.add_elem_iters)
             self.logger.debug(
                 f"commit: adding pending element iterations with IDs: {iter_ids!r}"
@@ -435,9 +441,8 @@ class PendingChanges(
                         self.add_elem_iter_EAR_IDs[iter_id][act_idx].extend(run_IDs)
 
             # pending EARs_initialised that belong to pending iters are now committed:
-            self.set_EARs_initialised = [
-                i for i in self.set_EARs_initialised if i not in iter_ids
-            ]
+            self.set_EARs_initialised -= iter_ids
+
         self._clear_add_elem_iters()
 
     @TimeIt.decorator
@@ -729,7 +734,7 @@ class PendingChanges(
         self.add_elem_iter_EAR_IDs = defaultdict(lambda: defaultdict(list))
 
     def _clear_set_EARs_initialised(self) -> None:
-        self.set_EARs_initialised = []
+        self.set_EARs_initialised = set()
 
     def _clear_EAR_submission_data(self) -> None:
         self.set_EAR_submission_data = {}

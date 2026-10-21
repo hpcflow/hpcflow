@@ -13,12 +13,13 @@ import numpy as np
 
 from hpcflow.sdk.core.utils import linspace_rect, process_string_nodes
 
-
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
     from ..app import BaseApp
     from hpcflow.sdk.core.parameters import SchemaInput, Parameter
 
 T = TypeVar("T", bound="ValuesMixin")
+U = TypeVar("U")
 
 
 def process_demo_data_strings(app: BaseApp, value: Any) -> Any:
@@ -42,6 +43,86 @@ def ensure_seed(seed: int | list[int] | None) -> int | list[int]:
         if seed is None
         else seed
     )
+
+
+@overload
+def sample_rows(
+    values: NDArray,
+    num_samples: int,
+    seed: int | list[int] | None = None,
+    replace: bool = False,
+) -> NDArray: ...
+
+
+@overload
+def sample_rows(
+    values: list[U],
+    num_samples: int,
+    seed: int | list[int] | None = None,
+    replace: bool = False,
+) -> list[U]: ...
+
+
+def sample_rows(
+    values: NDArray | list[U],
+    num_samples: int,
+    seed: int | list[int] | None = None,
+    replace: bool = False,
+) -> NDArray | list[U]:
+    """Randomly sample rows (items along the first axis) from `values`.
+
+    Parameters
+    ----------
+    values
+        A list, or a Numpy array whose first axis indexes the rows.
+    num_samples
+        The number of rows to sample.
+    seed
+        Seed for the random number generator.
+    replace
+        Whether to sample with replacement. If `False`, `num_samples` must not exceed
+        the number of rows available.
+    """
+    num_rows = len(values)
+    if not replace and num_samples > num_rows:
+        raise ValueError(
+            f"Cannot sample {num_samples} rows without replacement from {num_rows} "
+            f"available rows; set `replace=True` or reduce `num_samples`."
+        )
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(num_rows, size=num_samples, replace=replace)
+    if isinstance(values, np.ndarray):
+        return values[indices]
+    return [values[int(idx)] for idx in indices]
+
+
+def load_txt_values(
+    fname: str | Path,
+    num_samples: int | None = None,
+    seed: int | list[int] | None = None,
+    replace: bool = False,
+    **kwargs,
+) -> NDArray:
+    """Load an array from a text file with Numpy's `loadtxt`, optionally randomly
+    sampling rows (items along the first axis) from it.
+
+    Parameters
+    ----------
+    fname
+        Path to the text file.
+    num_samples
+        If specified, the number of rows to randomly sample from the loaded array.
+    seed
+        Seed for the random number generator used to sample rows.
+    replace
+        Whether to sample rows with replacement.
+    kwargs
+        Additional keyword arguments passed to `numpy.loadtxt`.
+    """
+    arr = np.loadtxt(fname, **kwargs)
+    if num_samples is not None:
+        arr = sample_rows(arr, num_samples, seed=seed, replace=replace)
+    return arr
 
 
 class ValuesMixin(ABC):
@@ -80,9 +161,39 @@ class ValuesMixin(ABC):
         return np.arange(start, stop, step, **kwargs).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
 
     @classmethod
-    def _values_from_file(cls, file_path: str | Path) -> list[str]:
+    def _values_from_repeat(cls, arr, repeats, axis=None) -> list[float]:
+        return np.repeat(arr, repeats, axis=axis).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+
+    @classmethod
+    def _values_from_tile(cls, arr, reps) -> list[float]:
+        return np.tile(arr, reps).tolist()  # type: ignore #  mypy bug for numpy~2.2.4 https://github.com/numpy/numpy/issues/27944
+
+    @classmethod
+    def _values_from_file(
+        cls,
+        file_path: str | Path,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
+    ) -> list[str]:
         with Path(file_path).open("rt") as fh:
-            return [line.strip() for line in fh.readlines()]
+            lines = [line.strip() for line in fh.readlines()]
+        if num_samples is not None:
+            lines = sample_rows(lines, num_samples, seed=seed, replace=replace)
+        return lines
+
+    @classmethod
+    def _values_from_load_txt(
+        cls,
+        fname: str | Path,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
+        **kwargs,
+    ) -> NDArray:
+        return load_txt_values(
+            fname, num_samples=num_samples, seed=seed, replace=replace, **kwargs
+        )
 
     @classmethod
     def _values_from_rectangle(
@@ -272,9 +383,11 @@ class ValuesMixin(ABC):
         return obj._remember_values_method_args("from_range", args)
 
     @classmethod
-    def _from_file(
+    def _from_repeat(
         cls: Type[T],
-        file_path: str | Path,
+        arr,
+        repeats,
+        axis=None,
         parameter: Parameter | SchemaInput | str | None = None,
         path: str | None = None,
         nesting_order: float = 0,
@@ -283,9 +396,85 @@ class ValuesMixin(ABC):
         **kwargs,
     ) -> T:
         """
-        Build a sequence from a simple file.
+        Build a sequence from the return of Numpy's ``repeat`` function.
         """
-        args = {"file_path": process_demo_data_strings(cls._app, file_path), **kwargs}
+        args = {"arr": arr, "repeats": repeats, "axis": axis, **kwargs}
+        values = cls._values_from_repeat(**args)
+        obj = cls(
+            **cls._process_mixin_args(
+                values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("from_repeat", args)
+
+    @classmethod
+    def _from_tile(
+        cls: Type[T],
+        arr,
+        reps,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from the return of Numpy's ``tile`` function.
+        """
+        args = {"arr": arr, "reps": reps, **kwargs}
+        values = cls._values_from_tile(**args)
+        obj = cls(
+            **cls._process_mixin_args(
+                values,
+                parameter=parameter,
+                path=path,
+                nesting_order=nesting_order,
+                label=label,
+                value_class_method=value_class_method,
+            )
+        )
+        return obj._remember_values_method_args("from_tile", args)
+
+    @staticmethod
+    def _sampling_args(
+        num_samples: int | None, seed: int | list[int] | None, replace: bool
+    ) -> dict[str, Any]:
+        """Row-sampling arguments to record alongside other value-method arguments.
+
+        Only recorded when sampling is requested, in which case the seed is ensured so
+        the sampled values are reproducible."""
+        if num_samples is None:
+            return {}
+        return {"num_samples": num_samples, "seed": ensure_seed(seed), "replace": replace}
+
+    @classmethod
+    def _from_file(
+        cls: Type[T],
+        file_path: str | Path,
+        parameter: Parameter | SchemaInput | str | None = None,
+        path: str | None = None,
+        nesting_order: float = 0,
+        label: str | int | None = None,
+        value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
+        **kwargs,
+    ) -> T:
+        """
+        Build a sequence from a simple file, optionally randomly sampling lines from it.
+        """
+        args = {
+            "file_path": process_demo_data_strings(cls._app, file_path),
+            **cls._sampling_args(num_samples, seed, replace),
+            **kwargs,
+        }
         obj = cls(
             **cls._process_mixin_args(
                 cls._values_from_file(**args),
@@ -307,15 +496,23 @@ class ValuesMixin(ABC):
         nesting_order: float = 0,
         label: str | int | None = None,
         value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> T:
         """
-        Load an array from a text file with Numpy.
+        Load an array from a text file with Numpy, optionally randomly sampling rows
+        from it.
         """
-        args = {"fname": process_demo_data_strings(cls._app, file_path), **kwargs}
+        args = {
+            "fname": process_demo_data_strings(cls._app, file_path),
+            **cls._sampling_args(num_samples, seed, replace),
+            **kwargs,
+        }
         obj = cls(
             **cls._process_mixin_args(
-                np.loadtxt(**args),
+                cls._values_from_load_txt(**args),
                 parameter=parameter,
                 path=path,
                 nesting_order=nesting_order,
@@ -323,7 +520,7 @@ class ValuesMixin(ABC):
                 value_class_method=value_class_method,
             )
         )
-        return obj._remember_values_method_args("_from_load_txt", args)
+        return obj._remember_values_method_args("from_load_txt", args)
 
     @classmethod
     def _from_rectangle(

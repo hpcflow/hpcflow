@@ -521,8 +521,8 @@ def test_get_text_file(tmp_path, store):
     rel_path = f"artifacts/submissions/0/js_std/0/{filename}"
     abs_path = f"{wk.url}/{rel_path}"
 
-    assert wk.get_text_file(rel_path) == "hi!\n"
-    assert wk.get_text_file(abs_path) == "hi!\n"
+    assert wk.get_text_file(rel_path).strip() == "hi!"
+    assert wk.get_text_file(abs_path).strip() == "hi!"
 
 
 @pytest.mark.integration
@@ -541,8 +541,8 @@ def test_get_text_file_zarr_zip(tmp_path):
     rel_path = f"artifacts/submissions/0/js_std/0/{filename}"
     abs_path = f"{wkz.url}/{rel_path}"
 
-    assert wkz.get_text_file(rel_path) == "hi!\n"
-    assert wkz.get_text_file(abs_path) == "hi!\n"
+    assert wkz.get_text_file(rel_path).strip() == "hi!"
+    assert wkz.get_text_file(abs_path).strip() == "hi!"
 
 
 @pytest.mark.parametrize("store", ["zarr", "json"])
@@ -574,9 +574,8 @@ def test_rng_spawn_key(tmp_path):
     )
     wk = make_workflow_to_run_command(
         command=command,
-        resources={"any": {"rng_spawn_key": [0, 1], "write_app_logs": True}},
+        resources={"any": {"rng_spawn_key": [0, 1]}},
         path=tmp_path,
-        config={"log_file_level": "debug"},
     )
     wk.submit(wait=True, add_to_known=False)
     stdout = wk.submissions[0].jobscripts[0].get_stdout().strip()

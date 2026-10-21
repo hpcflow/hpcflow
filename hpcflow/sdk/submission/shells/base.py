@@ -5,6 +5,7 @@ Base model of a shell.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.typing import hydrate
 
 if TYPE_CHECKING:
@@ -120,10 +121,12 @@ class Shell(ABC):
         """
         return self.executable
 
+    @TimeIt.decorator
     def get_direct_submit_command(self, js_path: str) -> list[str]:
         """Get the command for submitting a non-scheduled jobscript."""
         return self.executable + [js_path]
 
+    @TimeIt.decorator
     def get_command_file_launch_command(self, cmd_file_path: str) -> list[str]:
         """Get the command for launching the commands file for a given run."""
         return self.executable + [cmd_file_path]
@@ -187,6 +190,7 @@ class Shell(ABC):
         cmd_idx: int,
         stderr: bool,
         app_name: str,
+        timeit: bool,
     ) -> str:
         """
         Produce code to save a parameter's value into the workflow persistent store.

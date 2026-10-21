@@ -29,6 +29,7 @@ rules:
         - workflow_name_add_timestamp
         - show_tracebacks
         - use_rich_tracebacks
+        - delete_execute_dir
   - path: []
     condition:
       value.required_keys:
@@ -303,5 +304,12 @@ rules:
   - path: [use_rich_tracebacks]
     doc: >
       If True, use the Rich library to format exception tracebacks.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [delete_execute_dir]
+    doc: >
+      If True, delete execution directories after all actions in an element iteration
+      have completed successfully.
     condition:
       value.is_instance: [bool]

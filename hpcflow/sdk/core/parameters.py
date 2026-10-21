@@ -18,6 +18,7 @@ from valida import Schema as ValidaSchema  # type: ignore
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import (
+    ARRAY_WRAP_ORDERS,
     InputSourceType,
     ParallelMode,
     ParameterPropagationMode,
@@ -35,9 +36,12 @@ from hpcflow.sdk.core.utils import (
     split_param_label,
     timedelta_format,
 )
-from hpcflow.sdk.core.values import ValuesMixin, process_demo_data_strings
+from hpcflow.sdk.core.values import (
+    ValuesMixin,
+    load_txt_values,
+    process_demo_data_strings,
+)
 from hpcflow.sdk.core.warnings import warn_from_random_uniform_deprecated
-
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -687,7 +691,12 @@ class SchemaOutput(SchemaParameter):
             self.parameter: Parameter = self._app.Parameter(typ=parameter)
         else:
             self.parameter = parameter
-        self.propagation_mode = propagation_mode
+        if isinstance(propagation_mode, str):
+            self.propagation_mode: ParameterPropagationMode = getattr(
+                self._app.ParameterPropagationMode, propagation_mode
+            )
+        else:
+            self.propagation_mode = propagation_mode
 
     @property
     def input_or_output(self) -> Literal["output"]:
@@ -961,9 +970,10 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                 f"{path!r}."
             )
         path_l = path.lower()
-        path_split = path_l.split(".")
+        path_l_split = path_l.split(".")
+        path_split = path.split(".")
         ALLOWED_PATH_START = ("inputs", "resources", "environments", "env_preset")
-        if not path_split[0] in ALLOWED_PATH_START:
+        if not path_l_split[0] in ALLOWED_PATH_START:
             raise MalformedParameterPathError(
                 f"`path` must start with one of: "
                 f'{", ".join(f"{pfx!r}" for pfx in ALLOWED_PATH_START)}, but given path '
@@ -972,7 +982,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
 
         _, label_from_path = split_param_label(path_l)
 
-        if path_split[0] == "inputs":
+        if path_l_split[0] == "inputs":
             if label_arg is not None and label_arg != "":
                 if label_from_path is None:
                     # add label to path without lower casing any parts:
@@ -988,7 +998,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             elif label_from_path:
                 label = label_from_path
 
-        elif path_split[0] == "resources":
+        elif path_l_split[0] == "resources":
             if label_from_path or label_arg:
                 raise ValueError(
                     f"{self.__class__.__name__} `label` argument ({label_arg!r}) and/or "
@@ -996,14 +1006,14 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                     f"`resource` sequences."
                 )
             try:
-                self._app.ActionScope.from_json_like(path_split[1])
+                self._app.ActionScope.from_json_like(path_l_split[1])
             except Exception as err:
                 raise MalformedParameterPathError(
                     f"Cannot parse a resource action scope from the second component of the "
                     f"path: {path!r}. Exception was: {err}."
                 ) from None
 
-            if len(path_split) > 2:
+            if len(path_l_split) > 2:
                 if path_split[2] not in ResourceSpec.ALLOWED_PARAMETERS:
                     raise UnknownResourceSpecItemError(
                         f"Resource item name {path_split[2]!r} is unknown. Allowed "
@@ -1011,7 +1021,7 @@ class ValueSequence(_BaseSequence, ValuesMixin):
                     )
             label = ""
 
-        elif path_split[0] == "environments":
+        elif path_l_split[0] == "environments":
             # rewrite as a resources path:
             path = f"resources.any.{path}"
             label = str(label) if label is not None else ""
@@ -1270,6 +1280,56 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         )
 
     @classmethod
+    def from_repeat(
+        cls,
+        path: str,
+        arr,
+        repeats,
+        axis=None,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from the return of Numpy's ``repeat`` function.
+        """
+        return super()._from_repeat(
+            path=path,
+            arr=arr,
+            repeats=repeats,
+            axis=axis,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_tile(
+        cls,
+        path: str,
+        arr,
+        reps,
+        label: str | int | None = None,
+        nesting_order: float = 0,
+        value_class_method: str | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Build a sequence from the return of Numpy's ``tile`` function.
+        """
+        return super()._from_tile(
+            path=path,
+            arr=arr,
+            reps=reps,
+            label=label,
+            nesting_order=nesting_order,
+            value_class_method=value_class_method,
+            **kwargs,
+        )
+
+    @classmethod
     def from_file(
         cls,
         path: str,
@@ -1277,10 +1337,26 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         label: str | int | None = None,
         nesting_order: float = 0,
         value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from data within a simple file.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; each line becomes one sequence value.
+        num_samples
+            If specified, randomly sample this many lines from the file, rather than
+            using all lines.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample lines with replacement when `num_samples` is specified.
         """
         return super()._from_file(
             path=path,
@@ -1288,6 +1364,9 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             label=label,
             nesting_order=nesting_order,
             value_class_method=value_class_method,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -1299,10 +1378,28 @@ class ValueSequence(_BaseSequence, ValuesMixin):
         label: str | int | None = None,
         nesting_order: float = 0,
         value_class_method: str | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Build a sequence from data within a text file using Numpy's `loadtxt`.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; each row becomes one sequence value.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt`.
         """
         return super()._from_load_txt(
             path=path,
@@ -1310,6 +1407,9 @@ class ValueSequence(_BaseSequence, ValuesMixin):
             label=label,
             nesting_order=nesting_order,
             value_class_method=value_class_method,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -1791,6 +1891,79 @@ class MultiPathSequence(_BaseSequence):
             label=label,
         )
         obj._values_method = "from_latin_hypercube"
+        obj._values_method_args = kwargs
+        return obj
+
+    @classmethod
+    def from_load_txt(
+        cls,
+        paths: Sequence[str],
+        file_path: str | Path,
+        *,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
+        nesting_order: int | float | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Load values for multiple paths from the columns of a text file using Numpy's
+        `loadtxt`, optionally randomly sampling rows from the file.
+
+        Each column of the file is assigned to the corresponding path in `paths`, and
+        each row becomes one element.
+
+        Parameters
+        ----------
+        paths
+            List of dot-delimited paths within the parameter's nested data structure for
+            which values should be set, one per column of the file (after applying any
+            `usecols` selection).
+        file_path
+            Path to the text file.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        nesting_order
+            A nesting order for this multi-path sequence.
+        label
+            A label for this multi-path sequence.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt` (e.g. `usecols`,
+            `delimiter`, `skiprows`).
+        """
+        file_path = process_demo_data_strings(cls._app, file_path)
+        kwargs = {
+            "paths": list(paths),
+            "file_path": file_path,
+            **ValuesMixin._sampling_args(num_samples, seed, replace),
+            **kwargs,
+        }
+        load_kwargs = {
+            "ndmin": 2,
+            **{k: v for k, v in kwargs.items() if k not in ("paths", "file_path")},
+        }
+        arr = load_txt_values(file_path, **load_kwargs)
+        num_paths = len(paths)
+        if arr.ndim != 2 or arr.shape[1] != num_paths:
+            raise ValueError(
+                f"The number of columns loaded from file {str(file_path)!r} (shape: "
+                f"{arr.shape}) must be equal to the number of paths provided "
+                f"({num_paths}); consider using the `usecols` argument."
+            )
+        obj = cls(
+            paths=paths,
+            values=arr.T.tolist(),
+            nesting_order=nesting_order,
+            label=label,
+        )
+        obj._values_method = "from_load_txt"
         obj._values_method_args = kwargs
         return obj
 
@@ -2287,22 +2460,89 @@ class InputValue(AbstractInputValue, ValuesMixin):
         )
 
     @classmethod
+    def from_repeat(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        arr,
+        repeats,
+        axis=None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from the return of Numpy's ``repeat`` function.
+        """
+        return super()._from_repeat(
+            parameter=parameter,
+            arr=arr,
+            repeats=repeats,
+            axis=axis,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_tile(
+        cls,
+        parameter: Parameter | SchemaInput | str,
+        arr,
+        reps,
+        axis=None,
+        path: str | None = None,
+        label: str | int | None = None,
+        **kwargs,
+    ) -> Self:
+        """
+        Generate a value from the return of Numpy's ``tile`` function.
+        """
+        return super()._from_tile(
+            parameter=parameter,
+            arr=arr,
+            reps=reps,
+            axis=axis,
+            path=path,
+            label=label,
+            **kwargs,
+        )
+
+    @classmethod
     def from_file(
         cls,
         parameter: Parameter | SchemaInput | str,
         file_path: str | Path,
         path: str | None = None,
         label: str | int | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Generate a value from lines within a simple text file.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file; the value is the list of lines.
+        num_samples
+            If specified, randomly sample this many lines from the file, rather than
+            using all lines.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample lines with replacement when `num_samples` is specified.
         """
         return super()._from_file(
             parameter=parameter,
             file_path=file_path,
             path=path,
             label=label,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -2313,16 +2553,37 @@ class InputValue(AbstractInputValue, ValuesMixin):
         file_path: str | Path,
         path: str | None = None,
         label: str | int | None = None,
+        num_samples: int | None = None,
+        seed: int | list[int] | None = None,
+        replace: bool = False,
         **kwargs,
     ) -> Self:
         """
         Generate a value from data within a text file using Numpy's `loadtxt`.
+
+        Parameters
+        ----------
+        file_path
+            Path to the text file.
+        num_samples
+            If specified, randomly sample this many rows from the file, rather than
+            using all rows.
+        seed
+            Seed for the random number generator used when `num_samples` is specified.
+            If not specified, a seed is generated and recorded for reproducibility.
+        replace
+            Whether to sample rows with replacement when `num_samples` is specified.
+        kwargs
+            Additional keyword arguments passed to `numpy.loadtxt`.
         """
         return super()._from_load_txt(
             parameter=parameter,
             file_path=file_path,
             path=path,
             label=label,
+            num_samples=num_samples,
+            seed=seed,
+            replace=replace,
             **kwargs,
         )
 
@@ -2513,14 +2774,25 @@ class ResourceSpec(JSONLike):
         How many threads to request.
     num_nodes: int
         How many compute nodes to request.
+    num_MPI_ranks: int
+        How many MPI ranks to use, defaults to ``num_cores``.
     scheduler: str
         Which scheduler to use.
     shell: str
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_array_items: int
-        If using array jobs, up to how many items should be in the job array.
+    max_scheduler_concurrency: int
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
+    array_wrap_order: str
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) runs
+        all actions of one element before moving to the next wrapped element;
+        ``"action"`` runs one action for all wrapped elements before moving to the next
+        action.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -2531,6 +2803,8 @@ class ResourceSpec(JSONLike):
         How long to run for.
     scheduler_args: dict[str, Any]
         Additional arguments to pass to the scheduler.
+    inherit_directives: bool
+        Whether to inherit raw scheduler directives. Defaults to True when resolved.
     shell_args: dict[str, Any]
         Additional arguments to pass to the shell.
     os_name: str
@@ -2569,15 +2843,19 @@ class ResourceSpec(JSONLike):
         "num_cores_per_node",
         "num_threads",
         "num_nodes",
+        "num_MPI_ranks",
         "scheduler",
         "shell",
         "use_job_array",
-        "max_array_items",
+        "max_scheduler_concurrency",
+        "max_array_size",
+        "array_wrap_order",
         "write_app_logs",
         "combine_jobscript_std",
         "combine_scripts",
         "time_limit",
         "scheduler_args",
+        "inherit_directives",
         "shell_args",
         "os_name",
         "environments",
@@ -2633,10 +2911,13 @@ class ResourceSpec(JSONLike):
         num_cores_per_node: int | None = None,
         num_threads: int | None = None,
         num_nodes: int | None = None,
+        num_MPI_ranks: int | None = None,
         scheduler: str | None = None,
         shell: str | None = None,
         use_job_array: bool | None = None,
-        max_array_items: int | None = None,
+        max_scheduler_concurrency: int | None = None,
+        max_array_size: int | None = None,
+        array_wrap_order: str | None = None,
         write_app_logs: bool | None = None,
         combine_jobscript_std: bool | None = None,
         combine_scripts: bool | None = None,
@@ -2655,6 +2936,7 @@ class ResourceSpec(JSONLike):
         SLURM_num_tasks_per_node: str | None = None,
         SLURM_num_nodes: str | None = None,
         SLURM_num_cpus_per_task: str | None = None,
+        inherit_directives: bool | None = None,
     ):
         #: Which scope does this apply to.
         self.scope = self.__parse_thing(self._app.ActionScope, scope)
@@ -2673,6 +2955,7 @@ class ResourceSpec(JSONLike):
         self._num_threads = num_threads
         self._num_nodes = num_nodes
         self._num_cores_per_node = num_cores_per_node
+        self._num_MPI_ranks = num_MPI_ranks
         self._scheduler = self._process_string(scheduler)
         self._shell = self._process_string(shell)
         self._os_name = self._process_string(os_name)
@@ -2682,12 +2965,15 @@ class ResourceSpec(JSONLike):
         self._random_seed = random_seed
         self._rng_spawn_key = self._process_rng_spawn_key(rng_spawn_key)
         self._use_job_array = use_job_array
-        self._max_array_items = max_array_items
+        self._max_scheduler_concurrency = max_scheduler_concurrency
+        self._max_array_size = max_array_size
+        self._array_wrap_order = self._process_array_wrap_order(array_wrap_order)
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
         self._combine_scripts = combine_scripts
         self._time_limit = time_limit
         self._scheduler_args = scheduler_args
+        self._inherit_directives = inherit_directives
         self._shell_args = shell_args
 
         # user-specified SGE-specific parameters:
@@ -2727,16 +3013,16 @@ class ResourceSpec(JSONLike):
         """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
 
         _value_group_idx = json_like.pop("value_group_idx", None)
-        try:
-            obj = cls(**json_like)
-        except TypeError:
-            given_keys = set(k for k in json_like if k != "scope")
-            bad_keys = cls.__quoted(given_keys - cls.ALLOWED_PARAMETERS)
+        given_keys = set(k for k in json_like if k != "scope")
+        bad_keys = given_keys - cls.ALLOWED_PARAMETERS
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+        if bad_keys:
             good_keys = cls._allowed_params_quoted()
-            raise UnknownResourceSpecItemError(
-                f"The following resource item names are unknown: {bad_keys}. "
-                f"Allowed resource item names are: {good_keys}."
-            )
+            print(f"Allowed resource item names are: {good_keys}.")
+
+        obj = cls(**json_like)
         obj._value_group_idx = _value_group_idx
 
         return obj
@@ -2815,16 +3101,20 @@ class ResourceSpec(JSONLike):
                 self._workflow = workflow
 
             self._num_cores = None
+            self._num_MPI_ranks = None
             self._scratch = None
             self._scheduler = None
             self._shell = None
             self._use_job_array = None
-            self._max_array_items = None
+            self._max_scheduler_concurrency = None
+            self._max_array_size = None
+            self._array_wrap_order = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
             self._combine_scripts = None
             self._time_limit = None
             self._scheduler_args = None
+            self._inherit_directives = None
             self._shell_args = None
             self._os_name = None
             self._environments = None
@@ -2860,6 +3150,16 @@ class ResourceSpec(JSONLike):
     def _process_rng_spawn_key(value: int | list[int] | None) -> list[int] | None:
         if isinstance(value, int):
             return [value]
+        return value
+
+    @classmethod
+    def _process_array_wrap_order(cls, value: str | None) -> str | None:
+        value = cls._process_string(value)
+        if value is not None and value not in ARRAY_WRAP_ORDERS:
+            raise ValueError(
+                f"`array_wrap_order` must be one of {ARRAY_WRAP_ORDERS!r}, but "
+                f"{value!r} was specified."
+            )
         return value
 
     def _setter_persistent_check(self):
@@ -2915,6 +3215,13 @@ class ResourceSpec(JSONLike):
         return self._get_value("num_threads")
 
     @property
+    def num_MPI_ranks(self) -> int | None:
+        """
+        How many MPI ranks to use, defaults to ``num_cores``.
+        """
+        return self._get_value("num_MPI_ranks")
+
+    @property
     def scheduler(self) -> str | None:
         """
         Which scheduler to use.
@@ -2946,11 +3253,28 @@ class ResourceSpec(JSONLike):
         return self._get_value("use_job_array")
 
     @property
-    def max_array_items(self) -> int | None:
+    def max_scheduler_concurrency(self) -> int | None:
         """
-        If using array jobs, up to how many items should be in the job array.
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
         """
-        return self._get_value("max_array_items")
+        return self._get_value("max_scheduler_concurrency")
+
+    @property
+    def max_array_size(self) -> int | None:
+        """
+        If using array jobs, what is the maximum permitted size of a job array.
+        """
+        return self._get_value("max_array_size")
+
+    @property
+    def array_wrap_order(self) -> str | None:
+        """
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) or
+        ``"action"``.
+        """
+        return self._get_value("array_wrap_order")
 
     @property
     def write_app_logs(self) -> bool:
@@ -2970,6 +3294,11 @@ class ResourceSpec(JSONLike):
         How long to run for.
         """
         return self._get_value("time_limit")
+
+    @property
+    def inherit_directives(self) -> bool | None:
+        """Whether to inherit directives; None leaves the broader policy unchanged."""
+        return self._get_value("inherit_directives")
 
     @property
     def scheduler_args(self) -> Mapping:  # TODO: TypedDict

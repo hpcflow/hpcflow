@@ -4,7 +4,8 @@ Model of files that hold commands.
 
 from __future__ import annotations
 import copy
-from dataclasses import dataclass, field, InitVar
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import dedent
 from typing import Protocol, cast, overload, TYPE_CHECKING
@@ -16,10 +17,13 @@ from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import search_dir_files_by_regex
 from hpcflow.sdk.core.zarr_io import zarr_decode
 from hpcflow.sdk.core.values import process_demo_data_strings
+from hpcflow.sdk.core.warnings import (
+    warn_once,
+    warn_output_file_parser_save_files_deprecated,
+)
 
 if TYPE_CHECKING:
     import os
-    from collections.abc import Mapping
     from typing import Any, ClassVar
     from typing_extensions import Self
     from .actions import Action, ActionRule
@@ -351,10 +355,14 @@ class OutputFileParser(JSONLike):
         Whether to pass the environment specifier to the script.
     abortable: bool
         Whether this script can be aborted.
-    save_files: list[str]
-        The files that should be saved to the persistent store for the workflow.
-    clean_up: list[str]
-        The files that should be immediately removed.
+    generates_files: list[FileSpec]
+        Files produced by the parser script itself (as opposed to the files it parses,
+        given by ``output_files``). Declaring them here makes them available as
+        ``output_files.<label>`` parameters and selectable by the task schema's
+        ``save_files`` policy.
+    clean_up: list[FileSpec]
+        Files that should be removed from the working directory once they have been
+        saved as workflow artifacts.
     rules: list[~hpcflow.app.ActionRule]
         Rules for whether to enable this parser.
     """
@@ -375,7 +383,7 @@ class OutputFileParser(JSONLike):
             shared_data_name="command_files",
         ),
         ChildObjectSpec(
-            name="save_files",
+            name="generates_files",
             class_name="FileSpec",
             is_multiple=True,
             shared_data_primary_key="label",
@@ -417,42 +425,45 @@ class OutputFileParser(JSONLike):
     script_pass_env_spec: bool = False
     #: Whether this script can be aborted.
     abortable: bool = False
-    #: The files that should be saved to the persistent store for the workflow.
-    save_files: InitVar[list[FileSpec] | bool] = True
-    _save_files: list[FileSpec] = field(init=False)
-    #: The files that should be immediately removed.
-    clean_up: list[str] = field(default_factory=list)
+    #: Files produced by the parser script itself.
+    generates_files: list[FileSpec] = field(default_factory=list)
+    #: Files to remove from the working directory once saved as artifacts.
+    clean_up: list[FileSpec] = field(default_factory=list)
     #: Rules for whether to enable this parser.
     rules: list[ActionRule] = field(default_factory=list)
     #: Whether the parser requires a working directory.
     requires_dir: bool = True
 
-    def __post_init__(self, save_files: list[FileSpec] | bool) -> None:
-        if not save_files:
-            # save no files
-            self._save_files = []
-        elif save_files is True:
-            # save all output files
-            self._save_files = [out_f for out_f in self.output_files]
-        else:
-            self._save_files = save_files
-
-    @override
-    def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:
-        d = super()._postprocess_to_dict(d)
-        if "_save_files" in d:
-            d["save_files"] = d.pop("_save_files")
-        return d
-
     @classmethod
     def from_json_like(  # type: ignore[override]
         cls, json_like: dict[str, Any], shared_data: Mapping | None = None
     ) -> Self:
-        if "save_files" in json_like:
-            if not json_like["save_files"]:
-                json_like["save_files"] = []
-            elif json_like["save_files"] is True:
-                json_like["save_files"] = [i for i in json_like["output_files"]]
+        if isinstance(json_like, Mapping) and "save_files" in json_like:
+            # backwards compatibility: `save_files` was removed in favour of declaring
+            # parser-written files in `generates_files` and selecting files to retain
+            # via the task schema policy. Entries that are not parser input files are
+            # assumed to be written by the parser script.
+            json_like = dict(json_like)
+            legacy = json_like.pop("save_files")
+            from_files = list(json_like.get("from_files") or [])
+            # `True` meant "save all `from_files`", which are already declared:
+            legacy = [] if isinstance(legacy, bool) or not legacy else list(legacy)
+            generated = [
+                i
+                for i in legacy
+                if i not in from_files
+                and i not in (json_like.get("generates_files") or [])
+            ]
+            if generated:
+                json_like["generates_files"] = [
+                    *(json_like.get("generates_files") or []),
+                    *generated,
+                ]
+            warn_once(
+                warn_output_file_parser_save_files_deprecated(
+                    "generates_files" if generated else None
+                )
+            )
         return super().from_json_like(json_like, shared_data)
 
     def get_action_rules(self) -> list[ActionRule]:

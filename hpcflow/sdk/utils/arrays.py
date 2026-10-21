@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, overload
+
+import numpy as np
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -67,3 +70,69 @@ def split_arr(arr: NDArray, metadata_size: int) -> list[tuple[NDArray, NDArray]]
         count += size + 1
         block_start = end
     return sub_arrs
+
+
+def reshape_max_width(
+    arr, max_width: int, *, dtype, fill, block_major: bool = False
+) -> tuple[NDArray, int, dict[int, int]]:
+    """Split the columns of a 2D array into blocks of at most `max_width` columns, and
+    stack the blocks vertically.
+
+    Parameters
+    ----------
+    arr
+        Two dimensional array to reshape.
+    max_width
+        Maximum number of columns in the output array.
+    dtype
+        Data type of the output array.
+    fill
+        Value used to pad the final block if the number of columns is not divisible by
+        `max_width`.
+    block_major
+        If False (default), rows of the output are interleaved by block: row 0 of block
+        0, row 0 of block 1, ..., row 1 of block 0, row 1 of block 1, etc. If True,
+        blocks are stacked whole: all rows of block 0, then all rows of block 1, etc.
+
+    Returns
+    -------
+    out
+        Reshaped array of shape ``(rows * n_blocks, max_width)``.
+    n_blocks
+        Number of column blocks.
+    column_map
+        Mapping from original column index to output column index, for those columns
+        that were moved.
+
+    Examples
+    --------
+    >>> arr = np.array([[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]])
+    >>> reshape_max_width(arr, 3, dtype=int, fill=-1)[0]
+    array([[ 0,  1,  2],
+           [ 3,  4, -1],
+           [ 5,  6,  7],
+           [ 8,  9, -1]])
+    >>> reshape_max_width(arr, 3, dtype=int, fill=-1, block_major=True)[0]
+    array([[ 0,  1,  2],
+           [ 5,  6,  7],
+           [ 3,  4, -1],
+           [ 8,  9, -1]])
+
+    """
+    arr = np.asarray(arr, dtype=dtype)
+    rows, cols = arr.shape
+    n_blocks = math.ceil(cols / max_width)
+
+    # pad columns so they're divisible by max_width
+    padded_cols = n_blocks * max_width
+    out = np.full((rows, padded_cols), fill, dtype=dtype)
+    out[:, :cols] = arr
+
+    # old -> new column index
+    column_map = {col: col % max_width for col in range(cols) if col >= max_width}
+
+    # split each row into max_width-sized blocks
+    out = out.reshape(rows, n_blocks, max_width)
+    if block_major:
+        out = out.transpose(1, 0, 2)
+    return out.reshape(rows * n_blocks, max_width), n_blocks, column_map

@@ -6,8 +6,11 @@ from __future__ import annotations
 from collections import defaultdict
 import copy
 from dataclasses import dataclass, field
+import functools
 from itertools import chain
+import logging
 from pathlib import Path
+import re
 from typing import NamedTuple, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
@@ -42,6 +45,7 @@ from hpcflow.sdk.core.input_sources import (
     validate_specified_source,
 )
 from hpcflow.sdk.core.parameters import ParameterValue
+from hpcflow.sdk.core.task_schema import validate_save_files_policy
 from hpcflow.sdk.core.utils import (
     get_duplicate_items,
     get_in_container,
@@ -83,7 +87,7 @@ if TYPE_CHECKING:
         Resources,
         RepeatsDescriptorType,
     )
-    from .workflow import Workflow, WorkflowTemplate
+    from .workflow import ArrayOutput, Workflow, WorkflowTemplate
 
     StrSeq = TypeVar("StrSeq", bound=Sequence[str])
 
@@ -745,7 +749,7 @@ class OutputLabel(JSONLike):
         self,
         parameter: str,
         label: str,
-        where: Rule | None = None,
+        where: ElementFilter | None = None,
     ) -> None:
         #: Name of a parameter.
         self.parameter = parameter
@@ -789,12 +793,27 @@ class Task(JSONLike):
         only the intersection of element sub-sets for all parameters are included.
     element_sets: list[ElementSet]
     output_labels: list[OutputLabel]
+    save_files: bool | list[str] | None
+        Optional file-retention policy replacing the task schema's policy. Accepts the
+        same values as the task schema ``save_files`` setting.
+    condition: str
+        A string reference to a parameter in a preceding task in the format
+        "task.TASK_NAME.inputs.PARAMETER_NAME" or "task.TASK_NAME.outputs.PARAMETER_NAME",
+        whose value will be evaluated (element-wise) to determine whether or not this task
+        should run. If the value is truthy, this task will run.
     sourceable_elem_iters: list[int]
     merge_envs: bool
         If True, merge environment presets (set via the element set `env_preset` key)
         into `resources` using the "any" scope. If False, these presets are ignored.
         This is required on first initialisation, but not on subsequent
         re-initialisation from a persistent workflow.
+    disable_array_outputs: list[str]
+        Dot-delimited output paths to store only in the legacy Zarr groups.
+        The optional ``outputs.`` prefix is accepted. A containing parameter path
+        disables all nested arrays. Task and schema exclusions are combined.
+        By default output ndarrays use Zstandard-compressed NPZ instead of legacy
+        Zarr groups, with run-file IDs sharded into directories of up to 500 files.
+        This is a temporary storage workaround specific to the Zarr store.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -840,8 +859,11 @@ class Task(JSONLike):
         allow_non_coincident_task_sources: bool = False,
         element_sets: list[ElementSet] | None = None,
         output_labels: list[OutputLabel] | None = None,
+        condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
+        disable_array_outputs: list[str] | None = None,
+        save_files: bool | list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
         # (lists of) strs e.g.: Task(
@@ -873,6 +895,10 @@ class Task(JSONLike):
                 raise TypeError(f"Not a TaskSchema object: {item!r}")
 
         self._schemas = _schemas
+        self.save_files = validate_save_files_policy(
+            save_files,
+            set().union(*(schema_i.get_file_labels() for schema_i in _schemas)),
+        )
 
         self._element_sets = self._app.ElementSet.ensure_element_sets(
             inputs=inputs,
@@ -891,6 +917,8 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
+        self.disable_array_outputs = list(disable_array_outputs or [])
+        self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
         self.merge_envs = merge_envs
@@ -1042,6 +1070,7 @@ class Task(JSONLike):
         }
         return res
 
+    @TimeIt.decorator
     def set_sequence_parameters(self, element_set: ElementSet) -> None:
         """
         Set up parameters parsed by value sequences.
@@ -1107,6 +1136,7 @@ class Task(JSONLike):
         # until we initialise EARs:
         output_data_indices: dict[str, list[int]] = {}
         for schema in self.schemas:
+            output_indices, _ = schema.get_output_indices()
             for output in schema.outputs:
                 # TODO: consider multiple schemas in action index?
 
@@ -1117,9 +1147,7 @@ class Task(JSONLike):
                     workflow._add_unset_parameter_data(
                         {
                             "type": "EAR_output",
-                            # "task_insert_ID": self.insert_ID,
-                            # "element_idx": idx,
-                            # "run_idx": 0,
+                            "output_idx": output_indices[path],
                         }
                     )
                     for idx in range(*local_element_idx_range)
@@ -1127,6 +1155,7 @@ class Task(JSONLike):
 
         return output_data_indices
 
+    @TimeIt.decorator
     def prepare_element_resolution(
         self, element_set: ElementSet, input_data_indices: Mapping[str, Sequence]
     ) -> list[MultiplicityDescriptor]:
@@ -1224,10 +1253,10 @@ class Task(JSONLike):
 
             # get possible sources from preceding tasks (mutates `available`):
             get_available_task_sources(
-                self._app,
-                inputs_path,
-                source_tasks,
-                available,
+                app=self._app,
+                req_path=inputs_path,
+                source_tasks=source_tasks,
+                available=available,
                 sourceable_elem_iters=element_set.sourceable_elem_iters,
             )
 
@@ -1312,7 +1341,7 @@ class Task(JSONLike):
         """
         The outputs from this task's schemas.
         """
-        return tuple(inp_j for schema_i in self.schemas for inp_j in schema_i.outputs)
+        return tuple(out_j for schema_i in self.schemas for out_j in schema_i.outputs)
 
     @property
     def all_schema_input_types(self) -> set[str]:
@@ -1537,6 +1566,151 @@ class _ESIdx(NamedTuple):
     uniq: frozenset[int]
 
 
+@dataclass
+class TaskCondition(AppAware):
+    """An element-wise condition on the execution of a task."""
+
+    source_task_ID: int
+    input_or_output: str
+    source_parameter: str
+
+    group_name: str | None = None
+    group_function: str | None = None
+
+    @property
+    def get_path(self) -> str:
+        return f"{self.input_or_output}.{self.source_parameter}"
+
+    def __validate_run(self, run) -> bool:
+        """Return True if the provided run provided this conditions source parameter as
+        either an input or an output, otherwise return False."""
+        if self.input_or_output == "inputs":
+            return self.source_parameter in run.action.get_input_types()
+        elif self.input_or_output == "outputs":
+            return self.source_parameter in run.action.get_output_types()
+        else:
+            raise ValueError(
+                f"'input_or_output' must be 'inputs' or 'outputs', but received "
+                f"{self.input_or_output!r}."
+            )
+
+    def test(self, run, task_ID: int) -> bool | None:
+        """
+        Return True if the condition is met (meaning the task should execute), False if
+        the condition is not met (meaning the task should not execute), and None if the
+        condition is not valid for the provided run (i.e. the run does not belong to the
+        source task referenced by `source_task_ID`).
+
+        Parameters
+        ----------
+        run
+            The run whose `source_parameter` should be tested for truthiness.
+        task_ID
+            The task ID of the task in which this condition is defined.
+
+        """
+        assert not self.group_name
+        self._app.submission_logger.info(
+            f"checking task condition of task {task_ID!r}: {self!r}."
+        )
+
+        # does this condition apply to the specified run's task?
+        if run.task.insert_ID == self.source_task_ID:
+
+            if not self.__validate_run(run):
+                return None
+
+            # does this run output the condition's parameter?
+            src_out_val = run.get(self.get_path)
+            self._app.submission_logger.info(
+                f"task condition source value is {src_out_val!r}"
+            )
+
+            # is the condition met (just support bool for now)?
+            return bool(src_out_val)
+
+        return None
+
+    def test_group(self, runs, task_ID: int) -> bool | None:
+
+        assert self.group_name
+
+        # filter out runs that are not valid for this condition (do not provide the source
+        # parameter as either an input or output):
+        runs_filtered = [run for run in runs if self.__validate_run(run)]
+        if not runs_filtered:
+            return None
+
+        self._app.submission_logger.info(
+            f"checking group task condition of task {task_ID!r}: {self!r}."
+        )
+        # do these runs output the condition's parameter?
+        src_out_vals = [run.get(self.get_path) for run in runs_filtered]
+        if self.group_function == "any":
+            return any(src_out_vals)
+
+        elif self.group_function == "all":
+            return all(src_out_vals)
+
+        return None
+
+    @classmethod
+    def from_string(cls, condition: str, workflow: Workflow):
+        """Generate from a string.
+
+        Examples
+        --------
+        The condition is met if the p1 output from task t1 is truthy:
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1", workflow)
+        TaskCondition(...)
+
+        The condition is met if any values of the p1 output from task t1 in the group
+        "my_group" are truthy:
+
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1:any(my_group)", workflow)
+        TaskCondition(...)
+
+        The condition is met if all values of the p1 output from task t1 in the group
+        "my_group" are truthy:
+
+        >>> TaskCondition.from_string("tasks.t1.outputs.p1:all(my_group)", workflow)
+        TaskCondition(...)
+
+        """
+        cond_s = condition.split(".")
+        src_task_i_name, in_or_out, src_param_info = cond_s[1:4]
+
+        # get source parameter and group info if any:
+        src_param_info_s = src_param_info.split(":", maxsplit=1)
+        src_param, group_info = src_param_info_s[0], src_param_info_s[1:]
+
+        group_function, group_name = None, None
+        if group_info:
+            if match := re.search(r"\b(any|all)\(([^)]+)\)", group_info[0]):
+                group_function = match.group(1)
+                group_name = match.group(2)
+
+        src_task = workflow.tasks.get(src_task_i_name)
+        if in_or_out == "inputs":
+            assert src_param in src_task.template.schema.input_types
+        elif in_or_out == "outputs":
+            assert src_param in src_task.template.schema.output_types
+        else:
+            raise ValueError(
+                f"Task condition is not understood: {condition!r}. Try in the "
+                "format: 'task.TASK_NAME.inputs.PARAMETER_NAME' or "
+                f"'task.TASK_NAME.outputs.PARAMETER_NAME'."
+            )
+
+        return cls(
+            source_task_ID=src_task.insert_ID,
+            input_or_output=in_or_out,
+            source_parameter=src_param,
+            group_function=group_function,
+            group_name=group_name,
+        )
+
+
 class WorkflowTask(AppAware):
     """
     Represents a :py:class:`Task` that is bound to a :py:class:`Workflow`.
@@ -1583,7 +1757,8 @@ class WorkflowTask(AppAware):
     @classmethod
     def new_empty_task(cls, workflow: Workflow, template: Task, index: int) -> Self:
         """
-        Make a new instance without any elements set up yet.
+        Make a new instance without any elements set up yet, validate any task condition,
+        and add any missing parameter dependence required by that condition.
 
         Parameters
         ----------
@@ -1594,12 +1769,43 @@ class WorkflowTask(AppAware):
         index:
             Where in the workflow's list of tasks is this one.
         """
-        return cls(
+        obj = cls(
             workflow=workflow,
             template=template,
             index=index,
             element_IDs=[],
         )
+
+        if parsed_condition := obj.validate_condition():
+            schema = obj.template.schema
+            if parsed_condition.source_parameter not in schema.input_types:
+                schema.add_parameter_dependency(
+                    param=parsed_condition.source_parameter,
+                    group_name=parsed_condition.group_name,
+                )
+            elif group_name := parsed_condition.group_name:
+                # check group exists:
+                src_task = workflow.tasks.get(insert_ID=parsed_condition.source_task_ID)
+                group_found = False
+                for es in src_task.template.element_sets:
+                    for group in es.groups:
+                        if group_name == group.name:
+                            group_found = True
+                if not group_found:
+                    raise ValueError(
+                        f"Group {group_name!r} not found whilst validating the task "
+                        f"condition: {parsed_condition!r}."
+                    )
+
+        return obj
+
+    def validate_condition(self) -> TaskCondition | None:
+        """Validate a task condition string."""
+        if condition := self.template.condition:
+            return self._app.TaskCondition.from_string(
+                condition=condition, workflow=self.workflow
+            )
+        return None
 
     @property
     def workflow(self) -> Workflow:
@@ -1704,6 +1910,158 @@ class WorkflowTask(AppAware):
         Get the iterations known by the task's elements.
         """
         return {itr.id_: itr for elem in self.elements for itr in elem.iterations}
+
+    @TimeIt.decorator
+    def list_array_outputs(self) -> list[str]:
+        """Return array output directory names for this task's output parameters.
+
+        Names are sorted and exclude the optional ``outputs.`` prefix. No NPZ
+        files are inspected; an existing directory does not guarantee that this
+        task has saved entries.
+        """
+        return [
+            name
+            for name in self.workflow.list_array_outputs()
+            if any(
+                name == root or name.startswith(f"{root}.")
+                for schema in self.template.schemas
+                for root in schema.output_types
+            )
+            and not self._is_array_output_disabled(name)
+        ]
+
+    def _is_array_output_disabled(self, name: str) -> bool:
+        """Check task/schema exclusions, including containing parameter paths."""
+        name = name.removeprefix("outputs.")
+        return any(
+            bool(disabled) and (name == disabled or name.startswith(f"{disabled}."))
+            for output in (
+                *self.template.disable_array_outputs,
+                *(
+                    output
+                    for schema in self.template.schemas
+                    for output in schema.disable_array_outputs
+                ),
+            )
+            for disabled in [output.removeprefix("outputs.")]
+        )
+
+    @TimeIt.decorator
+    def get_array_output(
+        self,
+        name: str,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+    ) -> ArrayOutput:
+        """Read an array output from this task's producing action runs.
+
+        The optional ``outputs.`` prefix is accepted. Task- and schema-level
+        ``disable_array_outputs`` exclusions are combined. Only runs of the root
+        parameter's first source action from
+        :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
+        are sorted lexicographically by element index, iteration index, action index,
+        then run index. With ``sort=False``, order follows
+        :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
+        workflow reader; missing saved data therefore raises rather than being skipped.
+
+        ``iteration_idx=None`` selects each element's final non-loop-skipped
+        iteration; an integer or sequence selects those iteration indices explicitly.
+        ``element_idx=None`` includes all elements; an integer or sequence selects
+        those element indices. Sequences filter without reordering or duplicating runs.
+
+        Raises
+        ------
+        ValueError
+            If the output is disabled or no producing runs are found.
+        """
+        output_name = name.removeprefix("outputs.")
+        if self._is_array_output_disabled(output_name):
+            raise ValueError(
+                f"Array output {name!r} is disabled for task {self.unique_name!r}."
+            )
+
+        root_name = output_name.split(".", 1)[0]
+        source_action_idx: int | None = None
+        action_offset = 0
+        for schema in self.template.schemas:
+            flow = schema.get_action_parameter_flow()
+            sources = flow.get(root_name, {}).get("sources", [])
+            if sources and sources[0] >= 0:
+                source_action_idx = action_offset + sources[0]
+                break
+            action_offset += len(schema.actions)
+
+        run_IDs = self.workflow.get_EAR_IDs_of_tasks([self.insert_ID])
+        runs_by_ID = {run.id_: run for run in self.workflow.get_EARs_from_IDs(run_IDs)}
+        iteration_indices = (
+            None
+            if iteration_idx is None
+            else {iteration_idx} if isinstance(iteration_idx, int) else set(iteration_idx)
+        )
+        element_indices = (
+            None
+            if element_idx is None
+            else {element_idx} if isinstance(element_idx, int) else set(element_idx)
+        )
+        latest_iteration_IDs: dict[int, int | None] = {}
+        if iteration_idx is None and source_action_idx is not None:
+            for run in runs_by_ID.values():
+                if run.element_action.action_idx != source_action_idx:
+                    continue
+                if run.element.id_ not in latest_iteration_IDs and (
+                    element_indices is None or run.element.index in element_indices
+                ):
+                    latest = run.element.latest_iteration_non_skipped
+                    latest_iteration_IDs[run.element.id_] = (
+                        latest.id_ if latest is not None else None
+                    )
+        applicable_run_IDs = [
+            run_ID
+            for run_ID in run_IDs
+            if source_action_idx is not None
+            and runs_by_ID[run_ID].element_action.action_idx == source_action_idx
+            and (
+                element_indices is None
+                or runs_by_ID[run_ID].element.index in element_indices
+            )
+            and (
+                runs_by_ID[run_ID].element_iteration.id_
+                == latest_iteration_IDs[runs_by_ID[run_ID].element.id_]
+                if iteration_indices is None
+                else runs_by_ID[run_ID].element_iteration.index in iteration_indices
+            )
+        ]
+        if not applicable_run_IDs:
+            raise ValueError(
+                f"No producing runs found for array output {name!r} "
+                f"in task {self.unique_name!r}."
+            )
+        return self.workflow.get_array_output(name, applicable_run_IDs, sort=sort)
+
+    def export_array_output(
+        self,
+        name: str,
+        path: str | Path,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export this task's selected array output to a single ``.npy`` file.
+
+        Filters and sorting follow :meth:`get_array_output`. All selected arrays
+        must have matching shapes. Write to exactly ``path`` and return that path.
+        Existing files raise FileExistsError unless ``overwrite=True``.
+        """
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(
+            name, iteration_idx=iteration_idx, element_idx=element_idx, sort=sort
+        )
+        return self.workflow._export_array_output(output, path, overwrite=overwrite)
 
     @staticmethod
     @TimeIt.decorator
@@ -2325,7 +2683,6 @@ class WorkflowTask(AppAware):
         return element_dat_idx
 
     @TimeIt.decorator
-    @TimeIt.decorator
     def initialise_EARs(self, iter_IDs: list[int] | None = None) -> Sequence[int]:
         """Try to initialise any uninitialised EARs of this task."""
         if iter_IDs:
@@ -2341,11 +2698,15 @@ class WorkflowTask(AppAware):
                 # objects.
                 iters.extend(element.iterations)
 
+        # keys are action indices, values are dicts whose keys are outputs/input-/output-
+        # file types and values are output indices:
+        _, output_indices = self.template.schema.get_output_indices()
+
         initialised: list[int] = []
         for iter_i in iters:
             if not iter_i.EARs_initialised:
                 try:
-                    self.__initialise_element_iter_EARs(iter_i)
+                    self.__initialise_element_iter_EARs(iter_i, output_indices)
                     initialised.append(iter_i.id_)
                 except UnsetParameterDataError:
                     # raised by `Action.test_rules`; cannot yet initialise EARs
@@ -2359,7 +2720,9 @@ class WorkflowTask(AppAware):
         return initialised
 
     @TimeIt.decorator
-    def __initialise_element_iter_EARs(self, element_iter: ElementIteration) -> None:
+    def __initialise_element_iter_EARs(
+        self, element_iter: ElementIteration, output_indices: dict[int, dict[str, int]]
+    ) -> None:
         # keys are (act_idx, EAR_idx):
         all_data_idx: dict[tuple[int, int], DataIndex] = {}
         action_runs: dict[tuple[int, int], dict[str, Any]] = {}
@@ -2367,20 +2730,27 @@ class WorkflowTask(AppAware):
         # keys are parameter indices, values are EAR_IDs to update those sources to
         param_src_updates: dict[int, ParamSource] = {}
 
-        count = 0
+        logger = self._app.logger
+        log_info = logger.isEnabledFor(logging.INFO)
+        next_EAR_ID = self.workflow.num_EARs
         for act_idx, action in self.template.all_schema_actions():
-            log_common = (
-                f"for action {act_idx} of element iteration {element_iter.index} of "
-                f"element {element_iter.element.index} of task {self.unique_name!r}."
-            )
             # TODO: when we support adding new runs, we will probably pass additional
             # run-specific data index to `test_rules` and `generate_data_index`
             # (e.g. if we wanted to increase the memory requirements of a action because
             # it previously failed)
             act_valid, cmds_idx = action.test_rules(element_iter=element_iter)
             if act_valid:
-                self._app.logger.info(f"All action rules evaluated to true {log_common}")
-                EAR_ID = self.workflow.num_EARs + count
+                if log_info:
+                    logger.info(
+                        "All action rules evaluated to true for action %s of "
+                        "element iteration %s of element %s of task %r.",
+                        act_idx,
+                        element_iter.index,
+                        element_iter.element.index,
+                        self.unique_name,
+                    )
+                EAR_ID = next_EAR_ID
+                next_EAR_ID += 1
                 param_source: ParamSource = {
                     "type": "EAR_output",
                     "EAR_ID": EAR_ID,
@@ -2393,6 +2763,7 @@ class WorkflowTask(AppAware):
                         all_data_idx=all_data_idx,
                         workflow=self.workflow,
                         param_source=param_source,
+                        output_indices=output_indices[act_idx],
                     )
                 )
                 # with EARs initialised, we can update the pre-allocated schema-level
@@ -2406,10 +2777,15 @@ class WorkflowTask(AppAware):
                     "metadata": {},
                 }
                 action_runs[act_idx, EAR_ID] = run_0
-                count += 1
-            else:
-                self._app.logger.info(
-                    f"Some action rules evaluated to false {log_common}"
+
+            elif log_info:
+                logger.info(
+                    "Some action rules evaluated to false for action %s of "
+                    "element iteration %s of element %s of task %r.",
+                    act_idx,
+                    element_iter.index,
+                    element_iter.element.index,
+                    self.unique_name,
                 )
 
         # `generate_data_index` can modify data index for previous actions, so only assign
@@ -2420,6 +2796,9 @@ class WorkflowTask(AppAware):
                 action_idx=act_idx,
                 commands_idx=run["commands_idx"],
                 data_idx=all_data_idx[act_idx, EAR_ID_i],
+                task_ID=self.insert_ID,
+                element_idx=element_iter.element.index,
+                iteration_idx=element_iter.index,
             )
 
         self.workflow._store.update_param_source(param_src_updates)
@@ -2429,8 +2808,8 @@ class WorkflowTask(AppAware):
         """
         Returns
         -------
-        element_indices : list of int
-            Global indices of newly added elements.
+        element_iteration_indices : list of int
+            Global indices of newly added element iterations
 
         """
 
@@ -2439,7 +2818,7 @@ class WorkflowTask(AppAware):
         # may modify element_set.input_sources:
         padded_elem_iters = self.ensure_input_sources(element_set)
 
-        (input_data_idx, seq_idx, src_idx) = self.__make_new_elements_persistent(
+        input_data_idx, seq_idx, src_idx = self.__make_new_elements_persistent(
             element_set=element_set,
             element_set_idx=self.num_element_sets,
             padded_elem_iters=padded_elem_iters,
@@ -2465,7 +2844,7 @@ class WorkflowTask(AppAware):
             local_element_idx_range=local_element_idx_range,
         )
 
-        (element_data_idx, element_seq_idx, element_src_idx) = self.generate_new_elements(
+        element_data_idx, element_seq_idx, element_src_idx = self.generate_new_elements(
             input_data_idx,
             output_data_idx,
             element_inp_data_idx,
@@ -2473,23 +2852,31 @@ class WorkflowTask(AppAware):
             src_idx,
         )
 
-        iter_IDs: list[int] = []
-        elem_IDs: list[int] = []
+        seq_idx_all: list[dict[str, int]] = []
+        src_idx_all: list[dict[str, int]] = []
+        schema_params_all: list[list[str]] = []
         for elem_idx, data_idx in enumerate(element_data_idx):
-            schema_params = set(i for i in data_idx if len(i.split(".")) == 2)
-            elem_ID_i = self.workflow._store.add_element(
-                task_ID=self.insert_ID,
-                es_idx=self.num_element_sets - 1,
-                seq_idx={k: v[elem_idx] for k, v in element_seq_idx.items()},
-                src_idx={k: v[elem_idx] for k, v in element_src_idx.items() if v != -1},
+            schema_params_all.append(
+                list(set(i for i in data_idx if len(i.split(".")) == 2))
             )
-            iter_ID_i = self.workflow._store.add_element_iteration(
-                element_ID=elem_ID_i,
-                data_idx=data_idx,
-                schema_parameters=list(schema_params),
+            seq_idx_all.append({k: v[elem_idx] for k, v in element_seq_idx.items()})
+            src_idx_all.append(
+                {k: v[elem_idx] for k, v in element_src_idx.items() if v != -1}
             )
-            iter_IDs.append(iter_ID_i)
-            elem_IDs.append(elem_ID_i)
+
+        elem_IDs = self.workflow._store.add_elements(
+            task_ID=self.insert_ID,
+            es_idx=self.num_element_sets - 1,
+            seq_idx=seq_idx_all,
+            src_idx=src_idx_all,
+        )
+        iter_IDs = self.workflow._store.add_element_iterations(
+            element_IDs=elem_IDs,
+            data_idx_all=element_data_idx,
+            schema_parameters_all=schema_params_all,
+            task_ID=self.insert_ID,
+            index=0,
+        )
 
         self._pending_element_IDs += elem_IDs
         self.initialise_EARs()
@@ -2843,6 +3230,7 @@ class WorkflowTask(AppAware):
             default=default,
         )
 
+    @TimeIt.decorator
     def _paths_to_PV_classes(self, *paths: str | None) -> dict[str, type[ParameterValue]]:
         """Return a dict mapping dot-delimited string input paths to `ParameterValue`
         classes."""
@@ -2899,31 +3287,53 @@ class WorkflowTask(AppAware):
         return params
 
     @staticmethod
-    def _get_relevant_paths(
-        data_index: Mapping[str, Any], path: list[str], children_of: str | None = None
+    @functools.lru_cache(maxsize=1024)
+    def _get_relevant_paths_cached(
+        data_paths: tuple[str, ...],
+        path: tuple[str, ...],
+        children_of: str | None,
     ) -> Mapping[str, RelevantPath]:
         relevant_paths: dict[str, RelevantPath] = {}
-        # first extract out relevant paths in `data_index`:
-        for path_i in data_index:
+
+        path_list = list(path)
+
+        for path_i in data_paths:
             path_i_split = path_i.split(".")
             try:
-                rel_path = get_relative_path(path, path_i_split)
-                relevant_paths[path_i] = {"type": "parent", "relative_path": rel_path}
+                rel_path = get_relative_path(path_list, path_i_split)
+                relevant_paths[path_i] = {
+                    "type": "parent",
+                    "relative_path": rel_path,
+                }
             except ValueError:
                 try:
-                    update_path = get_relative_path(path_i_split, path)
+                    update_path = get_relative_path(path_i_split, path_list)
                     relevant_paths[path_i] = {
                         "type": "update",
                         "update_path": update_path,
                     }
                 except ValueError:
-                    # no intersection between paths
                     if children_of and path_i.startswith(children_of):
                         relevant_paths[path_i] = {"type": "sibling"}
-                    continue
 
         return relevant_paths
 
+    @staticmethod
+    @TimeIt.decorator
+    def _get_relevant_paths(
+        data_index: Mapping[str, Any],
+        path: list[str],
+        children_of: str | None = None,
+    ) -> Mapping[str, RelevantPath]:
+        return dict(
+            WorkflowTask._get_relevant_paths_cached(
+                tuple(data_index),
+                tuple(path),
+                children_of,
+            )
+        )
+
+    @TimeIt.decorator
     def __get_relevant_data_item(
         self,
         path: str | None,
@@ -2973,6 +3383,7 @@ class WorkflowTask(AppAware):
             unset_trackers[path_i].group_size = len_dat_idx
         return data_j, is_set_i, meth_i
 
+    @TimeIt.decorator
     def __get_relevant_data(
         self,
         relevant_data_idx: Mapping[str, list[int] | int],
@@ -3024,6 +3435,7 @@ class WorkflowTask(AppAware):
         return relevant_data
 
     @classmethod
+    @TimeIt.decorator
     def __merge_relevant_data(
         cls,
         relevant_data: Mapping[str, RelevantData],

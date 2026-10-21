@@ -8,9 +8,11 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 from typing_extensions import Generic, TypeVar
 
+
 from hpcflow.sdk.core.utils import nth_key
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.core.cache import ObjectCache
+from hpcflow.sdk.core.enums import EARStatus
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -148,6 +150,9 @@ class LoopCache:
     task_iterations:
         Keys are task insert IDs, values are list of all iteration IDs associated with
         that task.
+    run_meta:
+        Keys are run IDs, values are tuples of the task insert ID and element ID of that
+        run.
     """
 
     #: Keys are element IDs, values are dicts whose keys are element IDs that depend on
@@ -171,6 +176,22 @@ class LoopCache:
     #: Keys are task insert IDs, values are list of all iteration IDs associated with
     #: that task.
     task_iterations: dict[int, list[int]]
+    #: Keys are run IDs, values are tuples of the task insert ID and element ID of that
+    #: run. Only immutable data is stored here, because run objects retrieved at cache
+    #: build time would hold stale parent elements/iterations once new iterations are
+    #: added.
+    run_meta: dict[int, tuple[int, int]]
+
+    #: Keys are task ID, values are element IDs.
+    task_element_IDs: dict[int, list[int]]
+
+    #: Keys are element IDs, values are iteration IDs.
+    element_iteration_IDs: dict[int, list[int]]
+
+    iteration_run_IDs: dict[int, list[int]]
+    run_data_idx: dict[int, DataIndex]
+    run_pending: dict[int, bool]
+    param_EAR_ID: dict[int, int]
 
     @TimeIt.decorator
     def get_iter_IDs(self, loop: Loop) -> list[int]:
@@ -216,19 +237,29 @@ class LoopCache:
         new_iter_idx = len(self.data_idx[element_ID])
         self.data_idx[element_ID][loop_idx] = data_idx
         self.iterations[iter_ID] = (element_ID, new_iter_idx)
+        self.elements[element_ID]["num_iters"] += 1
+        self.element_iteration_IDs[element_ID].append(iter_ID)
+
+    def get_latest_data_idx(self, element_ID: int) -> DataIndex:
+        """Get the data index of the most recently added iteration of an element."""
+        return next(reversed(self.data_idx[element_ID].values()))
 
     @classmethod
     @TimeIt.decorator
     def build(cls, workflow: Workflow, loops: list[Loop] | None = None) -> Self:
         """Build a cache of data for use in adding loops and iterations."""
 
-        deps_cache = ObjectCache.build(workflow, dependencies=True, elements=True)
+        deps_cache = ObjectCache.build(
+            workflow, dependencies=True, elements=True, runs=True
+        )
 
         loops = [*workflow.template.loops, *(loops or ())]
         task_iIDs = {t_id for loop in loops for t_id in loop.task_insert_IDs}
-        tasks: list[WorkflowTask] = [
-            workflow.tasks.get(insert_ID=t_id) for t_id in sorted(task_iIDs)
-        ]
+
+        # include all tasks, since we might need to update data indices of downstream
+        # tasks that are not part of the loop:
+        tasks = list(workflow.tasks)
+
         elem_deps: dict[int, dict[int, DependentDescriptor]] = {}
 
         # keys: element IDs, values: dict with keys: tuple(loop_idx), values: data index
@@ -239,19 +270,23 @@ class LoopCache:
         iters: dict[int, tuple[int, int]] = {}
 
         # keys: element IDs, values: dict with keys: "input_statues", "input_sources",
-        # "task_insert_ID":
+        # "task_insert_ID", "num_iters":
         elements: dict[int, ElementDescriptor] = {}
 
         zeroth_iters: dict[int, tuple[int, DataIndex]] = {}
         task_iterations = defaultdict(list)
+        task_element_IDs = defaultdict(list)
+        element_iteration_IDs = defaultdict(list)
         for task in tasks:
             for elem_id in task.element_IDs:
+                task_element_IDs[task.insert_ID].append(elem_id)
                 element = deps_cache.elements[elem_id]
                 inp_statuses = task.template.get_input_statuses(element.element_set)
                 elements[element.id_] = {
                     "input_statuses": inp_statuses,
                     "input_sources": element.input_sources,
                     "task_insert_ID": task.insert_ID,
+                    "num_iters": len(element.iterations),
                 }
                 elem_deps[element.id_] = {
                     de_id: {
@@ -264,6 +299,7 @@ class LoopCache:
                 }
                 elem_iters: dict[LoopIndex[str, int], DataIndex] = {}
                 for idx, iter_i in enumerate(element.iterations):
+                    element_iteration_IDs[element.id_].append(iter_i.id_)
                     if idx == 0:
                         zeroth_iters[element.id_] = (iter_i.id_, iter_i.data_idx)
                     elem_iters[iter_i.loop_idx] = iter_i.get_data_idx()
@@ -271,7 +307,28 @@ class LoopCache:
                     iters[iter_i.id_] = (element.id_, idx)
                 data_idx_cache[element.id_] = elem_iters
 
+        iteration_run_IDs = defaultdict(list)
+        run_data_idx = {}
+        run_pending = {}
+        run_meta = {}
+        for run in deps_cache.runs:
+            iteration_run_IDs[run.element_iteration.id_].append(run.id_)
+            run_data_idx[run.id_] = run.data_idx
+            run_pending[run.id_] = run.status is EARStatus.pending
+            run_meta[run.id_] = (run.task.insert_ID, run.element.id_)
+
+        param_sources = workflow.get_all_parameter_sources()
+        param_EAR_ID = {
+            param_ID: src["EAR_ID"]
+            for param_ID, src in enumerate(param_sources)
+            if src.get("EAR_ID") is not None
+        }
+
         task_iterations.default_factory = None
+        task_element_IDs.default_factory = None
+        element_iteration_IDs.default_factory = None
+        iteration_run_IDs.default_factory = None
+
         return cls(
             element_dependents=elem_deps,
             elements=elements,
@@ -279,4 +336,11 @@ class LoopCache:
             data_idx=data_idx_cache,
             iterations=iters,
             task_iterations=task_iterations,
+            task_element_IDs=task_element_IDs,
+            element_iteration_IDs=element_iteration_IDs,
+            iteration_run_IDs=iteration_run_IDs,
+            run_meta=run_meta,
+            run_pending=run_pending,
+            run_data_idx=run_data_idx,
+            param_EAR_ID=param_EAR_ID,
         )

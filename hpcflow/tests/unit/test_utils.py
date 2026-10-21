@@ -358,6 +358,8 @@ def test_split_param_label():
     assert split_param_label("p1[one]") == ("p1", "one")
     assert split_param_label("p1.sub.data") == ("p1.sub.data", None)
     assert split_param_label("p1[one].sub.data") == ("p1.sub.data", "one")
+    assert split_param_label("inputs.p1.h_0_sl-sl") == ("inputs.p1.h_0_sl-sl", None)
+    assert split_param_label("p1[one].h_0_sl-sl.0") == ("p1.h_0_sl-sl.0", "one")
 
 
 def test_process_string_nodes():
@@ -584,33 +586,27 @@ def test_nth_key_raises():
 
 
 def test_read_YAML_str():
-    good_yaml = dedent(
-        """\
+    good_yaml = dedent("""\
         a: 1
         b: 2
-        """
-    )
+        """)
     assert read_YAML_str(good_yaml) == {"a": 1, "b": 2}
 
 
 def test_read_YAML_str_raise_on_bad_indent():
-    bad_yaml = dedent(
-        """\
+    bad_yaml = dedent("""\
         a: 1
           b: 2
-        """
-    )
+        """)
     with pytest.raises(YAMLError):
         read_YAML_str(bad_yaml)
 
 
 def test_read_YAML_str_raise_on_mixed_tabs_spaces():
-    bad_yaml = dedent(
-        """\
+    bad_yaml = dedent("""\
         a:
           a1: 2 # this has a space indent
         	a2: 3 # this has a tab indent
-        """
-    )
+        """)
     with pytest.raises(YAMLError):
         read_YAML_str(bad_yaml)

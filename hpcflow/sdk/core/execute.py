@@ -9,6 +9,7 @@ import zmq
 
 from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
+from hpcflow.sdk.log import TimeIt
 
 
 class Executor(AppAware):
@@ -32,6 +33,12 @@ class Executor(AppAware):
 
         # assigned on (non-aborted) completion of the subprocess via `_subprocess_runner`:
         self.return_code = None
+
+        # overhead times associated with getting and setting parameter data
+        self.child_orchestration_times = []
+
+        # script execution times:
+        self.child_work_times = []
 
     @property
     def q(self):
@@ -70,12 +77,24 @@ class Executor(AppAware):
                 socket.send_string("shutting down the server")
                 break
 
+            elif message.startswith("timeit:"):
+                parts = message.split(":")
+
+                orchestration_time = float(parts[1])
+                self.child_orchestration_times.append(orchestration_time)
+
+                if len(parts) == 3:
+                    self.child_work_times.append(float(parts[2]))
+
+                socket.send_string("received timeit")
+
             else:
                 socket.send_string(f"received request: {message}")
 
         socket.close()
         self._app.logger.info("zmq_server: server stopped")
 
+    @TimeIt.decorator
     def start_zmq_server(self) -> int:
 
         # start the server thread
@@ -99,6 +118,7 @@ class Executor(AppAware):
 
         return port_number
 
+    @TimeIt.decorator
     def stop_zmq_server(self):
 
         # send a shutdown signal to the server:
@@ -122,6 +142,7 @@ class Executor(AppAware):
         if self.server_thread.is_alive():
             raise RuntimeError("Server thread is still alive!")
 
+    @TimeIt.decorator
     def run(self):
         """Launch the subprocess to execute the commands, and once complete, stop the
         ZMQ server. Kill the subprocess if a "shutdown" or "abort" message is sent to the
@@ -207,3 +228,35 @@ class Executor(AppAware):
         cls._app.logger.info(f"send_abort: received reply: {abort_rep!r}")
         socket.close()
         context.term()
+
+    @classmethod
+    def send_timeit(
+        cls,
+        hostname,
+        port_number,
+        orchestration_time,
+        work_time=None,
+    ):
+        """Send orchestration timing from the child process to the main process.
+
+        ``work_time`` is e.g. for user script time, excluding orchestration around it.
+
+        """
+        context = zmq.Context()
+        socket = context.socket(zmq.REQ)
+
+        try:
+            address = f"tcp://{hostname}:{port_number}"
+            socket.connect(address)
+
+            if work_time is None:
+                message = f"timeit:{orchestration_time}"
+            else:
+                message = f"timeit:{orchestration_time}:{work_time}"
+
+            socket.send_string(message)
+            socket.recv_string()
+
+        finally:
+            socket.close()
+            context.term()

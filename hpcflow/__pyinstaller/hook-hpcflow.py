@@ -2,7 +2,6 @@ from PyInstaller.utils.hooks import collect_data_files
 
 from hpcflow.sdk import sdk_classes
 
-
 # most of the modules in `sdk_classes` are imported on-demand via the app object:
 hiddenimports = [
     *sdk_classes.values(),

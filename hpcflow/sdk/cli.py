@@ -4,7 +4,7 @@ Command line interface implementation.
 
 from __future__ import annotations
 import contextlib
-import datetime
+from datetime import datetime, timezone
 import json
 import os
 import time
@@ -18,6 +18,7 @@ from hpcflow import __version__, _app_name
 from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.execute import Executor
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
 from hpcflow.sdk.cli_common import (
     format_option,
@@ -49,6 +50,7 @@ from hpcflow.sdk.cli_common import (
     zip_log_opt,
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
+    zip_consolidate_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -69,6 +71,9 @@ from hpcflow.sdk.cli_common import (
     template_updates_opt,
     template_resource_opt,
     template_config_opt,
+    timeit_opt,
+    timeit_exec_opt,
+    modify_js_opt,
 )
 from hpcflow.sdk.helper.cli import get_helper_CLI
 from hpcflow.sdk.log import TimeIt
@@ -273,6 +278,8 @@ def _make_API_CLI(app: BaseApp):
     @cancel_opt
     @submit_status_opt
     @submit_quiet_opt
+    @timeit_exec_opt
+    @modify_js_opt
     def make_and_submit_workflow(
         template_file_or_str: str,
         string: bool,
@@ -291,6 +298,7 @@ def _make_API_CLI(app: BaseApp):
         config: list[tuple[str, str]] | None = None,
         js_parallelism: bool | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
@@ -298,6 +306,7 @@ def _make_API_CLI(app: BaseApp):
         cancel: bool = False,
         status: bool = True,
         quiet: bool = False,
+        timeit: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -324,6 +333,7 @@ def _make_API_CLI(app: BaseApp):
             config=dict(config) if config is not None else None,
             JS_parallelism=js_parallelism,
             min_jobscripts=min_jobscripts,
+            modify_js=modify_js,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=print_idx,
@@ -331,6 +341,7 @@ def _make_API_CLI(app: BaseApp):
             cancel=cancel,
             status=status,
             quiet=quiet,
+            timeit=timeit,
         )
         if print_idx:
             assert isinstance(out, tuple)
@@ -552,28 +563,34 @@ def _make_workflow_CLI(app: BaseApp):
     @cancel_opt
     @submit_status_opt
     @submit_quiet_opt
+    @timeit_exec_opt
+    @modify_js_opt
     @_pass_workflow
     def submit_workflow(
         wf: Workflow,
         js_parallelism: bool | None = None,
         wait: bool = False,
         add_to_known: bool = True,
+        modify_js: bool = False,
         print_idx: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
         quiet: bool = False,
+        timeit: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
             JS_parallelism=js_parallelism,
             wait=wait,
             add_to_known=add_to_known,
+            modify_js=modify_js,
             return_idx=True,
             tasks=tasks,
             cancel=cancel,
             status=status,
             quiet=quiet,
+            timeit=timeit,
         )
         if print_idx:
             click.echo(out)
@@ -584,6 +601,7 @@ def _make_workflow_CLI(app: BaseApp):
     @force_arr_opt
     @min_jobscripts_opt
     @submit_status_opt
+    @timeit_exec_opt
     @_pass_workflow
     def add_submission(
         wf: Workflow,
@@ -592,6 +610,7 @@ def _make_workflow_CLI(app: BaseApp):
         force_array=False,
         min_jobscripts=True,
         status=True,
+        timeit=False,
     ):
         """Add a new submission to the workflow, but do not submit."""
         wf.add_submission(
@@ -600,6 +619,7 @@ def _make_workflow_CLI(app: BaseApp):
             force_array=force_array,
             min_jobscripts=min_jobscripts,
             status=status,
+            timeit=timeit,
         )
 
     @workflow.command(name="wait")
@@ -640,6 +660,77 @@ def _make_workflow_CLI(app: BaseApp):
         """Get a parameter value by data index."""
         click.echo(wf.get_parameter_data(index))
 
+    @workflow.command(name="export-array-output")
+    @click.argument("name")
+    @click.argument("output_path", type=click.Path(dir_okay=False))
+    @click.option("--task", type=click.INT, metavar="TASK_INSERT_ID")
+    @click.option(
+        "--run-id", type=click.INT, multiple=True, help="Repeat for each run ID."
+    )
+    @click.option("--element-idx", type=click.INT, multiple=True)
+    @click.option("--iteration-idx", type=click.INT, multiple=True)
+    @click.option("--sort/--no-sort", default=True, show_default=True)
+    @click.option("--overwrite", is_flag=True, help="Replace an existing output file.")
+    @_pass_workflow
+    def export_array_output(
+        wf: Workflow,
+        name: str,
+        output_path: str,
+        task: int | None,
+        run_id: tuple[int, ...],
+        element_idx: tuple[int, ...],
+        iteration_idx: tuple[int, ...],
+        sort: bool,
+        overwrite: bool,
+    ):
+        """Export NAME as one NPY file at OUTPUT_PATH.
+
+        Without --task or --run-id, export all saved runs for NAME. With --task, select by
+        task insert ID and optionally filter elements and iterations (repeatable).
+        By default use all elements and their final non-skipped iterations.
+        Inconsistent selected shapes raise an error. Existing files require --overwrite.
+        """
+        if task is None:
+            if element_idx or iteration_idx:
+                raise click.UsageError(
+                    "--element-idx and --iteration-idx require --task."
+                )
+            destination = wf.export_array_output(
+                name, run_id or None, output_path, sort=sort, overwrite=overwrite
+            )
+        else:
+            if run_id:
+                raise click.UsageError("--run-id cannot be combined with --task.")
+            destination = wf.tasks.get(insert_ID=task).export_array_output(
+                name,
+                output_path,
+                element_idx=element_idx or None,
+                iteration_idx=iteration_idx or None,
+                sort=sort,
+                overwrite=overwrite,
+            )
+        click.echo(destination)
+
+    @workflow.command(name="consolidate-array-outputs")
+    @click.argument("names", nargs=-1)
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="If True, display a live status while consolidating.",
+    )
+    @_pass_workflow
+    def consolidate_array_outputs(wf: Workflow, names: tuple[str, ...], status: bool):
+        """Merge shard archives of array outputs into one file per output.
+
+        Each NAME's shard archives are merged into a single
+        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        removed. With no NAMES, consolidate every array output. Safe to repeat: runs
+        saved after an earlier consolidation are folded in.
+        """
+        results = wf.consolidate_array_outputs(names or None, status=status)
+        for name, path in results.items():
+            click.echo(f"{name}: {path}")
+
     @workflow.command(name="get-param-source")
     @click.argument("index", type=click.INT)
     @_pass_workflow
@@ -672,6 +763,7 @@ def _make_workflow_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @_pass_workflow
     def zip_workflow(
         wf: Workflow,
@@ -680,6 +772,7 @@ def _make_workflow_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
     ):
         """Generate a copy of the workflow in the zip file format in the current working
         directory."""
@@ -690,6 +783,7 @@ def _make_workflow_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 
@@ -846,7 +940,7 @@ def _make_submission_CLI(app: BaseApp):
 
     class _DateTimeJSONEncoder(json.JSONEncoder):
         def default(self, obj):
-            if isinstance(obj, datetime.datetime):
+            if isinstance(obj, datetime):
                 return obj.isoformat()
             return super().default(obj)
 
@@ -907,12 +1001,14 @@ def _make_internal_CLI(app: BaseApp):
 
     @workflow.command()
     @_pass_workflow
+    @click.pass_context
     @click.argument("submission_idx", type=click.INT)
     @click.argument("jobscript_idx", type=click.INT)
     @click.argument("block_idx", type=click.INT)
     @click.argument("block_action_idx", type=click.INT)
     @click.argument("run_id", type=click.INT)
     def execute_run(
+        ctx: click.Context,
         wf: Workflow,
         submission_idx: int,
         jobscript_idx: int,
@@ -921,6 +1017,8 @@ def _make_internal_CLI(app: BaseApp):
         run_id: int,
     ):
         app.CLI_logger.info(f"execute commands for EAR ID {run_id!r}.")
+        if TimeIt.active:
+            TimeIt.title = ctx.command_path
         wf.execute_run(
             submission_idx=submission_idx,
             block_act_key=(jobscript_idx, block_idx, block_action_idx),
@@ -946,12 +1044,14 @@ def _make_internal_CLI(app: BaseApp):
 
     @workflow.command()
     @_pass_workflow
+    @click.pass_context
     @click.argument("name")
     @click.argument("value")
     @click.argument("ear_id", type=click.INT)
     @click.argument("cmd_idx", type=click.INT)
     @click.option("--stderr", is_flag=True, default=False)
     def save_parameter(
+        ctx: click.Context,
         wf: Workflow,
         name: str,
         value: str,
@@ -964,7 +1064,10 @@ def _make_internal_CLI(app: BaseApp):
             f"{cmd_idx!r} (stderr={stderr!r})"
         )
         app.CLI_logger.debug(f"save parameter value is: {value!r}")
+        if TimeIt.active:
+            TimeIt.title = ctx.command_path
         with wf._store.cached_load():
+            # TODO: load EAR once.
             value = wf.process_shell_parameter_output(
                 name=name,
                 value=value,
@@ -1044,6 +1147,7 @@ def _make_zip_CLI(app: BaseApp):
     @zip_log_opt
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
+    @zip_consolidate_opt
     @workflow_ref_type_opt
     def zip_workflow(
         workflow_ref: str,
@@ -1052,6 +1156,7 @@ def _make_zip_CLI(app: BaseApp):
         log: str | None,
         include_execute: bool,
         include_rechunk_backups: bool,
+        consolidate: bool,
         ref_type: str | None,
     ):
         """Generate a copy of the specified workflow in the zip file format in the
@@ -1069,6 +1174,7 @@ def _make_zip_CLI(app: BaseApp):
                 log=log,
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
+                consolidate=consolidate,
             )
         )
 
@@ -1902,14 +2008,7 @@ def make_cli(app: BaseApp):
         nargs=2,
         multiple=True,
     )
-    @click.option(
-        "--timeit",
-        help=(
-            "Time function pathways as the code executes and write out a summary at the "
-            "end. Only functions decorated by `TimeIt.decorator` are included."
-        ),
-        is_flag=True,
-    )
+    @timeit_opt
     @click.option(
         "--timeit-file",
         help=(
@@ -1934,12 +2033,23 @@ def make_cli(app: BaseApp):
     ):
         ctx.ensure_object(dict)
 
+        app_caps = app.package_name.upper()
+        if launch_start := os.environ.get(f"{app_caps}_APP_LAUNCH_START"):
+            start_time = datetime.fromisoformat(launch_start.replace("Z", "+00:00"))
+            app_launch_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            os.environ[f"{app_caps}_APP_LAUNCH_TIME"] = str(app_launch_time)
+
         if std_stream:
             ctx.with_resource(redirect_std_to_file_click(std_stream))
 
         app.run_time_info.from_CLI = True
         TimeIt.active = timeit or timeit_file
         TimeIt.file_path = timeit_file
+        if TimeIt.active:
+            TimeIt.CLI_start = time.perf_counter()
+            if launch_start:
+                TimeIt.app_launch_time = app_launch_time
+
         if ctx.invoked_subcommand != "manage":
             # load the config
             overrides = {kv[0]: kv[1] for kv in with_config}
@@ -1956,6 +2066,17 @@ def make_cli(app: BaseApp):
     @new_CLI.result_callback()
     def post_execution(*args, **kwargs):
         if TimeIt.active:
+            TimeIt.CLI_end = time.perf_counter()
+            if (orchestration_time := TimeIt.get_orchestration_time()) is not None and (
+                run_port := os.environ.get(f"{app.package_name.upper()}_RUN_PORT")
+            ):
+                # send child process orchestration time back to the main process:
+                Executor.send_timeit(
+                    hostname="localhost",
+                    port_number=int(run_port),
+                    orchestration_time=orchestration_time,
+                )
+
             TimeIt.summarise_string()
 
     new_CLI.context_class = ErrorPropagatingClickContext

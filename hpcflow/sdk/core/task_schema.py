@@ -7,16 +7,19 @@ from contextlib import contextmanager
 import copy
 from dataclasses import dataclass
 from importlib import import_module
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Literal
 from html import escape
 from collections import defaultdict
 
+import numpy as np
 from rich import print as rich_print
 from rich.table import Table
 from rich.panel import Panel
 from rich.markup import escape as rich_esc
 from rich.text import Text
 
+from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.enums import ParameterPropagationMode
 from hpcflow.sdk.core.errors import (
@@ -73,6 +76,63 @@ class TaskObjective(JSONLike):
         return string
 
 
+#: Prefix marking a ``save_files`` entry as a working-directory path rather than a
+#: declared file label.
+SAVE_FILES_PATH_PREFIX = "path:"
+
+
+def split_save_files_policy(policy: list[str]) -> tuple[list[str], list[str]]:
+    """Split a list-valued ``save_files`` policy into declared file labels and
+    ``path:``-prefixed working-directory paths (with the prefix removed)."""
+    labels: list[str] = []
+    paths: list[str] = []
+    for entry in policy:
+        if entry.startswith(SAVE_FILES_PATH_PREFIX):
+            paths.append(entry.removeprefix(SAVE_FILES_PATH_PREFIX).strip())
+        else:
+            labels.append(entry)
+    return labels, paths
+
+
+def _validate_save_files_path(path: str) -> None:
+    posix = PurePosixPath(path.replace("\\", "/"))
+    if not path:
+        raise ValueError("`path:` entries in save_files must not be empty.")
+    if posix.is_absolute() or PureWindowsPath(path).drive or ".." in posix.parts:
+        raise ValueError(
+            f"`path:` entries in save_files must be relative to the working directory "
+            f"and must not contain '..': {path!r}."
+        )
+
+
+def validate_save_files_policy(
+    policy: bool | list[str] | None, file_labels: set[str]
+) -> bool | list[str] | None:
+    """Validate a file-retention policy against the files declared by a schema.
+
+    A list-valued policy may contain declared file labels and ``path:``-prefixed
+    paths (optionally with glob patterns) relative to the working directory.
+    """
+    if policy is None or isinstance(policy, bool):
+        return policy
+    if not isinstance(policy, list) or not all(
+        isinstance(label, str) for label in policy
+    ):
+        raise TypeError(
+            "save_files must be a bool, a list of file labels and/or `path:` entries, "
+            "or None."
+        )
+    labels, paths = split_save_files_policy(policy)
+    unknown_labels = set(labels) - file_labels
+    if unknown_labels:
+        raise ValueError(
+            f"Unknown file labels in save_files: {sorted(unknown_labels)!r}."
+        )
+    for path in paths:
+        _validate_save_files_path(path)
+    return policy
+
+
 class TaskSchema(JSONLike):
     """Class to represent the inputs, outputs and implementation mechanism of a given
     task.
@@ -101,6 +161,19 @@ class TaskSchema(JSONLike):
     environment_presets:
         Information about default execution environments. Can be overridden in specific
         cases in the concrete tasks.
+    disable_array_outputs:
+        A list of dot-delimited output parameter paths, relative to the ``outputs``
+        namespace, to store only in legacy Zarr groups. The ``outputs.`` prefix is
+        optional. Containing parameter paths disable all nested arrays. By default
+        EAR output ndarrays use Zstandard-compressed NPZ instead of legacy Zarr groups,
+        with up to 500 archives per shard directory. This is a temporary storage
+        workaround specific to the Zarr store.
+    save_files:
+        Files to retain as workflow artifacts. ``True`` retains all declared files,
+        ``False`` or ``None`` (default) retains none, and a list retains the listed
+        declared file labels plus any ``path:``-prefixed working-directory paths
+        (which may include glob patterns). Files required by downstream tasks are
+        always retained. Tasks may override this policy.
     """
 
     _validation_schema: ClassVar[str] = "task_schema_spec_schema.yaml"
@@ -149,7 +222,10 @@ class TaskSchema(JSONLike):
         web_doc: bool | None = True,
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
+        parameter_dependencies: Sequence[str] | None = None,
+        save_files: bool | list[str] | None = None,
         _hash_value: str | None = None,
+        disable_array_outputs: list[str] | None = None,
     ):
         #: This is a string representing the objective of the task schema.
         self.objective = self.__coerce_objective(objective)
@@ -172,16 +248,19 @@ class TaskSchema(JSONLike):
         self.environment_presets = environment_presets
         #: Documentation information about the task schema.
         self.doc = doc
+        #: Additional parameters that the actions of this schema should depend on (e.g.
+        # for the purposes of jobscript scheduling).
+        self.parameter_dependencies = list(parameter_dependencies or [])
+        #: Output paths excluded from the temporary NPZ array storage workaround.
+        self.disable_array_outputs = list(disable_array_outputs or [])
+        self.save_files = save_files
         self._hash_value = _hash_value
 
         self._set_parent_refs()
 
-        # process `Action` script/program_data_in/out formats:
-        for act in self.actions:
-            act.process_action_data_formats()
-
         self._validate()
         self.actions = self.__expand_actions()
+        self.save_files = validate_save_files_policy(save_files, self.get_file_labels())
         #: The version of this task schema.
         self.version = version
         self._task_template: TaskTemplate | None = None  # assigned by parent Task
@@ -209,6 +288,21 @@ class TaskSchema(JSONLike):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name!r})"
+
+    def get_file_labels(self) -> set[str]:
+        """Get the labels of files declared by this schema's actions."""
+        labels: set[str] = set()
+        for action in self.actions:
+            labels.update(file.label for file in action.output_files)
+            labels.update(file.label for file in action.clean_up)
+            labels.update(
+                generator.input_file.label for generator in action.input_file_generators
+            )
+            for parser in action.output_file_parsers:
+                labels.update(file.label for file in parser.output_files)
+                labels.update(file.label for file in parser.generates_files)
+                labels.update(file.label for file in parser.clean_up)
+        return labels
 
     @classmethod
     def __parameters(cls) -> ParametersList:
@@ -665,6 +759,8 @@ class TaskSchema(JSONLike):
             and self.implementation == other.implementation
             and self.inputs == other.inputs
             and self.outputs == other.outputs
+            and self.disable_array_outputs == other.disable_array_outputs
+            and self.save_files == other.save_files
             and self.version == other.version
             and self._hash_value == other._hash_value
         )
@@ -720,6 +816,19 @@ class TaskSchema(JSONLike):
         """coerce Parameters to SchemaOutputs"""
         return [cls.__coerce_one_output(out) for out in outputs]
 
+    def add_parameter_dependency(self, param: str, group_name: str | None = None):
+        """Add a explicit parameter dependency to the schema and each of its actions."""
+        # check the parameter is not already a schema input:
+        if param in self.input_types:
+            raise ValueError(
+                f"Parameter {param!r} is already a schema input of the task schema "
+                f"{self.name}."
+            )
+        self.parameter_dependencies.append(param)
+        self.inputs.append(self._app.SchemaInput(parameter=param, group=group_name))
+        self._validate()
+
+    @TimeIt.decorator
     def get_action_parameter_flow(self) -> dict[str, dict[str, list[int]]]:
         """
         For each parameter that appears within the actions of this task schema, get the
@@ -786,7 +895,7 @@ class TaskSchema(JSONLike):
             if sources_act:
                 act_outs.add(p_type)
 
-        extra_ins = set(self.input_types) - act_ins
+        extra_ins = (set(self.input_types) - act_ins) - set(self.parameter_dependencies)
         missing_outs = set(self.output_types) - act_outs
 
         # TODO: bit of a hack, need to consider script/program ins/outs later
@@ -805,6 +914,11 @@ class TaskSchema(JSONLike):
             raise TaskSchemaMissingActionOutputs(self, missing_outs)
 
     def _validate(self) -> None:
+
+        # process `Action` script/program_data_in/out formats:
+        for act in self.actions:
+            act.process_action_data_formats()
+
         if self.method:
             self.method = check_valid_py_identifier(self.method)
         if self.implementation:
@@ -813,6 +927,56 @@ class TaskSchema(JSONLike):
         # check action input/outputs
         if self._validate_actions:
             self._validate_action_flow()
+
+    @TimeIt.decorator
+    def get_output_indices(self) -> tuple[dict[str, int], dict[int, dict[str, int]]]:
+        """
+        Get stable indices of schema outputs within their parent action; and those of
+        action outputs, input files, and output files within their parent action. These
+        mappings can be used by the persistent store.
+
+        Note that for output file parser actions where we pass a schema output in, we will
+        end up with a index slot for that output parameter even though it is not actually
+        an output of the action, and so no slot is required."""
+
+        out_indices: defaultdict[int, dict[str, int]] = defaultdict(dict)
+        schema_output_actions: dict[str, int] = {}
+        for param, src_sink in self.get_action_parameter_flow().items():
+            if out_acts := set(src_sink["sources"]) - {-1}:  # -1 indicates schema input
+                for act_idx in out_acts:
+                    out_indices[act_idx][f"outputs.{param}"] = len(out_indices[act_idx])
+            if -1 in src_sink["sinks"]:  # -1 indicates a schema output
+                # find the latest action source, disregarding the schema input if it exists:
+                latest_src = max(set(src_sink["sources"]) - {-1})
+                schema_output_actions[f"outputs.{param}"] = latest_src
+
+        # now add input and output file indices for each action:
+        for act_idx, action in enumerate(self.actions):
+            lst = [
+                *[
+                    f"{prefix}.{typ}"
+                    for prefix in ("input_files", "output_files")
+                    for typ in action.get_parameter_names(prefix)
+                ]
+            ]
+            indices = np.arange(len(lst))
+            if act_idx in out_indices:
+                indices += max(out_indices[act_idx].values(), default=0) + 1
+
+            act_out_idx = dict(zip(lst, indices.tolist()))
+            out_indices[act_idx].update(act_out_idx)
+
+            all_act_out_idx = out_indices[act_idx].values()
+            # check no repeats output indices:
+            assert len(all_act_out_idx) == len(set(all_act_out_idx))
+
+        action_output_indices = dict(sorted(out_indices.items()))
+        schema_output_indices = {
+            param: action_output_indices[act_idx][param]
+            for param, act_idx in schema_output_actions.items()
+        }
+
+        return schema_output_indices, action_output_indices
 
     def __expand_actions(self) -> list[Action]:
         """Create new actions for input file generators and output parsers in existing
@@ -1008,6 +1172,7 @@ class MetaTaskSchema(TaskSchema):
         environment_presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
         doc: str = "",
         _hash_value: str | None = None,
+        disable_array_outputs: list[str] | None = None,
     ):
         super().__init__(
             objective=objective,
@@ -1020,4 +1185,5 @@ class MetaTaskSchema(TaskSchema):
             environment_presets=environment_presets,
             doc=doc,
             _hash_value=_hash_value,
+            disable_array_outputs=disable_array_outputs,
         )

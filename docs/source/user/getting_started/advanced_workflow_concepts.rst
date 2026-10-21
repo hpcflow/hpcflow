@@ -76,8 +76,21 @@
 
   Anything specified under `directives` is passed directly to the scheduler as a jobscript command (i.e. isn't processed by {{ app_name }} at all).
 
-  If you have set resource options at the top level (for the whole workflow), but would like to "unset" them for a particular task,
-  you can pass an empty dictionary:
+  Scheduler directives are merged by key: scheduler configuration defaults are overridden
+  by workflow-level resources, then by task-level resources at the same scope.
+  More specific action scopes override less specific scopes. Unchanged directives, such
+  as a default ``--account``, are retained when overriding another directive such as
+  ``--time``. List-valued directives are replaced as a whole, not concatenated.
+
+  ``inherit_directives`` defaults to ``true``. Set it to ``false`` to discard raw
+  directives inherited from configuration or broader resources, then apply only the
+  local directives. This also applies to the deprecated ``scheduler_args.options``.
+  More-specific scopes can inherit this new baseline; discarded configuration defaults
+  are not restored. Resource-derived directives such as partition and core requests
+  are unaffected.
+
+  An empty ``directives: {}`` now adds no overrides; it no longer clears inherited
+  directives. To clear them for a particular task, use:
 
   .. code-block:: yaml
 
@@ -85,8 +98,9 @@
       resources:
         main:
           num_cores: 16
+          inherit_directives: false
           scheduler_args:
-            directives: {} # "Clear" any previous directives which have been set.
+            directives: {}
 
 
   Task sequences
@@ -137,6 +151,89 @@
   .. literalinclude:: groups_workflow.yaml
         :language: YAML
 
+
+  Execution directories
+  ---------------------
+
+  Execution paths are assigned during submission, but directories are created only
+  when an element action run (EAR) starts. Input files are staged at that point;
+  files already present in the shared working directory are preserved so that
+  later actions can use changes made by earlier actions. Skipped EARs do not
+  create execution directories.
+
+  Actions within an element iteration share their working directory. By default,
+  after the final action/run completes successfully, its execution directories are
+  deleted, provided all runs in that iteration succeeded and none were skipped.
+  Set the ``delete_execute_dir`` configuration item to ``False`` to retain them.
+  Cleanup happens after output parameters, saved files, and directory snapshots
+  have been persisted, including when the final action does not itself require a
+  directory. Failed or skipped iterations retain their directories for inspection.
+
+  Files that must remain available after successful completion must be selected
+  for retention with ``save_files`` (see below). Unsaved working files are deleted
+  when the execution directory is removed.
+
+  Retaining files as artifacts
+  ----------------------------
+
+  Deciding which files to keep is split into two independent steps:
+
+  1. **Declare** the files that actions produce. Files written by an action's
+     commands or script are declared in the action's ``output_files``; files
+     written by an output file parser script are declared in the parser's
+     ``generates_files``. The files an input file generator writes and the files a
+     parser reads (``from_files``) are already declared. Every declared file is
+     available as an ``output_files.<label>`` (or ``input_files.<label>``)
+     parameter, so downstream tasks can depend on it. An action that declares
+     ``input_files`` or ``output_files`` is given its own working directory
+     (``requires_dir`` defaults to ``true``), so there is no need to set it
+     explicitly.
+  2. **Select** which declared files to retain as workflow artifacts with the task
+     schema's ``save_files`` policy. A task may set its own ``save_files`` to replace
+     the schema's policy.
+
+  By default no files are retained: a task schema with no ``save_files`` policy keeps
+  nothing (apart from files required by runs in other element iterations or
+  downstream tasks, which are always retained). The policy may be:
+
+  * ``true`` -- retain every declared file;
+  * ``false`` or ``[]`` -- retain nothing;
+  * a list of declared file labels, optionally together with ``path:``-prefixed
+    entries that select arbitrary files within the working directory by relative
+    path (glob patterns such as ``path:logs/*.log`` are allowed).
+
+  Label entries are validated against the files declared by the schema. ``path:``
+  entries must be relative to the working directory and must not contain ``..``.
+  Files matched by ``path:`` entries are copied to the artifacts directory once, when
+  the element iteration's final run completes (whatever its outcome), so files that
+  several actions modify are saved in their final state. Unlike declared files they
+  are not associated with a parameter, so they cannot be consumed by downstream
+  tasks; a non-glob ``path:`` entry that does not exist is logged rather than
+  treated as an error.
+
+  .. code-block:: yaml
+
+      task_schemas:
+        - objective: simulate
+          save_files: [stdout_file, path:restart/*.dat]
+          actions:
+            - commands: ...
+              output_files: [stdout_file, result_file]
+              output_file_parsers:
+                summary:
+                  from_files: [result_file]
+                  generates_files: [summary_plot]
+                  script: <<script:summarise.py>>
+
+      tasks:
+        - schema: simulate
+          # Replaces the schema policy rather than adding to it:
+          save_files: [stdout_file, result_file, summary_plot]
+
+  ``clean_up`` (available on actions and on output file parsers) lists declared files
+  that should be removed from the working directory once they have been saved. It only
+  applies to files selected by the ``save_files`` policy, and is mainly useful when
+  ``delete_execute_dir`` is ``False``.
 
   Task schema shortcuts
   ---------------------
@@ -189,11 +286,15 @@
             - command_file1
             - command_file2
           script: <<script:your_processing_script.py>>
-          save_files:
-            - command_file_you_want_to_save
+          generates_files: # Files written by the parser script itself (if any)
+            - command_file_written_by_parser
           inputs:
             - input1
             - input2
+
+  Files read by the parser (``from_files``) and files it writes (``generates_files``)
+  are retained as artifacts only if selected by the task schema's ``save_files``
+  policy.
 
   The output_file_parser script that is run as the action should return one variable,
   rather than a dictionary. This is different behaviour to

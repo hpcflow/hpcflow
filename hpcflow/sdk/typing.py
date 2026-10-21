@@ -54,6 +54,11 @@ class ParamSource(TypedDict):
     value_class_method: NotRequired[str]
     #: Import ID/index in the workflow template list
     import_ID: NotRequired[int]
+    #: For non-EAR-output parameters, the index
+    non_output_idx: NotRequired[int]
+    #: For EAR-output parameters, input files and output files, the index across the action,
+    #: as determined by ``Action.get_output_indices()``:
+    output_idx: NotRequired[int]
 
 
 class KnownSubmission(TypedDict):

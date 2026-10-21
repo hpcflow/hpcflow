@@ -109,6 +109,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "user_affiliations": [],
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
+        "delete_execute_dir": True,
     },
 }
 

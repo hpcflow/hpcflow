@@ -1,4 +1,5 @@
 from os import PathLike
+from pathlib import Path
 from typing import Literal, Union
 
 
@@ -23,17 +24,42 @@ class DeferredFileWriter:
 
     """
 
-    def __init__(self, filename: Union[str, PathLike], mode: Literal["w", "a"], **kwargs):
-        self.filename = filename
+    def __init__(
+        self,
+        filename: Union[str, PathLike],
+        mode: Literal["w", "a"],
+        preamble=None,
+        **kwargs
+    ):
+        self.filename = Path(filename)
         self.mode = mode
+        self.preamble = preamble
         self.file = None
         self.kwargs = kwargs
         self._is_open = False
 
     def _ensure_open(self):
-        if not self._is_open:
-            self.file = open(self.filename, self.mode, encoding="utf-8", **self.kwargs)
-            self._is_open = True
+        if self._is_open:
+            return
+
+        self.filename.parent.mkdir(parents=True, exist_ok=True)
+
+        write_preamble = self.preamble and (
+            self.mode == "w"
+            or not self.filename.exists()
+            or self.filename.stat().st_size == 0
+        )
+
+        self.file = open(
+            self.filename,
+            self.mode,
+            encoding="utf-8",
+            **self.kwargs,
+        )
+        self._is_open = True
+
+        if write_preamble:
+            self.file.write(self.preamble)
 
     def write(self, data):
         self._ensure_open()

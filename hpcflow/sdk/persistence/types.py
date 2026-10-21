@@ -278,6 +278,8 @@ class PersistenceCache(
     num_EARs: int | None
     #: Number of parameters.
     num_params: int | None
+    #: Number of element iterations.
+    num_iters: int | None
 
 
 class ZarrAttrsDict(TypedDict):

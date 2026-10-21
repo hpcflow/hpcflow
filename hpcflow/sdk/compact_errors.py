@@ -18,7 +18,6 @@ from rich.style import Style
 
 from hpcflow.sdk.core.app_aware import AppAware
 
-
 if TYPE_CHECKING:
     from typing import ClassVar, TextIO
     from typing_extensions import TypeIs

@@ -294,6 +294,16 @@ zip_log_opt = click.option("--log", help="Path to a log file to use during zippi
 zip_include_execute_opt = click.option("--include-execute", is_flag=True)
 #: Standard option
 zip_include_rechunk_backups_opt = click.option("--include-rechunk-backups", is_flag=True)
+#: Standard option
+zip_consolidate_opt = click.option(
+    "--consolidate/--no-consolidate",
+    default=True,
+    show_default=True,
+    help=(
+        "Consolidate array-output shard archives into one file per output before "
+        "zipping, which makes zipping much faster."
+    ),
+)
 
 #: Standard option
 unzip_path_opt = click.option(
@@ -429,6 +439,35 @@ template_config_opt = click.option(
     nargs=2,
     help="Updates to template-level config items. Multiple are allowed.",
 )
+#: Standard option
+timeit_opt = click.option(
+    "--timeit",
+    help=(
+        "Time function pathways as the code executes and write out a summary at the "
+        "end. Only functions decorated by `TimeIt.decorator` are included."
+    ),
+    is_flag=True,
+)
+#: Standard option
+timeit_exec_opt = click.option(
+    "--timeit",
+    help=(
+        "Time run execution function pathways as the code executes and write out a "
+        "summary to the app-std file. Only functions decorated by `TimeIt.decorator` "
+        "are included."
+    ),
+    is_flag=True,
+)
+#: Standard option
+modify_js_opt = click.option(
+    "--modify-js",
+    help=(
+        "If True, pause before submitting each jobscript, print the new jobscript's "
+        "path and await confirmation before continuing submission. This allows ad hoc "
+        "modifications to the jobscript to be made."
+    ),
+    is_flag=True,
+)
 
 
 def _add_doc_from_help(*args):
@@ -477,6 +516,7 @@ _add_doc_from_help(
     zip_log_opt,
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
+    zip_consolidate_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -496,4 +536,7 @@ _add_doc_from_help(
     template_updates_opt,
     template_resource_opt,
     template_config_opt,
+    timeit_opt,
+    timeit_exec_opt,
+    modify_js_opt,
 )

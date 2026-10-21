@@ -1,7 +1,13 @@
 import numpy as np
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.test_utils import make_schemas, make_workflow
-from hpcflow.sdk.submission.jobscript import is_jobscript_array, resolve_jobscript_blocks
+from hpcflow.sdk.submission.jobscript import (
+    JS_BLK_EAR_ID_FILL_VALUE,
+    JS_BLK_TASK_ELEMENTS_FILL_VALUE,
+    ensure_max_array_size,
+    is_jobscript_array,
+    resolve_jobscript_blocks,
+)
 
 import pytest
 
@@ -824,3 +830,287 @@ def test_min_jobscripts_true_non_mergeable(tmp_path):
     )
     sub = wk.add_submission(status=False, force_array=True, min_jobscripts=True)
     assert len(sub.jobscripts) == 3
+
+
+def test_ensure_max_array_size_does_nothing_when_within_limit():
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+            (7, 8, 9),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+        },
+        "EAR_ID": np.array([[11, 12, 13]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    element_deps = {
+        0: [1],
+        1: [2],
+    }
+
+    original_ear_id = js_data["EAR_ID"].copy()
+    original_element_deps = {key: value.copy() for key, value in element_deps.items()}
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    assert result is js_data
+    assert result_deps is element_deps
+
+    np.testing.assert_array_equal(result["EAR_ID"], original_ear_id)
+    assert result["task_insert_IDs"] == [10]
+    assert result["task_elements"] == {
+        0: [100],
+        1: [101],
+        2: [102],
+    }
+    assert result_deps == original_element_deps
+
+
+def test_ensure_max_array_size_does_nothing_for_non_array_jobscript():
+    js_data = {
+        "is_array": False,
+    }
+    element_deps = {0: [1]}
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    assert result is js_data
+    assert result_deps is element_deps
+
+
+def test_ensure_max_array_size_wraps_elements_over_max_size():
+    """Default wrap order is "element": all actions of the first wrapped element run
+    before any action of the next wrapped element."""
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+            3: [103],
+            4: [104],
+        },
+        "EAR_ID": np.array([[11, 12, 13, 14, 15], [21, 22, 23, 24, 25]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    element_deps = {
+        0: [10],
+        1: [11],
+        2: [12],
+        3: [13],
+        4: [14],
+    }
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    np.testing.assert_array_equal(
+        result["EAR_ID"],
+        np.array(
+            [
+                [11, 12, 13],
+                [21, 22, 23],
+                [14, 15, JS_BLK_EAR_ID_FILL_VALUE],
+                [24, 25, JS_BLK_EAR_ID_FILL_VALUE],
+            ]
+        ),
+    )
+
+    assert result["task_insert_IDs"] == [10, 10]
+
+    assert result["task_actions"] == [
+        (1, 2, 3),
+        (4, 5, 6),
+        (1, 2, 3),
+        (4, 5, 6),
+    ]
+
+    assert result["task_elements"] == {
+        0: [100, 103],
+        1: [101, 104],
+        2: [102, JS_BLK_TASK_ELEMENTS_FILL_VALUE],
+    }
+
+    assert result_deps == {
+        0: [10, 13],
+        1: [11, 14],
+        2: [12],
+    }
+
+
+@pytest.mark.parametrize("wrap_order", ["element", "ELEMENT", " Element "])
+def test_ensure_max_array_size_element_wrap_order_explicit(wrap_order):
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3, array_wrap_order=wrap_order),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+            3: [103],
+            4: [104],
+        },
+        "EAR_ID": np.array([[11, 12, 13, 14, 15], [21, 22, 23, 24, 25]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+
+    result, _ = ensure_max_array_size(js_data, {})
+
+    np.testing.assert_array_equal(
+        result["EAR_ID"],
+        np.array(
+            [
+                [11, 12, 13],
+                [21, 22, 23],
+                [14, 15, JS_BLK_EAR_ID_FILL_VALUE],
+                [24, 25, JS_BLK_EAR_ID_FILL_VALUE],
+            ]
+        ),
+    )
+    assert result["task_actions"] == [
+        (1, 2, 3),
+        (4, 5, 6),
+        (1, 2, 3),
+        (4, 5, 6),
+    ]
+
+
+def test_ensure_max_array_size_action_wrap_order():
+    """With wrap order "action", a given action runs for all wrapped elements before
+    moving on to the next action."""
+    js_data = {
+        "is_array": True,
+        "resources": hf.ElementResources(max_array_size=3, array_wrap_order="action"),
+        "task_insert_IDs": [10],
+        "task_actions": [
+            (1, 2, 3),
+            (4, 5, 6),
+        ],
+        "task_elements": {
+            0: [100],
+            1: [101],
+            2: [102],
+            3: [103],
+            4: [104],
+        },
+        "EAR_ID": np.array([[11, 12, 13, 14, 15], [21, 22, 23, 24, 25]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    element_deps = {
+        0: [10],
+        1: [11],
+        2: [12],
+        3: [13],
+        4: [14],
+    }
+
+    result, result_deps = ensure_max_array_size(js_data, element_deps)
+
+    np.testing.assert_array_equal(
+        result["EAR_ID"],
+        np.array(
+            [
+                [11, 12, 13],
+                [14, 15, JS_BLK_EAR_ID_FILL_VALUE],
+                [21, 22, 23],
+                [24, 25, JS_BLK_EAR_ID_FILL_VALUE],
+            ]
+        ),
+    )
+
+    assert result["task_insert_IDs"] == [10, 10]
+
+    assert result["task_actions"] == [
+        (1, 2, 3),
+        (1, 2, 3),
+        (4, 5, 6),
+        (4, 5, 6),
+    ]
+
+    assert result["task_elements"] == {
+        0: [100, 103],
+        1: [101, 104],
+        2: [102, JS_BLK_TASK_ELEMENTS_FILL_VALUE],
+    }
+
+    assert result_deps == {
+        0: [10, 13],
+        1: [11, 14],
+        2: [12],
+    }
+
+
+def test_ensure_max_array_size_wrap_order_single_action_equivalent():
+    """With a single action, both wrap orders produce the same result."""
+    base = {
+        "is_array": True,
+        "task_insert_IDs": [10],
+        "task_actions": [(1, 2, 3)],
+        "task_elements": {0: [100], 1: [101], 2: [102], 3: [103], 4: [104]},
+        "EAR_ID": np.array([[11, 12, 13, 14, 15]]),
+        "task_loop_idx": [],
+        "dependencies": {},
+    }
+    results = []
+    for order in ("element", "action"):
+        js_data = {
+            **{k: (v.copy() if hasattr(v, "copy") else v) for k, v in base.items()},
+            "resources": hf.ElementResources(max_array_size=3, array_wrap_order=order),
+        }
+        results.append(ensure_max_array_size(js_data, {})[0])
+
+    np.testing.assert_array_equal(results[0]["EAR_ID"], results[1]["EAR_ID"])
+    assert results[0]["task_actions"] == results[1]["task_actions"]
+    assert results[0]["task_elements"] == results[1]["task_elements"]
+
+
+def test_element_resources_invalid_array_wrap_order():
+    with pytest.raises(ValueError, match="array_wrap_order"):
+        hf.ElementResources(max_array_size=3, array_wrap_order="bad")
+
+
+def test_resource_spec_invalid_array_wrap_order():
+    with pytest.raises(ValueError, match="array_wrap_order"):
+        hf.ResourceSpec(array_wrap_order="bad")
+
+
+def test_resource_spec_array_wrap_order_normalised():
+    assert hf.ResourceSpec(array_wrap_order=" Action ").array_wrap_order == "action"
+    assert hf.ResourceSpec().array_wrap_order is None
+
+
+def test_element_resources_jobscript_hash_array_wrap_order():
+    base = hf.ElementResources(max_array_size=3)
+    assert (
+        base.get_jobscript_hash()
+        == hf.ElementResources(
+            max_array_size=3, array_wrap_order="element"
+        ).get_jobscript_hash()
+    )
+    assert (
+        base.get_jobscript_hash()
+        != hf.ElementResources(
+            max_array_size=3, array_wrap_order="action"
+        ).get_jobscript_hash()
+    )

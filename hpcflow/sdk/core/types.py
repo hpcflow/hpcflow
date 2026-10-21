@@ -80,6 +80,8 @@ class ElementDescriptor(TypedDict):
     input_sources: Mapping[str, InputSource]
     #: The insertion ID.
     task_insert_ID: int
+    #: Number of element iterations.
+    num_iters: int
 
 
 class _DependentDescriptor(TypedDict):
@@ -163,12 +165,20 @@ class ResourceSpecArgs(TypedDict):
     shell: NotRequired[str]
     #: Whether to use array jobs.
     use_job_array: NotRequired[bool]
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: NotRequired[int]
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_scheduler_concurrency: NotRequired[int]
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: NotRequired[int]
+    #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
+    #: wrapped actions are executed by each array item: ``"element"`` or ``"action"``.
+    array_wrap_order: NotRequired[str]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.
     scheduler_args: NotRequired[dict[str, Any]]
+    #: Whether to inherit raw scheduler directives; defaults to True.
+    inherit_directives: NotRequired[bool]
     #: Additional arguments to pass to the shell.
     shell_args: NotRequired[dict[str, Any]]
     #: Which OS to use.
@@ -358,6 +368,12 @@ class WorkflowTemplateTaskData(TypedDict):
     element_sets: NotRequired[list[WorkflowTemplateElementSetData]]
     #: The output labels, if known.
     output_labels: NotRequired[list[str]]
+    #: The condition to consider, if known.
+    condition: NotRequired[str | None]
+    #: Output parameter paths to exclude from array-output storage.
+    disable_array_outputs: NotRequired[list[str]]
+    #: The file-retention policy, if known.
+    save_files: NotRequired[bool | list[str] | None]
 
 
 class WorkflowTemplateElementSetData(TypedDict):

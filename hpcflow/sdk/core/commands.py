@@ -327,6 +327,7 @@ class Command(JSONLike):
                 kwargs[name_i] = value_i
         return kwargs
 
+    @TimeIt.decorator
     def process_std_stream(self, name: str, value: str, stderr: bool) -> Any:
         """
         Process a description of a standard stream from a command to get how it becomes

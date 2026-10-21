@@ -41,8 +41,7 @@ class Bash(Shell):
     #: Template for the jobscript shebang line.
     JS_SHEBANG: ClassVar[str] = """#!{shebang}"""
     #: Template for the jobscript functions file.
-    JS_FUNCS: ClassVar[str] = dedent(
-        """\
+    JS_FUNCS: ClassVar[str] = dedent("""\
         {workflow_app_alias} () {{
         (
         {env_setup}{app_invoc}\\
@@ -52,11 +51,9 @@ class Bash(Shell):
                 "$@"
         )
         }}
-    """
-    )
+    """)
     #: Template for the common part of the jobscript header.
-    JS_HEADER: ClassVar[str] = dedent(
-        """\
+    JS_HEADER: ClassVar[str] = dedent("""\
         WK_PATH=`pwd`
         WK_PATH_ARG="$WK_PATH"
         SUB_IDX={sub_idx}
@@ -84,42 +81,45 @@ class Bash(Shell):
         export {app_caps}_JS_FUNCS_PATH=$JS_FUNCS_PATH
         export {app_caps}_JS_IDX={js_idx}
         export {app_caps}_RUN_ID_FILE=$EAR_ID_FILE
-    """
-    )
+    """)
     #: Template for the jobscript header when scheduled.
-    JS_SCHEDULER_HEADER: ClassVar[str] = dedent(
-        """\
+    JS_SCHEDULER_HEADER: ClassVar[str] = dedent("""\
         {shebang}
 
         {scheduler_options}
         {header}
-    """
-    )
+    """)
     #: Template for the jobscript header when directly executed.
-    JS_DIRECT_HEADER: ClassVar[str] = dedent(
-        """\
+    JS_DIRECT_HEADER: ClassVar[str] = dedent("""\
         {shebang}
         {header}
         {wait_command}
-    """
-    )
+    """)
     #: Template for enabling writing of the app log.
     JS_RUN_LOG_PATH_ENABLE: ClassVar[str] = '"$SUB_LOG_DIR/{run_log_file_name}"'
     #: Template for disabling writing of the app log.
     JS_RUN_LOG_PATH_DISABLE: ClassVar[str] = '" "'
+    #: Template for recording the app launch start time:
+    JS_APP_START_TIMER: ClassVar[str] = dedent("""\
+        if [[ "$(uname)" == "Darwin" ]]; then
+            export {app_caps}_APP_LAUNCH_START="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        else
+            export {app_caps}_APP_LAUNCH_START="$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')"
+        fi
+    """)
     #: Template for the run execution command.
     JS_RUN_CMD: ClassVar[str] = (
-        '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-run '
-        "$SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
+        '{workflow_app_alias} {timeit}internal workflow "$WK_PATH_ARG" '
+        "execute-run $SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
     )
+
     #: Template for the execution command for multiple combined runs.
     JS_RUN_CMD_COMBINED: ClassVar[str] = (
         '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-combined-runs '
         "$SUB_IDX $JS_IDX\n"
     )
     #: Template for setting up run environment variables and executing the run.
-    JS_RUN: ClassVar[str] = dedent(
-        """\
+    JS_RUN: ClassVar[str] = dedent("""\
         EAR_ID="$(cut -d'{EAR_files_delimiter}' -f $(($block_act_idx + 1)) <<< $elem_EAR_IDs)"
         if [ "$EAR_ID" = "-1" ]; then
             continue
@@ -128,74 +128,57 @@ class Bash(Shell):
         export {app_caps}_RUN_ID=$EAR_ID
         export {app_caps}_RUN_LOG_PATH={run_log_enable_disable}
         export {app_caps}_LOG_PATH="${app_caps}_RUN_LOG_PATH"
-        export {app_caps}_RUN_STD_PATH="$SUB_STD_DIR/${app_caps}_RUN_ID.txt"
         export {app_caps}_BLOCK_ACT_IDX=$block_act_idx
                 
         cd "$SUB_TMP_DIR"
         
         {run_cmd}
-    """
-    )
+    """)
     #: Template for the action-run processing loop in a jobscript.
-    JS_ACT_MULTI: ClassVar[str] = dedent(
-        """\
+    JS_ACT_MULTI: ClassVar[str] = dedent("""\
         for ((block_act_idx=0;block_act_idx<{num_actions};block_act_idx++))
         do      
         {run_block}
         done  
-        """
-    )
+        """)
     #: Template for the single-action-run execution in a jobscript.
-    JS_ACT_SINGLE: ClassVar[str] = dedent(
-        """\
+    JS_ACT_SINGLE: ClassVar[str] = dedent("""\
         block_act_idx=0        
         {run_block}
-        """
-    )
+        """)
     #: Template for setting up environment variables and running one or more action-runs.
-    JS_MAIN: ClassVar[str] = dedent(
-        """\
+    JS_MAIN: ClassVar[str] = dedent("""\
         block_elem_idx=$(( $JS_elem_idx - {block_start_elem_idx} ))
         elem_EAR_IDs=`sed "$((${{JS_elem_idx}} + 1))q;d" "$EAR_ID_FILE"`
         export {app_caps}_JS_ELEM_IDX=$JS_elem_idx
         export {app_caps}_BLOCK_ELEM_IDX=$block_elem_idx
         
         {action}
-    """
-    )
+    """)
     #: Template for a jobscript-block header.
-    JS_BLOCK_HEADER: ClassVar[str] = dedent(  # for single-block jobscripts only
-        """\
+    JS_BLOCK_HEADER: ClassVar[str] = dedent("""\
         block_idx=0
         export {app_caps}_BLOCK_IDX=0
-        """
-    )
+        """)  # for single-block jobscripts only
     #: Template for single-element execution.
-    JS_ELEMENT_SINGLE: ClassVar[str] = dedent(
-        """\
+    JS_ELEMENT_SINGLE: ClassVar[str] = dedent("""\
         JS_elem_idx={block_start_elem_idx}
         {main}
-    """
-    )
+    """)
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent(
-        """\
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent("""\
         for ((JS_elem_idx={block_start_elem_idx};JS_elem_idx<$(({block_start_elem_idx} + {num_elements}));JS_elem_idx++))
         do
         {main}
         done
-    """
-    )
+    """)
     #: Template for the array handling code in a jobscript.
-    JS_ELEMENT_MULTI_ARRAY: ClassVar[str] = dedent(
-        """\
+    JS_ELEMENT_MULTI_ARRAY: ClassVar[str] = dedent("""\
         JS_elem_idx=$(({scheduler_array_item_var} - 1))
         {main}
-    """
-    )
+    """)
     #: Template for the jobscript block loop in a jobscript.
-    JS_BLOCK_LOOP: ClassVar[str] = dedent(
-        """\
+    JS_BLOCK_LOOP: ClassVar[str] = dedent("""\
         num_elements={num_elements}
         num_actions={num_actions}
         block_start_elem_idx=0
@@ -205,14 +188,11 @@ class Bash(Shell):
         {element_loop}
             block_start_elem_idx=$(($block_start_elem_idx + ${{num_elements[$block_idx]}}))
         done
-    """
-    )
+    """)
     #: Template for the jobscript footer.
-    JS_FOOTER: ClassVar[str] = dedent(
-        """\
+    JS_FOOTER: ClassVar[str] = dedent("""\
         cd $WK_PATH
-    """
-    )
+    """)
 
     @property
     def linux_release_file(self) -> str:
@@ -291,12 +271,10 @@ class Bash(Shell):
         """
         Format sourcing (i.e. invocation) of the jobscript functions file.
         """
-        return dedent(
-            """\
+        return dedent("""\
             . "${app_caps}_JS_FUNCS_PATH"
 
-            """
-        ).format(app_caps=app_name.upper())
+            """).format(app_caps=app_name.upper())
 
     @override
     def format_commands_file(self, app_name: str, commands: str) -> str:
@@ -314,7 +292,8 @@ class Bash(Shell):
         cmd_idx: int,
         stderr: bool,
         app_name: str,
-    ):
+        timeit: bool,
+    ) -> str:
         """
         Produce code to save a parameter's value into the workflow persistent store.
         """
@@ -322,8 +301,9 @@ class Bash(Shell):
         #   and test.
         stderr_str = " --stderr" if stderr else ""
         app_caps = app_name.upper()
-        return (
-            f'{workflow_app_alias} --std-stream "${app_caps}_RUN_STD_PATH" '
+        timeit_str = " --timeit" if timeit else ""
+        return self.JS_APP_START_TIMER.format(app_caps=app_caps) + (
+            f'{workflow_app_alias}{timeit_str} --std-stream "${app_caps}_RUN_STD_PATH" '
             f'internal workflow "${app_caps}_WK_PATH_ARG" save-parameter {stderr_str}'
             f'"--" {param_name} ${shell_var_name} ${app_caps}_RUN_ID {cmd_idx}'
             f"\n"
@@ -339,8 +319,7 @@ class WSLBash(Bash):
     DEFAULT_WSL_EXE: ClassVar[str] = "wsl.exe"
 
     #: Template for the jobscript functions file.
-    JS_FUNCS: ClassVar[str] = dedent(
-        """\
+    JS_FUNCS: ClassVar[str] = dedent("""\
         {{workflow_app_alias}} () {{{{
         (
         {log_path_block}
@@ -351,18 +330,15 @@ class WSLBash(Bash):
                 "$@"
         )
         }}}}
-    """
-    ).format(
+    """).format(
         log_path_block=indent(
-            dedent(
-                """\
+            dedent("""\
                     if [ -z "${app_caps}_LOG_PATH" ] || [ "${app_caps}_LOG_PATH" = " " ]; then                    
                         LOG_FILE_PATH=" "
                     else
                         LOG_FILE_PATH="$(wslpath -m ${app_caps}_LOG_PATH)"
                     fi                    
-                """
-            ),
+                """),
             prefix=Bash.JS_ENV_SETUP_INDENT,
         )
     )
@@ -372,9 +348,7 @@ class WSLBash(Bash):
         'WK_PATH_ARG=`wslpath -m "$WK_PATH"`',
     )
     #: Template for the run execution command.
-    JS_RUN_CMD: ClassVar[str] = (
-        dedent(
-            """\
+    JS_RUN_CMD: ClassVar[str] = dedent("""\
         WSLENV=$WSLENV:${{APP_CAPS}}_WK_PATH
         WSLENV=$WSLENV:${{APP_CAPS}}_WK_PATH_ARG
         WSLENV=$WSLENV:${{APP_CAPS}}_JS_FUNCS_PATH
@@ -392,10 +366,7 @@ class WSLBash(Bash):
         WSLENV=$WSLENV:${{APP_CAPS}}_SUB_LOG_DIR/p
         WSLENV=$WSLENV:${{APP_CAPS}}_SUB_STD_DIR/p
 
-    """
-        )
-        + Bash.JS_RUN_CMD
-    )
+    """) + Bash.JS_RUN_CMD
 
     def __init__(
         self,

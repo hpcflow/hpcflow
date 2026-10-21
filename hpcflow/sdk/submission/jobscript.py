@@ -3,7 +3,7 @@ Model of information submitted to a scheduler.
 """
 
 from __future__ import annotations
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import os
 import logging
@@ -14,7 +14,7 @@ from typing_extensions import override
 
 import numpy as np
 from hpcflow.sdk.core import SKIPPED_EXIT_CODE
-from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.enums import DEFAULT_ARRAY_WRAP_ORDER, EARStatus
 from hpcflow.sdk.core.errors import (
     JobscriptSubmissionFailure,
     NotSubmitMachineError,
@@ -23,6 +23,7 @@ from hpcflow.sdk.core.errors import (
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
+from hpcflow.sdk.utils.arrays import reshape_max_width
 from hpcflow.sdk.utils.strings import extract_py_from_future_imports
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
@@ -55,6 +56,9 @@ if TYPE_CHECKING:
     )
     from ..core.cache import ObjectCache
 from hpcflow.sdk.submission.submission import JOBSCRIPT_SUBMIT_TIME_KEYS
+
+JS_BLK_TASK_ELEMENTS_FILL_VALUE = -1
+JS_BLK_EAR_ID_FILL_VALUE = -1
 
 
 def is_jobscript_array(
@@ -226,6 +230,18 @@ def resolve_jobscript_dependencies(
     """
     Discover concrete dependencies between jobscripts.
     """
+    # map each run ID to its (first) jobscript element index, so we do not have to scan
+    # the full `EAR_ID` array for every dependency:
+    js_elem_idx_by_run: dict[int, dict[int, int]] = {}
+    for js_k_idx, js_k in jobscripts.items():
+        EAR_ID_arr = js_k["EAR_ID"]
+        col_idx = np.repeat(np.arange(EAR_ID_arr.shape[1]), EAR_ID_arr.shape[0])
+        lookup: dict[int, int] = {}
+        for run_ID, col in zip(EAR_ID_arr.ravel(order="F").tolist(), col_idx.tolist()):
+            if run_ID >= 0:
+                lookup.setdefault(run_ID, col)
+        js_elem_idx_by_run[js_k_idx] = lookup
+
     # first pass is to find the mappings between jobscript elements:
     jobscript_deps: dict[int, dict[int, ResolvedJobscriptBlockDependencies]] = {}
     for js_idx, elem_deps in element_deps.items():
@@ -236,33 +252,24 @@ def resolve_jobscript_dependencies(
         for js_elem_idx_i, EAR_deps_i in elem_deps.items():
             # locate which jobscript elements this jobscript element depends on:
             for EAR_dep_j in EAR_deps_i:
-                for js_k_idx, js_k in jobscripts.items():
+                for js_k_idx in jobscripts:
                     if js_k_idx == js_idx:
                         break
 
-                    if EAR_dep_j in js_k["EAR_ID"]:
-                        if js_k_idx not in jobscript_deps[js_idx]:
-                            jobscript_deps[js_idx][js_k_idx] = {"js_element_mapping": {}}
+                    # retrieve column index, which is the JS-element index:
+                    js_elem_idx_k = js_elem_idx_by_run[js_k_idx].get(EAR_dep_j)
+                    if js_elem_idx_k is None:
+                        continue
 
-                        jobscript_deps[js_idx][js_k_idx]["js_element_mapping"].setdefault(
-                            js_elem_idx_i, []
-                        )
+                    if js_k_idx not in jobscript_deps[js_idx]:
+                        jobscript_deps[js_idx][js_k_idx] = {"js_element_mapping": {}}
 
-                        # retrieve column index, which is the JS-element index:
-                        js_elem_idx_k: int = np.where(
-                            np.any(js_k["EAR_ID"] == EAR_dep_j, axis=0)
-                        )[0][0].item()
+                    elem_map = jobscript_deps[js_idx][js_k_idx]["js_element_mapping"]
+                    elem_map.setdefault(js_elem_idx_i, [])
 
-                        # add js dependency element-mapping:
-                        if (
-                            js_elem_idx_k
-                            not in jobscript_deps[js_idx][js_k_idx]["js_element_mapping"][
-                                js_elem_idx_i
-                            ]
-                        ):
-                            jobscript_deps[js_idx][js_k_idx]["js_element_mapping"][
-                                js_elem_idx_i
-                            ].append(js_elem_idx_k)
+                    # add js dependency element-mapping:
+                    if js_elem_idx_k not in elem_map[js_elem_idx_i]:
+                        elem_map[js_elem_idx_i].append(js_elem_idx_k)
 
     # next we can determine if two jobscripts have a one-to-one element mapping, which
     # means they can be submitted with a "job array" dependency relationship:
@@ -425,12 +432,10 @@ def merge_jobscripts_across_tasks(
                         f"merging jobscript {js_idx!r} into jobscript {js_j_idx}."
                     )
 
-                num_loop_idx = len(
-                    js_j["task_loop_idx"]
-                )  # TODO: should this be: `js_j["task_loop_idx"][0]`?
+                num_loop_idx = len(js_j["task_loop_idx"])
 
                 # append task_insert_IDs
-                js_j["task_insert_IDs"].append(js["task_insert_IDs"][0])
+                js_j["task_insert_IDs"].extend(js["task_insert_IDs"])
                 js_j["task_loop_idx"].append(js["task_loop_idx"][0])
 
                 add_acts = [(a, b, num_loop_idx) for a, b, _ in js["task_actions"]]
@@ -592,6 +597,80 @@ def resolve_jobscript_blocks(
         )
 
     return js_new_
+
+
+def ensure_max_array_size(
+    js_data: JobScriptCreationArguments,
+    element_deps: dict[int, list[int]],
+) -> tuple[JobScriptCreationArguments, dict[int, list[int]]]:
+    """For array jobscripts, if the array size is greater than the permitted size,
+    stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
+    compliance.
+
+    The order in which the wrapped actions are stacked is controlled by the
+    ``array_wrap_order`` resource item. With ``"element"`` (the default), all actions of
+    a given element are run before moving on to the next wrapped element. With
+    ``"action"``, a given action is run for all wrapped elements before moving on to the
+    next action.
+    """
+
+    if not js_data["is_array"]:
+        return js_data, element_deps
+
+    max_size = js_data["resources"].max_array_size
+    if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
+        return js_data, element_deps
+
+    wrap_order = js_data["resources"].array_wrap_order or DEFAULT_ARRAY_WRAP_ORDER
+    element_major = wrap_order == "element"
+
+    dtype = js_data["EAR_ID"].dtype
+    EAR_ID_rs, n_blocks, col_map = reshape_max_width(
+        js_data["EAR_ID"],
+        max_width=max_size,
+        dtype=dtype,
+        fill=JS_BLK_EAR_ID_FILL_VALUE,
+        block_major=element_major,
+    )
+
+    col_map_counts = Counter(range(max_size))
+    col_map_counts.update(col_map.values())
+    count_max = max(col_map_counts.values())
+    count_differences = {
+        value: count_max - count for value, count in col_map_counts.items()
+    }
+
+    task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
+    if element_major:
+        # rows are ordered: all actions of block 0, then all actions of block 1, etc.
+        task_actions_rs = list(js_data["task_actions"]) * n_blocks
+    else:
+        # rows are ordered: action 0 of each block, then action 1 of each block, etc.
+        task_actions_rs = [
+            acts for acts in js_data["task_actions"] for _ in range(n_blocks)
+        ]
+    task_elements_rs: dict[int, list[int]] = {}
+    for js_elem, task_elems in js_data["task_elements"].items():
+        new_elem = col_map.get(js_elem, js_elem)
+        task_elements_rs.setdefault(new_elem, []).extend(task_elems)
+
+    for col_idx, pad_len in count_differences.items():
+        task_elements_rs[col_idx].extend([JS_BLK_TASK_ELEMENTS_FILL_VALUE] * pad_len)
+
+    for col_idx, new_col in col_map.items():
+        if (deps_i := element_deps.pop(col_idx, None)) is not None:
+            element_deps.setdefault(new_col, []).extend(deps_i)
+
+    js_data.update(
+        {
+            "task_insert_IDs": task_IDs_rs,
+            "task_actions": task_actions_rs,
+            "task_elements": task_elements_rs,
+            "EAR_ID": EAR_ID_rs,
+        }
+    )
+
+    return js_data, element_deps
 
 
 @hydrate
@@ -818,6 +897,18 @@ class JobscriptBlock(JSONLike):
             fmt="%.0f",
             delimiter=self.jobscript._EAR_files_delimiter,
         )
+
+    def task_element_indices(self, js_elem_idx: int) -> Iterator[tuple[int, int]]:
+        """Yield tuples of task insert ID and task element index for a given jobscript
+        element index."""
+        for task_iID, elem_idx in zip(
+            self.task_insert_IDs, self.task_elements[js_elem_idx]
+        ):
+            if elem_idx == JS_BLK_TASK_ELEMENTS_FILL_VALUE:
+                # this can arise when we enforce a maximum array size, and need to wrap
+                # jobscript elements around to the next action line.
+                continue
+            yield task_iID, int(elem_idx)
 
 
 @hydrate
@@ -1598,7 +1689,13 @@ class Jobscript(JSONLike):
             )
             out += run_cmd + "\n"
         else:
-            run_cmd = shell.JS_RUN_CMD.format(workflow_app_alias=self.workflow_app_alias)
+            run_cmd = shell.JS_APP_START_TIMER.format(
+                app_caps=app_caps
+            ) + shell.JS_RUN_CMD.format(
+                workflow_app_alias=self.workflow_app_alias,
+                timeit="--timeit " if self.submission.timeit else "",
+                app_caps=app_caps,
+            )
 
             if self.resources.write_app_logs:
                 run_log_enable_disable = shell.JS_RUN_LOG_PATH_ENABLE.format(
@@ -1817,6 +1914,7 @@ class Jobscript(JSONLike):
     def submit(
         self,
         scheduler_refs: dict[int, tuple[str, bool]],
+        modify_js: bool = False,
         print_stdout: bool = False,
     ) -> str:
         """
@@ -1855,6 +1953,16 @@ class Jobscript(JSONLike):
 
         js_path = self.shell.prepare_JS_path(self.write_jobscript(deps=deps))
         submit_cmd = self.scheduler.get_submit_command(self.shell, js_path, deps)
+
+        if modify_js:
+            msg = (
+                f"Jobscript {self.index} written to the following path: {str(js_path)}. "
+                f"You may now modify this file. Ready to continue submission? [y|N]"
+            )
+            answer = input(msg)
+            while answer.lower() != "y":
+                answer = input(msg)
+
         self._app.submission_logger.info(
             f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"
         )
@@ -2044,13 +2152,11 @@ class Jobscript(JSONLike):
             script_str, future_imports_i = extract_py_from_future_imports(script_str)
             future_imports.update(future_imports_i)
             script_funcs_lst.append(
-                dedent(
-                    """\
+                dedent("""\
                 def {act_name}(*args, **kwargs):
                 {script_str}
                     return {main_func_name}(*args, **kwargs)
-                """
-                ).format(
+                """).format(
                     act_name=act_name,
                     script_str=indent(script_str, tab_indent),
                     main_func_name=main_func_name,
@@ -2063,8 +2169,7 @@ class Jobscript(JSONLike):
         else:
             sub_log_path = '""'
 
-        py_imports = dedent(
-            """\
+        py_imports = dedent("""\
             import os
             from collections import defaultdict
             from pathlib import Path
@@ -2075,33 +2180,30 @@ class Jobscript(JSONLike):
             import {app_module} as app
 
             from hpcflow.sdk.core.errors import UnsetParameterDataErrorBase
+            from hpcflow.sdk.core.skip_reason import SkipReason
 
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
-            """
-        ).format(
+            """).format(
             app_module=self._app.module,
             app_caps=app_caps,
             log_path=sub_log_path,
         )
 
-        py_main_block_workflow_load = dedent(
-            """\
+        py_main_block_workflow_load = dedent("""\
                 app.load_config(
                     overrides={{"log_file_path": log_path}},
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )
                 wk = app.Workflow(wk_path)
-            """
-        ).format(
+            """).format(
             cfg_dir=self._app.config.config_directory,
             cfg_invoc_key=self._app.config.config_key,
             app_caps=app_caps,
         )
 
-        func_invoc_lines = dedent(
-            """\
+        func_invoc_lines = dedent("""\
                 import pprint
                 if not run.action.is_OFP and run.action.script_data_out_has_direct:
                     outputs = func(**func_kwargs)
@@ -2111,13 +2213,11 @@ class Jobscript(JSONLike):
                 else:
                     outputs = {}
                     func(**func_kwargs)
-            """
-        )
+            """)
 
         script_funcs = "\n".join(script_funcs_lst)
         script_names_str = "[" + ", ".join(f"{i}" for i in script_names) + "]"
-        main = dedent(
-            """\
+        main = dedent("""\
             {py_imports}
             
             sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
@@ -2131,6 +2231,12 @@ class Jobscript(JSONLike):
                 get_all_runs_tic = time.perf_counter()
                 run_IDs_flat = [j for i in run_IDs for j in i]
                 runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
+
+                for run_id, run in runs.items():
+                    if not wk._Workflow__apply_group_task_conditions(run):                    
+                        # run was set to skip due to task condition not being met:                        
+                        run._skip = SkipReason.TASK_CONDITION_NOT_MET.value                
+                
                 run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
                 get_all_runs_toc = time.perf_counter()
 
@@ -2211,6 +2317,8 @@ class Jobscript(JSONLike):
                                 block_act_run_dirs_non_skipped.append(j)
                                                      
                         if block_act_run_IDs_non_skipped:
+                            for run_id in block_act_run_IDs_non_skipped:
+                                runs[run_id].prepare_directory()
                             set_start_multi_tic = time.perf_counter()
                             app.logger.info("setting run starts.")
                             wk.set_multi_run_starts(block_act_run_IDs_non_skipped, block_act_run_dirs_non_skipped, port)
@@ -2409,7 +2517,10 @@ class Jobscript(JSONLike):
                         # set run end for all elements of this action
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
-                        wk.set_multi_run_ends(run_end_dat)
+                        new_skips = wk.set_multi_run_ends(run_end_dat)
+                        run_skips.update(new_skips)
+                        for run_id, skip_i in new_skips.items():
+                            runs[run_id]._skip = skip_i
                         set_multi_end_toc = time.perf_counter()
                         set_multi_end_time = set_multi_end_toc - set_multi_end_tic
                         app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
@@ -2424,8 +2535,7 @@ class Jobscript(JSONLike):
             set_end_multi_times_fp.close()
             save_multi_times_fp.close()
             loop_term_times_fp.close()
-        """
-        ).format(
+        """).format(
             py_imports=py_imports,
             py_main_block_workflow_load=indent(py_main_block_workflow_load, tab_indent),
             app_caps=self._app.package_name.upper(),
@@ -2447,13 +2557,11 @@ class Jobscript(JSONLike):
             if future_imports
             else ""
         )
-        script = dedent(
-            """\
+        script = dedent("""\
             {future_imports_str}{script_funcs}
             if __name__ == "__main__":
             {main}
-        """
-        ).format(
+        """).format(
             future_imports_str=future_imports_str,
             script_funcs=script_funcs,
             main=indent(main, tab_indent),

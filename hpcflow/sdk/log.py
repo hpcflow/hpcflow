@@ -12,7 +12,7 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 import statistics
 from dataclasses import dataclass
-from typing import ClassVar, ParamSpec, TypeVar, TYPE_CHECKING
+from typing import ClassVar, Literal, ParamSpec, TypeVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .app import BaseApp
@@ -44,8 +44,10 @@ class TimeIt:
 
     #: Whether the instrumentation is active.
     active: ClassVar = False
+    #: Title to be printed with the summary.
+    title: ClassVar[str | None] = None
     #: Where to log to.
-    file_path: ClassVar[str | None] = None
+    file_path: ClassVar[str | Path | None] = None
     #: The details be tracked.
     timers: ClassVar[dict[tuple[str, ...], list[float]]] = defaultdict(list)
     #: Traces of the stack.
@@ -56,17 +58,81 @@ class TimeIt:
     trace_prev: ClassVar[list[str]] = []
     #: Preceding trace indices.
     trace_idx_prev: ClassVar[list[int]] = []
+    #: File mode for when summarising to a file
+    file_mode: ClassVar[Literal["w", "a"]] = "w"
+    #: ``time.perf_counter`` assigned at the CLI entry point if active.
+    CLI_start: ClassVar[float | None] = None
+    #: ``time.perf_counter`` assigned at the CLI exit point if active.
+    CLI_end: ClassVar[float | None] = None
+    #: Time spent executing the run command, assigned in ``Workflow.execute_run`` if
+    #: active.
+    run_command_time: ClassVar[float | None] = None
+    #: Time spent to launch the app, if set, and if instrumentation is active. This is
+    #: measured from just before the app CLI is invoked in a shell, to the top-level Click
+    #: command call.
+    app_launch_time: ClassVar[float | None] = None
+    #: Time spent by child app processes on orchestration overhead.
+    child_orchestration_time: ClassVar[float] = 0.0
+    #: Time spent by child app processes on doing work (i.e. script evaluation)
+    child_work_time: ClassVar[float] = 0.0
+    #: Preamble to write to the summary file, if requested.
+    file_preamble: ClassVar[str | None] = None
+
+    def __init__(self, name: str | None = None):
+        self.name = name
+        self._tic: float | None = None
+        self._trace_key: tuple[str, ...] | None = None
 
     def __enter__(self):
-        self.__class__.active = True
+        cls = self.__class__
+
+        # `with TimeIt():` starts the profiling session.
+        if self.name is None:
+            cls.active = True
+            return self
+
+        # Named spans do nothing when profiling isn't active.
+        if not cls.active:
+            return self
+
+        cls.trace.append(self.name)
+        self._trace_key = tuple(cls.trace)
+
+        if cls.trace_prev == cls.trace:
+            new_trace_idx = cls.trace_idx_prev[-1] + 1
+        else:
+            new_trace_idx = 0
+
+        cls.trace_idx.append(new_trace_idx)
+        self._tic = time.perf_counter()
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        cls = self.__class__
+
+        # top-level profiling session.
+        if self.name is None:
+            try:
+                cls.summarise_string()
+            finally:
+                cls.reset()
+                cls.active = False
+            return
+
+        # named span while instrumentation wasn't active.
+        if self._tic is None:
+            return
+
         try:
-            self.__class__.summarise_string()
+            elapsed = time.perf_counter() - self._tic
+            cls.timers[self._trace_key].append(elapsed)
         finally:
-            self.__class__.reset()
-            self.__class__.active = False
+            cls.trace_prev = list(cls.trace)
+            cls.trace_idx_prev = list(cls.trace_idx)
+
+            cls.trace.pop()
+            cls.trace_idx.pop()
 
     @classmethod
     def decorator(cls, func: Callable[P, T]) -> Callable[P, T]:
@@ -80,6 +146,7 @@ class TimeIt:
                 return func(*args, **kwargs)
 
             cls.trace.append(func.__qualname__)
+            trace_key = tuple(cls.trace)
 
             if cls.trace_prev == cls.trace:
                 new_trace_idx = cls.trace_idx_prev[-1] + 1
@@ -88,19 +155,20 @@ class TimeIt:
             cls.trace_idx.append(new_trace_idx)
 
             tic = time.perf_counter()
-            out = func(*args, **kwargs)
-            toc = time.perf_counter()
-            elapsed = toc - tic
 
-            cls.timers[tuple(cls.trace)].append(elapsed)
+            try:
+                return func(*args, **kwargs)
+            finally:
+                toc = time.perf_counter()
+                elapsed = toc - tic
 
-            cls.trace_prev = list(cls.trace)
-            cls.trace_idx_prev = list(cls.trace_idx)
+                cls.timers[trace_key].append(elapsed)
 
-            cls.trace.pop()
-            cls.trace_idx.pop()
+                cls.trace_prev = list(cls.trace)
+                cls.trace_idx_prev = list(cls.trace_idx)
 
-            return out
+                cls.trace.pop()
+                cls.trace_idx.pop()
 
         return wrapper
 
@@ -134,9 +202,154 @@ class TimeIt:
         return stats
 
     @classmethod
+    def get_orchestration_time(cls):
+        """Return orchestration time for this process, excluding child processes."""
+        if cls.CLI_start is None or cls.CLI_end is None:
+            return None
+
+        CLI_time = cls.CLI_end - cls.CLI_start
+
+        if cls.app_launch_time is None:
+            return None
+
+        orchestration_time = cls.app_launch_time + CLI_time
+
+        if cls.run_command_time is not None:
+            orchestration_time -= cls.run_command_time
+
+        return orchestration_time
+
+    @classmethod
+    def get_total_orchestration_time(cls):
+        """Return orchestration time including child hpcflow processes."""
+        orchestration_time = cls.get_orchestration_time()
+
+        if orchestration_time is None:
+            return None
+
+        return orchestration_time + cls.child_orchestration_time
+
+    @classmethod
+    def get_command_work_time(cls):
+        """Return reported user/application work within the command."""
+        if not cls.child_work_time:
+            return None
+
+        return cls.child_work_time
+
+    @classmethod
+    def get_command_overhead_time(cls):
+        """Return command time not classified as work or child orchestration."""
+        if cls.run_command_time is None:
+            return None
+
+        if not cls.child_work_time:
+            return None
+
+        return cls.run_command_time - cls.child_orchestration_time - cls.child_work_time
+
+    @classmethod
+    def get_total_time(cls):
+        """Return total wall time for this hpcflow process."""
+        if cls.CLI_start is None or cls.CLI_end is None:
+            return None
+
+        if cls.app_launch_time is None:
+            return None
+
+        return cls.app_launch_time + (cls.CLI_end - cls.CLI_start)
+
+    @classmethod
     def summarise_string(cls) -> None:
         """
-        Produce a human-readable summary of method execution time statistics.
+        Produce a human-readable summary of execution timing statistics.
+
+        The summary may contain two sections:
+
+        1. Overall process timings
+        These describe the wall-clock time associated with launching and running
+        the CLI command:
+
+        ``App launch time``
+            Time elapsed before the CLI callback starts. This includes Python
+            interpreter start-up, module imports, and other application
+            initialisation performed before ``CLI_start`` is recorded.
+
+        ``CLI time``
+            Time between entering the CLI callback and completion of the invoked
+            command. This includes app orchestration as well as execution
+            of the command itself.
+
+        ``Command time``
+            Wall-clock time spent executing the external command launched by
+            this process.
+
+        ``Command work time``
+            Time explicitly reported by the child process as application/user
+            work. For generated Python scripts this is the time spent executing
+            the user-defined function, excluding framework setup, input
+            preparation, output handling, and imports.
+
+        ``Command overhead time``
+            The part of ``Command time`` not accounted for by reported user work
+            or child orchestration:
+
+                Command overhead
+                    = Command time
+                    - Child orchestration time
+                    - Command work time
+
+            This can include process and interpreter start-up, shell/environment
+            activation, process shutdown, and other execution overhead outside
+            the instrumented child process. For example, activation of a conda
+            environment.
+
+        ``Orchestration time``
+            App orchestration performed by this process, excluding the external command
+            execution itself.
+
+        ``Child orchestration time``
+            Framework/script orchestration explicitly reported by child
+            processes. For generated Python scripts this includes imports,
+            framework setup, input preparation, and output handling, but
+            excludes the timed user work.
+
+        ``Total orchestration time``
+            Orchestration performed by this process and its instrumented child
+            processes:
+
+                Total orchestration
+                    = Orchestration time
+                    + Child orchestration time
+
+        ``Total time``
+            Total wall-clock time from application launch to completion of the
+            CLI command:
+
+                Total time
+                    = App launch time + CLI time
+
+            When child work timing is available, this can also be decomposed as:
+
+                Total time
+                    = Total orchestration time
+                    + Command work time
+                    + Command overhead time
+
+        2. Instrumented timing tree
+        The table reports timings collected by ``TimeIt`` decorators and context
+        managers. ``sum`` is the accumulated inclusive time for a named timer;
+        ``mean``, ``stddev``, ``min``, and ``max`` describe its individual
+        invocations, and ``N`` is the number of invocations.
+
+        Tree indentation represents dynamic nesting of timers. Parent timings
+        are inclusive of their child timings, so values in the tree should not
+        generally be added together. Time spent directly in a parent can be
+        estimated by subtracting its child timings from the parent timing.
+
+        Some fields are omitted when the information required to calculate them is
+        unavailable. In particular, command work and command overhead require timing
+        information reported by an instrumented child process.
         """
 
         def _format_nodes(
@@ -144,6 +357,7 @@ class TimeIt:
             depth: int = 0,
             depth_final: Sequence[bool] = (),
         ):
+            unit = 1e-3  # ms
             for idx, (k, v) in enumerate(node.items()):
                 is_final_child = idx == len(node) - 1
                 angle = "└ " if is_final_child else "├ "
@@ -151,12 +365,12 @@ class TimeIt:
                 if depth > 0:
                     bars = "".join(f"{'│ ' if not i else '  '}" for i in depth_final)
                 k_str = bars + (angle if depth > 0 else "") + f"{k[depth]}"
-                min_str = f"{v.min:10.6f}" if v.number > 1 else f"{f'-':^12s}"
-                max_str = f"{v.max:10.6f}" if v.number > 1 else f"{f'-':^12s}"
-                stddev_str = f"({v.stddev:8.6f})" if v.number > 1 else f"{f' ':^10s}"
+                min_str = f"{v.min/unit:10.3f}" if v.number > 1 else f"{f'-':^12s}"
+                max_str = f"{v.max/unit:10.3f}" if v.number > 1 else f"{f'-':^12s}"
+                stddev_str = f"({v.stddev/unit:8.3f})" if v.number > 1 else f"{f' ':^10s}"
                 out.append(
-                    f"{k_str:.<80s} {v.sum:12.6f} "
-                    f"{v.mean:10.6f} {stddev_str} {v.number:8d} "
+                    f"{k_str:.<80s} {v.sum/unit:12.3f} "
+                    f"{v.mean/unit:10.3f} {stddev_str} {v.number:8d} "
                     f"{min_str} {max_str} "
                 )
                 depth_final_next = list(depth_final)
@@ -164,16 +378,96 @@ class TimeIt:
                     depth_final_next.append(is_final_child)
                 _format_nodes(v.children, depth + 1, depth_final_next)
 
-        summary = cls._summarise()
+        timing_summary = cls._summarise()
 
         out = [
-            f"{'function':^80s} {'sum /s':^12s} {'mean (stddev) /s':^20s} {'N':^8s} "
-            f"{'min /s':^12s} {'max /s':^12s}"
+            f"{'function':^80s} {'sum /ms':^12s} {'mean (stddev) /ms':^20s} {'N':^8s} "
+            f"{'min /ms':^12s} {'max /ms':^12s}"
         ]
-        _format_nodes(summary)
-        out_str = "\n".join(out)
+        _format_nodes(timing_summary)
+        out_str = "\n".join(out) + "\n"
+
+        CLI_time = None
+        if cls.CLI_start is not None and cls.CLI_end is not None:
+            CLI_time = cls.CLI_end - cls.CLI_start
+
+        command_work_time = cls.get_command_work_time()
+        command_overhead_time = cls.get_command_overhead_time()
+        orchestration_time = cls.get_orchestration_time()
+        total_orchestration_time = cls.get_total_orchestration_time()
+        total_time = cls.get_total_time()
+
+        summary_lines: list[str] = []
+        if cls.title:
+            summary_lines.append(f"{cls.title}\n{'=' * len(cls.title)}")
+
+        if cls.app_launch_time is not None:
+            summary_lines.append(f"App launch time:          {cls.app_launch_time:.6f} s")
+
+        if CLI_time is not None:
+            summary_lines.append(f"CLI time:                 {CLI_time:.6f} s")
+
+        if cls.run_command_time is not None:
+            summary_lines.append(
+                f"Command time:             {cls.run_command_time:.6f} s"
+            )
+
+        if command_work_time is not None:
+            summary_lines.append(f"Command work time:        {command_work_time:.6f} s")
+
+        if command_overhead_time is not None:
+            summary_lines.append(
+                f"Command overhead time:    {command_overhead_time:.6f} s"
+            )
+
+        if orchestration_time is not None:
+            summary_lines.append(f"Orchestration time:       {orchestration_time:.6f} s")
+
+        if cls.child_orchestration_time:
+            summary_lines.append(
+                f"Child orchestration time: {cls.child_orchestration_time:.6f} s"
+            )
+
+        if total_orchestration_time is not None:
+            summary_lines.append(
+                f"Total orchestration time: {total_orchestration_time:.6f} s"
+            )
+
+        if total_time is not None:
+            summary_lines.append(f"Total time:               {total_time:.6f} s")
+
+        if summary_lines:
+            out_str = "\n".join(summary_lines) + "\n\n" + out_str
+
         if cls.file_path:
-            Path(cls.file_path).write_text(out_str, encoding="utf-8")
+            path = Path(cls.file_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            write_preamble = cls.file_preamble and (
+                not path.exists() or path.stat().st_size == 0
+            )
+            preamble = cls.file_preamble if write_preamble else ""
+
+            if cls.child_orchestration_time:
+                # want outer process timings before child timings, but preserve
+                # the run preamble at the very top.
+                existing = path.read_text(encoding="utf-8") if path.exists() else ""
+
+                if cls.file_preamble:
+                    if existing.startswith(cls.file_preamble):
+                        existing = existing[len(cls.file_preamble) :]
+
+                    content = cls.file_preamble + out_str + "\n" + existing
+                else:
+                    content = out_str + "\n" + existing
+
+                path.write_text(content, encoding="utf-8")
+
+            else:
+                with path.open(cls.file_mode, encoding="utf-8") as fh:
+                    if preamble:
+                        fh.write(preamble)
+                    fh.write(out_str)
         else:
             print(out_str)
 

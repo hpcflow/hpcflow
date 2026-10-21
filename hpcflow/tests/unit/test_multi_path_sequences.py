@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 from textwrap import dedent
 
 import numpy as np
@@ -138,8 +139,7 @@ def test_MPS_element_outputs(tmp_path):
 
 
 def test_MPS_latin_hypercube_sequence_values():
-    wft_yaml = dedent(
-        """\
+    wft_yaml = dedent("""\
         name: test_latin_hypercube_sampling
         template_components:
           task_schemas:
@@ -154,8 +154,7 @@ def test_MPS_latin_hypercube_sequence_values():
               - paths: [inputs.p1.a, inputs.p1.b]
                 values::from_latin_hypercube:
                   num_samples: 5
-    """
-    )
+    """)
     wft = hf.WorkflowTemplate.from_YAML_string(wft_yaml)
     es = wft.tasks[0].element_sets[0]
     assert len(es.multi_path_sequences) == 1
@@ -201,8 +200,7 @@ def test_MPS_latin_hypercube_sequence_bounds():
 
 
 def test_MPS_move_from_sequences_list():
-    wft_yaml = dedent(
-        """\
+    wft_yaml = dedent("""\
         name: test_latin_hypercube_sampling
         template_components:
           task_schemas:
@@ -235,8 +233,7 @@ def test_MPS_move_from_sequences_list():
               - paths: [inputs.p3.a, inputs.p3.b] # actually a multi-path sequence
                 values::from_latin_hypercube:
                   num_samples: 4
-    """
-    )
+    """)
     wft = hf.WorkflowTemplate.from_YAML_string(wft_yaml)
     es = wft.tasks[0].element_sets[0]
     mps_lst = es.multi_path_sequences
@@ -257,3 +254,158 @@ def test_MPS_move_from_sequences_list():
     assert seq_lst[4].path == "inputs.p2.b"
     assert seq_lst[5].path == "inputs.p3.a"
     assert seq_lst[6].path == "inputs.p3.b"
+
+
+@pytest.fixture
+def txt_file(tmp_path: Path) -> Path:
+    """A four-column text file with a header comment, like a posterior-samples dump."""
+    rng = np.random.default_rng(0)
+    arr = rng.random((20, 4))
+    file_path = tmp_path / "samples.txt"
+    np.savetxt(file_path, arr, header="a, b, c, d")
+    return file_path
+
+
+def test_MPS_from_load_txt_all_rows(txt_file: Path):
+    arr = np.loadtxt(txt_file)
+    mps = hf.MultiPathSequence.from_load_txt(
+        paths=["inputs.p1.a", "inputs.p1.b", "inputs.p1.c", "inputs.p1.d"],
+        file_path=txt_file,
+    )
+    assert np.array_equal(np.asarray(mps.values), arr.T)
+    assert mps._values_method == "from_load_txt"
+    assert mps._values_method_args is not None
+    assert "seed" not in mps._values_method_args  # no sampling, so no seed recorded
+
+
+def test_MPS_from_load_txt_sampled_rows(txt_file: Path):
+    arr = np.loadtxt(txt_file)
+    paths = ["inputs.p1.a", "inputs.p1.b", "inputs.p1.c", "inputs.p1.d"]
+    mps = hf.MultiPathSequence.from_load_txt(
+        paths=paths, file_path=txt_file, num_samples=5, seed=123
+    )
+    vals = np.asarray(mps.values)
+    assert vals.shape == (4, 5)
+
+    # each sampled "element" must be an unmodified row of the file:
+    rows = vals.T
+    file_rows = {tuple(row) for row in arr}
+    assert all(tuple(row) in file_rows for row in rows)
+
+    # without replacement, rows are distinct:
+    assert len({tuple(row) for row in rows}) == 5
+
+    # seed is recorded, and reproducible:
+    assert mps._values_method_args is not None
+    assert mps._values_method_args["seed"] == 123
+    assert mps._values_method_args["num_samples"] == 5
+    mps_2 = hf.MultiPathSequence.from_load_txt(
+        paths=paths, file_path=txt_file, num_samples=5, seed=123
+    )
+    assert np.array_equal(np.asarray(mps_2.values), vals)
+
+
+def test_MPS_from_load_txt_sampled_rows_seed_generated_if_unspecified(txt_file: Path):
+    paths = ["inputs.p1.a", "inputs.p1.b", "inputs.p1.c", "inputs.p1.d"]
+    mps = hf.MultiPathSequence.from_load_txt(
+        paths=paths, file_path=txt_file, num_samples=3
+    )
+    assert mps._values_method_args is not None
+    seed = mps._values_method_args["seed"]
+    assert isinstance(seed, int)
+    mps_2 = hf.MultiPathSequence.from_load_txt(
+        paths=paths, file_path=txt_file, num_samples=3, seed=seed
+    )
+    assert np.array_equal(np.asarray(mps_2.values), np.asarray(mps.values))
+
+
+def test_MPS_from_load_txt_usecols(txt_file: Path):
+    arr = np.loadtxt(txt_file)
+    mps = hf.MultiPathSequence.from_load_txt(
+        paths=["inputs.p1.a", "inputs.p1.d"], file_path=txt_file, usecols=[0, 3]
+    )
+    assert np.array_equal(np.asarray(mps.values), arr[:, [0, 3]].T)
+
+
+def test_MPS_from_load_txt_raises_on_wrong_number_of_paths(txt_file: Path):
+    with pytest.raises(ValueError, match="number of columns"):
+        hf.MultiPathSequence.from_load_txt(
+            paths=["inputs.p1.a", "inputs.p1.b"], file_path=txt_file
+        )
+
+
+def test_MPS_from_load_txt_raises_on_too_many_samples_without_replacement(
+    txt_file: Path,
+):
+    with pytest.raises(ValueError, match="without replacement"):
+        hf.MultiPathSequence.from_load_txt(
+            paths=["inputs.p1.a", "inputs.p1.b", "inputs.p1.c", "inputs.p1.d"],
+            file_path=txt_file,
+            num_samples=100,
+        )
+
+
+def test_MPS_from_load_txt_with_replacement_allows_more_samples_than_rows(
+    txt_file: Path,
+):
+    mps = hf.MultiPathSequence.from_load_txt(
+        paths=["inputs.p1.a", "inputs.p1.b", "inputs.p1.c", "inputs.p1.d"],
+        file_path=txt_file,
+        num_samples=100,
+        replace=True,
+        seed=1,
+    )
+    assert np.asarray(mps.values).shape == (4, 100)
+
+
+def test_MPS_from_load_txt_from_yaml_sampled_rows_into_list_items(
+    txt_file: Path, tmp_path: Path
+):
+    """Sampled columns can be set as items of list-valued sub-parameters, and as keys
+    that are not valid Python identifiers."""
+    arr = np.loadtxt(txt_file)
+    wft_yaml = dedent(f"""\
+        name: test_MPS_from_load_txt
+        template_components:
+          task_schemas:
+            - objective: define_p1
+              inputs:
+                - parameter: p1
+        tasks:
+          - schema: define_p1
+            inputs:
+              p1:
+                a: 1.0
+                b: [2.0]
+                c: [3.0]
+                d-e: 4.0
+            multi_path_sequences:
+              - paths: [inputs.p1.a, inputs.p1.b.0, inputs.p1.c.0, inputs.p1.d-e]
+                values::from_load_txt:
+                  file_path: {txt_file.as_posix()}
+                  num_samples: 3
+                  seed: 7
+    """)
+    wft = hf.WorkflowTemplate.from_YAML_string(wft_yaml)
+    es = wft.tasks[0].element_sets[0]
+    assert len(es.multi_path_sequences) == 1
+    assert len(es.sequences) == 4
+    mps = es.multi_path_sequences[0]
+    assert mps._values_method == "from_load_txt"
+    assert mps._values_method_args is not None
+    assert mps._values_method_args["seed"] == 7
+    vals = np.asarray(mps.values)
+    assert vals.shape == (4, 3)
+
+    wf = hf.Workflow.from_template(wft, path=tmp_path)
+    assert wf.tasks[0].num_elements == 3
+    file_rows = {tuple(row) for row in arr}
+    for elem_idx, elem in enumerate(wf.tasks[0].elements):
+        p1 = elem.get("inputs.p1")
+        assert p1 == {
+            "a": vals[0, elem_idx],
+            "b": [vals[1, elem_idx]],
+            "c": [vals[2, elem_idx]],
+            "d-e": vals[3, elem_idx],
+        }
+        assert (p1["a"], p1["b"][0], p1["c"][0], p1["d-e"]) in file_rows

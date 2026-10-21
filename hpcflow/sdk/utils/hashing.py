@@ -5,12 +5,13 @@ def get_hash(obj):
     Note the resulting hash is not necessarily stable across sessions or machines.
     """
 
-    if isinstance(obj, (set, tuple, list)):
-        return hash(tuple([type(obj)] + [get_hash(i) for i in obj]))
+    if isinstance(obj, set):
+        return hash((set, frozenset(get_hash(i) for i in obj)))
 
-    elif not isinstance(obj, dict):
-        return hash(obj)
+    if isinstance(obj, (tuple, list)):
+        return hash((type(obj), *(get_hash(i) for i in obj)))
 
-    new_obj = {k: get_hash(obj[k]) for k in obj}
+    if isinstance(obj, dict):
+        return hash(frozenset((k, get_hash(v)) for k, v in obj.items()))
 
-    return hash(frozenset(sorted(new_obj.items())))
+    return hash(obj)

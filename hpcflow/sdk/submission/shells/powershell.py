@@ -34,8 +34,7 @@ class WindowsPowerShell(Shell):
     #: Template for the jobscript shebang line.
     JS_SHEBANG: ClassVar[str] = ""
     #: Template for the jobscript functions file.
-    JS_FUNCS: ClassVar[str] = dedent(
-        """\
+    JS_FUNCS: ClassVar[str] = dedent("""\
         function {workflow_app_alias} {{
             & {{
         {env_setup}{app_invoc} `
@@ -49,11 +48,9 @@ class WindowsPowerShell(Shell):
         function get_nth_line($file, $line) {{
             Get-Content $file | Select-Object -Skip $line -First 1
         }}
-    """
-    )
+    """)
     #: Template for the common part of the jobscript header.
-    JS_HEADER: ClassVar[str] = dedent(
-        """\
+    JS_HEADER: ClassVar[str] = dedent("""\
         $ErrorActionPreference = 'Stop'
 
         function JoinMultiPath {{
@@ -91,23 +88,24 @@ class WindowsPowerShell(Shell):
         $env:{app_caps}_JS_FUNCS_PATH = $JS_FUNCS_PATH
         $env:{app_caps}_JS_IDX = {js_idx}
         $env:{app_caps}_RUN_ID_FILE = $EAR_ID_FILE
-    """
-    )
+    """)
     #: Template for the jobscript header when directly executed.
-    JS_DIRECT_HEADER: ClassVar[str] = dedent(
-        """\
+    JS_DIRECT_HEADER: ClassVar[str] = dedent("""\
         {shebang}
         {header}
         {wait_command}
-    """
-    )
+    """)
     #: Template for enabling writing of the app log.
     JS_RUN_LOG_PATH_ENABLE: ClassVar[str] = 'Join-Path $SUB_LOG_DIR "{run_log_file_name}"'
     #: Template for disabling writing of the app log.
     JS_RUN_LOG_PATH_DISABLE: ClassVar[str] = '" "'
+    #: Template for recording the app launch start time:
+    JS_APP_START_TIMER: ClassVar[str] = dedent("""\
+        $env:{app_caps}_APP_LAUNCH_START = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
+    """)
     #: Template for the run execution command.
     JS_RUN_CMD: ClassVar[str] = (
-        "{workflow_app_alias} internal workflow $WK_PATH execute-run "
+        "{workflow_app_alias} {timeit}internal workflow $WK_PATH execute-run "
         "$SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
     )
     #: Template for the execution command for multiple combined runs.
@@ -116,8 +114,7 @@ class WindowsPowerShell(Shell):
         "$SUB_IDX $JS_IDX\n"
     )
     #: Template for setting up run environment variables and executing the run.
-    JS_RUN: ClassVar[str] = dedent(
-        """\
+    JS_RUN: ClassVar[str] = dedent("""\
         $EAR_ID = ($elem_EAR_IDs -split "{EAR_files_delimiter}")[$block_act_idx]
         if ($EAR_ID -eq -1) {{
             continue
@@ -126,65 +123,50 @@ class WindowsPowerShell(Shell):
         $env:{app_caps}_RUN_ID = $EAR_ID
         $env:{app_caps}_RUN_LOG_PATH = {run_log_enable_disable}
         $env:{app_caps}_LOG_PATH = $env:{app_caps}_RUN_LOG_PATH
-        $env:{app_caps}_RUN_STD_PATH = Join-Path $SUB_STD_DIR "$env:{app_caps}_RUN_ID.txt"
         $env:{app_caps}_BLOCK_ACT_IDX = $block_act_idx            
 
         Set-Location $SUB_TMP_DIR
         
         {run_cmd}
-        """
-    )
+        """)
     #: Template for the action-run processing loop in a jobscript.
-    JS_ACT_MULTI: ClassVar[str] = dedent(
-        """\
+    JS_ACT_MULTI: ClassVar[str] = dedent("""\
         for ($block_act_idx = 0; $block_act_idx -lt {num_actions}; $block_act_idx += 1) {{        
         {run_block}
         }}
-        """
-    )
+        """)
     #: Template for the single-action-run execution in a jobscript.
-    JS_ACT_SINGLE: ClassVar[str] = dedent(
-        """\
+    JS_ACT_SINGLE: ClassVar[str] = dedent("""\
         $block_act_idx = 0        
         {run_block}
-        """
-    )
+        """)
     #: Template for setting up environment variables and running one or more action-runs.
-    JS_MAIN: ClassVar[str] = dedent(
-        """\
+    JS_MAIN: ClassVar[str] = dedent("""\
         $block_elem_idx = ($JS_elem_idx - {block_start_elem_idx})
         $elem_EAR_IDs = get_nth_line $EAR_ID_FILE $JS_elem_idx
         $env:{app_caps}_JS_ELEM_IDX = $JS_elem_idx
         $env:{app_caps}_BLOCK_ELEM_IDX = $block_elem_idx
 
         {action}
-    """
-    )
+    """)
     #: Template for a jobscript-block header.
-    JS_BLOCK_HEADER: ClassVar[str] = dedent(  # for single-block jobscripts only
-        """\
+    JS_BLOCK_HEADER: ClassVar[str] = dedent("""\
         $block_idx = 0
         $env:{app_caps}_BLOCK_IDX = 0
-        """
-    )
+        """)  # for single-block jobscripts only
     #: Template for single-element execution.
-    JS_ELEMENT_SINGLE: ClassVar[str] = dedent(
-        """\
+    JS_ELEMENT_SINGLE: ClassVar[str] = dedent("""\
         $JS_elem_idx = {block_start_elem_idx}
         {main}
-    """
-    )
+    """)
     #: Template for the element processing loop in a jobscript.
-    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent(
-        """\
+    JS_ELEMENT_MULTI_LOOP: ClassVar[str] = dedent("""\
         for ($JS_elem_idx = {block_start_elem_idx}; $JS_elem_idx -lt ({block_start_elem_idx} + {num_elements}); $JS_elem_idx += 1) {{            
         {main}
         }}
-    """
-    )
+    """)
     #: Template for the jobscript block loop in a jobscript.
-    JS_BLOCK_LOOP: ClassVar[str] = dedent(
-        """\
+    JS_BLOCK_LOOP: ClassVar[str] = dedent("""\
         $num_elements = {num_elements}
         $num_actions = {num_actions}
         $block_start_elem_idx = 0
@@ -193,14 +175,11 @@ class WindowsPowerShell(Shell):
         {element_loop}
             $block_start_elem_idx += $num_elements[$block_idx]
         }}
-    """
-    )
+    """)
     #: Template for the jobscript footer.
-    JS_FOOTER: ClassVar[str] = dedent(
-        """\
+    JS_FOOTER: ClassVar[str] = dedent("""\
         Set-Location $WK_PATH
-    """
-    )
+    """)
 
     def get_direct_submit_command(self, js_path: str) -> list[str]:
         """Get the command for submitting a non-scheduled jobscript."""
@@ -287,12 +266,10 @@ class WindowsPowerShell(Shell):
         Format sourcing (i.e. invocation) of the jobscript functions file.
         """
         app_caps = app_name.upper()
-        out = dedent(
-            """\
+        out = dedent("""\
             . $env:{app_name}_JS_FUNCS_PATH
 
-            """
-        ).format(app_name=app_caps)
+            """).format(app_name=app_caps)
 
         # so we can refer to env vars in a shell agnostic way in commands:
         var_strings = (
@@ -313,6 +290,7 @@ class WindowsPowerShell(Shell):
             f"{app_caps}_RUN_PROGRAM_PATH",
             f"{app_caps}_RUN_NUM_CORES",
             f"{app_caps}_RUN_NUM_THREADS",
+            f"{app_caps}_RUN_MPI_NUM_RANKS",
             f"{app_caps}_RUN_RANDOM_SEED",
             f"{app_caps}_RNG_SPAWN_KEY",
         )
@@ -347,6 +325,7 @@ class WindowsPowerShell(Shell):
         cmd_idx: int,
         stderr: bool,
         app_name: str,
+        timeit: bool,
     ) -> str:
         """
         Produce code to save a parameter's value into the workflow persistent store.
@@ -355,8 +334,10 @@ class WindowsPowerShell(Shell):
         #   and test.
         stderr_str = " --stderr" if stderr else ""
         app_caps = app_name.upper()
+        timeit_str = " --timeit" if timeit else ""
         return (
-            f'{workflow_app_alias} --std-stream "${app_caps}_RUN_STD_PATH" '
+            f"$env:{app_caps}_APP_LAUNCH_START = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')\n"
+            f'{workflow_app_alias}{timeit_str} --std-stream "${app_caps}_RUN_STD_PATH" '
             f'internal workflow "${app_caps}_WK_PATH" save-parameter {stderr_str}'
             f'"--" {param_name} ${shell_var_name} ${app_caps}_RUN_ID {cmd_idx}'
             f"\n"

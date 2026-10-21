@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+import copy
+import warnings
+from typing import TYPE_CHECKING, cast
 from typing_extensions import TypedDict
 import pytest
 
@@ -12,7 +14,8 @@ from hpcflow.sdk.core.errors import (
     TaskSchemaExtraInputs,
     TaskSchemaMissingActionOutputs,
 )
-from hpcflow.sdk.core.test_utils import make_actions, make_parameters
+from hpcflow.sdk.core.parameters import NullDefault
+from hpcflow.sdk.core.test_utils import make_actions, make_parameters, make_schemas
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
@@ -43,6 +46,180 @@ def test_task_schema_equality() -> None:
     t1a = hf.TaskSchema("t1", actions=[])
     t1b = hf.TaskSchema("t1", actions=[])
     assert t1a == t1b
+
+
+def test_disable_array_outputs() -> None:
+    schema = hf.TaskSchema("t1", disable_array_outputs=["outputs.foo.bar"])
+
+    assert hf.TaskSchema("t1").disable_array_outputs == []
+    assert schema.disable_array_outputs == ["outputs.foo.bar"]
+    assert schema != hf.TaskSchema("t1")
+
+    json_like = schema.to_json_like()[0]
+    assert isinstance(json_like, dict)
+    restored_schema = hf.TaskSchema.from_json_like(json_like)
+    assert restored_schema is not None
+    assert restored_schema.disable_array_outputs == ["outputs.foo.bar"]
+
+
+def test_schema_without_array_output_fields() -> None:
+    schema = hf.TaskSchema.from_json_like({"objective": "legacy_task", "actions": []})
+    assert schema is not None
+    assert schema.disable_array_outputs == []
+    assert not hasattr(schema, "array_outputs")
+    assert "array_outputs" not in schema.to_dict()
+
+
+def test_task_schema_save_files_policy() -> None:
+    file = hf.FileSpec(label="result", name="result.txt")
+    schema = hf.TaskSchema(
+        "t1",
+        actions=[hf.Action(output_files=[file])],
+        save_files=["result"],
+    )
+    assert schema.save_files == ["result"]
+    assert schema != hf.TaskSchema(
+        "t1", actions=[hf.Action(output_files=[file])], save_files=[]
+    )
+
+    with pytest.raises(ValueError, match="Unknown file labels"):
+        hf.TaskSchema("t1", actions=[], save_files=["missing"])
+
+    with pytest.raises(TypeError, match="save_files"):
+        hf.TaskSchema(
+            "t1",
+            actions=[],
+            save_files=cast("bool | list[str] | None", "result"),
+        )
+
+
+def test_task_schema_save_files_policy_paths() -> None:
+    schema = hf.TaskSchema(
+        "t1", actions=[], save_files=["path:logs/*.log", "path:sub/output.txt"]
+    )
+    assert schema.save_files == ["path:logs/*.log", "path:sub/output.txt"]
+
+    for bad in ("path:", "path:/abs/file.txt", "path:C:\\file.txt", "path:../x.txt"):
+        with pytest.raises(ValueError, match="path:"):
+            hf.TaskSchema("t1", actions=[], save_files=[bad])
+
+
+def test_task_schema_file_labels_include_parser_generated_files() -> None:
+    src = hf.FileSpec(label="src", name="src.txt")
+    gen = hf.FileSpec(label="gen", name="gen.png")
+    schema = hf.TaskSchema(
+        "t1",
+        outputs=[hf.SchemaOutput("p1")],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo hi")],
+                output_file_parsers=[
+                    hf.OutputFileParser(
+                        output_files=[src],
+                        output=hf.Parameter("p1"),
+                        generates_files=[gen],
+                    )
+                ],
+            )
+        ],
+        save_files=["src", "gen"],
+    )
+    assert schema.get_file_labels() == {"src", "gen"}
+    # the parser's expanded action declares the generated file as an output file:
+    parser_action = next(act for act in schema.actions if act.output_file_parsers)
+    assert {f.label for f in parser_action.output_files} == {"src", "gen"}
+
+
+def test_action_output_files_preserved_on_expand() -> None:
+    declared = hf.FileSpec(label="declared", name="declared.txt")
+    schema = hf.TaskSchema(
+        "t1", actions=[hf.Action(commands=[hf.Command("ls")], output_files=[declared])]
+    )
+    assert [f.label for f in schema.actions[0].output_files] == ["declared"]
+
+
+def test_action_declared_files_imply_requires_dir() -> None:
+    file = hf.FileSpec(label="f", name="f.txt")
+    assert hf.Action(commands=[hf.Command("ls")]).requires_dir is False
+    assert hf.Action(commands=[hf.Command("ls")], output_files=[file]).requires_dir
+    assert hf.Action(commands=[hf.Command("ls")], input_files=[file]).requires_dir
+    with pytest.raises(ValueError, match="requires a working directory"):
+        hf.Action(commands=[hf.Command("ls")], output_files=[file], requires_dir=False)
+
+
+def test_action_files_from_json_like_labels() -> None:
+    """Action `input_files`/`output_files` given as labels (as in YAML task schemas)
+    resolve against the shared command files."""
+    in_file = hf.FileSpec(label="in_f", name="in.txt")
+    out_file = hf.FileSpec(label="out_f", name="out.txt")
+    shared = {"command_files": hf.CommandFilesList([in_file, out_file])}
+    act = hf.Action.from_json_like(
+        {
+            "commands": [{"command": "ls"}],
+            "input_files": ["in_f"],
+            "output_files": ["out_f"],
+        },
+        shared,
+    )
+    assert act.input_files == [in_file]
+    assert act.output_files == [out_file]
+
+
+def test_legacy_save_files_settings_migrated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pre-existing persisted workflows carry action/parser `save_files`; these load
+    with a (once-only) deprecation warning and are mapped onto the new declarations."""
+    from hpcflow.sdk.core import warnings as hf_warnings
+
+    # each legacy variant warns once per process; start from a clean registry:
+    monkeypatch.setattr(hf_warnings, "_warned_once", set())
+
+    f1 = hf.FileSpec(label="f1", name="f1.txt")
+    f2 = hf.FileSpec(label="f2", name="f2.txt")
+    shared = {"command_files": hf.CommandFilesList([f1, f2])}
+
+    with pytest.warns(DeprecationWarning, match="output_files"):
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": ["f1"]}, shared
+        )
+    assert act.output_files == [f1]
+    assert act.requires_dir
+
+    # an empty legacy list (as serialised for every expanded action) is silent, and the
+    # same warning is not re-issued for a second legacy action:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": []}, shared
+        )
+        assert act.output_files == []
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": ["f2"]}, shared
+        )
+        assert act.output_files == [f2]
+
+    # parser: files not in `from_files` were written by the parser script:
+    with pytest.warns(DeprecationWarning, match="generates_files"):
+        ofp = hf.OutputFileParser.from_json_like(
+            {"from_files": ["f1"], "save_files": ["f1", "f2"]}, shared
+        )
+    assert ofp.output_files == [f1]
+    assert ofp.generates_files == [f2]
+
+    # parser: `True`/`[]`/`False` only concerned retention, so are ignored (and share a
+    # single warning):
+    with pytest.warns(DeprecationWarning, match="ignored"):
+        ofp = hf.OutputFileParser.from_json_like(
+            {"from_files": ["f1"], "save_files": True}, shared
+        )
+    assert ofp.generates_files == []
+    legacy: bool | list[str]
+    for legacy in ([], False):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ofp = hf.OutputFileParser.from_json_like(
+                {"from_files": ["f1"], "save_files": legacy}, shared
+            )
+        assert ofp.generates_files == []
 
 
 def test_init_with_str_objective(action_a1: Action) -> None:
@@ -198,3 +375,125 @@ def test_validate_jinja_template_input_not_in_schema() -> None:
         )
     exc = exc_info.value
     assert exc.parameter_type == "fruits"
+
+
+def test_schema_add_parameter_dependency():
+    sch = hf.TaskSchema(
+        objective="my_schema", actions=[hf.Action(commands=[hf.Command("echo 'hello'")])]
+    )
+    sch.add_parameter_dependency("p1")
+    assert sch.inputs[0] == hf.SchemaInput(parameter=hf.Parameter("p1"), multiple=False)
+    assert sch.parameter_dependencies == ["p1"]
+    assert sch.actions[0].get_input_types() == ("p1",)
+
+
+def test_schema_add_parameter_dependency_input_source(tmp_path):
+    (s1,) = make_schemas(({"p1": NullDefault.NULL}, ("p2",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2", actions=[hf.Action(commands=[hf.Command("echo 'hello'")])]
+    )
+
+    # force a dependency on t1 via its output p1, even though the parameter is not
+    # required by any of this schema's actions:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p2")
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_conditional_tasks",
+        workflow_name="test_conditional_tasks",
+        overwrite=True,
+        path=tmp_path,
+        tasks=[
+            hf.Task(schema=s1, inputs={"p1": 100}),
+            hf.Task(schema=s2_c),
+        ],
+    )
+    # check the input is defined as required and not provided (so must be sourced from the
+    # previous task):
+    p2_inp_status = wk.tasks.t2.template.get_input_statuses(
+        wk.tasks.t2.template.element_sets[0]
+    )["p2"]
+    assert p2_inp_status.has_default == False
+    assert p2_inp_status.is_required == True
+    assert p2_inp_status.is_provided == False
+
+    # check source is defined properly:
+    p2_inp_source = wk.tasks.t2.template.element_sets[0].input_sources["p2"]
+    assert len(p2_inp_source) == 1
+    assert p2_inp_source[0] == hf.InputSource.task(
+        task_ref=0, task_source_type="output", element_iters=[0]
+    )
+
+    # check it's in the data index:
+    dat_idx = wk.tasks.t2.elements[0].get_data_idx()
+    assert "inputs.p2" in dat_idx
+
+
+def test_schema_add_parameter_dependency_added_to_all_schema_actions(tmp_path):
+    """Check that for multi-action schemas, the parameter dependency is added to all of
+    them."""
+
+    (s1,) = make_schemas(({"p1": NullDefault.NULL}, ("p2",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2",
+        actions=[
+            hf.Action(commands=[hf.Command("echo 'hello!'")]),
+            hf.Action(commands=[hf.Command("echo 'hey!'")]),
+        ],
+    )
+
+    # force a dependency on t1 via its output p1, even though the parameter is not
+    # required by any of this schema's actions:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p2")
+
+    wk = hf.Workflow.from_template_data(
+        template_name="test_conditional_tasks",
+        overwrite=True,
+        path=tmp_path,
+        tasks=[
+            hf.Task(schema=s1, inputs={"p1": 100}),
+            hf.Task(schema=s2_c),
+        ],
+    )
+
+    runs = wk.get_all_EARs()
+    assert "inputs.p2" in runs[1].get_data_idx()
+    assert "inputs.p2" in runs[2].get_data_idx()
+
+
+def test_schema_add_parameter_dependency_script_action(tmp_path):
+    (s1,) = make_schemas(({"p0": NullDefault.NULL}, ("p3",), "t1"))
+    s2 = hf.TaskSchema(
+        objective="t2",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],  # doesn't depend on s1
+        outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_direct_in_direct_out.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+
+    # force a dependency on s1 via a parameter dependency:
+    s2_c = copy.deepcopy(s2)
+    s2_c.add_parameter_dependency("p3")
+
+    p1_val = 100
+    t1 = hf.Task(s1, inputs={"p0": 100})
+    t2 = hf.Task(schema=s2_c, inputs={"p1": p1_val})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1, t2],
+        template_name="main_script_test_param_deps",
+        path=tmp_path,
+    )
+
+    runs = wk.get_all_EARs()
+    assert runs[0].get_dependent_EARs() == {1}
+    assert runs[1].get_EAR_dependencies() == {0}
+    assert "inputs.p3" in runs[1].get_data_idx()
+    assert "inputs.p3" not in runs[1].get_data_in_values_direct()

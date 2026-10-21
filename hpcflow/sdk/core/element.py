@@ -5,6 +5,7 @@ Elements are components of tasks.
 from __future__ import annotations
 import copy
 from dataclasses import dataclass, field, fields
+from functools import lru_cache
 from operator import attrgetter
 from itertools import chain
 import os
@@ -20,8 +21,14 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+import warnings
+from typing_extensions import Self
 
-from hpcflow.sdk.core.enums import ParallelMode
+from hpcflow.sdk.core.enums import (
+    ARRAY_WRAP_ORDERS,
+    DEFAULT_ARRAY_WRAP_ORDER,
+    ParallelMode,
+)
 from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import UnsupportedOSError, UnsupportedSchedulerError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
@@ -32,6 +39,7 @@ from hpcflow.sdk.core.utils import (
     check_valid_py_identifier,
     dict_values_process_flat,
     get_enum_by_name_or_val,
+    merge_scheduler_args,
     split_param_label,
 )
 from hpcflow.sdk.log import TimeIt
@@ -284,14 +292,25 @@ class ElementResources(JSONLike):
         How many threads to request.
     num_nodes: int
         How many compute nodes to request.
+    num_MPI_ranks: int
+        How many MPI ranks to use, defaults to ``num_cores``.
     scheduler: str
         Which scheduler to use.
     shell: str
         Which system shell to use.
     use_job_array: bool
         Whether to use array jobs.
-    max_array_items: int
-        If using array jobs, up to how many items should be in the job array.
+    max_scheduler_concurrency: int
+        If using array jobs, up to how many items should be permitted to execute
+        concurrently.
+    max_array_size: int
+        If using array jobs, what is the maximum permitted size of a job array.
+    array_wrap_order: str
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) runs
+        all actions of one element before moving to the next wrapped element;
+        ``"action"`` runs one action for all wrapped elements before moving to the next
+        action.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -352,6 +371,8 @@ class ElementResources(JSONLike):
     num_threads: int | None = None
     #: How many compute nodes to request.
     num_nodes: int | None = None
+    #: How many MPI ranks to use, defaults to ``num_cores``.
+    num_MPI_ranks: int | None = None
 
     #: Which scheduler to use.
     scheduler: str | None = None
@@ -359,8 +380,15 @@ class ElementResources(JSONLike):
     shell: str | None = None
     #: Whether to use array jobs.
     use_job_array: bool | None = None
-    #: If using array jobs, up to how many items should be in the job array.
-    max_array_items: int | None = None
+    #: If using array jobs, up to how many items should be permitted to execute
+    #: concurrently.
+    max_scheduler_concurrency: int | None = None
+    #: If using array jobs, what is the maximum permitted size of a job array.
+    max_array_size: int | None = None
+    #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
+    #: wrapped actions are executed by each array item: ``"element"`` (default) or
+    #: ``"action"``.
+    array_wrap_order: str | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
@@ -372,6 +400,8 @@ class ElementResources(JSONLike):
 
     #: Additional arguments to pass to the scheduler.
     scheduler_args: dict[str, Any] = field(default_factory=dict)
+    #: Whether to inherit raw scheduler directives from configuration.
+    inherit_directives: bool = True
     #: Additional arguments to pass to the shell.
     shell_args: dict[str, Any] = field(default_factory=dict)
     #: Which OS to use.
@@ -427,8 +457,44 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
+        if self.array_wrap_order is not None:
+            self.array_wrap_order = self.array_wrap_order.lower().strip()
+            if self.array_wrap_order not in ARRAY_WRAP_ORDERS:
+                raise ValueError(
+                    f"`array_wrap_order` must be one of {ARRAY_WRAP_ORDERS!r}, but "
+                    f"{self.array_wrap_order!r} was specified."
+                )
+
+        if self.num_MPI_ranks is None and self.num_cores is not None:
+            self.num_MPI_ranks = self.num_cores
+
         self.scheduler_args = self.scheduler_args or {}
         self.shell_args = self.shell_args or {}
+
+    @classmethod
+    def _json_like_constructor(cls, json_like) -> Self:
+        """Invoked by `JSONLike.from_json_like` instead of `__init__`."""
+
+        # compatibility for redefinition of `max_array_items` to `max_scheduler_concurrency`
+        if "max_array_items" in json_like:
+            json_like["max_scheduler_concurrency"] = json_like.pop("max_array_items")
+
+        given_keys = set(k for k in json_like)
+        bad_keys = given_keys - {
+            *cls._app.ResourceSpec.ALLOWED_PARAMETERS,
+            "platform",
+            "CPU_arch",
+            "executable_extension",
+        }
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+
+        if bad_keys:
+            good_keys = cls._app.ResourceSpec._allowed_params_quoted()
+            print(f"Allowed resource item names are: {good_keys}.")
+
+        return cls(**json_like)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):
@@ -445,6 +511,7 @@ class ElementResources(JSONLike):
             "skip_downstream_on_failure",
             "random_seed",
             "rng_spawn_key",
+            "num_MPI_ranks",
         ]
         if not self.combine_scripts:
             # usually environment selection need not distinguish jobscripts because
@@ -452,12 +519,16 @@ class ElementResources(JSONLike):
             # are combining scripts, then the environments must be the same:
             exclude.append("environments")
 
-        dct = {k: copy.deepcopy(v) for k, v in self.__dict__.items() if k not in exclude}
+        dct = {k: v for k, v in self.__dict__.items() if k not in exclude}
 
         # `combine_scripts==False` and `combine_scripts==None` should have an equivalent
         # contribution to the hash, so always set it to `False` if unset at this point:
         if self.combine_scripts is None:
             dct["combine_scripts"] = False
+
+        # likewise, an unset `array_wrap_order` is equivalent to the default:
+        if self.array_wrap_order is None:
+            dct["array_wrap_order"] = DEFAULT_ARRAY_WRAP_ORDER
 
         return get_hash(dct)
 
@@ -529,6 +600,7 @@ class ElementResources(JSONLike):
 
     @classmethod
     @TimeIt.decorator
+    @lru_cache(maxsize=None)
     def get_default_scheduler(cls, os_name: str, shell_name: str) -> str:
         """
         Get the default value for scheduler.
@@ -567,11 +639,9 @@ class ElementResources(JSONLike):
 
         # merge defaults scheduler args from config:
         cfg_defs = cfg_sched.get("defaults", {})
-        cfg_opts = cfg_defs.pop("options", {})
-        opts = {**cfg_opts, **self.scheduler_args.get("options", {})}
-        if opts:
-            self.scheduler_args["options"] = opts
-        self.scheduler_args = {**cfg_defs, **self.scheduler_args}
+        self.scheduler_args = merge_scheduler_args(
+            cfg_defs, self.scheduler_args, self.inherit_directives
+        )
 
     @TimeIt.decorator
     def validate_against_machine(self):
@@ -885,8 +955,9 @@ class ElementIteration(AppAware):
         if path:
             data_idx = {k: v for k, v in data_idx.items() if k.startswith(path)}
 
-        return copy.deepcopy(data_idx)
+        return dict(data_idx)  # shallow copy should be sufficient
 
+    @TimeIt.decorator
     def __get_parameter_sources(
         self, data_idx: DataIndex, filter_type: str | None, use_task_index: bool
     ) -> Mapping[str, ParamSource | list[ParamSource]]:
@@ -1350,7 +1421,22 @@ class ElementIteration(AppAware):
         for scope in action._get_possible_scopes_reversed():
             # loop from least-specific to most so higher-specificity scopes take precedence:
             if scope_res := resource_specs.get(scope.to_string()):
-                resources.update((k, v) for k, v in scope_res.items() if v is not None)
+                inherit = scope_res.get("inherit_directives") is not False
+                resources["scheduler_args"] = merge_scheduler_args(
+                    resources.get("scheduler_args", {}),
+                    scope_res.get("scheduler_args") or {},
+                    inherit,
+                )
+                # Once discarded, configuration directives must not be reintroduced.
+                resources["inherit_directives"] = (
+                    resources.get("inherit_directives", True) and inherit
+                )
+                for key, value in scope_res.items():
+                    if value is not None and key not in (
+                        "scheduler_args",
+                        "inherit_directives",
+                    ):
+                        resources[key] = value
 
         if set_defaults:
             # used in e.g. `Rule.test` if testing resource rules on element iterations,
@@ -1359,7 +1445,7 @@ class ElementIteration(AppAware):
             resources.setdefault("os_name", ER.get_default_os_name())
             resources.setdefault("shell", ER.get_default_shell())
             if "scheduler" not in resources:
-                resources["scheduler"] = ER.get_default_scheduler(
+                resources["scheduler"] = ER.get_default_scheduler(  # type: ignore[misc]
                     resources["os_name"], resources["shell"]
                 )
             resources.setdefault("platform", ER.get_default_platform())
@@ -1373,6 +1459,30 @@ class ElementIteration(AppAware):
             del resources["combine_scripts"]
 
         return resources
+
+    def get_environment_spec(self, action: Action) -> Mapping[str, Any]:
+        """A faster path to environment specs instead of via ElementResources."""
+        resource_specs = self.get("resources")
+
+        action_env_spec = action.get_environment_spec()
+        env_name = action_env_spec["name"]
+
+        env_spec = dict(action_env_spec)
+
+        for scope in action._get_possible_scopes_reversed():
+            scope_res = resource_specs.get(scope.to_string())
+
+            if not scope_res:
+                continue
+
+            scope_envs = scope_res.get("environments")
+            if not scope_envs:
+                continue
+
+            if user_env_spec := scope_envs.get(env_name):
+                env_spec.update(user_env_spec)
+
+        return env_spec
 
     def get_resources_obj(
         self, action: Action, set_defaults: bool = False
@@ -1425,7 +1535,7 @@ class Element(AppAware):
         seq_idx: Mapping[str, int],
         src_idx: Mapping[str, int],
         iteration_IDs: list[int],
-        iterations: list[dict[str, Any]],
+        iterations: list[dict[str, Any]] | None = None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -1538,6 +1648,10 @@ class Element(AppAware):
         """
         # TODO: fix this
         if self._iteration_objs is None:
+            if self._iterations is None:
+                self._iterations = self.workflow._store.get_element_iteration_dicts(
+                    self._iteration_IDs
+                )
             self._iteration_objs = [
                 self._app.ElementIteration(
                     element=self,

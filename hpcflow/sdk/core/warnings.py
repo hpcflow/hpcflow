@@ -79,6 +79,24 @@ class DeprecationWarning_(CompactWarning, DeprecationWarning):
 # visible:
 warnings.simplefilter("always", DeprecationWarning_)
 
+_warned_once: set[tuple[type[Warning], str]] = set()
+
+
+def warn_once(warning: Warning, stacklevel: int = 2) -> None:
+    """Issue `warning` unless an identical warning (same category and message) has
+    already been issued in this process.
+
+    This is useful for warnings that could otherwise be issued many times in quick
+    succession, such as when loading legacy data where every persisted object carries
+    a since-removed attribute. Note that, unlike the standard `warnings` module
+    registry, this deduplicates across call sites.
+    """
+    key = (type(warning), str(warning))
+    if key in _warned_once:
+        return
+    _warned_once.add(key)
+    warnings.warn(warning, stacklevel=stacklevel + 1)
+
 
 class SecretExposedWarning(CompactWarning, UserWarning):
     """Warning that a secret credential might be exposed."""
@@ -107,6 +125,34 @@ def warn_script_data_files_use_opt_deprecated():
         solution=(
             f"Please use the attribute 'data_files_use_opt' instead of "
             f"'script_data_file_use_opt' when constructing actions."
+        ),
+    )
+
+
+def warn_action_save_files_deprecated(migrated_to: str):
+    return DeprecationWarning_(
+        f"The action attribute 'save_files' has been removed; the listed files have "
+        f"been treated as {migrated_to!r}.",
+        solution=(
+            "Please declare files produced by the action with 'output_files', and "
+            "select files to retain as artifacts with the task schema (or task) "
+            "'save_files' policy."
+        ),
+    )
+
+
+def warn_output_file_parser_save_files_deprecated(migrated_to: str | None):
+    treatment = (
+        f"the files not already in 'from_files' have been treated as {migrated_to!r}"
+        if migrated_to
+        else "it has been ignored"
+    )
+    return DeprecationWarning_(
+        f"The output file parser attribute 'save_files' has been removed; {treatment}.",
+        solution=(
+            "Please declare files written by the parser script with 'generates_files', "
+            "and select files to retain as artifacts with the task schema (or task) "
+            "'save_files' policy."
         ),
     )
 
