@@ -1,4 +1,16 @@
 
+<a name="v0.3.0a20"></a>
+## [v0.3.0a20](https://github.com/hpcflow/hpcflow/compare/v0.3.0a19...v0.3.0a20) - 2026.10.21
+
+### 🐛 Bug Fixes
+
+* widen fixed-width string dtypes when appending array outputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a19"></a>
 ## [v0.3.0a19](https://github.com/hpcflow/hpcflow/compare/v0.3.0a18...v0.3.0a19) - 2026.10.20
 
