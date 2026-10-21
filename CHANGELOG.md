@@ -1,4 +1,202 @@
 
+<a name="v0.3.0"></a>
+## [v0.3.0](https://github.com/hpcflow/hpcflow/compare/v0.2.0...v0.3.0) - 2026.10.21
+
+### ♻ Code Refactoring
+
+* for zarr store, encode all arrays in npz format by default, with option to disable per array
+* rename `max_concurrency` to `max_scheduler_concurrency`
+* rename `max_array_items` resource item to `max_concurrency`
+* add run metadata to loop cache to speed up `add_iteration`
+* use a separate array for run submission data
+* use `set_coordinate_selection` in `_append_EARs`
+* better chunking strategy in Zarr run metadata
+
+### ⚡ Performance Improvements
+
+* use store cache_ctx when preparing script inputs to reduce number of base-param file reads
+* add more timers
+* use nested directories/groups for parameter array data
+* use a single chunk (usually) for tasks array
+* use `parameters_metadata_cache` in `execute_run`
+* add parameters_array_cache to cache user array Zarr groups
+* an optimisation to `__apply_task_conditions`
+* cache parameter sources Zarr array and chunks
+* do not retrieve inputs values in write_script/program_data_in_files for direct format
+* fix disasterous parameter sources array read pattern
+* more `TimeIt`s and more descriptive `EAR.parents()`
+* more comprehensive run-time instrumentation
+* instrument run execution
+* support a large number of app_std files
+* more `TimeIt`s
+* reuse `env_spec_hashable` in `_write_scripts`
+* increase chunk sizes in metadata arrays
+* tweaks to `get_element_iterations`
+* speed up `PersistentStore.__split_pending`
+* use a set for `PendingChanges.set_EARs_initialised`
+* more `TimeIt`s
+* improvements to `initialise_EARs`
+* more `TimeIt`s
+* more caching for `WorkflowLoop.add_iteration`
+* add an LRU cache to `get_default_scheduler`
+* add a fast path to environment specs
+* allow using `with TimeIt("name")` within an existing profiling context
+* implement a base-parameter file cache in Zarr store
+* implement parameters_metadata_cache in Zarr store
+* speed up `dict_values_process_flat`
+* use a cache in `_get_relevant_paths`
+* speed up `__get_cached_persistent_items` and `get_parameter_sources`
+* batch up add_elements and add_element_iterations
+* no need to deepcopy in `get_jobscript_hash` or `get_data_idx`
+* use a set in `ObjectCache -> _get_recursive_deps`
+* redesign base parameter storage to minimise number of files
+* redesign run-metadata storage again to minimise number of files
+* change time-it unit to ms and add more instrumentation
+* expand store cache scope in `_add_submission`
+* refactor `resolve_jobscript_dependencies`
+* refactor `__get_task_index`
+* lazily load element iterations
+* batch up _update_loop_index and _update_iter_data_indices store writes
+* pass relevant run metadata instead of run objects to `LoopCache`
+
+### ✨ Features
+
+* add random row sampling to file-based sequence value methods
+* add `array_wrap_order` resource item for `max_array_size` wrapping
+* consolidate array outputs before zipping by default
+* add consolidate_array_outputs API and CLI
+* implement task-schema and task file retention policies
+* make execution dirs on demand, and delete after element-iteration finishes
+* add `export_array_output` and CLI
+* sort data in `get_array_output`
+* compress array output npz files with zstandard
+* add ArrayOutput obj
+* experiment with saving output arrays to npz named by run_file_ID
+* option `--modify-js` to modify generated jobscripts prior to subission
+* implement `max_array_size`
+* compatibility for max_array_items -> max_concurrency
+* add resource item `max_array_size` [not yet impl.]
+* add a preamble describing the run to the app-std file when first written
+* support separate num_MPI_ranks resource item; fix [#841](https://github.com/hpcflow/hpcflow/issues/841)
+* add `TaskCondition` to allow for conditional element-wise task execution
+* add `from_tile` and `from_repeat` methods to `ValueSequence` etc.
+* add `TaskSchema.parameter_dependencies` for adding explicity dependencies between tasks
+
+### 🐛 Bug Fixes
+
+* widen fixed-width string dtypes when appending array outputs
+* issue legacy save_files deprecation warnings only once per process
+* load workflows that predate the removal of action/parser `save_files`
+* avoid legacy Zarr array groups for NPZ-only outputs
+* missing test scripts
+* require a working directory for actions that declare files
+* keep task-level `save_files` out of the element set when loading templates
+* type checking
+* sort first by task insert ID in `get_array_output`
+* type checking
+* array output methods for zarr-zip store
+* merge directives key-wise
+* slurm partition selection
+* support disable_array_outputs properly in YAML template parsing
+* type checking
+* cast ParameterPropagationMode in SchemaOutput
+* allow unknown resource items in `ElementResources`
+* allow unknown resource items (for forward compatibility)
+* remove prints
+* missing path in test `test_inapplicable_jobscript_action`
+* merging task insert IDs in merge_jobscripts_across_tasks
+* type checking
+* early return in `ensure_max_array_size`
+* jobscript dependencies when using `max_array_size`
+* enforce `max_array_size` before merging jobscripts across tasks
+* use native int in Zarr's get_jobscript_block_task_elements_map
+* type checking
+* type checking
+* remove unused
+* run pytest within file context
+* remove debug prints
+* more: add some debug prints for win pyinstaller testing
+* add some debug prints for win pyinstaller testing
+* bump pyinstaller to allow "allow intermixed nested sub-processes"
+* use bugfix github support branch
+* zarr method `_get_array_group_and_dataset`
+* race condition in creating zarr array-parameter groups
+* StoreEAR.update method
+* update poetry lock
+* type checking
+* tests on windows
+* switch back to main test CI branch
+* macos jobscripts
+* leaky config in tests
+* make parent directories in `TimeIt.summarise_string`
+* get_hash for (unordered) sets
+* exception handling in TimeIt
+* read/write param files for multiple output parameters from the same run
+* type checking
+* integration test failures
+* type checking (really)
+* type checking
+* type checking (really, really)
+* type checking (really)
+* type checking
+* rechunk tests
+* remove unused variable
+* submission data in `_update_runs`
+* rechunk run metadata array when adding iterations, if necessary
+* type checking
+* start/end times of runs; and add run_time(_str) property
+* `num_MPI_ranks` in jobscript hash
+* validation of resource items in sequences; preserve case
+* missing test scripts
+* type checking
+* support loop task references as task names when using meta-tasks
+* type checking
+* type checking
+* more tweaks to output label handling
+* test
+* type checking again
+* handling of output labels and improve some test utilities
+* **slurm:** avoid duplicate partition directives
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* keep major version at zero for breaking changes
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* merge in develop
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* merge in develop
+* revert build-exes tag back to main
+* update poetry lock
+* merge in develop
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* set PATCH level bumps for other commit types including build
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* **deps:** bump the github-actions-dependencies group across 1 directory with 3 updates
+* **deps:** bump the pip-dependencies group across 1 directory with 7 updates
+* **deps:** bump the pip-dependencies group with 4 updates
+* **deps:** bump the pip-dependencies group across 1 directory with 13 updates
+* **deps:** bump the pip-dependencies group with 10 updates
+* **deps:** bump the github-actions-dependencies group with 4 updates
+* **deps:** bump the pip-dependencies group across 1 directory with 21 updates
+
+
 <a name="v0.2.0"></a>
 ## [v0.2.0](https://github.com/hpcflow/hpcflow/compare/v0.1.0...v0.2.0) - 2026.05.04
 
