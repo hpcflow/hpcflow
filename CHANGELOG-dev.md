@@ -1,4 +1,20 @@
 
+<a name="v0.4.0a0"></a>
+## [v0.4.0a0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0a0) - 2026.10.22
+
+### ✨ Features
+
+* allow specifying resource references in input values
+
+
+<a name="v0.3.0"></a>
+## [v0.3.0](https://github.com/hpcflow/hpcflow/compare/v0.3.0a20...v0.3.0) - 2026.10.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a20"></a>
 ## [v0.3.0a20](https://github.com/hpcflow/hpcflow/compare/v0.3.0a19...v0.3.0a20) - 2026.10.21
 
