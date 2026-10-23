@@ -104,6 +104,21 @@ Adding class methods to :py:class:`hpcflow.app.MultiPathSequence`
 
 In the case above, we are telling |app_name| to use the method :py:meth:`hpcflow.app.MultiPathSequence.from_latin_hypercube` to generate five elements for the task, by combining five values for the input ``p1`` with five values for the input ``p2``, where all ten values are generated at the same time via a Latin hypercube sampling. The inner block containing ``num_samples``, is passed as a ``dict`` of keyword arguments to that class method.
 
+Another example is :py:meth:`hpcflow.app.MultiPathSequence.from_load_txt`, which assigns the columns of a text file to the given paths (one element per row), and can optionally sample a random subset of rows. This is useful for, e.g., drawing parameter sets from a file of posterior samples. If ``num_samples`` is given but ``seed`` is not, a seed is generated and recorded so that the sampling is reproducible:
+
+.. code-block:: yaml
+
+    tasks:
+      - objective: t1
+        multi_path_sequences:
+          - paths: [inputs.p1.a, inputs.p1.b, inputs.p1.c]
+            values::from_load_txt:
+              file_path: /path/to/samples.txt
+              num_samples: 10
+              seed: 42
+
+The same ``num_samples``, ``seed`` and ``replace`` arguments are accepted by the ``from_file`` and ``from_load_txt`` methods of :py:class:`hpcflow.app.ValueSequence` and :py:class:`hpcflow.app.InputValue`, to sample lines/rows from a file.
+
 The same process as above can be used for adding new class methods to ``MultiPathSequence``, with two exceptions. Firstly, a ``paths`` postitional argument (note: plural) must be specified in the values-generating method as defined in step 2. above. Thus the method should look like this:
 
 .. code-block:: python

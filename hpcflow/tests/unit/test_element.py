@@ -15,6 +15,95 @@ if TYPE_CHECKING:
     from hpcflow.sdk.core.workflow import Workflow
 
 
+def test_input_resource_reference_uses_defining_element_seed(tmp_path: Path) -> None:
+    tasks = [
+        hf.Task(
+            schema=hf.TaskSchema(objective="define", inputs=[hf.SchemaInput("p1")]),
+            repeats={"number": 2, "master_seed": 12345},
+            inputs=[hf.InputValue("p1", value={"seed": "<<resource:random_seed>>"})],
+        ),
+        hf.Task(
+            schema=hf.TaskSchema(objective="consume", inputs=[hf.SchemaInput("p1")]),
+            resources={"any": {"random_seed": 42}},
+        ),
+    ]
+    workflow = hf.Workflow.from_template_data(
+        template_name="resource_reference", tasks=tasks, path=tmp_path
+    )
+    seeds = [
+        element.get("resources.any.random_seed") for element in workflow.tasks[0].elements
+    ]
+    assert len(seeds) == 2
+    assert seeds[0] != seeds[1]
+    for loaded in (workflow, hf.Workflow(workflow.path)):
+        for task in loaded.tasks:
+            assert [element.get("inputs.p1") for element in task.elements] == [
+                {"seed": seed} for seed in seeds
+            ]
+
+
+@pytest.mark.parametrize("use_sequence", [False, True])
+def test_constructor_resource_reference(tmp_path: Path, use_sequence: bool) -> None:
+    task = hf.Task(
+        schema=hf.TaskSchema(objective="define", inputs=[hf.SchemaInput("p1c")]),
+        repeats={"number": 2, "master_seed": 12345},
+        inputs=[
+            hf.InputValue(
+                "p1c",
+                value={"b": 0 if use_sequence else "<<resource:random_seed>>", "c": 5},
+                value_class_method="from_data",
+            )
+        ],
+        sequences=(
+            [hf.ValueSequence("inputs.p1c.b", values=["<<resource:random_seed>>", 7])]
+            if use_sequence
+            else []
+        ),
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="constructor_resource_reference", tasks=[task], path=tmp_path
+    )
+    for loaded in (workflow, hf.Workflow(workflow.path)):
+        for index, element in enumerate(loaded.tasks[0].elements):
+            seed = element.get("resources.any.random_seed")
+            expected = 7 if use_sequence and index == 1 else seed
+            assert element.get("inputs.p1c").a == expected + 5
+
+
+def test_nested_and_scoped_input_resource_references(tmp_path: Path) -> None:
+    task = hf.Task(
+        schema=hf.TaskSchema(objective="define", inputs=[hf.SchemaInput("p1")]),
+        resources={"any": {"num_cores": 8}, "main": {"num_cores": 4}},
+        inputs=[
+            hf.InputValue(
+                "p1",
+                value={
+                    "nested": ["<<resource:num_cores>>", "<<resource:main.num_cores>>"],
+                    "literal": "prefix <<resource:num_cores>>",
+                },
+            )
+        ],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="nested_resource_reference", tasks=[task], path=tmp_path
+    )
+    assert workflow.tasks[0].elements[0].get("inputs.p1") == {
+        "nested": [8, 4],
+        "literal": "prefix <<resource:num_cores>>",
+    }
+
+
+def test_missing_input_resource_reference_raises(tmp_path: Path) -> None:
+    task = hf.Task(
+        schema=hf.TaskSchema(objective="define", inputs=[hf.SchemaInput("p1")]),
+        inputs=[hf.InputValue("p1", value="<<resource:missing_resource>>")],
+    )
+    with pytest.raises(ValueError, match="resources.any.missing_resource"):
+        hf.Workflow.from_template_data(
+            template_name="missing_resource_reference", tasks=[task], path=tmp_path
+        )
+
+
 @pytest.fixture
 def workflow_w1(tmp_path: Path) -> Workflow:
     s1, s2 = make_schemas(
@@ -468,8 +557,7 @@ def test_slice(tmp_path: Path):
 
 
 def test_element_get_with_list_index_sequence(tmp_path: Path):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         tasks:
           - schema: test_t1_ps
@@ -478,16 +566,14 @@ def test_element_get_with_list_index_sequence(tmp_path: Path):
             sequences:
               - path: inputs.p1.0
                 values: [9]
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[0].elements[0].get("inputs.p1") == [9, 1]
 
 
 def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         tasks:
           - schema: test_t1_ps
@@ -499,8 +585,7 @@ def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
             sequences:
               - path: inputs.p1.0.1
                 values: [9, 99]
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[0].elements[0].get("inputs.p1") == [
@@ -514,8 +599,7 @@ def test_element_get_with_list_index_sequence_two_parts(tmp_path: Path):
 
 
 def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         template_components:
           task_schemas:
@@ -534,8 +618,7 @@ def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
             groups:
               - name: my_group
           - schema: test_group_schema
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[1].elements[0].get("inputs") == {
@@ -552,8 +635,7 @@ def test_element_get_group_sequence(tmp_path: Path, reload_template_components):
 
 
 def test_element_get_group_sequence_obj(tmp_path: Path, reload_template_components):
-    wkt_yaml = dedent(
-        """\
+    wkt_yaml = dedent("""\
         name: test_list_idx_sequence
         template_components:
           task_schemas:
@@ -588,8 +670,7 @@ def test_element_get_group_sequence_obj(tmp_path: Path, reload_template_componen
             groups:
               - name: my_group
           - schema: test_group_schema
-    """
-    )
+    """)
     wkt = hf.WorkflowTemplate.from_YAML_string(wkt_yaml)
     wk = hf.Workflow.from_template(wkt, path=tmp_path)
     assert wk.tasks[1].elements[0].get("inputs") == {

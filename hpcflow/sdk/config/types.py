@@ -105,6 +105,8 @@ class ConfigDescriptor(TypedDict):
     use_rich_tracebacks: NotRequired[bool]
     #: Log file levels for specific loggers.
     log_file_levels: NotRequired[dict[str, str]]
+    #: Delete execution directories after successful task iterations.
+    delete_execute_dir: NotRequired[bool]
 
 
 class InvocationDescriptor(TypedDict):

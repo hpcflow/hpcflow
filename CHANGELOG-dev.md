@@ -1,4 +1,221 @@
 
+<a name="v0.4.0a0"></a>
+## [v0.4.0a0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0a0) - 2026.10.22
+
+### ✨ Features
+
+* allow specifying resource references in input values
+
+
+<a name="v0.3.0"></a>
+## [v0.3.0](https://github.com/hpcflow/hpcflow/compare/v0.3.0a20...v0.3.0) - 2026.10.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a20"></a>
+## [v0.3.0a20](https://github.com/hpcflow/hpcflow/compare/v0.3.0a19...v0.3.0a20) - 2026.10.21
+
+### 🐛 Bug Fixes
+
+* widen fixed-width string dtypes when appending array outputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a19"></a>
+## [v0.3.0a19](https://github.com/hpcflow/hpcflow/compare/v0.3.0a18...v0.3.0a19) - 2026.10.20
+
+### ✨ Features
+
+* add random row sampling to file-based sequence value methods
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a18"></a>
+## [v0.3.0a18](https://github.com/hpcflow/hpcflow/compare/v0.3.0a17...v0.3.0a18) - 2026.10.20
+
+### ♻ Code Refactoring
+
+* for zarr store, encode all arrays in npz format by default, with option to disable per array
+
+### ✨ Features
+
+* consolidate array outputs before zipping by default
+* add consolidate_array_outputs API and CLI
+* add `export_array_output` and CLI
+* sort data in `get_array_output`
+* compress array output npz files with zstandard
+* add ArrayOutput obj
+* experiment with saving output arrays to npz named by run_file_ID
+
+### 🐛 Bug Fixes
+
+* avoid legacy Zarr array groups for NPZ-only outputs
+* sort first by task insert ID in `get_array_output`
+* array output methods for zarr-zip store
+* support disable_array_outputs properly in YAML template parsing
+* type checking
+* cast ParameterPropagationMode in SchemaOutput
+* allow unknown resource items in `ElementResources`
+* allow unknown resource items (for forward compatibility)
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* merge in develop
+* merge in develop
+
+
+<a name="v0.3.0a17"></a>
+## [v0.3.0a17](https://github.com/hpcflow/hpcflow/compare/v0.3.0a16...v0.3.0a17) - 2026.10.20
+
+### ✨ Features
+
+* add `array_wrap_order` resource item for `max_array_size` wrapping
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a16"></a>
+## [v0.3.0a16](https://github.com/hpcflow/hpcflow/compare/v0.3.0a15...v0.3.0a16) - 2026.10.20
+
+### 🐛 Bug Fixes
+
+* issue legacy save_files deprecation warnings only once per process
+* load workflows that predate the removal of action/parser `save_files`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a15"></a>
+## [v0.3.0a15](https://github.com/hpcflow/hpcflow/compare/v0.3.0a14...v0.3.0a15) - 2026.10.19
+
+### ✨ Features
+
+* implement task-schema and task file retention policies
+* make execution dirs on demand, and delete after element-iteration finishes
+
+### 🐛 Bug Fixes
+
+* missing test scripts
+* require a working directory for actions that declare files
+* keep task-level `save_files` out of the element set when loading templates
+
+### 👷 Build changes
+
+* keep major version at zero for breaking changes
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a14"></a>
+## [v0.3.0a14](https://github.com/hpcflow/hpcflow/compare/v0.3.0a13...v0.3.0a14) - 2026.10.19
+
+### 🐛 Bug Fixes
+
+* **slurm:** avoid duplicate partition directives
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a13"></a>
+## [v0.3.0a13](https://github.com/hpcflow/hpcflow/compare/v0.3.0a12...v0.3.0a13) - 2026.10.18
+
+### 🐛 Bug Fixes
+
+* type checking
+* merge directives key-wise
+* slurm partition selection
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a12"></a>
+## [v0.3.0a12](https://github.com/hpcflow/hpcflow/compare/v0.3.0a11...v0.3.0a12) - 2026.10.18
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a11"></a>
+## [v0.3.0a11](https://github.com/hpcflow/hpcflow/compare/v0.3.0a10...v0.3.0a11) - 2026.10.18
+
+### 🐛 Bug Fixes
+
+* remove unused
+* run pytest within file context
+* remove debug prints
+* more: add some debug prints for win pyinstaller testing
+* add some debug prints for win pyinstaller testing
+* bump pyinstaller to allow "allow intermixed nested sub-processes"
+* use bugfix github support branch
+
+### 👷 Build changes
+
+* revert build-exes tag back to main
+* update poetry lock
+* merge in develop
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a10"></a>
+## [v0.3.0a10](https://github.com/hpcflow/hpcflow/compare/v0.3.0a9...v0.3.0a10) - 2026.10.18
+
+### ♻ Code Refactoring
+
+* rename `max_concurrency` to `max_scheduler_concurrency`
+* rename `max_array_items` resource item to `max_concurrency`
+
+### ✨ Features
+
+* option `--modify-js` to modify generated jobscripts prior to subission
+* implement `max_array_size`
+* compatibility for max_array_items -> max_concurrency
+* add resource item `max_array_size` [not yet impl.]
+
+### 🐛 Bug Fixes
+
+* remove prints
+* missing path in test `test_inapplicable_jobscript_action`
+* merging task insert IDs in merge_jobscripts_across_tasks
+* type checking
+* early return in `ensure_max_array_size`
+* jobscript dependencies when using `max_array_size`
+* enforce `max_array_size` before merging jobscripts across tasks
+* use native int in Zarr's get_jobscript_block_task_elements_map
+* type checking
+* type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.3.0a9"></a>
+## [v0.3.0a9](https://github.com/hpcflow/hpcflow/compare/v0.3.0a8...v0.3.0a9) - 2026.10.06
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 4 updates
+
+
 <a name="v0.3.0a8"></a>
 ## [v0.3.0a8](https://github.com/hpcflow/hpcflow/compare/v0.3.0a7...v0.3.0a8) - 2026.10.02
 

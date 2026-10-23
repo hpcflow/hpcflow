@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 
 import pytest
@@ -6,7 +7,14 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
-def test_output_file_parser_parses_file(tmp_path):
+@pytest.mark.parametrize(
+    ("schema_save_files", "saved"),
+    [
+        (None, False),
+        (["my_output_file"], True),
+    ],
+)
+def test_output_file_parser_parses_file(tmp_path, schema_save_files, saved):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -30,6 +38,7 @@ def test_output_file_parser_parses_file(tmp_path):
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
         outputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))],
+        save_files=schema_save_files,
         actions=[act],
     )
 
@@ -44,12 +53,16 @@ def test_output_file_parser_parses_file(tmp_path):
 
     wk.submit(wait=True, add_to_known=False)
 
-    # check the command successfully generated the output file:
+    # Check the parser produced its output and retained its source only as configured.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
-    out_file_contents = out_file_path.read_text()
-    assert out_file_contents.strip() == str(p2_val_expected)
+    output_file_param_id = run_0.data_idx["output_files.my_output_file"]
+    assert wk.is_parameter_set(output_file_param_id) is saved
+    artifact_paths = list(wk.task_artifacts_path.rglob(out_file_name))
+    assert bool(artifact_paths) is saved
+    if saved:
+        out_file_path = Path(run_0.get("output_files.my_output_file"))
+        out_file_contents = out_file_path.read_text()
+        assert out_file_contents.strip() == str(p2_val_expected)
 
     # check the output is parsed correctly:
     assert wk.tasks[0].elements[0].outputs.p2.value == p2_val_expected
@@ -246,6 +259,7 @@ def test_env_specifier_in_output_file_parser_script_path(
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
         outputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))],
         actions=[act],
+        save_files=["my_output_file"],
     )
 
     p1_val = 101
@@ -263,10 +277,9 @@ def test_env_specifier_in_output_file_parser_script_path(
 
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    # check the command successfully generated the output file:
+    # Check the output file was saved before execution cleanup.
     run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
+    out_file_path = Path(run_0.get("output_files.my_output_file"))
     out_file_contents = out_file_path.read_text()
     assert out_file_contents.strip() == str(p2_val_expected)
 
@@ -294,6 +307,7 @@ def test_no_script_no_output_saves_files(tmp_path):
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
         actions=[act],
+        save_files=["my_output_file"],
     )
 
     p1_val = 101
@@ -308,11 +322,78 @@ def test_no_script_no_output_saves_files(tmp_path):
     wk.submit(wait=True, add_to_known=False, status=False)
 
     # check the output file is saved to artifacts:
-    run_0 = wk.get_all_EARs()[0]
-    exec_path = run_0.get_directory()
-    out_file_path = exec_path.joinpath(out_file.name.name)
+    runs = wk.get_all_EARs()
+    assert all(run.success for run in runs)
+    out_file_path = Path(runs[-1].get("output_files.my_output_file"))
     out_file_contents = out_file_path.read_text()
     assert out_file_contents.strip() == str(p2_val_expected)
+    assert not wk.execution_path.exists()
 
     # check no scripts generated
     assert not any(wk.submissions[0].scripts_path.iterdir())
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("schema_save_files", "expected_files"),
+    [
+        (None, set()),
+        (["generated_file"], {"generated.txt"}),
+        (True, {"my_output_file.txt", "generated.txt"}),
+    ],
+)
+def test_output_file_parser_generates_files(tmp_path, schema_save_files, expected_files):
+    """Files produced by a parser script are declared with `generates_files` and
+    retained according to the task schema policy."""
+    out_file_name = "my_output_file.txt"
+    out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
+    gen_file = hf.FileSpec(label="generated_file", name="generated.txt")
+
+    if os.name == "nt":
+        cmd = f"Set-Content -Path {out_file_name} -Value (<<parameter:p1>> + 100)"
+    else:
+        cmd = f"echo $(( <<parameter:p1>> + 100 )) > {out_file_name}"
+
+    act = hf.Action(
+        commands=[hf.Command(cmd)],
+        output_file_parsers=[
+            hf.OutputFileParser(
+                output_files=[out_file],
+                output=hf.Parameter("p2"),
+                script="<<script:output_file_parser_generates_file.py>>",
+                generates_files=[gen_file],
+            ),
+        ],
+        environments=[hf.ActionEnvironment(environment="python_env")],
+    )
+    s1 = hf.TaskSchema(
+        objective="t1",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        outputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))],
+        actions=[act],
+        save_files=schema_save_files,
+    )
+    p1_val = 101
+    p2_val_expected = p1_val + 100
+    t1 = hf.Task(schema=s1, inputs={"p1": p1_val})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1],
+        template_name="output_file_parser_generates_files",
+        path=tmp_path,
+    )
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    runs = wk.get_all_EARs()
+    assert all(run.success for run in runs)
+    assert wk.tasks[0].elements[0].outputs.p2.value == p2_val_expected
+
+    saved = {path.name for path in wk.task_artifacts_path.rglob("*.txt")}
+    assert saved == expected_files
+
+    # the parser run has a parameter for the generated file:
+    parser_run = runs[-1]
+    gen_param_id = parser_run.data_idx["output_files.generated_file"]
+    assert wk.is_parameter_set(gen_param_id) is ("generated.txt" in expected_files)
+    if "generated.txt" in expected_files:
+        gen_path = Path(parser_run.get("output_files.generated_file"))
+        assert gen_path.read_text() == f"generated from {p2_val_expected}"

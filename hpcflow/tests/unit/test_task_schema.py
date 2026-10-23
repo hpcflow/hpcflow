@@ -1,6 +1,7 @@
 from __future__ import annotations
 import copy
-from typing import TYPE_CHECKING
+import warnings
+from typing import TYPE_CHECKING, cast
 from typing_extensions import TypedDict
 import pytest
 
@@ -45,6 +46,180 @@ def test_task_schema_equality() -> None:
     t1a = hf.TaskSchema("t1", actions=[])
     t1b = hf.TaskSchema("t1", actions=[])
     assert t1a == t1b
+
+
+def test_disable_array_outputs() -> None:
+    schema = hf.TaskSchema("t1", disable_array_outputs=["outputs.foo.bar"])
+
+    assert hf.TaskSchema("t1").disable_array_outputs == []
+    assert schema.disable_array_outputs == ["outputs.foo.bar"]
+    assert schema != hf.TaskSchema("t1")
+
+    json_like = schema.to_json_like()[0]
+    assert isinstance(json_like, dict)
+    restored_schema = hf.TaskSchema.from_json_like(json_like)
+    assert restored_schema is not None
+    assert restored_schema.disable_array_outputs == ["outputs.foo.bar"]
+
+
+def test_schema_without_array_output_fields() -> None:
+    schema = hf.TaskSchema.from_json_like({"objective": "legacy_task", "actions": []})
+    assert schema is not None
+    assert schema.disable_array_outputs == []
+    assert not hasattr(schema, "array_outputs")
+    assert "array_outputs" not in schema.to_dict()
+
+
+def test_task_schema_save_files_policy() -> None:
+    file = hf.FileSpec(label="result", name="result.txt")
+    schema = hf.TaskSchema(
+        "t1",
+        actions=[hf.Action(output_files=[file])],
+        save_files=["result"],
+    )
+    assert schema.save_files == ["result"]
+    assert schema != hf.TaskSchema(
+        "t1", actions=[hf.Action(output_files=[file])], save_files=[]
+    )
+
+    with pytest.raises(ValueError, match="Unknown file labels"):
+        hf.TaskSchema("t1", actions=[], save_files=["missing"])
+
+    with pytest.raises(TypeError, match="save_files"):
+        hf.TaskSchema(
+            "t1",
+            actions=[],
+            save_files=cast("bool | list[str] | None", "result"),
+        )
+
+
+def test_task_schema_save_files_policy_paths() -> None:
+    schema = hf.TaskSchema(
+        "t1", actions=[], save_files=["path:logs/*.log", "path:sub/output.txt"]
+    )
+    assert schema.save_files == ["path:logs/*.log", "path:sub/output.txt"]
+
+    for bad in ("path:", "path:/abs/file.txt", "path:C:\\file.txt", "path:../x.txt"):
+        with pytest.raises(ValueError, match="path:"):
+            hf.TaskSchema("t1", actions=[], save_files=[bad])
+
+
+def test_task_schema_file_labels_include_parser_generated_files() -> None:
+    src = hf.FileSpec(label="src", name="src.txt")
+    gen = hf.FileSpec(label="gen", name="gen.png")
+    schema = hf.TaskSchema(
+        "t1",
+        outputs=[hf.SchemaOutput("p1")],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo hi")],
+                output_file_parsers=[
+                    hf.OutputFileParser(
+                        output_files=[src],
+                        output=hf.Parameter("p1"),
+                        generates_files=[gen],
+                    )
+                ],
+            )
+        ],
+        save_files=["src", "gen"],
+    )
+    assert schema.get_file_labels() == {"src", "gen"}
+    # the parser's expanded action declares the generated file as an output file:
+    parser_action = next(act for act in schema.actions if act.output_file_parsers)
+    assert {f.label for f in parser_action.output_files} == {"src", "gen"}
+
+
+def test_action_output_files_preserved_on_expand() -> None:
+    declared = hf.FileSpec(label="declared", name="declared.txt")
+    schema = hf.TaskSchema(
+        "t1", actions=[hf.Action(commands=[hf.Command("ls")], output_files=[declared])]
+    )
+    assert [f.label for f in schema.actions[0].output_files] == ["declared"]
+
+
+def test_action_declared_files_imply_requires_dir() -> None:
+    file = hf.FileSpec(label="f", name="f.txt")
+    assert hf.Action(commands=[hf.Command("ls")]).requires_dir is False
+    assert hf.Action(commands=[hf.Command("ls")], output_files=[file]).requires_dir
+    assert hf.Action(commands=[hf.Command("ls")], input_files=[file]).requires_dir
+    with pytest.raises(ValueError, match="requires a working directory"):
+        hf.Action(commands=[hf.Command("ls")], output_files=[file], requires_dir=False)
+
+
+def test_action_files_from_json_like_labels() -> None:
+    """Action `input_files`/`output_files` given as labels (as in YAML task schemas)
+    resolve against the shared command files."""
+    in_file = hf.FileSpec(label="in_f", name="in.txt")
+    out_file = hf.FileSpec(label="out_f", name="out.txt")
+    shared = {"command_files": hf.CommandFilesList([in_file, out_file])}
+    act = hf.Action.from_json_like(
+        {
+            "commands": [{"command": "ls"}],
+            "input_files": ["in_f"],
+            "output_files": ["out_f"],
+        },
+        shared,
+    )
+    assert act.input_files == [in_file]
+    assert act.output_files == [out_file]
+
+
+def test_legacy_save_files_settings_migrated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pre-existing persisted workflows carry action/parser `save_files`; these load
+    with a (once-only) deprecation warning and are mapped onto the new declarations."""
+    from hpcflow.sdk.core import warnings as hf_warnings
+
+    # each legacy variant warns once per process; start from a clean registry:
+    monkeypatch.setattr(hf_warnings, "_warned_once", set())
+
+    f1 = hf.FileSpec(label="f1", name="f1.txt")
+    f2 = hf.FileSpec(label="f2", name="f2.txt")
+    shared = {"command_files": hf.CommandFilesList([f1, f2])}
+
+    with pytest.warns(DeprecationWarning, match="output_files"):
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": ["f1"]}, shared
+        )
+    assert act.output_files == [f1]
+    assert act.requires_dir
+
+    # an empty legacy list (as serialised for every expanded action) is silent, and the
+    # same warning is not re-issued for a second legacy action:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": []}, shared
+        )
+        assert act.output_files == []
+        act = hf.Action.from_json_like(
+            {"commands": [{"command": "ls"}], "save_files": ["f2"]}, shared
+        )
+        assert act.output_files == [f2]
+
+    # parser: files not in `from_files` were written by the parser script:
+    with pytest.warns(DeprecationWarning, match="generates_files"):
+        ofp = hf.OutputFileParser.from_json_like(
+            {"from_files": ["f1"], "save_files": ["f1", "f2"]}, shared
+        )
+    assert ofp.output_files == [f1]
+    assert ofp.generates_files == [f2]
+
+    # parser: `True`/`[]`/`False` only concerned retention, so are ignored (and share a
+    # single warning):
+    with pytest.warns(DeprecationWarning, match="ignored"):
+        ofp = hf.OutputFileParser.from_json_like(
+            {"from_files": ["f1"], "save_files": True}, shared
+        )
+    assert ofp.generates_files == []
+    legacy: bool | list[str]
+    for legacy in ([], False):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ofp = hf.OutputFileParser.from_json_like(
+                {"from_files": ["f1"], "save_files": legacy}, shared
+            )
+        assert ofp.generates_files == []
 
 
 def test_init_with_str_objective(action_a1: Action) -> None:

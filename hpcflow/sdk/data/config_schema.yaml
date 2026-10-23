@@ -31,6 +31,7 @@ rules:
         - show_tracebacks
         - use_rich_tracebacks
         - server_advertise_host
+        - delete_execute_dir
   - path: []
     condition:
       value.required_keys:
@@ -320,3 +321,9 @@ rules:
       socket.gethostname().
     condition:
       value.is_instance: [str]
+  - path: [delete_execute_dir]
+    doc: >
+      If True, delete execution directories after all actions in an element iteration
+      have completed successfully.
+    condition:
+      value.is_instance: [bool]

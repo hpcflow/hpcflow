@@ -21,6 +21,8 @@ from hpcflow.sdk.core.errors import (
     MissingStoreElementIterationError,
 )
 from hpcflow.sdk.persistence.base import (
+    _UNSET_PARAMETER_VALUE,
+    PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
     StoreEAR,
@@ -616,11 +618,15 @@ class JSONPersistentStore(
         with self.using_resource("parameters", "update") as params:
             for param_id, (value, is_file) in set_parameters.items():
                 param_i = param_objs[param_id]
-                if is_file:
+                if value is _UNSET_PARAMETER_VALUE:
+                    param_i = param_i.unset()
+                elif is_file:
                     param_i = param_i.set_file(value)
                 else:
                     param_i = param_i.set_data(value)
-                params["data"][str(param_id)] = param_i.encode()
+                params["data"][str(param_id)] = (
+                    None if value is _UNSET_PARAMETER_VALUE else param_i.encode()
+                )
 
     def _update_parameter_sources(self, sources: Mapping[int, ParamSource]):
         """Update the sources of multiple persistent parameters."""
@@ -893,7 +899,9 @@ class JSONPersistentStore(
                 param_dat = {id_: params["data"][str(id_)] for id_ in id_lst}
             except KeyError:
                 raise MissingParameterData(id_lst)
-        return {k: v is not None for k, v in param_dat.items()}
+        return {
+            k: v is not None and v != PARAM_DATA_NOT_SET for k, v in param_dat.items()
+        }
 
     def _get_persistent_parameter_IDs(self) -> list[int]:
         with self.using_resource("parameters", "read") as params:

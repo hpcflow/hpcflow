@@ -394,16 +394,6 @@ class JobscriptExecutor(AppAware):
                 )
 
             run_dir = None
-            if run.action.requires_dir:
-                run_dir = run.get_directory()
-                assert run_dir is not None
-
-                self.logger.debug(
-                    "Changing directory to run execution directory: %s.",
-                    run_dir,
-                )
-                os.chdir(run_dir)
-
             if not self._apply_group_task_conditions(run):
                 run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
 
@@ -413,6 +403,13 @@ class JobscriptExecutor(AppAware):
             exit_code = SKIPPED_EXIT_CODE
 
         else:
+            run_dir = run.prepare_directory()
+            if run_dir is not None:
+                self.logger.debug(
+                    "Changing directory to run execution directory: %s.", run_dir
+                )
+                os.chdir(run_dir)
+
             commands_file_path = None
             try:
                 with redirect_std_to_file(
@@ -471,10 +468,19 @@ class JobscriptExecutor(AppAware):
                         timeit=run_timeit,
                     )
 
-            elif run.action.jinja_template:
-                exit_code = 0
             else:
-                exit_code = NO_COMMANDS_EXIT_CODE
+                assert self.jobscript_server is not None
+                assert self.jobscript_server.port_number is not None
+                await self.set_run_start(
+                    run.id_,
+                    run_dir,
+                    port_number=self.jobscript_server.port_number,
+                )
+                exit_code = (
+                    0
+                    if run.action.jinja_template or run.action.output_files
+                    else NO_COMMANDS_EXIT_CODE
+                )
 
         with redirect_std_to_file(
             js_run.run_std_path,
@@ -784,6 +790,9 @@ class JobscriptExecutor(AppAware):
 
         # after persistence commits, notify any waiters:
         for finalized_run in finalized_runs:
+            self.workflow._clean_up_execute_dirs(
+                self.runs[finalized_run.run_id], finalized_run.success
+            )
             waiter_ids = set(
                 self.run_wait_state.complete(finalized_run.run_id, RunWaitEvent.END)
             )
@@ -804,7 +813,6 @@ class JobscriptExecutor(AppAware):
     ) -> tuple[FinalizedRun, dict[int, int]]:
         """Finalize a completed run and return its final state."""
 
-        param_id: int | list[int] | None
         success = exit_code == 0
 
         self.logger.info(
@@ -830,208 +838,22 @@ class JobscriptExecutor(AppAware):
 
             if run_dir:
                 assert isinstance(run_dir, Path)
-
-                #
-                # Input-file-generator files
-                #
-
-                for IFG_i in run.action.input_file_generators:
-                    inp_file = IFG_i.input_file
-
-                    self.logger.debug(
-                        "Saving EAR input file %r for EAR ID %r.",
-                        inp_file.label,
-                        run.id_,
-                    )
-
-                    param_id = run.data_idx[f"input_files.{inp_file.label}"]
-
-                    file_paths = inp_file.value(directory=run_dir)
-
-                    for path_i in (
-                        file_paths if isinstance(file_paths, list) else [file_paths]
-                    ):
-                        full_path = run_dir.joinpath(path_i)
-
-                        if not full_path.exists():
-                            self.logger.debug(
-                                "Expected input file %r does not exist, so "
-                                "setting run to an error state (if not aborted).",
-                                path_i,
-                            )
-
-                            if not is_aborted and success:
-                                success = False
-                                exit_code = 1
-
-                        else:
-                            self.workflow._set_file(
-                                param_id=param_id,
-                                store_contents=True,
-                                is_input=False,
-                                path=full_path,
-                            )
-
-                #
-                # Script-generated parameter data
-                #
-
-                if run.action.script_data_out_has_files:
-                    self.logger.info("Saving script-generated parameters.")
-
-                    try:
-                        run._param_save(
-                            "script",
-                            block_act_key,
-                            run_dir,
-                        )
-                    except FileNotFoundError:
-                        self.logger.debug(
-                            "Script did not generate an expected output "
-                            "parameter file (block_act_key=%r), so setting "
-                            "run to an error state (if not aborted).",
-                            block_act_key,
-                        )
-
-                        if not is_aborted and success:
-                            success = False
-                            exit_code = 1
-
-                #
-                # Program-generated parameter data
-                #
-
-                if run.action.program_data_out_has_files:
-                    self.logger.info("Saving program-generated parameters.")
-
-                    try:
-                        run._param_save(
-                            "program",
-                            block_act_key,
-                            run_dir,
-                        )
-                    except FileNotFoundError:
-                        self.logger.debug(
-                            "Program did not generate an expected output "
-                            "parameter file (block_act_key=%r), so setting "
-                            "run to an error state (if not aborted).",
-                            block_act_key,
-                        )
-
-                        if not is_aborted and success:
-                            success = False
-                            exit_code = 1
-
-                #
-                # Action-level save files
-                #
-
-                for save_file_j in run.action.save_files:
-                    self.logger.debug(
-                        "Saving file %r for EAR ID %r.",
-                        save_file_j.label,
-                        run.id_,
-                    )
-
-                    try:
-                        param_id = run.data_idx[f"output_files.{save_file_j.label}"]
-                    except KeyError:
-                        # The file need not be a defined output-file parameter.
-                        param_id = None
-
-                    file_paths = save_file_j.value(directory=run_dir)
-
-                    self.logger.debug(
-                        "Saving output file paths: %r",
-                        file_paths,
-                    )
-
-                    for path_i in (
-                        file_paths if isinstance(file_paths, list) else [file_paths]
-                    ):
-                        full_path = run_dir.joinpath(path_i)
-
-                        if not full_path.exists():
-                            self.logger.debug(
-                                "Expected file to save %r does not exist, so "
-                                "setting run to an error state (if not aborted).",
-                                path_i,
-                            )
-
-                            if not is_aborted and success:
-                                success = False
-                                exit_code = 1
-
-                        else:
-                            self.workflow._set_file(
-                                param_id=param_id,
-                                store_contents=True,
-                                is_input=False,
-                                path=full_path,
-                                clean_up=(save_file_j in run.action.clean_up),
-                            )
-
-                #
-                # Output-file-parser save files
-                #
-
-                for OFP_i in run.action.output_file_parsers:
-                    self.logger.info(
-                        "Saving files from OFP: %r.",
-                        OFP_i,
-                    )
-
-                    for save_file_j in OFP_i._save_files:
-                        self.logger.debug(
-                            "Saving EAR output file %r for EAR ID %r.",
-                            save_file_j.label,
-                            run.id_,
-                        )
-
-                        try:
-                            param_id = run.data_idx[f"output_files.{save_file_j.label}"]
-                        except KeyError:
-                            param_id = None
-
-                        file_paths = save_file_j.value(directory=run_dir)
-
-                        self.logger.debug(
-                            "Saving EAR output file paths: %r",
-                            file_paths,
-                        )
-
-                        for path_i in (
-                            file_paths if isinstance(file_paths, list) else [file_paths]
-                        ):
-                            full_path = run_dir.joinpath(path_i)
-
-                            if not full_path.exists():
-                                self.logger.debug(
-                                    "Expected output file parser "
-                                    "`save_files` file %r does not exist, "
-                                    "so setting run to an error state "
-                                    "(if not aborted).",
-                                    path_i,
-                                )
-
-                                if not is_aborted and success:
-                                    success = False
-                                    exit_code = 1
-
-                            else:
-                                self.workflow._set_file(
-                                    param_id=param_id,
-                                    store_contents=True,
-                                    is_input=False,
-                                    path=full_path,
-                                    clean_up=(save_file_j in OFP_i.clean_up),
-                                )
+                success, exit_code = self.workflow._save_run_files(
+                    run=run,
+                    run_dir=run_dir,
+                    block_act_key=block_act_key,
+                    is_aborted=is_aborted,
+                    success=success,
+                    exit_code=exit_code,
+                )
 
         else:
             self.logger.info(
                 "Run was skipped: reason=%r.",
                 run.skip_reason,
             )
+
+        self.workflow._save_policy_path_files(run)
 
         #
         # Propagate failure

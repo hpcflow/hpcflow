@@ -115,6 +115,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
         "log_file_levels": {},
+        "delete_execute_dir": True,
     },
 }
 

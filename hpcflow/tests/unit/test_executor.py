@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -10,6 +11,12 @@ import zmq.asyncio
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.core import ABORT_EXIT_CODE
+from hpcflow.sdk.execution.jobscript_executor import (
+    FinalizedRun,
+    JobscriptAction,
+    JobscriptRun,
+    JobscriptRunResult,
+)
 from hpcflow.sdk.execution.protocol import (
     AbortRequest,
     ErrorResponse,
@@ -22,6 +29,46 @@ from hpcflow.sdk.execution.protocol import (
     StatusResponse,
     TimeItRequest,
 )
+
+
+@pytest.mark.asyncio
+async def test_finish_action_commits_before_cleanup_and_notification(
+    tmp_path, monkeypatch
+):
+    events = []
+    workflow = MagicMock()
+    workflow.batch_update.return_value.__exit__.side_effect = lambda *args: events.append(
+        "commit"
+    )
+    workflow._store.set_run_ends.side_effect = lambda runs: events.append("set_run_ends")
+    workflow._clean_up_execute_dirs.side_effect = lambda *args: events.append("cleanup")
+    run = Mock()
+    executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
+    executor.workflow = workflow
+    executor.runs = {7: run}
+    js_run = JobscriptRun(0, 7, tmp_path / "run.std", None)
+    finalized = FinalizedRun(7, tmp_path, 0, True)
+    monkeypatch.setattr(executor, "_finalize_run", Mock(return_value=(finalized, {})))
+    state = Mock()
+    state.complete.side_effect = lambda run_id, event: events.append(event.value) or (
+        "waiter",
+    )
+    monkeypatch.setattr(
+        hf.JobscriptExecutor, "run_wait_state", property(lambda self: state)
+    )
+    notify = AsyncMock(side_effect=lambda ids: events.append("notify"))
+    monkeypatch.setattr(executor, "_notify_waiters", notify)
+
+    skips = await executor._finish_action(
+        JobscriptAction(0, 0, (0, 0, 0), (js_run,)),
+        (JobscriptRunResult(js_run, 0),),
+    )
+
+    assert skips == {}
+    workflow._store.set_run_ends.assert_called_once_with([finalized])
+    workflow._clean_up_execute_dirs.assert_called_once_with(run, True)
+    notify.assert_awaited_once_with(("waiter",))
+    assert events == ["set_run_ends", "commit", "cleanup", "end", "start", "notify"]
 
 
 @pytest.mark.asyncio

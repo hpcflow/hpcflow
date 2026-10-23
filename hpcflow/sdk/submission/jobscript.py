@@ -17,7 +17,7 @@ from typing_extensions import override
 
 import numpy as np
 from hpcflow.sdk.core import SKIPPED_EXIT_CODE
-from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.enums import DEFAULT_ARRAY_WRAP_ORDER, EARStatus
 from hpcflow.sdk.core.errors import (
     JobscriptSubmissionFailure,
     NotSubmitMachineError,
@@ -624,6 +624,12 @@ def ensure_max_array_size(
     """For array jobscripts, if the array size is greater than the permitted size,
     stack actions on top of each other (i.e. wrap the jobscript elements around) to ensure
     compliance.
+
+    The order in which the wrapped actions are stacked is controlled by the
+    ``array_wrap_order`` resource item. With ``"element"`` (the default), all actions of
+    a given element are run before moving on to the next wrapped element. With
+    ``"action"``, a given action is run for all wrapped elements before moving on to the
+    next action.
     """
 
     if not js_data["is_array"]:
@@ -633,12 +639,16 @@ def ensure_max_array_size(
     if max_size is None or (js_size := len(js_data["task_elements"])) <= max_size:
         return js_data, element_deps
 
+    wrap_order = js_data["resources"].array_wrap_order or DEFAULT_ARRAY_WRAP_ORDER
+    element_major = wrap_order == "element"
+
     dtype = js_data["EAR_ID"].dtype
     EAR_ID_rs, n_blocks, col_map = reshape_max_width(
         js_data["EAR_ID"],
         max_width=max_size,
         dtype=dtype,
         fill=JS_BLK_EAR_ID_FILL_VALUE,
+        block_major=element_major,
     )
 
     col_map_counts = Counter(range(max_size))
@@ -649,7 +659,14 @@ def ensure_max_array_size(
     }
 
     task_IDs_rs = np.tile(js_data["task_insert_IDs"], n_blocks).tolist()
-    task_actions_rs = [acts for acts in js_data["task_actions"] for _ in range(n_blocks)]
+    if element_major:
+        # rows are ordered: all actions of block 0, then all actions of block 1, etc.
+        task_actions_rs = list(js_data["task_actions"]) * n_blocks
+    else:
+        # rows are ordered: action 0 of each block, then action 1 of each block, etc.
+        task_actions_rs = [
+            acts for acts in js_data["task_actions"] for _ in range(n_blocks)
+        ]
     task_elements_rs: dict[int, list[int]] = {}
     for js_elem, task_elems in js_data["task_elements"].items():
         new_elem = col_map.get(js_elem, js_elem)
@@ -1959,11 +1976,22 @@ class Jobscript(JSONLike):
     def submit(
         self,
         scheduler_refs: dict[int, tuple[str, bool]],
+        modify_js: bool = False,
         print_stdout: bool = False,
     ) -> str:
         """Prepare and submit this jobscript."""
 
         prepared = self.prepare_submit(scheduler_refs)
+        if modify_js:
+            msg = (
+                f"Jobscript {self.index} written to the following path: "
+                f"{prepared.js_path}. You may now modify this file. "
+                "Ready to continue submission? [y|N]"
+            )
+            answer = input(msg)
+            while answer.lower() != "y":
+                answer = input(msg)
+
         self._app.submission_logger.info(
             f"submitting jobscript {self.index!r} with command: {prepared.submit_cmd!r}"
         )
@@ -2101,13 +2129,11 @@ class Jobscript(JSONLike):
             script_str, future_imports_i = extract_py_from_future_imports(script_str)
             future_imports.update(future_imports_i)
             script_funcs_lst.append(
-                dedent(
-                    """\
+                dedent("""\
                 def {act_name}(*args, **kwargs):
                 {script_str}
                     return {main_func_name}(*args, **kwargs)
-                """
-                ).format(
+                """).format(
                     act_name=act_name,
                     script_str=indent(script_str, tab_indent),
                     main_func_name=main_func_name,
@@ -2120,8 +2146,7 @@ class Jobscript(JSONLike):
         else:
             sub_log_path = '""'
 
-        py_imports = dedent(
-            """\
+        py_imports = dedent("""\
             import os
             from collections import defaultdict
             from pathlib import Path
@@ -2136,30 +2161,26 @@ class Jobscript(JSONLike):
 
             log_path = {log_path}
             wk_path = os.getenv("{app_caps}_WK_PATH")
-            """
-        ).format(
+            """).format(
             app_module=self._app.module,
             app_caps=app_caps,
             log_path=sub_log_path,
         )
 
-        py_main_block_workflow_load = dedent(
-            """\
+        py_main_block_workflow_load = dedent("""\
                 app.load_config(
                     overrides={{"log_file_path": log_path}},
                     config_dir=r"{cfg_dir}",
                     config_key=r"{cfg_invoc_key}",
                 )
                 wk = app.Workflow(wk_path)
-            """
-        ).format(
+            """).format(
             cfg_dir=self._app.config.config_directory,
             cfg_invoc_key=self._app.config.config_key,
             app_caps=app_caps,
         )
 
-        func_invoc_lines = dedent(
-            """\
+        func_invoc_lines = dedent("""\
                 import pprint
                 if not run.action.is_OFP and run.action.script_data_out_has_direct:
                     outputs = func(**func_kwargs)
@@ -2169,13 +2190,11 @@ class Jobscript(JSONLike):
                 else:
                     outputs = {}
                     func(**func_kwargs)
-            """
-        )
+            """)
 
         script_funcs = "\n".join(script_funcs_lst)
         script_names_str = "[" + ", ".join(f"{i}" for i in script_names) + "]"
-        main = dedent(
-            """\
+        main = dedent("""\
             {py_imports}
             
             sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
@@ -2275,6 +2294,8 @@ class Jobscript(JSONLike):
                                 block_act_run_dirs_non_skipped.append(j)
                                                      
                         if block_act_run_IDs_non_skipped:
+                            for run_id in block_act_run_IDs_non_skipped:
+                                runs[run_id].prepare_directory()
                             set_start_multi_tic = time.perf_counter()
                             app.logger.info("setting run starts.")
                             wk.set_multi_run_starts(block_act_run_IDs_non_skipped, block_act_run_dirs_non_skipped, port)
@@ -2491,8 +2512,7 @@ class Jobscript(JSONLike):
             set_end_multi_times_fp.close()
             save_multi_times_fp.close()
             loop_term_times_fp.close()
-        """
-        ).format(
+        """).format(
             py_imports=py_imports,
             py_main_block_workflow_load=indent(py_main_block_workflow_load, tab_indent),
             app_caps=self._app.package_name.upper(),
@@ -2514,13 +2534,11 @@ class Jobscript(JSONLike):
             if future_imports
             else ""
         )
-        script = dedent(
-            """\
+        script = dedent("""\
             {future_imports_str}{script_funcs}
             if __name__ == "__main__":
             {main}
-        """
-        ).format(
+        """).format(
             future_imports_str=future_imports_str,
             script_funcs=script_funcs,
             main=indent(main, tab_indent),

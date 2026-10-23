@@ -210,6 +210,11 @@ def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
+    run = wk.get_all_EARs()[0]
+    directory = run.get_directory()
+    assert directory is not None
+    assert not directory.exists()
+    assert run.dir_diff is not None
 
 
 @pytest.mark.integration
@@ -1146,6 +1151,7 @@ def test_shell_env_vars(tmp_path: Path):
         actions=[
             hf.Action(
                 script="<<script:main_script_test_shell_env_vars.py>>",
+                output_files=[hf.FileSpec(label="env_vars", name="env_vars.json")],
                 script_data_in="direct",
                 script_data_out="direct",
                 script_exe="python_script",
@@ -1153,6 +1159,7 @@ def test_shell_env_vars(tmp_path: Path):
                 requires_dir=True,
             )
         ],
+        save_files=["env_vars"],
     )
     tasks = [
         hf.Task(
@@ -1190,7 +1197,8 @@ def test_shell_env_vars(tmp_path: Path):
     for run in wk.get_all_EARs():
         run_dir = run.get_directory()
         assert run_dir
-        with run_dir.joinpath("env_vars.json").open("rt") as fp:
+        artifact_dir = wk.task_artifacts_path / run_dir.relative_to(wk.execution_path)
+        with artifact_dir.joinpath("env_vars.json").open("rt") as fp:
             env_dat = json.load(fp)
 
         assert env_dat["HPCFLOW_WK_PATH"] == str(run.workflow.path)

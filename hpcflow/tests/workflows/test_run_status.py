@@ -62,21 +62,23 @@ def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
 
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
+    missing_file = hf.FileSpec(label="missing_file", name="missing.txt")
 
     if os.name == "nt":
         cmd = f"Set-Content -Path {out_file_name} -Value (<<parameter:p1>> + 100)"
     else:
         cmd = f"echo $(( <<parameter:p1>> + 100 )) > {out_file_name}"
 
-    # this script parses the output file but then deletes this file so it can't be saved!
+    # the parser declares a generated file that its script does not produce, so the
+    # file cannot be saved:
     act = hf.Action(
         commands=[hf.Command(cmd)],
         output_file_parsers=[
             hf.OutputFileParser(
                 output_files=[out_file],
                 output=hf.Parameter("p2"),
-                script="<<script:output_file_parser_basic_FAIL.py>>",
-                save_files=True,
+                script="<<script:output_file_parser_basic.py>>",
+                generates_files=[missing_file],
             ),
         ],
         environments=[hf.ActionEnvironment(environment="python_env")],
@@ -87,6 +89,7 @@ def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
         outputs=[hf.SchemaInput(parameter=hf.Parameter("p2"))],
         actions=[act],
+        save_files=["missing_file"],
     )
     t1 = hf.Task(schema=s1, inputs={"p1": 100})
 
@@ -119,16 +122,14 @@ def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
-        cmd = dedent(
-            """\
+        cmd = dedent("""\
             try {
                 Get-Content "<<file:my_input_file>>" -ErrorAction Stop
             } catch {
                 Write-Host "File does not exist."
                 exit 1 
             }
-        """
-        )
+        """)
     else:
         cmd = "cat <<file:my_input_file>>"
 
@@ -179,7 +180,7 @@ def test_run_status_fail_when_action_save_file(tmp_path, combine_scripts):
 
     my_file = hf.FileSpec(label="my_file", name="my_file.txt")
 
-    # this script does not generate a file that can be saved:
+    # this script does not generate the declared output file, so it cannot be saved:
     s1 = hf.TaskSchema(
         objective="t1",
         actions=[
@@ -188,9 +189,10 @@ def test_run_status_fail_when_action_save_file(tmp_path, combine_scripts):
                 script_exe="python_script",
                 environments=[hf.ActionEnvironment(environment="python_env")],
                 requires_dir=True,
-                save_files=[my_file],
+                output_files=[my_file],
             )
         ],
+        save_files=["my_file"],
     )
     t1 = hf.Task(schema=s1)
     wk = hf.Workflow.from_template_data(

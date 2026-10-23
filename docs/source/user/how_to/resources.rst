@@ -96,7 +96,37 @@
           repeats:
             number: 2
             master_seed: 1234
-    
+
+    Resource references in inputs
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    An input value can reference an element's resources using
+    ``<<resource:random_seed>>``. This is shorthand for
+    ``<<resource:any.random_seed>>``. To select a different action scope, use a
+    reference such as ``<<resource:main.num_cores>>``.
+
+    References can appear inside nested dictionaries and lists, including the
+    arguments to a parameter constructor. For example, a constructor accepting a
+    ``seed`` argument can use the automatically generated seed for each repeat:
+
+    .. code-block:: yaml
+
+      tasks:
+        - schema: my_schema
+          repeats:
+            number: 2
+            master_seed: 1234
+          inputs:
+            p1::my_random_constructor:
+              seed: <<resource:random_seed>>
+
+    The reference must occupy the entire string; it is not interpolated into
+    surrounding text. References are resolved when elements are created, and the
+    resolved input values are stored. Reloading the workflow or sourcing an input
+    in a downstream task therefore preserves the defining element's resource
+    value. An unavailable or unset resource raises an error. Literal seeds and
+    omitted seed arguments are unchanged.
+
     To prevent a ``random_seed`` sequence being generated, you 
     can set the repeats attribute ``generate_seed_sequence`` to ``False``. For example, in
     YAML, instead of:

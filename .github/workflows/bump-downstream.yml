@@ -43,9 +43,9 @@ jobs:
           poetry install
 
       - name: Checkout branch
-        run: |
-          git switch bump/hpcflow 2>/dev/null || git switch -c bump/hpcflow
-          git merge develop
+        # (Re)create the bump branch from develop, so an existing branch is updated
+        # without merge conflicts in `poetry.lock`:
+        run: git switch -C bump/hpcflow develop
 
       - name: Get version number
         id: get_version
@@ -59,12 +59,37 @@ jobs:
         run: poetry add hpcflow@${HPCFLOW_VERSION}
 
       - name: Commit changes
+        id: commit
+        env:
+          HPCFLOW_VERSION: ${{ steps.get_version.outputs.HPCFLOW_VERSION }}
         run: |
           git add pyproject.toml poetry.lock
-          git commit -m"feat: bump hpcflow version"
-          git push --set-upstream origin bump/hpcflow
+          if git diff --cached --quiet; then
+            echo "MatFlow develop already uses hpcflow ${HPCFLOW_VERSION}; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "feat: bump hpcflow version to ${HPCFLOW_VERSION}"
+          git push --force --set-upstream origin bump/hpcflow
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create pull request
-        run: gh pr create -B develop -H bump/hpcflow --title 'Bump hpcflow version' --body 'Created by Github action'
+      - name: Create or update pull request
+        if: steps.commit.outputs.changed == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
+          GH_TOKEN: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
+          HPCFLOW_VERSION: ${{ steps.get_version.outputs.HPCFLOW_VERSION }}
+        run: |
+          TITLE="Bump hpcflow version to ${HPCFLOW_VERSION}"
+          BODY="Created by GitHub action"
+          # Use REST to avoid GraphQL queries that require additional token scopes.
+          PR_NUMBER=$(gh api --method GET repos/hpcflow/matflow/pulls \
+            -f base=develop -f head=hpcflow:bump/hpcflow -f state=open \
+            --jq '.[0].number // empty')
+          if [ -n "${PR_NUMBER}" ]; then
+            gh api --method PATCH "repos/hpcflow/matflow/pulls/${PR_NUMBER}" \
+              -f title="${TITLE}" -f body="${BODY}" --jq '.html_url'
+          else
+            gh api --method POST repos/hpcflow/matflow/pulls \
+              -f base=develop -f head=bump/hpcflow \
+              -f title="${TITLE}" -f body="${BODY}" --jq '.html_url'
+          fi

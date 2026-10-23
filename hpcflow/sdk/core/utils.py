@@ -58,6 +58,19 @@ TD = TypeVar("TD", bound="Mapping[str, Any]")
 E = TypeVar("E", bound=enum.Enum)
 
 
+def merge_scheduler_args(
+    lower: Mapping[str, Any], higher: Mapping[str, Any], inherit_directives: bool = True
+) -> dict[str, Any]:
+    """Merge scheduler arguments, optionally discarding inherited raw directives."""
+    if not inherit_directives:
+        lower = {k: v for k, v in lower.items() if k not in ("options", "directives")}
+    merged = copy.deepcopy({**lower, **higher})
+    for key in ("options", "directives"):
+        if key in lower and key in higher:
+            merged[key] = copy.deepcopy({**lower[key], **higher[key]})
+    return merged
+
+
 def make_workflow_id() -> str:
     """
     Generate a random ID for a workflow.
@@ -915,7 +928,10 @@ def get_enum_by_name_or_val(
     raise ValueError(f"Unknown enum key or value {key!r} for class {enum_cls!r}")
 
 
-_PARAM_SPLIT_RE = re.compile(r"^((?:\w+\.)*)(\w+)(?:\[(\w+)\])?((?:\.\w+)*)$")
+# sub-path components (after the parameter name) are arbitrary container keys, so may
+# include characters such as hyphens (e.g. "p1.h_0_sl-sl"); only dots and brackets are
+# disallowed:
+_PARAM_SPLIT_RE = re.compile(r"^((?:\w+\.)*)(\w+)(?:\[(\w+)\])?((?:\.[^.\[\]]+)*)$")
 
 
 def split_param_label(

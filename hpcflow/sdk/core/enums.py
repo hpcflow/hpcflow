@@ -207,6 +207,17 @@ class ParallelMode(Enum):
     HYBRID = 2
 
 
+#: Permitted values of the ``array_wrap_order`` resource item, which controls the
+#: execution order of jobscript-element actions when a job array is wrapped to satisfy
+#: ``max_array_size``: ``"element"`` runs all actions of one element before moving to the
+#: next wrapped element; ``"action"`` runs one action across all wrapped elements before
+#: moving to the next action.
+ARRAY_WRAP_ORDERS: tuple[str, ...] = ("element", "action")
+
+#: Default value of the ``array_wrap_order`` resource item.
+DEFAULT_ARRAY_WRAP_ORDER = "element"
+
+
 class ParameterPropagationMode(Enum):
     """
     How a parameter is propagated.

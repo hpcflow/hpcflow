@@ -143,6 +143,12 @@ def test_config_with_updates(modifiable_config):
     assert level_1 == level_3 != level_2
 
 
+def test_delete_execute_dir_default_and_override(modifiable_config):
+    assert hf.config.get("delete_execute_dir") is True
+    hf.config.set("delete_execute_dir", False)
+    assert hf.config.get("delete_execute_dir") is False
+
+
 @pytest.mark.integration
 def test_workflow_template_config_set(modifiable_config, tmp_path):
     """Test we can set a workflow-level config item and that it is correctly applied

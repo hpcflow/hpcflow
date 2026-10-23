@@ -21,9 +21,14 @@ from typing import (
     overload,
     TYPE_CHECKING,
 )
+import warnings
 from typing_extensions import Self
 
-from hpcflow.sdk.core.enums import ParallelMode
+from hpcflow.sdk.core.enums import (
+    ARRAY_WRAP_ORDERS,
+    DEFAULT_ARRAY_WRAP_ORDER,
+    ParallelMode,
+)
 from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.errors import UnsupportedOSError, UnsupportedSchedulerError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
@@ -34,6 +39,7 @@ from hpcflow.sdk.core.utils import (
     check_valid_py_identifier,
     dict_values_process_flat,
     get_enum_by_name_or_val,
+    merge_scheduler_args,
     split_param_label,
 )
 from hpcflow.sdk.instrumentation import TimeIt
@@ -299,6 +305,12 @@ class ElementResources(JSONLike):
         concurrently.
     max_array_size: int
         If using array jobs, what is the maximum permitted size of a job array.
+    array_wrap_order: str
+        If using array jobs and ``max_array_size`` is exceeded, the order in which the
+        wrapped actions are executed by each array item: ``"element"`` (default) runs
+        all actions of one element before moving to the next wrapped element;
+        ``"action"`` runs one action for all wrapped elements before moving to the next
+        action.
     write_app_logs: bool
         Whether an app log file should be written.
     combine_jobscript_std: bool
@@ -373,6 +385,10 @@ class ElementResources(JSONLike):
     max_scheduler_concurrency: int | None = None
     #: If using array jobs, what is the maximum permitted size of a job array.
     max_array_size: int | None = None
+    #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
+    #: wrapped actions are executed by each array item: ``"element"`` (default) or
+    #: ``"action"``.
+    array_wrap_order: str | None = None
     #: Whether an app log file should be written.
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
@@ -384,6 +400,8 @@ class ElementResources(JSONLike):
 
     #: Additional arguments to pass to the scheduler.
     scheduler_args: dict[str, Any] = field(default_factory=dict)
+    #: Whether to inherit raw scheduler directives from configuration.
+    inherit_directives: bool = True
     #: Additional arguments to pass to the shell.
     shell_args: dict[str, Any] = field(default_factory=dict)
     #: Which OS to use.
@@ -439,6 +457,14 @@ class ElementResources(JSONLike):
         if self.parallel_mode:
             self.parallel_mode = get_enum_by_name_or_val(ParallelMode, self.parallel_mode)
 
+        if self.array_wrap_order is not None:
+            self.array_wrap_order = self.array_wrap_order.lower().strip()
+            if self.array_wrap_order not in ARRAY_WRAP_ORDERS:
+                raise ValueError(
+                    f"`array_wrap_order` must be one of {ARRAY_WRAP_ORDERS!r}, but "
+                    f"{self.array_wrap_order!r} was specified."
+                )
+
         if self.num_MPI_ranks is None and self.num_cores is not None:
             self.num_MPI_ranks = self.num_cores
 
@@ -452,6 +478,21 @@ class ElementResources(JSONLike):
         # compatibility for redefinition of `max_array_items` to `max_scheduler_concurrency`
         if "max_array_items" in json_like:
             json_like["max_scheduler_concurrency"] = json_like.pop("max_array_items")
+
+        given_keys = set(k for k in json_like)
+        bad_keys = given_keys - {
+            *cls._app.ResourceSpec.ALLOWED_PARAMETERS,
+            "platform",
+            "CPU_arch",
+            "executable_extension",
+        }
+        for key in bad_keys:
+            warnings.warn(f"Unknown resource item {key!r}. It will be ignored.")
+            json_like.pop(key)
+
+        if bad_keys:
+            good_keys = cls._app.ResourceSpec._allowed_params_quoted()
+            print(f"Allowed resource item names are: {good_keys}.")
 
         return cls(**json_like)
 
@@ -484,6 +525,10 @@ class ElementResources(JSONLike):
         # contribution to the hash, so always set it to `False` if unset at this point:
         if self.combine_scripts is None:
             dct["combine_scripts"] = False
+
+        # likewise, an unset `array_wrap_order` is equivalent to the default:
+        if self.array_wrap_order is None:
+            dct["array_wrap_order"] = DEFAULT_ARRAY_WRAP_ORDER
 
         return get_hash(dct)
 
@@ -594,11 +639,9 @@ class ElementResources(JSONLike):
 
         # merge defaults scheduler args from config:
         cfg_defs = cfg_sched.get("defaults", {})
-        cfg_opts = cfg_defs.pop("options", {})
-        opts = {**cfg_opts, **self.scheduler_args.get("options", {})}
-        if opts:
-            self.scheduler_args["options"] = opts
-        self.scheduler_args = {**cfg_defs, **self.scheduler_args}
+        self.scheduler_args = merge_scheduler_args(
+            cfg_defs, self.scheduler_args, self.inherit_directives
+        )
 
     @TimeIt.decorator
     def validate_against_machine(self):
@@ -1378,7 +1421,22 @@ class ElementIteration(AppAware):
         for scope in action._get_possible_scopes_reversed():
             # loop from least-specific to most so higher-specificity scopes take precedence:
             if scope_res := resource_specs.get(scope.to_string()):
-                resources.update((k, v) for k, v in scope_res.items() if v is not None)
+                inherit = scope_res.get("inherit_directives") is not False
+                resources["scheduler_args"] = merge_scheduler_args(
+                    resources.get("scheduler_args", {}),
+                    scope_res.get("scheduler_args") or {},
+                    inherit,
+                )
+                # Once discarded, configuration directives must not be reintroduced.
+                resources["inherit_directives"] = (
+                    resources.get("inherit_directives", True) and inherit
+                )
+                for key, value in scope_res.items():
+                    if value is not None and key not in (
+                        "scheduler_args",
+                        "inherit_directives",
+                    ):
+                        resources[key] = value
 
         if set_defaults:
             # used in e.g. `Rule.test` if testing resource rules on element iterations,

@@ -103,6 +103,7 @@ TEMPLATE_COMP_TYPES = (
 )
 
 PARAM_DATA_NOT_SET: Final[int] = 0
+_UNSET_PARAMETER_VALUE = object()
 
 
 @TimeIt.decorator
@@ -1002,6 +1003,17 @@ class StoreParameter:
             is_pending=self.is_pending,
             data=None,
             file=value,
+            source=self.source,
+        )
+
+    def unset(self) -> Self:
+        """Return a copy with its value cleared."""
+        return self.__class__(
+            id_=self.id_,
+            is_set=False,
+            is_pending=self.is_pending,
+            data=PARAM_DATA_NOT_SET,
+            file=None,
             source=self.source,
         )
 
@@ -2179,6 +2191,13 @@ class PersistentStore(
             f"Setting store parameter ID {param_id} value with type: {type(value)!r})."
         )
         self._pending.set_parameters[param_id] = (value, is_file)
+        if save:
+            self.save()
+
+    def unset_parameter_value(self, param_id: int, save: bool = True) -> None:
+        """Clear a parameter value without changing its source metadata."""
+        self.logger.debug(f"Clearing store parameter ID {param_id}.")
+        self._pending.set_parameters[param_id] = (_UNSET_PARAMETER_VALUE, False)
         if save:
             self.save()
 

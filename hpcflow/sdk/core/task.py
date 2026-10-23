@@ -45,6 +45,7 @@ from hpcflow.sdk.core.input_sources import (
     validate_specified_source,
 )
 from hpcflow.sdk.core.parameters import ParameterValue
+from hpcflow.sdk.core.task_schema import validate_save_files_policy
 from hpcflow.sdk.core.utils import (
     get_duplicate_items,
     get_in_container,
@@ -86,7 +87,7 @@ if TYPE_CHECKING:
         Resources,
         RepeatsDescriptorType,
     )
-    from .workflow import Workflow, WorkflowTemplate
+    from .workflow import ArrayOutput, Workflow, WorkflowTemplate
 
     StrSeq = TypeVar("StrSeq", bound=Sequence[str])
 
@@ -792,6 +793,9 @@ class Task(JSONLike):
         only the intersection of element sub-sets for all parameters are included.
     element_sets: list[ElementSet]
     output_labels: list[OutputLabel]
+    save_files: bool | list[str] | None
+        Optional file-retention policy replacing the task schema's policy. Accepts the
+        same values as the task schema ``save_files`` setting.
     condition: str
         A string reference to a parameter in a preceding task in the format
         "task.TASK_NAME.inputs.PARAMETER_NAME" or "task.TASK_NAME.outputs.PARAMETER_NAME",
@@ -803,6 +807,13 @@ class Task(JSONLike):
         into `resources` using the "any" scope. If False, these presets are ignored.
         This is required on first initialisation, but not on subsequent
         re-initialisation from a persistent workflow.
+    disable_array_outputs: list[str]
+        Dot-delimited output paths to store only in the legacy Zarr groups.
+        The optional ``outputs.`` prefix is accepted. A containing parameter path
+        disables all nested arrays. Task and schema exclusions are combined.
+        By default output ndarrays use Zstandard-compressed NPZ instead of legacy
+        Zarr groups, with run-file IDs sharded into directories of up to 500 files.
+        This is a temporary storage workaround specific to the Zarr store.
     """
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
@@ -851,6 +862,8 @@ class Task(JSONLike):
         condition: str | None = None,
         sourceable_elem_iters: list[int] | None = None,
         merge_envs: bool = True,
+        disable_array_outputs: list[str] | None = None,
+        save_files: bool | list[str] | None = None,
     ):
         # TODO: allow init via specifying objective and/or method and/or implementation
         # (lists of) strs e.g.: Task(
@@ -882,6 +895,10 @@ class Task(JSONLike):
                 raise TypeError(f"Not a TaskSchema object: {item!r}")
 
         self._schemas = _schemas
+        self.save_files = validate_save_files_policy(
+            save_files,
+            set().union(*(schema_i.get_file_labels() for schema_i in _schemas)),
+        )
 
         self._element_sets = self._app.ElementSet.ensure_element_sets(
             inputs=inputs,
@@ -900,6 +917,7 @@ class Task(JSONLike):
             sourceable_elem_iters=sourceable_elem_iters,
         )
         self._output_labels = output_labels or []
+        self.disable_array_outputs = list(disable_array_outputs or [])
         self.condition = condition
         #: Whether to merge ``environments`` into ``resources`` using the "any" scope
         #: on first initialisation.
@@ -1893,6 +1911,158 @@ class WorkflowTask(AppAware):
         """
         return {itr.id_: itr for elem in self.elements for itr in elem.iterations}
 
+    @TimeIt.decorator
+    def list_array_outputs(self) -> list[str]:
+        """Return array output directory names for this task's output parameters.
+
+        Names are sorted and exclude the optional ``outputs.`` prefix. No NPZ
+        files are inspected; an existing directory does not guarantee that this
+        task has saved entries.
+        """
+        return [
+            name
+            for name in self.workflow.list_array_outputs()
+            if any(
+                name == root or name.startswith(f"{root}.")
+                for schema in self.template.schemas
+                for root in schema.output_types
+            )
+            and not self._is_array_output_disabled(name)
+        ]
+
+    def _is_array_output_disabled(self, name: str) -> bool:
+        """Check task/schema exclusions, including containing parameter paths."""
+        name = name.removeprefix("outputs.")
+        return any(
+            bool(disabled) and (name == disabled or name.startswith(f"{disabled}."))
+            for output in (
+                *self.template.disable_array_outputs,
+                *(
+                    output
+                    for schema in self.template.schemas
+                    for output in schema.disable_array_outputs
+                ),
+            )
+            for disabled in [output.removeprefix("outputs.")]
+        )
+
+    @TimeIt.decorator
+    def get_array_output(
+        self,
+        name: str,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+    ) -> ArrayOutput:
+        """Read an array output from this task's producing action runs.
+
+        The optional ``outputs.`` prefix is accepted. Task- and schema-level
+        ``disable_array_outputs`` exclusions are combined. Only runs of the root
+        parameter's first source action from
+        :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
+        are sorted lexicographically by element index, iteration index, action index,
+        then run index. With ``sort=False``, order follows
+        :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
+        workflow reader; missing saved data therefore raises rather than being skipped.
+
+        ``iteration_idx=None`` selects each element's final non-loop-skipped
+        iteration; an integer or sequence selects those iteration indices explicitly.
+        ``element_idx=None`` includes all elements; an integer or sequence selects
+        those element indices. Sequences filter without reordering or duplicating runs.
+
+        Raises
+        ------
+        ValueError
+            If the output is disabled or no producing runs are found.
+        """
+        output_name = name.removeprefix("outputs.")
+        if self._is_array_output_disabled(output_name):
+            raise ValueError(
+                f"Array output {name!r} is disabled for task {self.unique_name!r}."
+            )
+
+        root_name = output_name.split(".", 1)[0]
+        source_action_idx: int | None = None
+        action_offset = 0
+        for schema in self.template.schemas:
+            flow = schema.get_action_parameter_flow()
+            sources = flow.get(root_name, {}).get("sources", [])
+            if sources and sources[0] >= 0:
+                source_action_idx = action_offset + sources[0]
+                break
+            action_offset += len(schema.actions)
+
+        run_IDs = self.workflow.get_EAR_IDs_of_tasks([self.insert_ID])
+        runs_by_ID = {run.id_: run for run in self.workflow.get_EARs_from_IDs(run_IDs)}
+        iteration_indices = (
+            None
+            if iteration_idx is None
+            else {iteration_idx} if isinstance(iteration_idx, int) else set(iteration_idx)
+        )
+        element_indices = (
+            None
+            if element_idx is None
+            else {element_idx} if isinstance(element_idx, int) else set(element_idx)
+        )
+        latest_iteration_IDs: dict[int, int | None] = {}
+        if iteration_idx is None and source_action_idx is not None:
+            for run in runs_by_ID.values():
+                if run.element_action.action_idx != source_action_idx:
+                    continue
+                if run.element.id_ not in latest_iteration_IDs and (
+                    element_indices is None or run.element.index in element_indices
+                ):
+                    latest = run.element.latest_iteration_non_skipped
+                    latest_iteration_IDs[run.element.id_] = (
+                        latest.id_ if latest is not None else None
+                    )
+        applicable_run_IDs = [
+            run_ID
+            for run_ID in run_IDs
+            if source_action_idx is not None
+            and runs_by_ID[run_ID].element_action.action_idx == source_action_idx
+            and (
+                element_indices is None
+                or runs_by_ID[run_ID].element.index in element_indices
+            )
+            and (
+                runs_by_ID[run_ID].element_iteration.id_
+                == latest_iteration_IDs[runs_by_ID[run_ID].element.id_]
+                if iteration_indices is None
+                else runs_by_ID[run_ID].element_iteration.index in iteration_indices
+            )
+        ]
+        if not applicable_run_IDs:
+            raise ValueError(
+                f"No producing runs found for array output {name!r} "
+                f"in task {self.unique_name!r}."
+            )
+        return self.workflow.get_array_output(name, applicable_run_IDs, sort=sort)
+
+    def export_array_output(
+        self,
+        name: str,
+        path: str | Path,
+        *,
+        iteration_idx: int | Sequence[int] | None = None,
+        element_idx: int | Sequence[int] | None = None,
+        sort: bool = True,
+        overwrite: bool = False,
+    ) -> Path:
+        """Export this task's selected array output to a single ``.npy`` file.
+
+        Filters and sorting follow :meth:`get_array_output`. All selected arrays
+        must have matching shapes. Write to exactly ``path`` and return that path.
+        Existing files raise FileExistsError unless ``overwrite=True``.
+        """
+        if not overwrite and Path(path).exists():
+            raise FileExistsError(f"Export destination already exists: {path}")
+        output = self.get_array_output(
+            name, iteration_idx=iteration_idx, element_idx=element_idx, sort=sort
+        )
+        return self.workflow._export_array_output(output, path, overwrite=overwrite)
+
     @staticmethod
     @TimeIt.decorator
     def __get_src_elem_iters(
@@ -2381,6 +2551,99 @@ class WorkflowTask(AppAware):
             for inp_type in sources:
                 element_set.input_sources[inp_type][0].element_iters = int_task_i_lst
 
+    @staticmethod
+    def _get_resource_references(
+        value: Any, path: tuple[str | int, ...] = ()
+    ) -> Iterator[tuple[tuple[str | int, ...], str]]:
+        """Find whole-string resource references in nested input data.
+
+        Parameters
+        ----------
+        value
+            Data to inspect. Dictionary values, list items, and tuple items are
+            traversed recursively; dictionary keys are not inspected.
+        path
+            Dictionary keys and sequence indices locating ``value`` within the
+            original input. An empty tuple denotes the input itself.
+
+        Yields
+        ------
+        tuple[tuple[str | int, ...], str]
+            The location of each reference and its fully qualified resource path.
+            For example, ``{"seed": "<<resource:random_seed>>"}`` yields
+            ``(("seed",), "resources.any.random_seed")``. Explicit scopes, such as
+            ``<<resource:main.num_cores>>``, are preserved.
+
+        Notes
+        -----
+        Only strings consisting entirely of a reference are matched; references
+        embedded in surrounding text are ignored. Resource values are neither
+        looked up nor validated here, and the input data is not modified.
+        """
+        if isinstance(value, str):
+            if match := re.fullmatch(r"<<resource:([\w.]+)>>", value):
+                resource = match.group(1)
+                if "." not in resource:
+                    resource = f"any.{resource}"
+                yield path, f"resources.{resource}"
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                yield from WorkflowTask._get_resource_references(item, (*path, key))
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                yield from WorkflowTask._get_resource_references(item, (*path, index))
+
+    @TimeIt.decorator
+    def __get_input_resource_references(
+        self,
+        input_data_indices: Mapping[str, Sequence[int | list[int]]],
+    ) -> dict[int, list[tuple[tuple[str | int, ...], str]]]:
+        """Collect resource references once per input parameter ID."""
+        resource_references: dict[int, list[tuple[tuple[str | int, ...], str]]] = {}
+        for input_path, indices in input_data_indices.items():
+            if not input_path.startswith("inputs."):
+                continue
+            for parameter_id in indices:
+                if not isinstance(parameter_id, int) or parameter_id < 0:
+                    continue
+                if parameter_id not in resource_references:
+                    parameter = self.workflow.get_parameter(parameter_id)
+                    resource_references[parameter_id] = list(
+                        self._get_resource_references(parameter.data)
+                    )
+        return resource_references
+
+    @TimeIt.decorator
+    def __resolve_input_resource_references(
+        self,
+        data_index: DataIndex,
+        resource_references: Mapping[int, Sequence[tuple[tuple[str | int, ...], str]]],
+    ) -> None:
+        """Bind resource references and update an element's input parameter IDs."""
+        for input_path, parameter_id in list(data_index.items()):
+            if not input_path.startswith("inputs.") or not isinstance(parameter_id, int):
+                continue
+            if not (references := resource_references.get(parameter_id)):
+                continue
+            parameter = self.workflow.get_parameter(parameter_id)
+            value = copy.deepcopy(parameter.data)
+            for reference_path, resource_path in references:
+                resource_value = self._get_merged_parameter_data(
+                    data_index, resource_path, raise_on_missing=True, raise_on_unset=True
+                )
+                if resource_value is None:
+                    raise ValueError(
+                        f"Resource reference {resource_path!r} in input "
+                        f"{input_path!r} has no value."
+                    )
+                if reference_path:
+                    set_in_container(value, reference_path, resource_value)
+                else:
+                    value = resource_value
+            data_index[input_path] = self.workflow._add_parameter_data(
+                value, source=copy.deepcopy(parameter.source)
+            )
+
     @TimeIt.decorator
     def generate_new_elements(
         self,
@@ -2395,6 +2658,8 @@ class WorkflowTask(AppAware):
         """
         Create information about new elements in this task.
         """
+        resource_references = self.__get_input_resource_references(input_data_indices)
+
         new_elements: list[DataIndex] = []
         element_sequence_indices: dict[str, list[int]] = {}
         element_src_indices: dict[str, list[int]] = {}
@@ -2405,6 +2670,7 @@ class WorkflowTask(AppAware):
                 if input_data_indices[k][v] != -1
             }
             elem_i.update((k, v2[i_idx]) for k, v2 in output_data_indices.items())
+            self.__resolve_input_resource_references(elem_i, resource_references)
             new_elements.append(elem_i)
 
             for k, v3 in data_idx.items():

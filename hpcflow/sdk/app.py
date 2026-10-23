@@ -267,6 +267,7 @@ if TYPE_CHECKING:
             config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             min_jobscripts: bool = True,
+            modify_js: bool = False,
             wait: bool = False,
             add_to_known: bool = True,
             return_idx: bool = False,
@@ -300,6 +301,7 @@ if TYPE_CHECKING:
             config: dict[str, Any] | None = None,
             JS_parallelism: bool | None = None,
             min_jobscripts: bool = True,
+            modify_js: bool = False,
             wait: bool = False,
             add_to_known: bool = True,
             return_idx: bool = False,
@@ -3226,6 +3228,7 @@ class BaseApp(metaclass=Singleton):
         config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
         return_idx: bool = False,
@@ -3301,6 +3304,10 @@ class BaseApp(metaclass=Singleton):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         wait
             If True, this command will block until the workflow execution is complete.
         add_to_known
@@ -3356,6 +3363,7 @@ class BaseApp(metaclass=Singleton):
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
             min_jobscripts=min_jobscripts,
+            modify_js=modify_js,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=True,
@@ -3529,6 +3537,7 @@ class BaseApp(metaclass=Singleton):
         config: dict[str, Any] | None = None,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         add_to_known: bool = True,
         return_idx: bool = False,
@@ -3601,6 +3610,10 @@ class BaseApp(metaclass=Singleton):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         wait
             If True, this command will block until the workflow execution is complete.
         add_to_known
@@ -3654,6 +3667,7 @@ class BaseApp(metaclass=Singleton):
         submitted_js = wk.submit(
             JS_parallelism=JS_parallelism,
             min_jobscripts=min_jobscripts,
+            modify_js=modify_js,
             wait=wait,
             add_to_known=add_to_known,
             return_idx=True,
@@ -3673,6 +3687,7 @@ class BaseApp(metaclass=Singleton):
         workflow_path: PathLike,
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         min_jobscripts: bool = True,
+        modify_js: bool = False,
         wait: bool = False,
         return_idx: bool = False,
         tasks: list[int] | None = None,
@@ -3697,6 +3712,10 @@ class BaseApp(metaclass=Singleton):
             If True (the default), minimise the total number of jobscripts by performing
             as many merges as possible. This may merge otherwise independent jobscripts,
             such that they are run sequentially rather than in parallel.
+        modify_js
+            If True, pause before submitting each jobscript, print the new jobscript's
+            path and await confirmation before continuing submission. This allows ad hoc
+            modifications to the jobscript to be made.
         wait:
             Whether to wait for the submission to complete.
         return_idx:
@@ -3716,6 +3735,7 @@ class BaseApp(metaclass=Singleton):
         dict[int, list[int]]
             Mapping of submission handles, if requested by ``return_idx`` parameter.
         """
+        # TODO: unused?
         self.API_logger.info("submit_workflow called")
         assert workflow_path is not None
         wk = self.Workflow(workflow_path)
@@ -3723,13 +3743,16 @@ class BaseApp(metaclass=Singleton):
             return wk.submit(
                 JS_parallelism=JS_parallelism,
                 min_jobscripts=min_jobscripts,
+                modify_js=modify_js,
                 wait=wait,
                 return_idx=True,
                 tasks=tasks,
                 quiet=quiet,
                 timeit=timeit,
             )
-        wk.submit(JS_parallelism=JS_parallelism, wait=wait, tasks=tasks)
+        wk.submit(
+            JS_parallelism=JS_parallelism, wait=wait, tasks=tasks, modify_js=modify_js
+        )
         return None
 
     def _run_hpcflow_tests(
@@ -3758,7 +3781,7 @@ class BaseApp(metaclass=Singleton):
             root_dir = str(root_test_dir)
             test_dirs_ = []
             if not test_dirs:
-                test_dirs_.append(str(root_test_dir))
+                test_dirs_.append(root_dir)
             else:
                 for dir_i in test_dirs:
                     if not (dir_i_path := Path(dir_i)).is_absolute():
@@ -3768,24 +3791,24 @@ class BaseApp(metaclass=Singleton):
                     else:
                         test_dirs_.append(str(dir_i_path))
 
-        # note: the `--ignore` is required for Pyinstaller-built "one-file" executables on
-        # Windows, where Pytest will try to collect tests from C:\ for some reason.
-        # `C:\Documents and Settings` is a hidden/protected compatibility link which
-        # we don't have permission to traverse; so without this ignore, Pytest will raise
-        # a PermissionError on test collection.
-        cmd = [
-            "--rootdir",
-            root_dir,
-            "-p",
-            f"{self.package_name}.pytest_plugin",
-            "--ignore",
-            "C:\\Documents and Settings",
-            *(self.pytest_args or ()),
-            *(pytest_args or ()),
-            *test_dirs_,
-        ]
-        self.logger.info(f"running Pytest with args: {cmd!r}.")
-        return pytest.main(cmd)
+            # note: the `--ignore` is required for Pyinstaller-built "one-file"
+            # executables on Windows, where Pytest will try to collect tests from C:\ for
+            # some reason. `C:\Documents and Settings` is a hidden/protected compatibility
+            # link which we don't have permission to traverse; so without this ignore,
+            # Pytest will raise a PermissionError on test collection.
+            cmd = [
+                "--rootdir",
+                root_dir,
+                "-p",
+                f"{self.package_name}.pytest_plugin",
+                "--ignore",
+                "C:\\Documents and Settings",
+                *(self.pytest_args or ()),
+                *(pytest_args or ()),
+                *test_dirs_,
+            ]
+            self.logger.info(f"running Pytest with args: {cmd!r}.")
+            return pytest.main(cmd)
 
     def _get_OS_info(self) -> Mapping[str, str]:
         """Get information about the operating system."""

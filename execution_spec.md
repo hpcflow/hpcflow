@@ -2,6 +2,23 @@
 
 Here is a specification for the execution model of hpcflow.
 
+## Current executor integration
+
+`JobscriptExecutor` owns run orchestration, persistence, finalization, timing, and
+completion notifications. `RunExecutor` owns each ordinary command subprocess.
+`ScriptWorkerExecutor` remains a scaffold, and `ElementActionRun.use_script_worker`
+remains disabled.
+
+Run directories are prepared lazily for non-skipped runs. Finalization uses the
+workflow's declared-file validation and task/schema file-retention policies.
+An input-file generator that exits successfully without producing its required
+file still fails, independently of whether that file is selected for retention.
+Policy-selected files are saved before execution directories are removed.
+Successful iteration directories are cleaned up only after run-end persistence
+commits, subject to `delete_execute_dir`; failed or skipped iterations are retained.
+Waiters are notified after final state is persisted, with filesystem completion
+state authoritative and ZeroMQ notifications used as wake-ups.
+
 Factors that affect the method of execution of these commands:
 
 - Scheduler variant (e.g. SLURM, SGE, or "direct" execution)
