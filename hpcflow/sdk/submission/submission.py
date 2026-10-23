@@ -4,6 +4,7 @@ A collection of submissions to a scheduler, generated from a workflow.
 
 from __future__ import annotations
 from collections import defaultdict
+from dataclasses import dataclass
 import shutil
 from pathlib import Path
 import socket
@@ -14,6 +15,7 @@ import warnings
 from contextlib import contextmanager
 
 
+from hpcflow.sdk.scripting.writer import ScriptWorkerArgs, ScriptWriter
 from hpcflow.sdk.submission.run_file_resolver import RunMetaDataFileResolver
 from hpcflow.sdk.utils.strings import shorten_list_str
 import numpy as np
@@ -33,7 +35,7 @@ from hpcflow.sdk.core.object_list import ObjectListMultipleMatchError
 from hpcflow.sdk.core.utils import parse_timestamp, current_timestamp
 from hpcflow.sdk.submission.enums import SubmissionStatus
 from hpcflow.sdk.core import RUN_DIR_ARR_DTYPE
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.utils.strings import shorten_list_str
 
 if TYPE_CHECKING:
@@ -42,13 +44,13 @@ if TYPE_CHECKING:
     from typing import ClassVar, Literal
     from rich.status import Status
     from numpy.typing import NDArray
-    from .jobscript import Jobscript
+    from .jobscript import Jobscript, PreparedJobscriptSubmission
     from .enums import JobscriptElementState
     from .schedulers import Scheduler
     from .shells import Shell
     from .types import SubmissionPart
     from ..core.element import ElementActionRun
-    from ..core.environment import Environment
+    from ..core.environment import Environment, EnvironmentSpec
     from ..core.object_list import EnvironmentsList
     from ..core.workflow import Workflow
     from ..core.cache import ObjectCache
@@ -67,6 +69,11 @@ JOBSCRIPT_SUBMIT_TIME_KEYS = (
 SUBMISSION_SUBMIT_TIME_KEYS = {
     "submission_parts": dict,
 }
+
+
+@dataclass(frozen=True)
+class PreparedSubmission:
+    jobscripts: dict[int, PreparedJobscriptSubmission]
 
 
 @hydrate
@@ -108,7 +115,6 @@ class Submission(JSONLike):
     APP_STD_DIR_NAME = "app_std"
     JS_DIR_NAME = "jobscripts"
     JS_STD_DIR_NAME = "js_std"
-    JS_RUN_IDS_DIR_NAME = "js_run_ids"
     JS_FUNCS_DIR_NAME = "js_funcs"
     JS_WIN_PIDS_DIR_NAME = "js_pids"
     JS_SCRIPT_INDICES_DIR_NAME = "js_script_indices"
@@ -179,23 +185,35 @@ class Submission(JSONLike):
         filterable = self._app.ElementResources.get_env_instance_filterable_attributes()
 
         # map required environments and executable labels to job script indices:
-        req_envs: dict[tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]] = (
-            defaultdict(lambda: defaultdict(set))
+        req_envs: dict[EnvironmentSpec, dict[str, set[int]]] = defaultdict(
+            lambda: defaultdict(set)
         )
+
+        # need to be same env_spec and executable
+        # script_envs_by_js = defaultdict(lambda: defaultdict(set))
+
         with self.workflow.cached_merged_parameters():
             for js_idx, all_EARs_i in enumerate(self.all_EARs_by_jobscript):
                 for run in all_EARs_i:
-                    env_spec_h = run.env_spec_hashable
-                    for exec_label_j in run.action.get_required_executables():
-                        req_envs[env_spec_h][exec_label_j].add(js_idx)
-                    # add any environment for which an executable was not required:
-                    if env_spec_h not in req_envs:
-                        req_envs[env_spec_h]
+                    env_spec = run.env_spec
+                    if run.use_script_worker:
+                        exec_label = run.action.script_exe
+                        if exec_label is None:
+                            raise ValueError(
+                                "A script worker requires a script executable."
+                            )
+                        req_envs[env_spec][exec_label].add(js_idx)
+                        # script_envs_by_js[js_idx][env_spec].add(run.id_)
+                    else:
+                        for exec_label_j in run.action.get_required_executables():
+                            req_envs[env_spec][exec_label_j].add(js_idx)
+                        # add any environment for which an executable was not required:
+                        if env_spec not in req_envs:
+                            req_envs[env_spec]
 
         # check these envs/execs exist in app data:
         envs: list[Environment] = []
-        for env_spec_h, exec_js in req_envs.items():
-            env_spec = self._app.Action.env_spec_from_hashable(env_spec_h)
+        for env_spec, exec_js in req_envs.items():
             try:
                 env_i = self._app.envs.get(**env_spec)
             except ObjectListMultipleMatchError:
@@ -512,14 +530,6 @@ class Submission(JSONLike):
         return cls.get_path(submissions_path, sub_idx) / cls.JS_STD_DIR_NAME
 
     @classmethod
-    def get_js_run_ids_path(cls, submissions_path: Path, sub_idx: int) -> Path:
-        """
-        The path to the directory containing jobscript run IDs, for the specified
-        submission.
-        """
-        return cls.get_path(submissions_path, sub_idx) / cls.JS_RUN_IDS_DIR_NAME
-
-    @classmethod
     def get_js_funcs_path(cls, submissions_path: Path, sub_idx: int) -> Path:
         """
         The path to the directory containing the shell functions that are invoked within
@@ -600,13 +610,6 @@ class Submission(JSONLike):
         submission.
         """
         return self.get_js_std_path(self.workflow.submissions_path, self.index)
-
-    @property
-    def js_run_ids_path(self) -> Path:
-        """
-        The path to the directory containing jobscript run IDs, for this submission.
-        """
-        return self.get_js_run_ids_path(self.workflow.submissions_path, self.index)
 
     @property
     def js_funcs_path(self) -> Path:
@@ -754,6 +757,16 @@ class Submission(JSONLike):
         assert all_runs is not None
         runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
+        # TODO: write worker_scripts and commands (should be able to)
+        # - for runs for which `use_script_worker` is True:
+        #       - script_workers[js_idx][env_spec_hashable] = [(task_id, act_idx), ...]
+
+        # look over jobscript task-actions;
+        # check action.use_script_worker
+        # assign to script_workers for those actions
+        # then do normal run loop
+
+        script_workers: dict[ScriptWorkerArgs, set[tuple[int, int]]] = defaultdict(set)
         with self.workflow.cached_merged_parameters():
             for js in self.jobscripts:
                 js_idx = js.index
@@ -773,6 +786,14 @@ class Submission(JSONLike):
 
                 for idx, run_id in enumerate(js.all_EAR_IDs):
                     run = all_runs[run_id]
+
+                    if run.use_script_worker:
+                        script_workers[run.get_script_worker_args(js_idx)].add(
+                            (
+                                run.task.insert_ID,
+                                run.element_action.action_idx,
+                            )
+                        )
 
                     run_indices[run_idx] = [
                         run.task.insert_ID,
@@ -805,19 +826,17 @@ class Submission(JSONLike):
                         run_cmd_file_names[run.id_] = None
 
                     else:
-                        env_spec_h = None
+                        env_spec = None
                         if run.is_snippet_script:
-                            env_spec_h = run.env_spec_hashable
+                            env_spec = run.env_spec
                             actions_by_schema[run.action.task_schema.name][
                                 run.element_action.action_idx
-                            ].add(env_spec_h)
+                            ].add(env_spec)
 
                         if run.action.commands:
-                            if env_spec_h is None:
-                                env_spec_h = run.env_spec_hashable
-                            hash_i = run.get_commands_file_hash(
-                                env_spec_hashable=env_spec_h
-                            )
+                            if env_spec is None:
+                                env_spec = run.env_spec
+                            hash_i = run.get_commands_file_hash(env_spec=env_spec)
                             # TODO: could further reduce number of files in the case the data
                             # indices hash is the same: if commands objects are the same and
                             # environment objects are the same, then the files will be the
@@ -862,9 +881,8 @@ class Submission(JSONLike):
                         if not action.script:
                             continue
 
-                        for env_spec_h in actions_by_schema[schema.name][idx]:
+                        for env_spec in actions_by_schema[schema.name][idx]:
 
-                            env_spec = action.env_spec_from_hashable(env_spec_h)
                             name, snip_path, specs = action.get_script_artifact_name(
                                 env_spec=env_spec,
                                 act_idx=idx,
@@ -891,6 +909,21 @@ class Submission(JSONLike):
                                     with script_path.open("wt", newline="\n") as fp:
                                         fp.write(source_str)
                                     seen[script_hash] = script_path
+
+        # write script workers:
+        for worker_args, act_data in script_workers.items():
+            actions = {}
+            for task_iID, act_idx in sorted(act_data):
+                task = self.workflow.tasks.get(insert_ID=task_iID)
+                schema = task.template.schemas[0]  # TODO: multiple schemas
+                actions[act_idx] = schema.actions[act_idx]
+
+            # need to pass enough info to construct the file path
+            # env and executable inst command is needed to write commands file (e.g. setup)
+
+            writer = ScriptWriter.create(worker_args, actions)
+            writer.write_worker(self.scripts_path)
+            writer.write_worker_commands_file(self.commands_path)
 
         # combined script stuff
         for js_idx, act_IDs in combined_actions.items():
@@ -1160,6 +1193,7 @@ class Submission(JSONLike):
         app_invoc = list(self._app.run_time_info.invocation_command)
 
         app_caps = self._app.package_name.upper()
+        overrides = shell.format_config_overrides(self._app.config._overrides)
         func_file_args = shell.process_JS_header_args(  # TODO: rename?
             {
                 "workflow_app_alias": self.WORKFLOW_APP_ALIAS,
@@ -1168,6 +1202,7 @@ class Submission(JSONLike):
                 "app_caps": app_caps,
                 "config_dir": str(self._app.config.config_directory),
                 "config_invoc_key": self._app.config.config_key,
+                "config_overrides": overrides,
             }
         )
         out = shell.JS_FUNCS.format(**func_file_args)
@@ -1189,6 +1224,56 @@ class Submission(JSONLike):
             fp.write(js_funcs_str)
 
     @TimeIt.decorator
+    def prepare_submit(self, *, ignore_errors: bool = False) -> None:
+        """Prepare submission metadata and shared files required by jobscripts."""
+
+        outstanding = self.outstanding_jobscripts
+
+        # get scheduler, shell and OS version information (also an opportunity to fail
+        # before trying to submit jobscripts):
+        js_vers_info: dict[int, dict[str, str | list[str]]] = {}
+        for js_indices_sched, sched in self._unique_schedulers:
+            try:
+                vers_info = sched.get_version_info()
+            except Exception:
+                if not ignore_errors:
+                    raise
+                vers_info = {}
+
+            for _, js_idx in js_indices_sched:
+                if js_idx in outstanding:
+                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
+
+        js_shell_indices = {}
+        for shell_idx, (js_indices_sh, shell) in enumerate(self.get_unique_shells()):
+            try:
+                vers_info = shell.get_version_info()
+            except Exception:
+                if not ignore_errors:
+                    raise
+                vers_info = {}
+
+            for js_idx in js_indices_sh:
+                if js_idx in outstanding:
+                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
+                    js_shell_indices[js_idx] = shell_idx
+
+            # write a file containing useful shell functions:
+            self._write_functions_file(shell, shell_idx)
+
+        hostname = socket.gethostname()
+        machine = self._app.config.get("machine")
+
+        for js_idx, vers_info in js_vers_info.items():
+            js = self.jobscripts[js_idx]
+            js._set_version_info(vers_info)
+            js._set_submit_hostname(hostname)
+            js._set_submit_machine(machine)
+            js._set_shell_idx(js_shell_indices[js_idx])
+
+        self.workflow._store._pending.commit_all()
+
+    @TimeIt.decorator
     def submit(
         self,
         status: Status | None,
@@ -1204,48 +1289,8 @@ class Submission(JSONLike):
         # to test a submision with multiple "submission parts". would also need to check
         # dependencies if this customised list is passed
 
+        self.prepare_submit(ignore_errors=ignore_errors)
         outstanding = self.outstanding_jobscripts
-
-        # get scheduler, shell and OS version information (also an opportunity to fail
-        # before trying to submit jobscripts):
-        js_vers_info: dict[int, dict[str, str | list[str]]] = {}
-        for js_indices, sched in self._unique_schedulers:
-            try:
-                vers_info = sched.get_version_info()
-            except Exception:
-                if not ignore_errors:
-                    raise
-                vers_info = {}
-            for _, js_idx in js_indices:
-                if js_idx in outstanding:
-                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
-
-        js_shell_indices = {}
-        for shell_idx, (js_indices_2, shell) in enumerate(self.get_unique_shells()):
-            try:
-                vers_info = shell.get_version_info()
-            except Exception:
-                if not ignore_errors:
-                    raise
-                vers_info = {}
-            for js_idx in js_indices_2:
-                if js_idx in outstanding:
-                    js_vers_info.setdefault(js_idx, {}).update(vers_info)
-                    js_shell_indices[js_idx] = shell_idx
-
-            # write a file containing useful shell functions:
-            self._write_functions_file(shell, shell_idx)
-
-        hostname = socket.gethostname()
-        machine = self._app.config.get("machine")
-        for js_idx, vers_info_i in js_vers_info.items():
-            js = self.jobscripts[js_idx]
-            js._set_version_info(vers_info_i)
-            js._set_submit_hostname(hostname)
-            js._set_submit_machine(machine)
-            js._set_shell_idx(js_shell_indices[js_idx])
-
-        self.workflow._store._pending.commit_all()
 
         # map jobscript `index` to (scheduler job ID or process ID, is_array):
         scheduler_refs: dict[int, tuple[str, bool]] = {}

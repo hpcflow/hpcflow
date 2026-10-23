@@ -62,7 +62,9 @@ def zarr_array_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tupl
     monkeypatch.setattr(
         workflow._store,
         "_get_run_file_lookup",
-        lambda IDs, file_offset=0: {0: {6 + file_offset: {run.id_: 0}}},
+        lambda IDs, submission_metadata=None, file_offset=0: {
+            0: {6 + file_offset: {run.id_: 0}}
+        },
     )
     return workflow, run
 
@@ -234,7 +236,7 @@ def test_zarr_output_array_decode_prefers_npz(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     read_archive = Mock(wraps=workflow._read_array_output_archive)
     monkeypatch.setattr(workflow, "_read_array_output_archive", read_archive)
@@ -295,7 +297,7 @@ def test_zarr_disable_array_outputs(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
     stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
@@ -314,7 +316,7 @@ def test_zarr_legacy_output_decode_without_array_archives(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     monkeypatch.setattr(
         workflow,
@@ -353,7 +355,7 @@ def test_zarr_zip_reads_array_outputs(
     monkeypatch.setattr(
         zip_workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
 
     assert zip_workflow.list_array_outputs() == ["p1.data"]
@@ -388,7 +390,7 @@ def test_zarr_consolidated_array_outputs_decode(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
 
@@ -436,7 +438,7 @@ def test_zarr_masked_output_array_decode(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
 
@@ -464,7 +466,7 @@ def test_zarr_masked_output_nomask_round_trips(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
 
@@ -519,7 +521,9 @@ def test_zarr_legacy_shard_groups_created_only_when_needed(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_file_lookup",
-        lambda IDs, file_offset=0: {0: {6 + file_offset: {run.id_: 0}}},
+        lambda IDs, submission_metadata=None, file_offset=0: {
+            0: {6 + file_offset: {run.id_: 0}}
+        },
     )
 
     masked = np.ma.array([1.0, 2.0], mask=[False, True], fill_value=-1.0)
@@ -541,7 +545,7 @@ def test_zarr_legacy_shard_groups_created_only_when_needed(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
     stored = workflow.get_parameter_data(param_ID, dataset_copy=True)
@@ -662,7 +666,7 @@ def test_zarr_npz_only_output_missing_archive_raises(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
     with pytest.raises(FileNotFoundError, match="Missing NPZ archive"):
@@ -685,7 +689,7 @@ def test_zarr_array_output_decode_rejects_corrupt_archive(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
 

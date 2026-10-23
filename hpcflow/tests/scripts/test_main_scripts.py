@@ -14,7 +14,11 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -46,7 +50,11 @@ def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -78,7 +86,11 @@ def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: 
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_in_direct_out_single_label(tmp_path: Path, combine_scripts: bool):
     """This uses the same test script as the `test_script_direct_in_direct_out` test;
     single labels are trivial and need not be referenced in the script."""
@@ -113,7 +125,11 @@ def test_script_direct_in_direct_out_single_label(tmp_path: Path, combine_script
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_in_direct_out_labels(tmp_path: Path, combine_scripts: bool):
     p1_label_1 = "one"
     p1_label_2 = "two"
@@ -160,7 +176,11 @@ def test_script_direct_in_direct_out_labels(tmp_path: Path, combine_scripts: boo
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -198,7 +218,11 @@ def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
     p1_label_1 = "one"
     p1_label_2 = "two"
@@ -246,7 +270,11 @@ def test_script_json_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_sub_param_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
     p1_label_1 = "one"
     p1_label_2 = "two"
@@ -294,7 +322,11 @@ def test_script_json_sub_param_in_json_out_labels(tmp_path: Path, combine_script
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_and_direct_in_json_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -331,7 +363,11 @@ def test_script_json_and_direct_in_json_out(tmp_path: Path, combine_scripts: boo
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_in_json_and_direct_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -370,7 +406,11 @@ def test_script_json_in_json_and_direct_out(tmp_path: Path, combine_scripts: boo
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_in_obj(tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
@@ -405,7 +445,11 @@ def test_script_json_in_obj(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_hdf5_in_obj(tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
@@ -440,7 +484,11 @@ def test_script_hdf5_in_obj(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_hdf5_in_obj_group(tmp_path: Path, combine_scripts: bool):
     s0 = hf.TaskSchema(
         objective="define_p1c",
@@ -483,7 +531,11 @@ def test_script_hdf5_in_obj_group(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_json_out_obj(tmp_path: Path, combine_scripts: bool):
     """Use a custom JSON saver defined in the P1 class."""
     s1 = hf.TaskSchema(
@@ -518,7 +570,11 @@ def test_script_json_out_obj(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_hdf5_out_obj(tmp_path: Path, combine_scripts: bool):
     """Use a custom HDF5 saver defined in the P1 class."""
     s1 = hf.TaskSchema(
@@ -553,7 +609,11 @@ def test_script_hdf5_out_obj(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_in_pass_env_spec(
     tmp_path: Path, combine_scripts: bool, reload_template_components
 ):
@@ -599,7 +659,11 @@ def test_script_direct_in_pass_env_spec(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_std_stream_redirect_on_exception(
     tmp_path: Path, combine_scripts: bool, reload_template_components
 ):
@@ -658,7 +722,11 @@ def test_script_std_stream_redirect_on_exception(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_std_out_std_err_not_redirected(tmp_path: Path, combine_scripts: bool):
     """Test that standard error and output streams from a script are written to the jobscript
     standard error and output files."""
@@ -700,7 +768,11 @@ def test_script_std_out_std_err_not_redirected(tmp_path: Path, combine_scripts: 
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_pass_env_spec(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -735,7 +807,11 @@ def test_script_pass_env_spec(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_env_specifier_in_main_script_path(
     tmp_path: Path, combine_scripts: bool, reload_template_components
 ):
@@ -777,7 +853,11 @@ def test_env_specifier_in_main_script_path(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_env_specifier_in_main_script_path_multiple_scripts(
     tmp_path: Path, combine_scripts: bool, reload_template_components
 ):
@@ -832,7 +912,11 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_direct_in_direct_out_multi_element(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1131,7 +1215,7 @@ def test_shell_env_vars(tmp_path: Path):
 
         assert int(env_dat["HPCFLOW_RUN_ID"]) == run.id_
         assert int(env_dat["HPCFLOW_RUN_IDX"]) == run.index
-        assert int(env_dat["HPCFLOW_RUN_PORT"]) == run.port_number
+        assert int(env_dat["HPCFLOW_JS_CONTROL_PORT"]) == run.port_number
 
         script_name = run.get_script_artifact_name()
         sub_scripts_dir = wk.submissions[run.submission_idx].scripts_path
@@ -1162,6 +1246,7 @@ def test_shell_env_vars(tmp_path: Path):
 
 
 @pytest.mark.integration
+@pytest.mark.combine_scripts
 def test_combine_scripts_script_data_multiple_input_file_formats(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1217,6 +1302,7 @@ def test_combine_scripts_script_data_multiple_input_file_formats(tmp_path: Path)
 
 
 @pytest.mark.integration
+@pytest.mark.combine_scripts
 def test_combine_scripts_from_future_import(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1242,7 +1328,11 @@ def test_combine_scripts_from_future_import(tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [False, True],
+    ids=["combine-scripts-false", "combine-scripts-true"],
+)
 def test_script_random_seed(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(
         objective="t1",

@@ -138,7 +138,7 @@ def test_skipped_run_does_not_create_execute_directory(
     assert directory is not None
     wk.set_EAR_skip({run.id_: SkipReason.UPSTREAM_FAILURE})
     monkeypatch.chdir(tmp_path)
-    wk._execute_run(0, (0, 0, 0), run.id_)
+    hf.JobscriptExecutor(wk, 0, 0).execute()
     assert not directory.exists()
 
 

@@ -158,6 +158,7 @@ class RunTimeInfo:
             "hostname": self.hostname,
             "python_version": self.python_version,
             "invocation_command": self.invocation_command,
+            "app_invocation_command": self.app_invocation_command,
             "in_ipython": self.in_ipython,
             "in_pytest": self.in_pytest,
             "from_CLI": self.from_CLI,
@@ -293,10 +294,15 @@ class RunTimeInfo:
 
     @property
     def invocation_command(self) -> tuple[str, ...]:
-        """Get the command that was used to invoke this instance of the app."""
+        """Get the command that was used to invoke this instance of the app.
+
+        Answers: "what launched me?"
+
+        """
         if self.is_frozen:
             # (this also works if we are running tests using the frozen app)
             return (str(self.resolved_executable_path),)
+
         elif self.from_CLI:
             script = str(self.resolved_script_path)
             if os.name == "nt":
@@ -312,10 +318,26 @@ class RunTimeInfo:
                     if not Path(script).is_file():
                         raise RuntimeError("Cannot locate invocation script.")
             return (str(self.python_executable_path), script)
-        else:
-            app_module = import_module(self.package_name)
-            CLI_path = Path(*app_module.__path__, "cli.py")
-            return (str(self.python_executable_path), str(CLI_path))
+
+        return self.app_invocation_command
+
+    @property
+    def app_invocation_command(self) -> tuple[str, ...]:
+        """Get a command that can be used to invoke the application.
+
+        Answers: "how can I launch another instance of the app?"
+
+        This differs from ``invocation_command``, which might return some sort of wrapper
+        script (e.g. in the case of running pytest via VSCode)
+        """
+
+        if self.is_frozen:
+            return (str(self.resolved_executable_path),)
+
+        app_module = import_module(self.package_name)
+        cli_path = Path(*app_module.__path__, "cli.py")
+
+        return (str(self.python_executable_path), str(cli_path))
 
     @property
     def is_apple_silicon(self) -> bool:

@@ -7,6 +7,7 @@ from hpcflow.sdk.core.actions import EARStatus
 
 
 @pytest.mark.integration
+@pytest.mark.combine_scripts
 def test_skip_downstream_on_failure_true_combine_scripts(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -87,6 +88,7 @@ def test_skip_downstream_on_failure_true_combine_scripts(tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.combine_scripts
 def test_skip_downstream_on_failure_false_combine_scripts(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -266,7 +268,11 @@ def test_skip_downstream_on_failure_false(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", ["UNSET", None, False, 0.0, 0])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_skip_downstream_on_failure_false_expected_failure(
     tmp_path, allow_failed_dependencies, combine_scripts
 ):
@@ -330,7 +336,11 @@ def test_skip_downstream_on_failure_false_expected_failure(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", [True, 1.0, 1])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependencies(
     tmp_path, allow_failed_dependencies, combine_scripts
 ):
@@ -404,7 +414,11 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
         1,
     ],
 )
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_skip_downstream_on_failure_false_expected_failure_group(
     tmp_path, allow_failed_dependencies, combine_scripts
 ):
@@ -478,7 +492,11 @@ def test_skip_downstream_on_failure_false_expected_failure_group(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", [True, 0.4, 1])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependencies_group(
     tmp_path, allow_failed_dependencies, combine_scripts
 ):
@@ -641,7 +659,11 @@ def test_unset_parameters_found_when_writing_script_input_file(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "combine_scripts",
+    [True, False],
+    ids=["combine-scripts-true", "combine-scripts-false"],
+)
 def test_unset_parameters_found_when_py_script_gets_direct_inputs(
     tmp_path, combine_scripts
 ):

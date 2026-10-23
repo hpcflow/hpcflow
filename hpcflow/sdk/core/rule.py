@@ -11,7 +11,7 @@ from valida import Rule as ValidaRule  # type: ignore
 from hpcflow.sdk.core.errors import ContainerKeyError, UnsetParameterDataError
 from hpcflow.sdk.core.json_like import JSONLike
 from hpcflow.sdk.core.utils import get_in_container
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 
 if TYPE_CHECKING:
     from typing import Any

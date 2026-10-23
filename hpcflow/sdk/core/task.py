@@ -18,7 +18,7 @@ import numpy as np
 
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.object_list import AppDataList
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.element import ElementGroup

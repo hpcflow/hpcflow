@@ -148,7 +148,7 @@ class EARStatus(_ReportableStateEnum):
     )
 
     @classmethod
-    def get_non_running_submitted_states(cls) -> frozenset[EARStatus]:
+    def get_terminal_states(cls) -> frozenset[EARStatus]:
         """Return the set of all non-running states, excluding those before submission."""
         return frozenset(
             {
@@ -156,6 +156,21 @@ class EARStatus(_ReportableStateEnum):
                 cls.aborted,
                 cls.success,
                 cls.error,
+            }
+        )
+
+    @classmethod
+    def get_pre_running_states(cls) -> frozenset[EARStatus]:
+        return frozenset({cls.pending, cls.prepared, cls.submitted})
+
+    @classmethod
+    def get_executable_states(cls) -> frozenset[EARStatus]:
+        return frozenset(
+            {
+                cls.pending,
+                cls.prepared,
+                cls.submitted,
+                cls.skipped,
             }
         )
 

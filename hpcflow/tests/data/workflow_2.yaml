@@ -1,0 +1,8 @@
+doc: Simple two-jobscript test workflow with single OS-agnostic task that prints to the shell's standard output stream.
+tasks:
+  - schema: test_t1_conditional_OS # this schema works on both Windows and POSIX    
+    inputs:
+      p1: 101
+    sequences:
+      - path: resources.any.resources_id # force two jobscripts
+        values: [0, 1]
