@@ -127,3 +127,22 @@ class RunStatus:
 class StatusResponse(JobscriptResponse):
     runs: list[RunStatus]
     ok: bool = field(default=True, init=False)
+
+
+@dataclass(frozen=True)
+class ExecuteScriptRequest:
+    run_id: int
+    block_idx: int
+    action_idx: int
+    element_idx: int
+
+
+@dataclass(frozen=True)
+class ScriptExecutionResult:
+    run_id: int
+    exit_code: int
+
+
+@dataclass(frozen=True)
+class ShutdownScriptWorker:
+    pass

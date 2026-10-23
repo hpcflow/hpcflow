@@ -24,6 +24,7 @@ from typing import (
 import warnings
 from typing_extensions import Self
 
+from hpcflow.sdk.core.environment import EnvironmentSpec
 from hpcflow.sdk.core.enums import (
     ARRAY_WRAP_ORDERS,
     DEFAULT_ARRAY_WRAP_ORDER,
@@ -1400,7 +1401,7 @@ class ElementIteration(AppAware):
         )
 
         env_spec = action.get_environment_spec()
-        env_name: str = env_spec["name"]
+        env_name = env_spec.name
 
         # set default env specifiers, if none set:
         if "environments" not in (any_specs := resource_specs.setdefault("any", {})):
@@ -1408,14 +1409,11 @@ class ElementIteration(AppAware):
 
         for dat in resource_specs.values():
             if "environments" in dat:
-                # keep only relevant user-provided environment specifiers:
-                dat["environments"] = {
-                    k: v for k, v in dat["environments"].items() if k == env_name
-                }
                 # merge user-provided specifiers into action specifiers:
-                dat["environments"].setdefault(env_name, {}).update(
-                    copy.deepcopy(env_spec)
-                )
+                existing = dat["environments"].get(env_name, {})
+                dat["environments"] = {
+                    env_name: EnvironmentSpec({**existing, **env_spec})
+                }
 
         resources: dict[str, Any] = {}
         for scope in action._get_possible_scopes_reversed():
@@ -1460,12 +1458,12 @@ class ElementIteration(AppAware):
 
         return resources
 
-    def get_environment_spec(self, action: Action) -> Mapping[str, Any]:
+    def get_environment_spec(self, action: Action) -> EnvironmentSpec:
         """A faster path to environment specs instead of via ElementResources."""
         resource_specs = self.get("resources")
 
         action_env_spec = action.get_environment_spec()
-        env_name = action_env_spec["name"]
+        env_name = action_env_spec.name
 
         env_spec = dict(action_env_spec)
 
@@ -1482,7 +1480,7 @@ class ElementIteration(AppAware):
             if user_env_spec := scope_envs.get(env_name):
                 env_spec.update(user_env_spec)
 
-        return env_spec
+        return EnvironmentSpec(env_spec)
 
     def get_resources_obj(
         self, action: Action, set_defaults: bool = False

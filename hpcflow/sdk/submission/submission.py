@@ -15,6 +15,7 @@ import warnings
 from contextlib import contextmanager
 
 
+from hpcflow.sdk.scripting.writer import ScriptWorkerArgs, ScriptWriter
 from hpcflow.sdk.submission.run_file_resolver import RunMetaDataFileResolver
 from hpcflow.sdk.utils.strings import shorten_list_str
 import numpy as np
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
     from .shells import Shell
     from .types import SubmissionPart
     from ..core.element import ElementActionRun
-    from ..core.environment import Environment
+    from ..core.environment import Environment, EnvironmentSpec
     from ..core.object_list import EnvironmentsList
     from ..core.workflow import Workflow
     from ..core.cache import ObjectCache
@@ -184,23 +185,35 @@ class Submission(JSONLike):
         filterable = self._app.ElementResources.get_env_instance_filterable_attributes()
 
         # map required environments and executable labels to job script indices:
-        req_envs: dict[tuple[tuple[str, ...], tuple[Any, ...]], dict[str, set[int]]] = (
-            defaultdict(lambda: defaultdict(set))
+        req_envs: dict[EnvironmentSpec, dict[str, set[int]]] = defaultdict(
+            lambda: defaultdict(set)
         )
+
+        # need to be same env_spec and executable
+        # script_envs_by_js = defaultdict(lambda: defaultdict(set))
+
         with self.workflow.cached_merged_parameters():
             for js_idx, all_EARs_i in enumerate(self.all_EARs_by_jobscript):
                 for run in all_EARs_i:
-                    env_spec_h = run.env_spec_hashable
-                    for exec_label_j in run.action.get_required_executables():
-                        req_envs[env_spec_h][exec_label_j].add(js_idx)
-                    # add any environment for which an executable was not required:
-                    if env_spec_h not in req_envs:
-                        req_envs[env_spec_h]
+                    env_spec = run.env_spec
+                    if run.use_script_worker:
+                        exec_label = run.action.script_exe
+                        if exec_label is None:
+                            raise ValueError(
+                                "A script worker requires a script executable."
+                            )
+                        req_envs[env_spec][exec_label].add(js_idx)
+                        # script_envs_by_js[js_idx][env_spec].add(run.id_)
+                    else:
+                        for exec_label_j in run.action.get_required_executables():
+                            req_envs[env_spec][exec_label_j].add(js_idx)
+                        # add any environment for which an executable was not required:
+                        if env_spec not in req_envs:
+                            req_envs[env_spec]
 
         # check these envs/execs exist in app data:
         envs: list[Environment] = []
-        for env_spec_h, exec_js in req_envs.items():
-            env_spec = self._app.Action.env_spec_from_hashable(env_spec_h)
+        for env_spec, exec_js in req_envs.items():
             try:
                 env_i = self._app.envs.get(**env_spec)
             except ObjectListMultipleMatchError:
@@ -744,6 +757,16 @@ class Submission(JSONLike):
         assert all_runs is not None
         runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
+        # TODO: write worker_scripts and commands (should be able to)
+        # - for runs for which `use_script_worker` is True:
+        #       - script_workers[js_idx][env_spec_hashable] = [(task_id, act_idx), ...]
+
+        # look over jobscript task-actions;
+        # check action.use_script_worker
+        # assign to script_workers for those actions
+        # then do normal run loop
+
+        script_workers: dict[ScriptWorkerArgs, set[tuple[int, int]]] = defaultdict(set)
         with self.workflow.cached_merged_parameters():
             for js in self.jobscripts:
                 js_idx = js.index
@@ -763,6 +786,14 @@ class Submission(JSONLike):
 
                 for idx, run_id in enumerate(js.all_EAR_IDs):
                     run = all_runs[run_id]
+
+                    if run.use_script_worker:
+                        script_workers[run.get_script_worker_args(js_idx)].add(
+                            (
+                                run.task.insert_ID,
+                                run.element_action.action_idx,
+                            )
+                        )
 
                     run_indices[run_idx] = [
                         run.task.insert_ID,
@@ -795,19 +826,17 @@ class Submission(JSONLike):
                         run_cmd_file_names[run.id_] = None
 
                     else:
-                        env_spec_h = None
+                        env_spec = None
                         if run.is_snippet_script:
-                            env_spec_h = run.env_spec_hashable
+                            env_spec = run.env_spec
                             actions_by_schema[run.action.task_schema.name][
                                 run.element_action.action_idx
-                            ].add(env_spec_h)
+                            ].add(env_spec)
 
                         if run.action.commands:
-                            if env_spec_h is None:
-                                env_spec_h = run.env_spec_hashable
-                            hash_i = run.get_commands_file_hash(
-                                env_spec_hashable=env_spec_h
-                            )
+                            if env_spec is None:
+                                env_spec = run.env_spec
+                            hash_i = run.get_commands_file_hash(env_spec=env_spec)
                             # TODO: could further reduce number of files in the case the data
                             # indices hash is the same: if commands objects are the same and
                             # environment objects are the same, then the files will be the
@@ -852,9 +881,8 @@ class Submission(JSONLike):
                         if not action.script:
                             continue
 
-                        for env_spec_h in actions_by_schema[schema.name][idx]:
+                        for env_spec in actions_by_schema[schema.name][idx]:
 
-                            env_spec = action.env_spec_from_hashable(env_spec_h)
                             name, snip_path, specs = action.get_script_artifact_name(
                                 env_spec=env_spec,
                                 act_idx=idx,
@@ -881,6 +909,21 @@ class Submission(JSONLike):
                                     with script_path.open("wt", newline="\n") as fp:
                                         fp.write(source_str)
                                     seen[script_hash] = script_path
+
+        # write script workers:
+        for worker_args, act_data in script_workers.items():
+            actions = {}
+            for task_iID, act_idx in sorted(act_data):
+                task = self.workflow.tasks.get(insert_ID=task_iID)
+                schema = task.template.schemas[0]  # TODO: multiple schemas
+                actions[act_idx] = schema.actions[act_idx]
+
+            # need to pass enough info to construct the file path
+            # env and executable inst command is needed to write commands file (e.g. setup)
+
+            writer = ScriptWriter.create(worker_args, actions)
+            writer.write_worker(self.scripts_path)
+            writer.write_worker_commands_file(self.commands_path)
 
         # combined script stuff
         for js_idx, act_IDs in combined_actions.items():

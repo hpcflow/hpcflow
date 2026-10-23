@@ -9,6 +9,7 @@ from collections.abc import Mapping
 import copy
 from dataclasses import dataclass
 from datetime import timedelta
+import hashlib
 import json
 import contextlib
 from collections import defaultdict
@@ -43,6 +44,7 @@ from hpcflow.sdk.core.errors import (
 )
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.parameters import ParameterValue
+from hpcflow.sdk.scripting.writer import ScriptWorkerArgs
 from hpcflow.sdk.typing import ParamSource, hydrate
 from hpcflow.sdk.core.utils import (
     JSONLikeDirSnapShot,
@@ -50,6 +52,7 @@ from hpcflow.sdk.core.utils import (
     swap_nested_dict_keys,
     timedelta_format,
 )
+from hpcflow.sdk.core.environment import EnvironmentSpec
 from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.core.run_dir_files import RunDirAppFiles
 from hpcflow.sdk.submission.enums import SubmissionStatus
@@ -100,6 +103,7 @@ if TYPE_CHECKING:
     from .types import ParameterDependence, ActionData, BlockActionKey
     from .workflow import Workflow
     from .object_list import EnvironmentsList
+    from .environment import ExecutableInstance
 
 ACTION_SCOPE_REGEX = r"(\w*)(?:\[(.*)\])?"
 
@@ -831,17 +835,12 @@ class ElementActionRun(AppAware):
 
     @property
     @TimeIt.decorator
-    def env_spec(self) -> Mapping[str, Any]:
+    def env_spec(self) -> EnvironmentSpec:
         """
         Get the specification that defines the environment in which this run will execute.
         This will include at least a `name` key.
         """
         return self.element_iteration.get_environment_spec(self.action)
-
-    @property
-    @TimeIt.decorator
-    def env_spec_hashable(self) -> tuple:
-        return self.action.env_spec_to_hashable(self.env_spec)
 
     def get_directory(self) -> Path | None:
         """
@@ -934,6 +933,38 @@ class ElementActionRun(AppAware):
         else:
             env_lst = self._app.envs
         return env_lst.get(**self.get_environment_spec())
+
+    def get_executable_instance(self) -> ExecutableInstance:
+        filter_exec = {
+            j: getattr(self.resources, j)
+            for j in self._app.ElementResources.get_env_instance_filterable_attributes()
+        }
+        executable = self.get_environment().executables.get(self.action.script_exe)
+        return executable.filter_instances(**filter_exec)[0]
+
+    def get_script_worker_hash(self) -> str | None:
+        if not self.use_script_worker or self.jobscript_idx is None:
+            return None
+        return self.script_worker_args.stable_hash
+
+    @property
+    def script_worker_args(self) -> ScriptWorkerArgs:
+        if self.jobscript_idx is None:
+            raise RuntimeError("Script worker arguments require a jobscript index.")
+        return self.get_script_worker_args(self.jobscript_idx)
+
+    def get_script_worker_args(self, jobscript_idx: int) -> ScriptWorkerArgs:
+        """Use this before the jobscript index is set."""
+        return ScriptWorkerArgs(
+            jobscript_idx=jobscript_idx,
+            env=self.get_environment(),
+            exec_cmd=self.get_executable_instance().command,
+            language="python",
+        )
+
+    @property
+    def script_worker_id(self) -> str:
+        return self.script_worker_args.stable_hash
 
     @TimeIt.decorator
     def get_all_previous_iteration_runs(
@@ -1316,8 +1347,7 @@ class ElementActionRun(AppAware):
     def use_script_worker(self) -> bool:
         """Returns True is a script worker process is to be used to execute this
         action."""
-        return False  # TEMP
-        # return self.action.script_is_python_snippet and self.is_snippet_script
+        return self.action.use_script_worker
 
     @TimeIt.decorator
     def get_script_artifact_name(self) -> str:
@@ -1375,7 +1405,7 @@ class ElementActionRun(AppAware):
         return ("\n".join(command_lns) + "\n"), shell_vars
 
     @TimeIt.decorator
-    def get_commands_file_hash(self, env_spec_hashable: tuple | None = None) -> int:
+    def get_commands_file_hash(self, env_spec: EnvironmentSpec | None = None) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
 
@@ -1385,7 +1415,7 @@ class ElementActionRun(AppAware):
         return self.action.get_commands_file_hash(
             data_idx=self.get_data_idx(),
             action_idx=self.element_action.action_idx,
-            env_spec_hashable=env_spec_hashable or self.env_spec_hashable,
+            env_spec=env_spec or self.env_spec,
         )
 
     @overload
@@ -2514,6 +2544,11 @@ class Action(JSONLike):
         return False
 
     @property
+    def use_script_worker(self) -> bool:
+        """Keep production execution on the legacy path until workers are ready."""
+        return False
+
+    @property
     def program_data_in_has_files(self) -> bool:
         """Return True if the program requires some inputs to be passed via an
         intermediate file format."""
@@ -2772,9 +2807,9 @@ class Action(JSONLike):
         """
         Get the name of the environment associated with this action.
         """
-        return self.get_environment_spec()["name"]
+        return self.get_environment_spec().name
 
-    def get_environment_spec(self) -> Mapping[str, Any]:
+    def get_environment_spec(self) -> EnvironmentSpec:
         """
         Get the specification for the environment of this action, assuming it has been
         expanded.
@@ -2785,7 +2820,7 @@ class Action(JSONLike):
                 "expanded, meaning multiple action environments might exist."
             )
         assert len(self.environments) == 1  # expanded action should have only one
-        return self.environments[0].environment
+        return EnvironmentSpec(self.environments[0].environment)
 
     def get_environment(self) -> Environment:
         """
@@ -3850,7 +3885,10 @@ class Action(JSONLike):
         return list(chain.from_iterable(self.get_prefixed_data_names().values()))
 
     def get_commands_file_hash(
-        self, data_idx: DataIndex, action_idx: int, env_spec_hashable: tuple = ()
+        self,
+        data_idx: DataIndex,
+        action_idx: int,
+        env_spec: EnvironmentSpec | None = None,
     ) -> int:
         """Get a hash that can be used to group together runs that will have the same
         commands file.
@@ -3914,7 +3952,7 @@ class Action(JSONLike):
                 schema_name,
                 action_idx,
                 relevant_data_idx,
-                env_spec_hashable,
+                env_spec,
             )
         )
 

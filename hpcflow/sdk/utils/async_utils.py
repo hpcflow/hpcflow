@@ -12,6 +12,25 @@ import zmq.asyncio
 T = TypeVar("T")
 
 
+async def await_cleanup(task: asyncio.Future[T]) -> T:
+    """Finish a scheduled cleanup before propagating caller cancellation.
+
+    The cleanup must bound its own waits. Cleanup failures take precedence over
+    cancellation so that failures to release resources remain visible.
+    """
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 def run_coroutine_sync(coro: Coroutine[Any, Any, T]) -> T:
     """Run a coroutine synchronously in a dedicated thread.
 

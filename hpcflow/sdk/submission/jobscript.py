@@ -2088,7 +2088,7 @@ class Jobscript(JSONLike):
             }
         return out
 
-    def compose_combined_script(
+    def compose_combined_script_OLD(
         self, action_scripts: list[list[tuple[str, Path, bool]]]
     ) -> tuple[str, list[list[int]], list[int], list[int]]:
         """
@@ -2547,6 +2547,706 @@ class Jobscript(JSONLike):
         num_elems = [i.num_elements for i in self.blocks]
         num_acts = [len(i) for i in action_scripts]
 
+        return script, script_indices, num_elems, num_acts
+
+    def compose_combined_script(
+        self, action_scripts: list[list[tuple[str, Path, bool]]]
+    ) -> tuple[str, list[list[int]], list[int], list[int]]:
+        """Prepare the source for a combined Python jobscript.
+
+        The generated script exposes ``run_action(runtime, block_idx, action_idx)``
+        as its orchestration boundary. ``run_all(runtime)`` preserves the current
+        sequential behaviour by invoking that function for every block/action.
+        """
+
+        if not self.resources.combine_scripts:
+            raise TypeError(
+                f"Jobscript {self.index} is not a `combine_scripts` jobscript."
+            )
+
+        tab = "    "
+        app_caps = self._app.package_name.upper()
+
+        # ------------------------------------------------------------------
+        # De-duplicate the Python snippets and build the block/action ->
+        # embedded-function index map.
+        # ------------------------------------------------------------------
+        script_names: list[str] = []
+        requires_dir: list[bool] = []
+        script_data: dict[str, tuple[int, Path]] = {}
+        script_indices: list[list[int]] = []
+
+        for block_scripts in action_scripts:
+            block_indices: list[int] = []
+            for action_name, script_path, action_requires_dir in block_scripts:
+                if action_name in script_data:
+                    script_idx = script_data[action_name][0]
+                else:
+                    script_idx = len(script_names)
+                    script_names.append(action_name)
+                    requires_dir.append(action_requires_dir)
+                    script_data[action_name] = (script_idx, script_path)
+                block_indices.append(script_idx)
+            script_indices.append(block_indices)
+
+        # ------------------------------------------------------------------
+        # Embed each source snippet behind a stable action wrapper.
+        # ------------------------------------------------------------------
+        action_function_sources: list[str] = []
+        future_imports: set[str] = set()
+
+        for action_name, (_, script_path) in script_data.items():
+            source_func_name = script_path.stem
+            with script_path.open("rt") as fp:
+                source = fp.read()
+
+            source, source_future_imports = extract_py_from_future_imports(source)
+            future_imports.update(source_future_imports)
+
+            action_function_sources.append(
+                dedent("""\
+                    def {action_name}(*args, **kwargs):
+                    {source}
+                        return {source_func_name}(*args, **kwargs)
+                    """).format(
+                    action_name=action_name,
+                    source=indent(source, tab),
+                    source_func_name=source_func_name,
+                )
+            )
+
+        action_functions = "\n\n".join(action_function_sources)
+        action_function_list = "[" + ", ".join(script_names) + "]"
+
+        if self.resources.write_app_logs:
+            log_path_expr = f'os.environ["{app_caps}_LOG_PATH"]'
+        else:
+            log_path_expr = '""'
+
+        # ------------------------------------------------------------------
+        # Generated module header and immutable jobscript configuration.
+        # ------------------------------------------------------------------
+        imports_source = dedent("""\
+            import os
+            from collections import defaultdict
+            from dataclasses import dataclass
+            from pathlib import Path
+            import time
+            import traceback
+            from typing import Any, Dict, TextIO
+
+            import {app_module} as app
+
+            from hpcflow.sdk.core.errors import UnsetParameterDataErrorBase
+            from hpcflow.sdk.core.skip_reason import SkipReason
+            """).format(app_module=self._app.module)
+
+        configuration_source = dedent("""\
+            JS_IDX = {js_idx}
+            NUM_BLOCKS = {num_blocks}
+            ACTION_SCRIPTS = {action_functions}
+            REQUIRES_DIR = {requires_dir!r}
+            WRITE_APP_LOGS = {write_app_logs!r}
+            LOG_PATH = {log_path_expr}
+            WK_PATH = os.getenv("{app_caps}_WK_PATH")
+            """).format(
+            js_idx=self.index,
+            num_blocks=len(self.blocks),
+            action_functions=action_function_list,
+            requires_dir=requires_dir,
+            write_app_logs=self.resources.write_app_logs,
+            log_path_expr=log_path_expr,
+            app_caps=app_caps,
+        )
+
+        # ------------------------------------------------------------------
+        # Runtime state. Keeping this together is what makes run_action()
+        # callable independently later.
+        # ------------------------------------------------------------------
+        runtime_types_source = dedent("""\
+            @dataclass
+            class TimingFiles:
+                get_inputs: TextIO
+                function: TextIO
+                run: TextIO
+                set_start_multi: TextIO
+                set_end_multi: TextIO
+                save_multi: TextIO
+                loop_termination: TextIO
+
+                def close(self):
+                    self.get_inputs.close()
+                    self.function.close()
+                    self.run.close()
+                    self.set_start_multi.close()
+                    self.set_end_multi.close()
+                    self.save_multi.close()
+                    self.loop_termination.close()
+
+
+            @dataclass
+            class Runtime:
+                workflow: Any
+                run_ids: list[list[int]]
+                runs: dict[int, Any]
+                run_skips: Dict[int, bool]
+                script_indices: list[list[int]]
+                num_elements: list[int]
+                num_actions: list[int]
+                run_dirs: Any
+                port: int
+                timings: TimingFiles
+            """)
+
+        # ------------------------------------------------------------------
+        # Startup / shutdown helpers.
+        # ------------------------------------------------------------------
+        initialisation_source = dedent("""\
+            def _read_run_ids():
+                with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
+                    lines = fp.read().strip().split("\\n")
+                return [
+                    [int(value) for value in line.split("{run_id_delim}")]
+                    for line in lines
+                ]
+
+
+            def _read_script_metadata():
+                with open(os.environ["{app_caps}_SCRIPT_INDICES_FILE"], mode="r") as fp:
+                    lines = fp.read().strip().split("\\n")
+
+                section_idx = -1
+                script_indices = []
+                num_elements = None
+                num_actions = None
+
+                for line in lines:
+                    if line.startswith("#"):
+                        section_idx += 1
+                        continue
+
+                    values = [int(value) for value in line.split(",")]
+                    if section_idx == 0:
+                        num_elements = values
+                    elif section_idx == 1:
+                        num_actions = values
+                    else:
+                        script_indices.append(values)
+
+                if num_elements is None or num_actions is None:
+                    raise ValueError("Invalid combined-jobscript metadata file.")
+
+                return script_indices, num_elements, num_actions
+
+
+            def _open_timing_files():
+                return TimingFiles(
+                    get_inputs=open(f"js_{{JS_IDX}}_get_inputs_times.txt", "wt"),
+                    function=open(f"js_{{JS_IDX}}_func_times.txt", "wt"),
+                    run=open(f"js_{{JS_IDX}}_run_times.txt", "wt"),
+                    set_start_multi=open(f"js_{{JS_IDX}}_set_start_multi_times.txt", "wt"),
+                    set_end_multi=open(f"js_{{JS_IDX}}_set_end_multi_times.txt", "wt"),
+                    save_multi=open(f"js_{{JS_IDX}}_save_multi_times.txt", "wt"),
+                    loop_termination=open(f"js_{{JS_IDX}}_loop_term_times.txt", "wt"),
+                )
+
+
+            def initialise_runtime():
+                sub_std_path = Path(
+                    os.environ["{app_caps}_SUB_STD_DIR"],
+                    f"js_{{JS_IDX}}.txt",
+                )
+
+                with app.redirect_std_to_file(sub_std_path):
+                    app.load_config(
+                        overrides={{"log_file_path": LOG_PATH}},
+                        config_dir=r"{config_dir}",
+                        config_key=r"{config_key}",
+                    )
+                    workflow = app.Workflow(WK_PATH)
+                    run_ids = _read_run_ids()
+
+                    get_runs_tic = time.perf_counter()
+                    flat_run_ids = [
+                        run_id
+                        for element_run_ids in run_ids
+                        for run_id in element_run_ids
+                        if run_id != -1
+                    ]
+                    runs = workflow.get_EARs_from_IDs(flat_run_ids, as_dict=True)
+
+                    for run in runs.values():
+                        if not workflow._Workflow__apply_group_task_conditions(run):
+                            run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
+
+                    run_skips: Dict[int, bool] = {{
+                        run_id: run.skip for run_id, run in runs.items()
+                    }}
+                    get_runs_toc = time.perf_counter()
+
+                    script_indices, num_elements, num_actions = _read_script_metadata()
+                    run_dirs = workflow.get_run_directories()
+                    port = int(os.environ["{app_caps}_RUN_PORT"])
+                    timings = _open_timing_files()
+
+                    print(f"get_all_runs_time: {{get_runs_toc - get_runs_tic:.4f}}")
+
+                return Runtime(
+                    workflow=workflow,
+                    run_ids=run_ids,
+                    runs=runs,
+                    run_skips=run_skips,
+                    script_indices=script_indices,
+                    num_elements=num_elements,
+                    num_actions=num_actions,
+                    run_dirs=run_dirs,
+                    port=port,
+                    timings=timings,
+                )
+
+
+            def close_runtime(runtime):
+                runtime.timings.close()
+            """).format(
+            app_caps=app_caps,
+            run_id_delim=self._EAR_files_delimiter,
+            config_dir=self._app.config.config_directory,
+            config_key=self._app.config.config_key,
+        )
+
+        # ------------------------------------------------------------------
+        # Per-run helpers.
+        # ------------------------------------------------------------------
+        run_helpers_source = dedent("""\
+            def _block_start_element_idx(runtime, block_idx):
+                return sum(runtime.num_elements[:block_idx])
+
+
+            def _set_run_environment(run, run_id, block_idx, action_idx, block_elem_idx, js_elem_idx):
+                loop_idx_str = ";".join(
+                    f"{{key}}={{value}}"
+                    for key, value in run.element_iteration.loop_idx.items()
+                )
+                rng_spawn_key_str = ",".join(
+                    str(key) for key in run.resources.rng_spawn_key or []
+                )
+
+                os.environ["{app_caps}_BLOCK_IDX"] = str(block_idx)
+                os.environ["{app_caps}_BLOCK_ACT_IDX"] = str(action_idx)
+                os.environ["{app_caps}_TASK_IDX"] = str(run.task.index)
+                os.environ["{app_caps}_TASK_INSERT_ID"] = str(run.task.insert_ID)
+                os.environ["{app_caps}_BLOCK_ELEM_IDX"] = str(block_elem_idx)
+                os.environ["{app_caps}_JS_ELEM_IDX"] = str(js_elem_idx)
+                os.environ["{app_caps}_RUN_ID"] = str(run_id)
+                os.environ["{app_caps}_ELEMENT_IDX"] = str(run.element.index)
+                os.environ["{app_caps}_ELEMENT_ID"] = str(run.element.id_)
+                os.environ["{app_caps}_ELEMENT_ITER_IDX"] = str(run.element_iteration.index)
+                os.environ["{app_caps}_ELEMENT_ITER_LOOP_IDX"] = loop_idx_str
+                os.environ["{app_caps}_RUN_RANDOM_SEED"] = str(run.resources.random_seed)
+                os.environ["{app_caps}_RUN_RNG_SPAWN_KEY"] = rng_spawn_key_str
+
+                app.submission_logger.debug("The following secrets are available:")
+                for secret_key in run.get_environment().secrets:
+                    app.submission_logger.debug(secret_key)
+                    os.environ[secret_key] = app.get_secret(secret_key)
+
+
+            def _invoke_action_function(run, func, func_kwargs):
+                if run.action.is_OFP:
+                    out_name = run.action.output_file_parsers[0].output.typ
+                    return {{out_name: func(**func_kwargs)}}
+
+                if run.action.script_data_out_has_direct:
+                    return func(**func_kwargs)
+
+                func(**func_kwargs)
+                return {{}}
+
+
+            def _set_run_log_path(run_id):
+                if not WRITE_APP_LOGS:
+                    return
+
+                new_log_path = Path(
+                    os.environ["{app_caps}_SUB_LOG_DIR"],
+                    f"{run_log_name}",
+                )
+                app.logger.info(
+                    f"run_ID: {{run_id}}; moving log path to {{new_log_path}}"
+                )
+                app.config.log_path = new_log_path
+
+
+            def _restore_run_context(req_dir):
+                if req_dir:
+                    os.chdir(os.environ["{app_caps}_SUB_TMP_DIR"])
+
+                if WRITE_APP_LOGS:
+                    app.config.log_path = LOG_PATH
+            """).format(
+            app_caps=app_caps,
+            run_log_name=self.submission.get_app_log_file_name(run_ID="{run_id}"),
+        )
+
+        # ------------------------------------------------------------------
+        # Execute one element of one action.
+        # ------------------------------------------------------------------
+        run_element_source = dedent("""\
+            def _run_element(
+                runtime,
+                block_idx,
+                action_idx,
+                block_elem_idx,
+                block_action_key,
+                run_id,
+                all_action_outputs,
+                run_end_data,
+            ):
+                if run_id == -1:
+                    return
+
+                run = runtime.runs[run_id]
+                if runtime.run_skips[run_id]:
+                    app.logger.info(f"run_ID: {{run_id}}; run is set to skip; skipping.")
+                    run_end_data[block_action_key].append(
+                        (run, {skipped_exit_code}, None)
+                    )
+                    return
+
+                run_tic = time.perf_counter()
+                js_elem_idx = _block_start_element_idx(runtime, block_idx) + block_elem_idx
+                _set_run_environment(
+                    run,
+                    run_id,
+                    block_idx,
+                    action_idx,
+                    block_elem_idx,
+                    js_elem_idx,
+                )
+
+                script_idx = runtime.script_indices[block_idx][action_idx]
+                func = ACTION_SCRIPTS[script_idx]
+                req_dir = REQUIRES_DIR[script_idx]
+                run_dir = runtime.run_dirs[run_id]
+                std_path = Path(
+                    os.environ["{app_caps}_SUB_STD_DIR"],
+                    f"{{run_id}}.txt",
+                )
+
+                get_inputs_tic = time.perf_counter()
+                try:
+                    with app.redirect_std_to_file(std_path):
+                        _set_run_log_path(run_id)
+
+                        if req_dir:
+                            app.logger.info(
+                                f"run_ID: {{run_id}}; changing to run directory: {{run_dir}}"
+                            )
+                            os.chdir(run_dir)
+
+                        app.logger.info(f"run_ID: {{run_id}}; retrieving script inputs.")
+                        try:
+                            with run.raise_on_failure_threshold():
+                                app.logger.info(
+                                    f"run_ID: {{run_id}}; writing script input files."
+                                )
+                                run.write_script_data_in_files(block_action_key)
+                                func_kwargs = run.get_py_script_func_kwargs(
+                                    raise_on_unset=False,
+                                    add_script_files=True,
+                                    blk_act_key=block_action_key,
+                                )
+                        except UnsetParameterDataErrorBase:
+                            run_end_data[block_action_key].append((run, 1, None))
+                            app.logger.info(
+                                f"run_ID: {{run_id}}; some parameter data is unset, "
+                                "so cannot run; setting exit code to 1."
+                            )
+                            return
+
+                        app.logger.info(
+                            f"run_ID: {{run_id}}; function to run is: {{func.__name__}}"
+                        )
+
+                    get_inputs_toc = time.perf_counter()
+                    func_tic = time.perf_counter()
+                    try:
+                        app.logger.info(f"run_ID: {{run_id}}; invoking function.")
+                        outputs = _invoke_action_function(run, func, func_kwargs)
+                    except Exception:
+                        print(
+                            f"Exception caught during execution of script function "
+                            f"{{func.__name__}}."
+                        )
+                        traceback.print_exc()
+                        exit_code = 1
+                        outputs = {{}}
+                    else:
+                        app.logger.info(
+                            f"run_ID: {{run_id}}; finished function invocation."
+                        )
+                        exit_code = 0
+                    finally:
+                        func_toc = time.perf_counter()
+
+                    with app.redirect_std_to_file(std_path):
+                        run_end_data[block_action_key].append(
+                            (run, exit_code, run_dir)
+                        )
+
+                        app.logger.info(
+                            f"run_ID: {{run_id}}; setting outputs to save."
+                        )
+                        for output_name, output_value in outputs.items():
+                            parameter_id = run.data_idx[f"outputs.{{output_name}}"]
+                            all_action_outputs[parameter_id] = output_value
+                        app.logger.info(
+                            f"run_ID: {{run_id}}; finished setting outputs to save."
+                        )
+                finally:
+                    _restore_run_context(req_dir)
+
+                run_toc = time.perf_counter()
+                print(
+                    f"{{get_inputs_toc - get_inputs_tic:.4f}}",
+                    file=runtime.timings.get_inputs,
+                )
+                print(
+                    f"{{func_toc - func_tic:.4f}}",
+                    file=runtime.timings.function,
+                )
+                print(
+                    f"{{run_toc - run_tic:.4f}}",
+                    file=runtime.timings.run,
+                )
+            """).format(
+            app_caps=app_caps,
+            skipped_exit_code=SKIPPED_EXIT_CODE,
+        )
+
+        # ------------------------------------------------------------------
+        # Action lifecycle. This is the future external orchestration API.
+        # ------------------------------------------------------------------
+        action_source = dedent("""\
+            def _action_run_ids(runtime, block_idx, action_idx):
+                start_idx = _block_start_element_idx(runtime, block_idx)
+                block_run_ids = [
+                    runtime.run_ids[start_idx + offset]
+                    for offset in range(runtime.num_elements[block_idx])
+                ]
+                return [run_ids[action_idx] for run_ids in block_run_ids]
+
+
+            def _start_action(runtime, block_idx, action_idx, action_run_ids):
+                valid_run_ids = [run_id for run_id in action_run_ids if run_id != -1]
+                action_runs = [runtime.runs[run_id] for run_id in valid_run_ids]
+
+                non_skipped_ids = [
+                    run_id
+                    for run_id in valid_run_ids
+                    if not runtime.run_skips[run_id]
+                ]
+                if non_skipped_ids:
+                    non_skipped_dirs = [
+                        runtime.run_dirs[run_id] for run_id in non_skipped_ids
+                    ]
+                    tic = time.perf_counter()
+                    app.logger.info("setting run starts.")
+                    runtime.workflow.set_multi_run_starts(
+                        non_skipped_ids,
+                        non_skipped_dirs,
+                        runtime.port,
+                    )
+                    app.logger.info("finished setting run starts.")
+                    toc = time.perf_counter()
+                    print(
+                        f"{{toc - tic:.4f}}",
+                        file=runtime.timings.set_start_multi,
+                        flush=True,
+                    )
+
+                return action_runs
+
+
+            def _finish_action(
+                runtime,
+                block_idx,
+                action_idx,
+                action_runs,
+                all_action_outputs,
+                run_end_data,
+            ):
+                if all_action_outputs:
+                    tic = time.perf_counter()
+                    app.logger.info(
+                        f"saving outputs of block action index {{action_idx}} "
+                        f"in block {{block_idx}}."
+                    )
+                    runtime.workflow.set_parameter_values(all_action_outputs)
+                    app.logger.info(
+                        f"finished saving outputs of block action index {{action_idx}} "
+                        f"in block {{block_idx}}."
+                    )
+                    toc = time.perf_counter()
+                    print(
+                        f"{{toc - tic:.4f}}",
+                        file=runtime.timings.save_multi,
+                        flush=True,
+                    )
+
+                tic = time.perf_counter()
+                app.logger.info(
+                    f"checking loop terminations for block {{block_idx}}, "
+                    f"action {{action_idx}}."
+                )
+                for run in action_runs:
+                    if runtime.run_skips[run.id_]:
+                        continue
+                    skipped_ids = runtime.workflow._check_loop_termination(run)
+                    for skip_id in skipped_ids:
+                        runtime.run_skips[skip_id] = 2
+                        if skip_id in runtime.runs:
+                            runtime.runs[skip_id]._skip = 2
+                toc = time.perf_counter()
+                print(
+                    f"{{toc - tic:.4f}}",
+                    file=runtime.timings.loop_termination,
+                    flush=True,
+                )
+
+                tic = time.perf_counter()
+                app.logger.info(
+                    f"setting run ends for block {{block_idx}}, action {{action_idx}}."
+                )
+                new_skips = runtime.workflow.set_multi_run_ends(run_end_data)
+                runtime.run_skips.update(new_skips)
+                for run_id, skip in new_skips.items():
+                    runtime.runs[run_id]._skip = skip
+                toc = time.perf_counter()
+                print(
+                    f"{{toc - tic:.4f}}",
+                    file=runtime.timings.set_end_multi,
+                    flush=True,
+                )
+
+
+            def run_action(runtime, block_idx, action_idx):
+                # Run one workflow action for all elements in a block.
+                if not 0 <= block_idx < NUM_BLOCKS:
+                    raise IndexError(f"Invalid block index: {{block_idx}}")
+                if not 0 <= action_idx < runtime.num_actions[block_idx]:
+                    raise IndexError(
+                        f"Invalid action index {{action_idx}} for block {{block_idx}}"
+                    )
+
+                app.logger.info(
+                    f"running block action index {{action_idx}} "
+                    f"(in block {{block_idx}})."
+                )
+                os.environ["{app_caps}_BLOCK_IDX"] = str(block_idx)
+                os.environ["{app_caps}_BLOCK_ACT_IDX"] = str(action_idx)
+
+                action_run_ids = _action_run_ids(runtime, block_idx, action_idx)
+                block_action_key = (JS_IDX, block_idx, action_idx)
+                block_act_std_path = Path(
+                    os.environ["{app_caps}_SUB_STD_DIR"],
+                    f"js_{{JS_IDX}}_blk_{{block_idx}}_blk_act_{{action_idx}}.txt",
+                )
+
+                with app.redirect_std_to_file(block_act_std_path):
+                    action_runs = _start_action(
+                        runtime,
+                        block_idx,
+                        action_idx,
+                        action_run_ids,
+                    )
+
+                all_action_outputs = {{}}
+                run_end_data = defaultdict(list)
+
+                for block_elem_idx, run_id in enumerate(action_run_ids):
+                    app.logger.info(
+                        f"run_ID is {{run_id}}; block element index: "
+                        f"{{block_elem_idx}}; block action index: {{action_idx}}; "
+                        f"in block {{block_idx}}."
+                    )
+                    _run_element(
+                        runtime,
+                        block_idx,
+                        action_idx,
+                        block_elem_idx,
+                        block_action_key,
+                        run_id,
+                        all_action_outputs,
+                        run_end_data,
+                    )
+
+                with app.redirect_std_to_file(block_act_std_path):
+                    _finish_action(
+                        runtime,
+                        block_idx,
+                        action_idx,
+                        action_runs,
+                        all_action_outputs,
+                        run_end_data,
+                    )
+            """).format(app_caps=app_caps)
+
+        # ------------------------------------------------------------------
+        # Existing sequential behaviour is now just a client of run_action().
+        # ------------------------------------------------------------------
+        driver_source = dedent("""\
+            def run_all(runtime):
+                app.logger.info(
+                    f"running {{NUM_BLOCKS}} jobscript block(s) "
+                    f"in combined jobscript index {{JS_IDX}}."
+                )
+                for block_idx in range(NUM_BLOCKS):
+                    app.logger.info(f"running block index {{block_idx}}.")
+                    for action_idx in range(runtime.num_actions[block_idx]):
+                        run_action(runtime, block_idx, action_idx)
+
+
+            def main():
+                runtime = initialise_runtime()
+                try:
+                    run_all(runtime)
+                finally:
+                    close_runtime(runtime)
+
+
+            if __name__ == "__main__":
+                main()
+            """)
+
+        future_imports_source = (
+            f"from __future__ import {', '.join(sorted(future_imports))}\n"
+            if future_imports
+            else ""
+        )
+
+        script = (
+            "\n\n".join(
+                section
+                for section in (
+                    future_imports_source.rstrip(),
+                    imports_source.rstrip(),
+                    action_functions.rstrip(),
+                    configuration_source.rstrip(),
+                    runtime_types_source.rstrip(),
+                    initialisation_source.rstrip(),
+                    run_helpers_source.rstrip(),
+                    run_element_source.rstrip(),
+                    action_source.rstrip(),
+                    driver_source.rstrip(),
+                )
+                if section
+            )
+            + "\n"
+        )
+
+        num_elems = [block.num_elements for block in self.blocks]
+        num_acts = [len(block_scripts) for block_scripts in action_scripts]
         return script, script_indices, num_elems, num_acts
 
     def write_script_indices_file(

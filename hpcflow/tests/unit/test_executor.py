@@ -29,6 +29,152 @@ from hpcflow.sdk.execution.protocol import (
     StatusResponse,
     TimeItRequest,
 )
+from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
+
+
+@pytest.mark.asyncio
+async def test_script_worker_start_passes_command_and_environment(monkeypatch):
+    process = Mock()
+    process.returncode = None
+    process.wait = AsyncMock(return_value=0)
+    spawn = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    cmd = ["python", "worker.py"]
+    env = {"WORKER_ENV": "one"}
+    worker = ScriptWorkerExecutor(cmd, env)
+
+    assert not worker.is_running
+    await worker.start()
+    assert worker.is_running
+    spawn.assert_awaited_once_with(*cmd, env=env)
+    with pytest.raises(RuntimeError, match="already running"):
+        await worker.start()
+    await worker.stop()
+    process.terminate.assert_called_once()
+    process.wait.assert_awaited_once()
+    assert not worker.is_running
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("array_idx", [None, 2])
+async def test_worker_cleanup_failure_does_not_skip_jobscript_cleanup(
+    monkeypatch, array_idx
+):
+    executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
+    executor.workflow = MagicMock()
+    executor.jobscript = Mock(all_EAR_IDs=[])
+    executor.array_idx = array_idx
+    executor.jobscript_std = Mock()
+    completion = Mock()
+    monkeypatch.setattr(
+        hf.JobscriptExecutor, "completion", property(lambda _: completion)
+    )
+    monkeypatch.setattr(executor, "_start_server", AsyncMock())
+    stop_server = AsyncMock()
+    monkeypatch.setattr(executor, "_stop_server", stop_server)
+    notify = AsyncMock()
+    monkeypatch.setattr(executor, "_notify_waiters", notify)
+    monkeypatch.setattr(executor, "_iter_actions", lambda: iter(()))
+
+    release = asyncio.Event()
+    entered = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def stop_second():
+        entered.set()
+        await release.wait()
+        stopped.set()
+
+    first = Mock(stop=AsyncMock(side_effect=RuntimeError("worker cleanup failed")))
+    second = Mock(stop=AsyncMock(side_effect=stop_second))
+    executor.script_workers = {"first": first, "second": second}
+    task = asyncio.create_task(executor._execute())
+    await entered.wait()
+    await asyncio.sleep(0)
+    release.set()
+    with pytest.raises(RuntimeError, match="worker cleanup failed"):
+        await task
+    assert stopped.is_set()
+    assert executor.script_workers == {"first": first}
+    stop_server.assert_awaited_once()
+    assert executor.jobscript_std is None
+    if array_idx is None:
+        completion.mark_complete.assert_called_once()
+    else:
+        completion.mark_array_item_complete.assert_called_once_with(array_idx)
+    notify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_jobscript_cancellation_waits_for_worker_and_completion_cleanup(
+    monkeypatch,
+):
+    executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
+    executor.workflow = MagicMock()
+    executor.jobscript = Mock(all_EAR_IDs=[])
+    executor.array_idx = None
+    executor.jobscript_std = Mock()
+    completion = Mock()
+    monkeypatch.setattr(
+        hf.JobscriptExecutor, "completion", property(lambda _: completion)
+    )
+    monkeypatch.setattr(executor, "_start_server", AsyncMock())
+    stop_server = AsyncMock()
+    monkeypatch.setattr(executor, "_stop_server", stop_server)
+    notify = AsyncMock()
+    monkeypatch.setattr(executor, "_notify_waiters", notify)
+    monkeypatch.setattr(executor, "_iter_actions", lambda: iter((Mock(),)))
+    action_entered = asyncio.Event()
+
+    async def execute_action(action):
+        action_entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(executor, "_execute_action", execute_action)
+    stop_entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stop_worker():
+        stop_entered.set()
+        await release.wait()
+
+    worker = Mock(stop=AsyncMock(side_effect=stop_worker))
+    executor.script_workers = {"worker": worker}
+    task = asyncio.create_task(executor._execute())
+    await action_entered.wait()
+    task.cancel()
+    await stop_entered.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    pending_until_reaped = not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert pending_until_reaped
+    assert executor.script_workers == {}
+    stop_server.assert_awaited_once()
+    completion.mark_complete.assert_called_once()
+    notify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_all_worker_cleanup_errors_are_logged_and_first_is_raised(caplog):
+    executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
+    first_error = RuntimeError("first failure")
+    second_error = RuntimeError("second failure")
+    first = Mock(stop=AsyncMock(side_effect=first_error))
+    second = Mock(stop=AsyncMock(side_effect=second_error))
+    third = Mock(stop=AsyncMock())
+    executor.script_workers = {"one": first, "two": second, "three": third}
+    with caplog.at_level("ERROR", logger=executor.logger.name):
+        with pytest.raises(RuntimeError, match="first failure") as caught:
+            await executor._stop_script_workers()
+    assert caught.value is first_error
+    for worker in (first, second, third):
+        worker.stop.assert_awaited_once()
+    assert executor.script_workers == {"one": first, "two": second}
+    assert "first failure" in caplog.text
+    assert "second failure" in caplog.text
 
 
 @pytest.mark.asyncio

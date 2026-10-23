@@ -29,8 +29,10 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.utils import redirect_std_to_file
 from hpcflow.sdk.config.config import load_workflow_config
 from hpcflow.sdk.execution.run_executor import RunExecutor
+from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
 from hpcflow.sdk.execution.server import JobscriptServer
 from hpcflow.sdk.instrumentation import TimeIt
+from hpcflow.sdk.utils.async_utils import await_cleanup
 from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
 from hpcflow.sdk.wait.completion import JobscriptCompletion
 from hpcflow.sdk.wait.protocol import WaitWakeup
@@ -39,7 +41,6 @@ from hpcflow.sdk.wait.wait_client import WaitClient
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.types import BlockActionKey
-    from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
 
 # TODO: add a `hpcflow manage test-compute-connectivity` to check which if
 # any directions are communicable between host (i.e. login node) and
@@ -124,9 +125,9 @@ class JobscriptExecutor(AppAware):
 
         self.active_executors: dict[int, RunExecutor] = {}
 
-        # Persistent Python interpreters used to execute snippet scripts; eventually keyed
-        # by the interpreter/environment they belong to:
-        self.script_workers: dict[int, ScriptWorkerExecutor] = {}
+        # Persistent Python interpreters used to execute snippet scripts; keys are the
+        # property `ElementActionRun.script_worker_id`:
+        self.script_workers: dict[str, ScriptWorkerExecutor] = {}
 
         self.jobscript_server: JobscriptServer | None = None
 
@@ -189,6 +190,31 @@ class JobscriptExecutor(AppAware):
             fp.write(f"{message}\n")
             fp.flush()
 
+    async def _stop_script_workers(self) -> None:
+        if not self.script_workers:
+            return
+
+        async def stop_workers() -> None:
+            workers = tuple(self.script_workers.items())
+            results = await asyncio.gather(
+                *(worker.stop() for _, worker in workers), return_exceptions=True
+            )
+            errors: list[BaseException] = []
+            for (key, worker), result in zip(workers, results):
+                if isinstance(result, BaseException):
+                    self.logger.error(
+                        "Failed to stop script worker %s.",
+                        key,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+                    errors.append(result)
+                elif self.script_workers.get(key) is worker:
+                    del self.script_workers[key]
+            if errors:
+                raise errors[0]
+
+        await await_cleanup(asyncio.create_task(stop_workers()))
+
     async def _execute(self):
         self.runs = self.workflow.get_EARs_from_IDs(
             self.jobscript.all_EAR_IDs,
@@ -203,7 +229,12 @@ class JobscriptExecutor(AppAware):
                 self._update_cached_run_skips(new_run_skips)
 
         finally:
+            await await_cleanup(asyncio.create_task(self._cleanup()))
 
+    async def _cleanup(self) -> None:
+        try:
+            await self._stop_script_workers()
+        finally:
             if TimeIt.is_active():
                 self._write_to_jobscript_app_std("")  # newline before summary tree
 
@@ -743,6 +774,23 @@ class JobscriptExecutor(AppAware):
         unset_params,
     ) -> tuple[int, float | None]:
         """Execute a Python snippet in a persistent script worker."""
+        if run.script_worker_id not in self.script_workers:
+            # fire up a new script worker
+            worker_args = run.script_worker_args
+            script_path = worker_args.get_script_path(self.submission.scripts_path)
+            cmds_path = worker_args.get_commands_path(self.submission.commands_path)
+            # TODO: substitute <<script_path>> and remove <<args>> in exec_cmd
+
+            if not cmds_path.is_file():
+                raise RuntimeError(f"Command file {cmds_path!r} does not exist.")
+
+            cmd = self.jobscript.shell.get_command_file_launch_command(str(cmds_path))
+            env = self._get_run_environment(action=action, js_run=js_run, run=run)
+            worker = ScriptWorkerExecutor(cmd=cmd, env=env)
+            self.script_workers[run.script_worker_id] = worker
+
+        worker = self.script_workers[run.script_worker_id]
+
         raise NotImplementedError
 
     async def _finish_action(
