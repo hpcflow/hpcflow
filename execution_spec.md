@@ -6,19 +6,18 @@ Here is a specification for the execution model of hpcflow.
 
 `JobscriptExecutor` owns run orchestration, persistence, finalization, timing, and
 completion notifications. `RunExecutor` owns each ordinary command subprocess.
-`ScriptWorkerExecutor` remains a scaffold, and `ElementActionRun.use_script_worker`
-remains disabled.
-
-The restored worker scaffold can generate Python wrappers for isolated execution, but its
-entry point explicitly rejects execution until a production worker adapter is implemented.
-Production submissions neither generate nor launch these workers. The existing
-interpreter/environment-specific worker mapping remains provisional.
+`ScriptWorkerExecutor` owns the persistent worker process lifecycle.
+`ElementActionRun.use_script_worker` remains disabled; experimental routing is
+controlled by the explicit submission/executor opt-in described below.
 
 Worker lifecycle operations are serialized per worker. Without a protocol client,
 the lifecycle owner's `stop()` terminates the direct child, waits up to five
 seconds, then kills it if necessary; `abort()` kills immediately. Reaping after kill is bounded to
 five seconds. A timeout or OS error is surfaced and the process handle is retained
-for inspection or retry. This does not yet terminate descendant processes.
+for inspection or retry. Shutdown also kills and waits for descendants discovered
+while the launcher is alive, including shell-launched Python interpreters. This is
+not OS-level process containment: detached descendants or children spawned during
+tree enumeration may escape discovery.
 Cancellation during spawn or shutdown waits for the owned child to be reaped
 before propagating; repeated cancellation does not interrupt cleanup.
 Jobscript cleanup attempts every worker, logs each failure, and raises the first
@@ -39,7 +38,7 @@ state authoritative and ZeroMQ notifications used as wake-ups.
 ## Script-worker protocol contract (version 1)
 
 The message contract and an isolated client/service loop are implemented.
-Production worker routing and generated-worker service startup remain disabled.
+Worker routing and generated-worker service startup require explicit opt-in.
 These messages are separate from the existing child-to-jobscript control protocol.
 The script-worker protocol, process owner, client, service, adapter, and bootstrap are
 grouped under `hpcflow/sdk/execution/script_worker/`; script source generation remains
@@ -52,7 +51,7 @@ Missing, unknown, incorrectly typed, and unsupported-version fields are rejected
 | Request command | Fields | Response |
 | --- | --- | --- |
 | `ping` | None | `ready`, `ok: true` |
-| `execute` | `run_id`, `block_idx`, `action_idx`, `element_idx` | `result`, `ok: true`, echoed identity, `exit_code`, `work_time`, `orchestration_time` |
+| `execute` | `run_id`, `block_idx`, `action_idx`, `element_idx`, optional `environment` overrides | `result`, `ok: true`, echoed identity, `exit_code`, `work_time`, `orchestration_time` |
 | `shutdown` | None | `shutdown`, `ok: true` |
 
 Identity fields are nonnegative integers (not booleans). `element_idx` is local to
@@ -157,6 +156,37 @@ the option was introduced default to disabled. Reload tests launch the generated
 jobscript in a fresh process and verify that successive runs use the same worker
 interpreter. A script failure returns a nonzero result without poisoning the
 worker: a later invocation can succeed in the same process.
+
+Multiple environment identities can share a jobscript action row. Each generated
+worker registers only the runs matching its identity; a manifest with no matching
+runs is still rejected. Runs with the same identity reuse one process, while
+different identities use separate processes.
+
+Worker processes inherit the parent environment and execute their environment's
+setup once. Execution requests carry run metadata and secrets as overrides to that
+post-setup baseline, rather than replacing it with the parent's environment. This
+preserves setup changes (including PATH) and prevents one invocation's environment
+mutations from leaking into later invocations. Reloaded jobscript tests verify
+environment separation, reuse, per-run metadata, and worker exit after completion.
+Distinct-interpreter coverage runs only when a second interpreter with the worker
+runtime dependencies is already available.
+
+### Active invocation aborts
+
+`ScriptWorkerRun` exposes the existing synchronous abort signal, PID, status, and
+timing interface to the jobscript control server. An active abort cancels the
+in-flight exchange, closes its private transport, and kills/reaps that worker and
+its discovered descendants before returning `ABORT_EXIT_CODE`. Parent finalization
+preserves existing abortable-action semantics (`aborted`, with workflow continuation).
+Other workers are unaffected. The next run for the same worker identity starts a
+fresh process; the interrupted invocation is never retried automatically.
+
+An abort signalled to an invocation before startup leaves an idle worker intact.
+The control server still rejects requests for runs absent from its active mapping;
+this change does not add cancellation of queued runs. Jobscript task cancellation
+waits for active worker cleanup and the ordinary completion/waiter cleanup before
+propagating, including repeated cancellation. As before, task cancellation alone
+does not invent a persisted run-end result for the interrupted run.
 
 Worker command-file generation substitutes the generated script path using the
 target shell's quoting rules and removes the empty argument placeholder. Legacy

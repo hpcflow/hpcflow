@@ -85,7 +85,7 @@ class ScriptWorkerPing(ScriptWorkerRequest):
 
 @dataclass(frozen=True)
 class ExecuteScriptRequest(ScriptWorkerRequest):
-    """Request execution for one run and one jobscript block coordinate."""
+    """Request one run, with optional overrides to the worker's setup environment."""
 
     command: ClassVar[str] = "execute"
 

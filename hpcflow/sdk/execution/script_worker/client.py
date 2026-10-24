@@ -107,7 +107,7 @@ class ScriptWorkerClient:
         *,
         environment: Mapping[str, str] | None = None,
     ) -> ScriptExecutionResult:
-        """Send one execution request and wait without an implicit RPC deadline."""
+        """Send per-run environment overrides and wait without an implicit RPC deadline."""
         async with self._request_lock:
             if environment is not None:
                 request = ExecuteScriptRequest(

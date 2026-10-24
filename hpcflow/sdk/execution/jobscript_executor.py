@@ -30,6 +30,7 @@ from hpcflow.sdk.core.utils import redirect_std_to_file
 from hpcflow.sdk.config.config import load_workflow_config
 from hpcflow.sdk.execution.run_executor import RunExecutor
 from hpcflow.sdk.execution.script_worker.client import ScriptWorkerClient
+from hpcflow.sdk.execution.script_worker.run import ScriptWorkerRun
 from hpcflow.sdk.execution.script_worker.protocol import ExecuteScriptRequest
 from hpcflow.sdk.execution.server import JobscriptServer
 from hpcflow.sdk.instrumentation import TimeIt
@@ -127,7 +128,7 @@ class JobscriptExecutor(AppAware):
         self.array_idx = array_idx
         self.enable_script_workers = enable_script_workers
 
-        self.active_executors: dict[int, RunExecutor] = {}
+        self.active_executors: dict[int, RunExecutor | ScriptWorkerRun] = {}
 
         # Persistent Python interpreters used to execute snippet scripts; keys are the
         # property `ElementActionRun.script_worker_id`:
@@ -549,8 +550,10 @@ class JobscriptExecutor(AppAware):
         action: JobscriptAction,
         js_run: JobscriptRun,
         run: ElementActionRun,
+        *,
+        include_parent: bool = True,
     ) -> dict[str, str]:
-
+        """Build run metadata and secrets, optionally including the parent environment."""
         assert self.jobscript_server is not None
         assert self.jobscript_server.port_number is not None
 
@@ -641,7 +644,7 @@ class JobscriptExecutor(AppAware):
 
         env.update(secrets_env)
 
-        return env
+        return env if include_parent else {**add_env, **secrets_env}
 
     def _prepare_run_files(
         self,
@@ -786,7 +789,9 @@ class JobscriptExecutor(AppAware):
         """Execute a Python snippet in a persistent script worker."""
         worker_id = run.script_worker_id
         worker = self.script_workers.get(worker_id)
-        environment = self._get_run_environment(action=action, js_run=js_run, run=run)
+        environment = self._get_run_environment(
+            action=action, js_run=js_run, run=run, include_parent=False
+        )
         if worker is None:
             worker_args = run.get_script_worker_args(self.jobscript_idx)
             commands_path = worker_args.get_commands_path(self.submission.commands_path)
@@ -799,7 +804,10 @@ class JobscriptExecutor(AppAware):
             )
             worker = ScriptWorkerClient(
                 command,
-                environment,
+                {
+                    **os.environ,
+                    **{key: environment[key] for key in run.get_environment().secrets},
+                },
                 cwd=self.submission.path,
             )
             self.script_workers[worker_id] = worker
@@ -807,28 +815,30 @@ class JobscriptExecutor(AppAware):
         assert self.jobscript_server is not None
         assert self.jobscript_server.port_number is not None
         await self.set_run_start(run.id_, run_dir, self.jobscript_server.port_number)
-        if not worker.worker.is_running:
-            await worker.start()
-
         request = ExecuteScriptRequest(
             run_id=run.id_,
             block_idx=action.block_idx,
             action_idx=action.action_idx,
             element_idx=js_run.element_idx,
         )
+        executor = ScriptWorkerRun(worker, request, environment)
+        self.active_executors[js_run.run_id] = executor
         command_start = time.perf_counter()
-        result = await worker.execute(request, environment=environment)
+        try:
+            exit_code = await executor.run()
+        finally:
+            self.active_executors.pop(js_run.run_id, None)
         command_time = time.perf_counter() - command_start if TimeIt.is_active() else None
         if run_timeit := TimeIt.current():
-            run_timeit.child_orchestration_time += result.orchestration_time
-            run_timeit.child_work_time += result.work_time
+            run_timeit.child_orchestration_time += sum(executor.child_orchestration_times)
+            run_timeit.child_work_time += sum(executor.child_work_times)
 
         self.logger.info(
             "Script worker finished run %s with exit code %s.",
             js_run.run_id,
-            result.exit_code,
+            exit_code,
         )
-        return result.exit_code, command_time
+        return exit_code, command_time
 
     async def _finish_action(
         self,

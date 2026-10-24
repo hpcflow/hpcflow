@@ -71,10 +71,15 @@ class ScriptWorkerInvocation:
     def __call__(
         self, environment: Mapping[str, str] | None = None
     ) -> ScriptExecutionResult:
-        """Run the invocation in a copied context-variable context."""
+        """Apply per-run overrides to the worker baseline in an isolated context."""
         # Isolate ContextVar changes, including app timing activation, per invocation.
         return contextvars.copy_context().run(
-            self._execute, self.environment if environment is None else environment
+            self._execute,
+            (
+                self.environment
+                if environment is None
+                else {**self.environment, **environment}
+            ),
         )
 
     def _execute(self, environment: Mapping[str, str]) -> ScriptExecutionResult:

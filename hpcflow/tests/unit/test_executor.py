@@ -4,6 +4,7 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
+import psutil
 
 import pytest_asyncio
 import zmq
@@ -30,6 +31,8 @@ from hpcflow.sdk.execution.protocol import (
     TimeItRequest,
 )
 from hpcflow.sdk.execution.script_worker.executor import ScriptWorkerExecutor
+from hpcflow.sdk.execution.script_worker.run import ScriptWorkerRun
+from hpcflow.sdk.execution.script_worker.protocol import ExecuteScriptRequest
 
 
 @pytest.mark.asyncio
@@ -39,6 +42,9 @@ async def test_script_worker_start_passes_command_and_environment(monkeypatch):
     process.wait = AsyncMock(return_value=0)
     spawn = AsyncMock(return_value=process)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(
+        psutil, "Process", Mock(return_value=Mock(children=Mock(return_value=[])))
+    )
     cmd = ["python", "worker.py"]
     env = {"WORKER_ENV": "one"}
     worker = ScriptWorkerExecutor(cmd, env)
@@ -53,6 +59,40 @@ async def test_script_worker_start_passes_command_and_environment(monkeypatch):
     process.terminate.assert_called_once()
     process.wait.assert_awaited_once()
     assert not worker.is_running
+
+
+@pytest.mark.asyncio
+async def test_worker_run_aborted_before_start_keeps_idle_worker():
+    client = Mock()
+    client.start = AsyncMock()
+    client.execute = AsyncMock()
+    client.abort = AsyncMock()
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(0, 0, 0, 0), {})
+    invocation.abort()
+    assert await invocation.run() == ABORT_EXIT_CODE
+    client.start.assert_not_awaited()
+    client.execute.assert_not_awaited()
+    client.abort.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_worker_run_surfaces_abort_cleanup_failure():
+    client = Mock()
+    client.worker.is_running = True
+    entered = asyncio.Event()
+
+    async def execute(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    client.execute = execute
+    client.abort = AsyncMock(side_effect=RuntimeError("worker cleanup failed"))
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(0, 0, 0, 0), {})
+    task = asyncio.create_task(invocation.run())
+    await entered.wait()
+    invocation.abort()
+    with pytest.raises(RuntimeError, match="worker cleanup failed"):
+        await task
 
 
 @pytest.mark.asyncio

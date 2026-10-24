@@ -190,7 +190,7 @@ def build_script_worker_invocations(
                 raise ValueError(f"Run {run_id} is not a Python snippet script.")
             worker_args = run.get_script_worker_args(manifest.jobscript_idx)
             if worker_args.stable_hash != manifest.worker_id:
-                raise ValueError(f"Run {run_id} does not match manifest worker identity.")
+                continue
 
             request = ExecuteScriptRequest(
                 run_id=run_id,
@@ -212,7 +212,8 @@ def build_script_worker_invocations(
 
         if matched_runs == 0:
             raise ValueError(
-                f"Manifest action key {(block_idx, action_idx)!r} has no assigned runs."
+                f"Manifest action key {(block_idx, action_idx)!r} has no assigned runs "
+                "matching its worker identity."
             )
 
     return invocations

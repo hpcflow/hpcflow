@@ -26,6 +26,8 @@ from hpcflow.sdk.execution.script_worker.client import (
     ScriptWorkerRejectedError,
 )
 from hpcflow.sdk.execution.script_worker.service import SCRIPT_WORKER_ENDPOINT_ENV
+from hpcflow.sdk.execution.script_worker.run import ScriptWorkerRun
+from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.utils.async_utils import recv_json, send_json
 from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
@@ -51,7 +53,7 @@ async def clients(
             SCRIPT_WORKER_ENDPOINT_ENV, ScriptWorkerService,
         )
 
-        def execute():
+        def execute(environment=None):
             path = Path(os.environ["COUNTER"])
             with path.open("a") as fp:
                 fp.write(os.environ.get("LABEL", "one") + "\\n")
@@ -134,6 +136,42 @@ async def wait_for_file(path: Path) -> None:
     async with asyncio_timeout(5):
         while not path.exists():
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_run_abort_preserves_other_worker_and_restarts_only_for_next_run(
+    clients, tmp_path
+):
+    first_count = tmp_path / "first.txt"
+    second_count = tmp_path / "second.txt"
+    first = clients(DELAY="60", COUNTER=str(first_count))
+    second = clients(COUNTER=str(second_count))
+    await asyncio.gather(first.start(), second.start())
+    first_process = first.worker.process
+    second_process = second.worker.process
+    assert first_process is not None and second_process is not None
+    invocation = ScriptWorkerRun(first, ExecuteScriptRequest(7, 0, 0, 0), {})
+    task = asyncio.create_task(invocation.run())
+    try:
+        await wait_for_file(first_count)
+        invocation.abort()
+        assert await asyncio.wait_for(task, timeout=10) == ABORT_EXIT_CODE
+        assert first_process.returncode is not None
+        assert first.worker.process is None
+        assert first.endpoint is None
+        assert second.worker.process is second_process
+        assert second_process.returncode is None
+        assert (await second.execute(ExecuteScriptRequest(7, 0, 0, 0))).exit_code == 0
+        assert first_count.read_text().splitlines() == ["one"]
+        first.worker.env["DELAY"] = "0"
+        next_run = ScriptWorkerRun(first, ExecuteScriptRequest(8, 0, 0, 1), {})
+        assert await next_run.run() == 0
+        assert first.worker.process is not first_process
+        assert first_count.read_text().splitlines() == ["one", "one"]
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

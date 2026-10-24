@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import psutil
+
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.utils.async_utils import await_cleanup
 
@@ -79,6 +81,12 @@ class ScriptWorkerExecutor(AppAware):
             return
 
         process = self.process
+        descendants: list[psutil.Process] = []
+        if process.returncode is None:
+            try:
+                descendants = psutil.Process(process.pid).children(recursive=True)
+            except psutil.NoSuchProcess:
+                pass
         if not force and process.returncode is None:
             try:
                 process.terminate()
@@ -89,9 +97,11 @@ class ScriptWorkerExecutor(AppAware):
             except asyncio.TimeoutError:
                 pass  # Escalate to kill below.
             else:
+                await self._reap_descendants(descendants)
                 self.process = None
                 return
 
+        await self._reap_descendants(descendants)
         if process.returncode is None:
             try:
                 process.kill()
@@ -104,3 +114,19 @@ class ScriptWorkerExecutor(AppAware):
                 f"Script worker PID {process.pid} did not exit after kill."
             ) from exc
         self.process = None
+
+    async def _reap_descendants(self, descendants: list[psutil.Process]) -> None:
+        """Kill shell-launched interpreters and wait for their bounded exit."""
+        for child in reversed(descendants):
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                pass
+        _, alive = await asyncio.to_thread(
+            psutil.wait_procs, descendants, timeout=self._KILL_TIMEOUT
+        )
+        if alive:
+            raise asyncio.TimeoutError(
+                "Script-worker descendants did not exit after kill: "
+                + ", ".join(str(child.pid) for child in alive)
+            )

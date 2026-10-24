@@ -1,14 +1,21 @@
 import asyncio
 import contextvars
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 from unittest.mock import Mock
 
 import numpy as np
+import psutil
 import pytest
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core import ABORT_EXIT_CODE
+from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.execution.client import JobscriptClient
+from hpcflow.sdk.execution.protocol import StatusRequest
 from hpcflow.sdk.execution.script_worker.adapter import ScriptWorkerInvocation
 from hpcflow.sdk.execution.script_worker.client import ScriptWorkerClient
 from hpcflow.sdk.execution.script_worker.protocol import (
@@ -34,6 +41,7 @@ def make_run(
     repeats=1,
     enable_script_workers=False,
     script="<<script:main_script_test_direct_in_direct_out.py>>",
+    abortable=False,
 ):
     schema = hf.TaskSchema(
         objective="worker_adapter",
@@ -47,6 +55,7 @@ def make_run(
                 script_data_out=data_out,
                 environments=[hf.ActionEnvironment(environment="python_env")],
                 requires_dir=True,
+                abortable=abortable,
             )
         ],
     )
@@ -142,6 +151,85 @@ def generated_functions(action):
     return namespace["ACTION_SCRIPTS"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_jobscript", [False, True])
+async def test_active_worker_abort_or_cancellation_reaps_process(
+    tmp_path, monkeypatch, cancel_jobscript
+):
+    if getattr(sys, "frozen", False):
+        pytest.skip("Worker subprocess tests require Python.")
+    marker = tmp_path / "worker_started.json"
+    monkeypatch.setenv("WORKER_CONTROL_PATH", str(marker))
+    workflow, _ = make_run(
+        tmp_path,
+        repeats=2,
+        enable_script_workers=True,
+        script="<<script:main_script_test_script_worker_abort.py>>",
+        abortable=True,
+    )
+    executor = hf.JobscriptExecutor(workflow, 0, 0, enable_script_workers=True)
+    executor.submission.prepare_submit()
+    monkeypatch.setenv(
+        "HPCFLOW_JS_FUNCS_PATH", str(executor.jobscript.jobscript_functions_path)
+    )
+    monkeypatch.setenv("HPCFLOW_WK_PATH_ARG", str(workflow.path))
+    task = asyncio.create_task(executor._execute())
+    try:
+
+        async def started():
+            while not marker.exists():
+                if task.done():
+                    await task
+                    pytest.fail("Jobscript ended before its snippet started.")
+                await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(started(), timeout=30)
+        pid = json.loads(marker.read_text())["pid"]
+        client = next(iter(executor.script_workers.values()))
+        process = client.worker.process
+        assert process is not None
+        server = executor.jobscript_server
+        assert server is not None
+        assert server._run_task is not None
+        if server._run_task.done():
+            server._run_task.result()
+        status = server._handle_request(StatusRequest()).to_dict()
+        assert status["runs"][0]["run_id"] == 0
+        assert status["runs"][0]["running"] is True
+        if cancel_jobscript:
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=15)
+        else:
+            assert server.port_number is not None
+            response = await asyncio.to_thread(
+                JobscriptClient.send_abort, "127.0.0.1", server.port_number, 0
+            )
+            assert response == {"ok": True}
+            await asyncio.wait_for(task, timeout=30)
+            fresh = hf.Workflow(workflow.path)
+            first, second = fresh.get_all_EARs()
+            assert first.status is EARStatus.aborted
+            assert first.exit_code == ABORT_EXIT_CODE
+            assert first.end_time is not None
+            assert second.success and second.end_time is not None
+            assert fresh.tasks[0].elements[1].outputs.p2.value != pid
+        assert not psutil.pid_exists(pid)
+        assert process.returncode is not None
+        assert client.worker.process is None
+        assert client.endpoint is None
+        assert executor.script_workers == {}
+        assert executor.active_executors == {}
+        assert executor.jobscript_server is None
+        assert executor.completion.is_complete()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize("enable_script_workers", [False, True])
 def test_submission_reload_preserves_worker_opt_in(
@@ -220,6 +308,148 @@ async def test_reloaded_submission_executes_generated_jobscript(tmp_path, store)
     assert worker_pids[0] == worker_pids[1]
     assert worker_pids[0] > 0
     assert worker_pids[0] not in (os.getpid(), process.pid)
+    assert jobscript.completion_obj.is_complete()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("different_interpreters", [False, True])
+async def test_reloaded_jobscript_isolates_and_reuses_environment_workers(
+    tmp_path, store, different_interpreters, reload_template_components, monkeypatch
+):
+    if getattr(sys, "frozen", False):
+        pytest.skip("Worker subprocess tests require Python.")
+    second_python = getattr(sys, "_base_executable", sys.executable)
+    if different_interpreters:
+        if Path(second_python).samefile(sys.executable):
+            pytest.skip("No distinct base Python interpreter is available.")
+        probe = subprocess.run(
+            [
+                second_python,
+                "-c",
+                "from hpcflow.sdk.execution.script_worker.bootstrap "
+                "import run_generated_script_worker",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if probe.returncode:
+            pytest.skip(
+                "The distinct base interpreter cannot import the worker runtime: "
+                + probe.stderr
+            )
+    monkeypatch.setenv("WORKER_GROUP", "parent")
+    monkeypatch.delenv("WORKER_LEAK", raising=False)
+    for group in ("one", "two"):
+        environment = hf.envs.python_env.copy(
+            name="worker_python", specifiers={"worker_group": group}
+        )
+        setup = (
+            f"$env:WORKER_GROUP = '{group}'"
+            if os.name == "nt"
+            else f"export WORKER_GROUP='{group}'"
+        )
+        environment.setup = (*(environment.setup or ()), setup)
+        if different_interpreters and group == "two":
+            shell = get_shell(
+                "powershell" if os.name == "nt" else "bash",
+                os_name="nt" if os.name == "nt" else "posix",
+            )
+            prefix = "& " if os.name == "nt" else ""
+            executable = environment.executables.get("python_script")
+            for instance in executable.instances:
+                instance.command = (
+                    f"{prefix}{shell.quote_arg(second_python)} "
+                    f"{shell.quote_arg('<<script_path>>')} <<args>>"
+                )
+        hf.envs.add_object(environment)
+    schema = hf.TaskSchema(
+        objective="worker_environments",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_script_worker_environment.py>>",
+                script_exe="python_script",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_pass_env_spec=True,
+                environments=[hf.ActionEnvironment(environment="worker_python")],
+                requires_dir=True,
+            )
+        ],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="worker_environments",
+        path=tmp_path,
+        store=store,
+        tasks=[
+            hf.Task(
+                schema,
+                inputs={"p1": 101},
+                environments={"worker_python": {"worker_group": "one"}},
+                sequences=[
+                    hf.ValueSequence(
+                        path="environments.worker_python.worker_group",
+                        values=["one", "two", "one", "two"],
+                    )
+                ],
+            )
+        ],
+    )
+    workflow.add_submission(enable_script_workers=True)
+    fresh = hf.Workflow(workflow.path)
+    submission = fresh.submissions[0]
+    assert len(submission.jobscripts) == 1
+    runs = fresh.get_all_EARs()
+    identities = [run.script_worker_id for run in runs]
+    assert identities[0] == identities[2]
+    assert identities[1] == identities[3]
+    assert identities[0] != identities[1]
+    for run in runs:
+        args = run.get_script_worker_args(0)
+        assert args.get_script_path(submission.scripts_path).is_file()
+        assert args.get_manifest_path(submission.scripts_path).is_file()
+        assert args.get_commands_path(submission.commands_path).is_file()
+    submission.prepare_submit()
+    jobscript = submission.jobscripts[0]
+    process = await asyncio.create_subprocess_exec(
+        *jobscript.shell.get_command_file_launch_command(
+            str(jobscript.write_jobscript())
+        ),
+        cwd=fresh.path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90)
+        assert process.returncode == 0, (stdout.decode(), stderr.decode())
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    completed = hf.Workflow(workflow.path)
+    finalized = completed.get_all_EARs()
+    assert all(run.success and run.end_time for run in finalized), (
+        stdout.decode(),
+        stderr.decode(),
+    )
+    results = [element.outputs.p2.value for element in completed.tasks[0].elements]
+    assert results[0]["pid"] == results[2]["pid"]
+    assert results[1]["pid"] == results[3]["pid"]
+    assert results[0]["pid"] != results[1]["pid"]
+    for index, (run, result) in enumerate(zip(finalized, results)):
+        group = "one" if index % 2 == 0 else "two"
+        assert result["group"] == result["setup_group"] == group
+        assert result["run_id"] == str(run.id_)
+        assert result["element_idx"] == str(index)
+        assert result["leaked"] is None
+        expected_python = (
+            second_python if different_interpreters and group == "two" else sys.executable
+        )
+        assert Path(result["executable"]).samefile(expected_python)
+        assert not psutil.pid_exists(result["pid"])
     assert jobscript.completion_obj.is_complete()
 
 

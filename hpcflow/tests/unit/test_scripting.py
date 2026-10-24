@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -119,6 +120,19 @@ def test_script_worker_hash_matches_worker_args(monkeypatch: pytest.MonkeyPatch)
 
     assert run.get_script_worker_hash() == args.stable_hash
     get_args.assert_called_once_with(3)
+
+
+def test_worker_identity_separates_interpreters_in_the_same_environment(
+    tmp_path: Path,
+) -> None:
+    first = ScriptWorkerArgs(
+        0, hf.Environment("python"), "python <<script_path>>", "python"
+    )
+    second = replace(first, exec_cmd="other_python <<script_path>>")
+    assert first.id != second.id
+    assert first.get_script_path(tmp_path) != second.get_script_path(tmp_path)
+    assert first.get_commands_path(tmp_path) != second.get_commands_path(tmp_path)
+    assert first.get_manifest_path(tmp_path) != second.get_manifest_path(tmp_path)
 
 
 def test_worker_registry_uses_block_and_action_coordinates() -> None:
