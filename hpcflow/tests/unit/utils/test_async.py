@@ -2,7 +2,11 @@ import asyncio
 
 import pytest
 
-from hpcflow.sdk.utils.async_utils import await_cleanup, run_coroutine_sync
+from hpcflow.sdk.utils.async_utils import (
+    await_cleanup,
+    run_coroutine_sync,
+    wait_for_cancellable,
+)
 
 
 def test_run_coroutine_sync():
@@ -77,3 +81,33 @@ async def test_await_cleanup_propagates_cancelled_cleanup_task() -> None:
     cleanup.cancel()
     with pytest.raises(asyncio.CancelledError):
         await await_cleanup(cleanup)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cancellable_returns_result() -> None:
+    assert await wait_for_cancellable(asyncio.sleep(0, result=123), timeout=5) == 123
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cancellable_times_out_and_cancels_inner() -> None:
+    inner = asyncio.create_task(asyncio.sleep(10))
+    with pytest.raises(asyncio.TimeoutError):
+        await wait_for_cancellable(inner, timeout=0.01)
+    assert inner.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cancellable_propagates_cancellation_racing_completion() -> None:
+    # `asyncio.wait_for` swallows this cancellation before Python 3.12.
+    started = asyncio.Event()
+
+    async def inner() -> str:
+        started.set()
+        await asyncio.sleep(0)
+        return "done"
+
+    task = asyncio.create_task(wait_for_cancellable(inner(), timeout=5))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

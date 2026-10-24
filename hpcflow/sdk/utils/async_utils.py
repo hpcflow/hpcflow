@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Iterator
+from collections.abc import Awaitable, Coroutine, Iterator
 from contextlib import contextmanager
 import os
 from threading import Event, Thread
@@ -30,6 +30,28 @@ async def await_cleanup(task: asyncio.Future[T]) -> T:
     if cancelled:
         raise asyncio.CancelledError
     return result
+
+
+async def wait_for_cancellable(aw: Awaitable[T], timeout: float | None) -> T:
+    """Await with a timeout, always propagating caller cancellation.
+
+    Before Python 3.12, ``asyncio.wait_for`` can swallow a cancellation that arrives
+    while the awaited operation is completing, returning its result instead. Callers
+    that must clean up on cancellation (for example, reaping a just-started process)
+    rely on cancellation being propagated, so use this instead.
+    """
+    task = asyncio.ensure_future(aw)
+    try:
+        done, _ = await asyncio.wait((task,), timeout=timeout)
+    except asyncio.CancelledError:
+        task.cancel()
+        await asyncio.wait((task,))
+        raise
+    if not done:
+        task.cancel()
+        await asyncio.wait((task,))
+        raise asyncio.TimeoutError
+    return task.result()
 
 
 def run_coroutine_sync(coro: Coroutine[Any, Any, T]) -> T:

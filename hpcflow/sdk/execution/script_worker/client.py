@@ -24,7 +24,12 @@ from hpcflow.sdk.execution.script_worker.protocol import (
 )
 from hpcflow.sdk.execution.script_worker.executor import ScriptWorkerExecutor
 from hpcflow.sdk.execution.script_worker.service import SCRIPT_WORKER_ENDPOINT_ENV
-from hpcflow.sdk.utils.async_utils import await_cleanup, recv_json, send_json
+from hpcflow.sdk.utils.async_utils import (
+    await_cleanup,
+    recv_json,
+    send_json,
+    wait_for_cancellable,
+)
 
 ResponseT = TypeVar("ResponseT", bound=ScriptWorkerResponse)
 
@@ -91,7 +96,9 @@ class ScriptWorkerClient:
                 port = socket.bind_to_random_port("tcp://127.0.0.1")
                 self.endpoint = f"tcp://127.0.0.1:{port}"
                 self.worker.env[SCRIPT_WORKER_ENDPOINT_ENV] = self.endpoint
-                await asyncio.wait_for(self.worker.start(), timeout=self.startup_timeout)
+                await wait_for_cancellable(
+                    self.worker.start(), timeout=self.startup_timeout
+                )
                 await self._request(
                     ScriptWorkerPing(),
                     ScriptWorkerReady,
@@ -136,7 +143,9 @@ class ScriptWorkerClient:
                 )
                 process = self.worker.process
                 if process is not None:
-                    await asyncio.wait_for(process.wait(), timeout=self.shutdown_timeout)
+                    await wait_for_cancellable(
+                        process.wait(), timeout=self.shutdown_timeout
+                    )
                     if process.returncode != 0:
                         raise ScriptWorkerExitedError(
                             f"Script worker PID {process.pid} exited with code "
