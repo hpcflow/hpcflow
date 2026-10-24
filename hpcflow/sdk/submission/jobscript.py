@@ -1711,6 +1711,11 @@ class Jobscript(JSONLike):
                 timeit="--timeit " if self.submission.timeit else "",
                 app_caps=app_caps,
                 array_idx_opt=array_idx_opt,
+                script_worker_opt=(
+                    " --enable-script-workers"
+                    if self.submission.enable_script_workers
+                    else ""
+                ),
             )
             + shell.JS_FOOTER
         )

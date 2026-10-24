@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Iterator
+from contextlib import contextmanager
 import os
 from threading import Event, Thread
 from typing import Any, TypeVar
@@ -95,29 +96,32 @@ def run_coroutine_sync(coro: Coroutine[Any, Any, T]) -> T:
     return result  # type: ignore[return-value]
 
 
+@contextmanager
+def _zmq_compatibility_warnings() -> Iterator[None]:
+    with warnings.catch_warnings():
+        if os.name == "nt":
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    r"Proactor event loop does not implement add_reader "
+                    r"family of methods required for zmq\..*"
+                ),
+                category=RuntimeWarning,
+            )
+        yield
+
+
+async def send_json(socket: zmq.asyncio.Socket, data: Any) -> None:
+    """Send JSON, suppressing pyzmq's Windows selector-thread fallback warning."""
+    with _zmq_compatibility_warnings():
+        await socket.send_json(data)
+
+
 async def recv_json(socket: zmq.asyncio.Socket) -> Any:
-    """Receive JSON on the socket, filtering an event-loop warning on Windows.
+    """Receive JSON, suppressing pyzmq's Windows selector-thread fallback warning.
 
-    Notes
-    -----
-    On Windows, pyzmq falls back to a selector thread when used with the Proactor
-    event loop. We retain the Proactor loop because asyncio subprocess support
-    requires it, and suppress pyzmq's compatibility warning here so that it does not
-    leak into jobscript stderr.
-
+    Keep the Proactor event loop because asyncio subprocesses require it.
     """
     assert socket is not None
-
-    if os.name != "nt":
-        return await socket.recv_json()
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=(
-                r"Proactor event loop does not implement add_reader "
-                r"family of methods required for zmq\..*"
-            ),
-            category=RuntimeWarning,
-        )
+    with _zmq_compatibility_warnings():
         return await socket.recv_json()

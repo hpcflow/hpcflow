@@ -29,7 +29,7 @@ from hpcflow.sdk.execution.protocol import (
     StatusResponse,
     TimeItRequest,
 )
-from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
+from hpcflow.sdk.execution.script_worker.executor import ScriptWorkerExecutor
 
 
 @pytest.mark.asyncio

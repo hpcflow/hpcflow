@@ -3,13 +3,15 @@ from collections.abc import AsyncIterator
 import os
 from pathlib import Path
 import sys
+from typing import cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
 
 from hpcflow.app import app as hf
-from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
+from hpcflow.sdk.execution.script_worker.client import ScriptWorkerClient
+from hpcflow.sdk.execution.script_worker.executor import ScriptWorkerExecutor
 from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 
@@ -99,7 +101,10 @@ async def test_workers_keep_independent_environments_and_cleanup(
     assert not first.is_running
     assert second.is_running
     executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
-    executor.script_workers = {"first": first, "second": second}
+    executor.script_workers = {
+        "first": cast(ScriptWorkerClient, first),
+        "second": cast(ScriptWorkerClient, second),
+    }
     await executor._stop_script_workers()
     assert executor.script_workers == {}
     assert not second.is_running
@@ -138,7 +143,10 @@ async def test_jobscript_reaps_real_workers_on_exception_or_cancellation(
     executor.workflow = Mock()
     executor.jobscript = Mock(all_EAR_IDs=[])
     executor.array_idx = None
-    executor.script_workers = dict(zip(("one", "two"), real_workers))
+    executor.script_workers = {
+        name: cast(ScriptWorkerClient, worker)
+        for name, worker in zip(("one", "two"), real_workers)
+    }
     completion = Mock()
     monkeypatch.setattr(
         hf.JobscriptExecutor, "completion", property(lambda _: completion)

@@ -3913,6 +3913,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -3950,6 +3951,7 @@ class Workflow(AppAware):
                     min_jobscripts=min_jobscripts,
                     status=status,
                     timeit=timeit,
+                    enable_script_workers=enable_script_workers,
                 )
             ):
                 if status:
@@ -4004,6 +4006,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -4023,6 +4026,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> None: ...
 
     def submit(
@@ -4041,6 +4045,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -4117,6 +4122,7 @@ class Workflow(AppAware):
                     tasks=tasks,
                     quiet=quiet,
                     timeit=timeit,
+                    enable_script_workers=enable_script_workers,
                 )
 
         if exceptions:
@@ -4516,6 +4522,7 @@ class Workflow(AppAware):
         min_jobscripts: bool = True,
         status: bool = True,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Submission | None:
         """Add a new submission.
 
@@ -4540,7 +4547,13 @@ class Workflow(AppAware):
         )
         with status_context as status_, self._store.cached_load(), self.batch_update():
             return self._add_submission(
-                tasks, JS_parallelism, force_array, min_jobscripts, status_, timeit
+                tasks,
+                JS_parallelism,
+                force_array,
+                min_jobscripts,
+                status_,
+                timeit,
+                enable_script_workers,
             )
 
     @TimeIt.decorator
@@ -4553,6 +4566,7 @@ class Workflow(AppAware):
         min_jobscripts: bool = True,
         status: Status | None = None,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Submission | None:
         """Add a new submission.
 
@@ -4588,6 +4602,7 @@ class Workflow(AppAware):
                 ),
                 JS_parallelism=JS_parallelism,
                 timeit=timeit,
+                enable_script_workers=enable_script_workers,
             )
             if status:
                 status.update("Adding new submission: setting environments...")

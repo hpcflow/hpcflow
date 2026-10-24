@@ -138,7 +138,7 @@ class Bash(Shell):
     #: Template for the jobscript execution command.
     JS_EXECUTE_CMD: ClassVar[str] = (
         '{workflow_app_alias} {timeit}internal workflow "$WK_PATH_ARG" '
-        "execute-jobscript $SUB_IDX $JS_IDX{array_idx_opt}\n"
+        "execute-jobscript $SUB_IDX $JS_IDX{array_idx_opt}{script_worker_opt}\n"
     )
 
     #: Template for the run execution command.

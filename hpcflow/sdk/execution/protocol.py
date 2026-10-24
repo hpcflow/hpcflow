@@ -1,4 +1,4 @@
-"""Run execution protocol."""
+"""Jobscript-control protocol and compatibility exports for worker message types."""
 
 from __future__ import annotations
 
@@ -129,20 +129,18 @@ class StatusResponse(JobscriptResponse):
     ok: bool = field(default=True, init=False)
 
 
-@dataclass(frozen=True)
-class ExecuteScriptRequest:
-    run_id: int
-    block_idx: int
-    action_idx: int
-    element_idx: int
-
-
-@dataclass(frozen=True)
-class ScriptExecutionResult:
-    run_id: int
-    exit_code: int
-
-
-@dataclass(frozen=True)
-class ShutdownScriptWorker:
-    pass
+# Preserve the earlier import location while the worker protocol lives in its runtime
+# sub-package.
+from hpcflow.sdk.execution.script_worker.protocol import (  # noqa: E402
+    SCRIPT_WORKER_PROTOCOL_VERSION,
+    ExecuteScriptRequest,
+    InvalidScriptWorkerMessageError,
+    ScriptExecutionResult,
+    ScriptWorkerError,
+    ScriptWorkerPing,
+    ScriptWorkerReady,
+    ScriptWorkerRequest,
+    ScriptWorkerResponse,
+    ScriptWorkerShutdownAck,
+    ShutdownScriptWorker,
+)

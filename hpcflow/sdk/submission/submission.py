@@ -15,7 +15,11 @@ import warnings
 from contextlib import contextmanager
 
 
-from hpcflow.sdk.scripting.writer import ScriptWorkerArgs, ScriptWriter
+from hpcflow.sdk.scripting.writer import (
+    SCRIPT_WORKER_SHELL_NAMES,
+    ScriptWorkerArgs,
+    ScriptWriter,
+)
 from hpcflow.sdk.submission.run_file_resolver import RunMetaDataFileResolver
 from hpcflow.sdk.utils.strings import shorten_list_str
 import numpy as np
@@ -50,6 +54,7 @@ if TYPE_CHECKING:
     from .shells import Shell
     from .types import SubmissionPart
     from ..core.element import ElementActionRun
+    from ..core.actions import Action
     from ..core.environment import Environment, EnvironmentSpec
     from ..core.object_list import EnvironmentsList
     from ..core.workflow import Workflow
@@ -131,6 +136,7 @@ class Submission(JSONLike):
         JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
         environments: EnvironmentsList | None = None,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ):
         self._index = index
         self._jobscripts = jobscripts
@@ -140,6 +146,7 @@ class Submission(JSONLike):
         self._JS_parallelism = JS_parallelism
         self._environments = environments  # assigned by _set_environments
         self._timeit = timeit
+        self.enable_script_workers = enable_script_workers
 
         self._submission_parts_lst: list[SubmissionPart] | None = (
             None  # assigned on first access
@@ -724,6 +731,44 @@ class Submission(JSONLike):
                 if (act_states := js.get_active_states(as_json=as_json))
             }
 
+    @staticmethod
+    def _get_script_worker_actions(
+        jobscript: Jobscript, runs: Sequence[ElementActionRun]
+    ) -> dict[ScriptWorkerArgs, dict[tuple[int, int], Action]]:
+        """Build callable registries using jobscript block/action coordinates."""
+        worker_actions: dict[ScriptWorkerArgs, dict[tuple[int, int], Action]] = (
+            defaultdict(dict)
+        )
+        worker_run_ids = {
+            int(run_id)
+            for run_id in jobscript.all_EAR_IDs
+            if runs[int(run_id)].action.supports_script_worker
+        }
+        if not worker_run_ids:
+            return {}
+
+        for block in jobscript.blocks:
+            for action_idx, run_ids in enumerate(block.EAR_ID):
+                for run_id in run_ids:
+                    run_id = int(run_id)
+                    if run_id not in worker_run_ids:
+                        continue
+
+                    run = runs[run_id]
+                    worker_args = run.get_script_worker_args(jobscript.index)
+                    if worker_args.shell_name not in SCRIPT_WORKER_SHELL_NAMES:
+                        continue
+                    action_key = (block.index, action_idx)
+                    actions = worker_actions[worker_args]
+                    if action_key in actions and actions[action_key] is not run.action:
+                        raise ValueError(
+                            "A script-worker registry key maps to multiple actions: "
+                            f"{action_key!r}."
+                        )
+                    actions[action_key] = run.action
+
+        return dict(worker_actions)
+
     @TimeIt.decorator
     def _write_scripts(
         self, cache: ObjectCache, status: Status | None = None
@@ -757,20 +802,18 @@ class Submission(JSONLike):
         assert all_runs is not None
         runs_ids_by_js = self.all_EARs_IDs_by_jobscript
 
-        # TODO: write worker_scripts and commands (should be able to)
-        # - for runs for which `use_script_worker` is True:
-        #       - script_workers[js_idx][env_spec_hashable] = [(task_id, act_idx), ...]
-
-        # look over jobscript task-actions;
-        # check action.use_script_worker
-        # assign to script_workers for those actions
-        # then do normal run loop
-
-        script_workers: dict[ScriptWorkerArgs, set[tuple[int, int]]] = defaultdict(set)
+        script_workers: dict[ScriptWorkerArgs, dict[tuple[int, int], Action]] = (
+            defaultdict(dict)
+        )
         with self.workflow.cached_merged_parameters():
             for js in self.jobscripts:
                 js_idx = js.index
                 js_run_0 = all_runs[runs_ids_by_js[js.index][0]]
+                if self.enable_script_workers:
+                    for worker_args, actions in self._get_script_worker_actions(
+                        js, all_runs
+                    ).items():
+                        script_workers[worker_args].update(actions)
 
                 if js.resources.combine_scripts:
                     # this will be one or more snippet scripts that needs to be combined into
@@ -786,14 +829,6 @@ class Submission(JSONLike):
 
                 for idx, run_id in enumerate(js.all_EAR_IDs):
                     run = all_runs[run_id]
-
-                    if run.use_script_worker:
-                        script_workers[run.get_script_worker_args(js_idx)].add(
-                            (
-                                run.task.insert_ID,
-                                run.element_action.action_idx,
-                            )
-                        )
 
                     run_indices[run_idx] = [
                         run.task.insert_ID,
@@ -911,19 +946,25 @@ class Submission(JSONLike):
                                     seen[script_hash] = script_path
 
         # write script workers:
-        for worker_args, act_data in script_workers.items():
-            actions = {}
-            for task_iID, act_idx in sorted(act_data):
-                task = self.workflow.tasks.get(insert_ID=task_iID)
-                schema = task.template.schemas[0]  # TODO: multiple schemas
-                actions[act_idx] = schema.actions[act_idx]
-
+        for worker_args, actions in script_workers.items():
             # need to pass enough info to construct the file path
             # env and executable inst command is needed to write commands file (e.g. setup)
 
             writer = ScriptWriter.create(worker_args, actions)
             writer.write_worker(self.scripts_path)
-            writer.write_worker_commands_file(self.commands_path)
+            jobscript = self.jobscripts[worker_args.jobscript_idx]
+            writer.write_worker_commands_file(
+                self.commands_path,
+                script_path=worker_args.get_script_path(self.scripts_path),
+                shell=jobscript.shell,
+            )
+            writer.write_worker_manifest(
+                self.scripts_path,
+                workflow_path=self.workflow.path,
+                submission_idx=self.index,
+                config_directory=self._app.config.config_directory,
+                config_key=self._app.config.config_key,
+            )
 
         # combined script stuff
         for js_idx, act_IDs in combined_actions.items():

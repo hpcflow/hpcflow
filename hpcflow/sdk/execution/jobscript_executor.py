@@ -29,9 +29,11 @@ from hpcflow.sdk.core.skip_reason import SkipReason
 from hpcflow.sdk.core.utils import redirect_std_to_file
 from hpcflow.sdk.config.config import load_workflow_config
 from hpcflow.sdk.execution.run_executor import RunExecutor
-from hpcflow.sdk.execution.script_worker_executor import ScriptWorkerExecutor
+from hpcflow.sdk.execution.script_worker.client import ScriptWorkerClient
+from hpcflow.sdk.execution.script_worker.protocol import ExecuteScriptRequest
 from hpcflow.sdk.execution.server import JobscriptServer
 from hpcflow.sdk.instrumentation import TimeIt
+from hpcflow.sdk.scripting.writer import SCRIPT_WORKER_SHELL_NAMES
 from hpcflow.sdk.utils.async_utils import await_cleanup
 from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
 from hpcflow.sdk.wait.completion import JobscriptCompletion
@@ -112,6 +114,7 @@ class JobscriptExecutor(AppAware):
         submission_idx,
         jobscript_idx,
         array_idx: int | None = None,
+        enable_script_workers: bool = False,
     ):
         self.workflow = workflow
 
@@ -122,12 +125,13 @@ class JobscriptExecutor(AppAware):
         self.jobscript = self.submission.jobscripts[jobscript_idx]
 
         self.array_idx = array_idx
+        self.enable_script_workers = enable_script_workers
 
         self.active_executors: dict[int, RunExecutor] = {}
 
         # Persistent Python interpreters used to execute snippet scripts; keys are the
         # property `ElementActionRun.script_worker_id`:
-        self.script_workers: dict[str, ScriptWorkerExecutor] = {}
+        self.script_workers: dict[str, ScriptWorkerClient] = {}
 
         self.jobscript_server: JobscriptServer | None = None
 
@@ -442,6 +446,12 @@ class JobscriptExecutor(AppAware):
                 os.chdir(run_dir)
 
             commands_file_path = None
+            use_script_worker = (
+                self.enable_script_workers
+                and run.action.supports_script_worker
+                and run.get_script_worker_args(self.jobscript_idx).shell_name
+                in SCRIPT_WORKER_SHELL_NAMES
+            )
             try:
                 with redirect_std_to_file(
                     js_run.run_std_path,
@@ -453,7 +463,7 @@ class JobscriptExecutor(AppAware):
                         run=run,
                         run_dir=run_dir,
                     )
-                    if not run.use_script_worker:
+                    if not use_script_worker:
                         commands_file_path = self.ensure_commands_file(run)
 
             except UnsetParameterDataErrorBase:
@@ -472,7 +482,7 @@ class JobscriptExecutor(AppAware):
                     timeit=run_timeit,
                 )
 
-            if run.use_script_worker:
+            if use_script_worker:
                 executed = True
                 exit_code, command_time = await self._execute_script_run(
                     action=action,
@@ -774,24 +784,51 @@ class JobscriptExecutor(AppAware):
         unset_params,
     ) -> tuple[int, float | None]:
         """Execute a Python snippet in a persistent script worker."""
-        if run.script_worker_id not in self.script_workers:
-            # fire up a new script worker
-            worker_args = run.script_worker_args
-            script_path = worker_args.get_script_path(self.submission.scripts_path)
-            cmds_path = worker_args.get_commands_path(self.submission.commands_path)
-            # TODO: substitute <<script_path>> and remove <<args>> in exec_cmd
+        worker_id = run.script_worker_id
+        worker = self.script_workers.get(worker_id)
+        environment = self._get_run_environment(action=action, js_run=js_run, run=run)
+        if worker is None:
+            worker_args = run.get_script_worker_args(self.jobscript_idx)
+            commands_path = worker_args.get_commands_path(self.submission.commands_path)
+            if not commands_path.is_file():
+                raise RuntimeError(
+                    f"Script-worker command file {commands_path!r} does not exist."
+                )
+            command = self.jobscript.shell.get_command_file_launch_command(
+                str(commands_path)
+            )
+            worker = ScriptWorkerClient(
+                command,
+                environment,
+                cwd=self.submission.path,
+            )
+            self.script_workers[worker_id] = worker
 
-            if not cmds_path.is_file():
-                raise RuntimeError(f"Command file {cmds_path!r} does not exist.")
+        assert self.jobscript_server is not None
+        assert self.jobscript_server.port_number is not None
+        await self.set_run_start(run.id_, run_dir, self.jobscript_server.port_number)
+        if not worker.worker.is_running:
+            await worker.start()
 
-            cmd = self.jobscript.shell.get_command_file_launch_command(str(cmds_path))
-            env = self._get_run_environment(action=action, js_run=js_run, run=run)
-            worker = ScriptWorkerExecutor(cmd=cmd, env=env)
-            self.script_workers[run.script_worker_id] = worker
+        request = ExecuteScriptRequest(
+            run_id=run.id_,
+            block_idx=action.block_idx,
+            action_idx=action.action_idx,
+            element_idx=js_run.element_idx,
+        )
+        command_start = time.perf_counter()
+        result = await worker.execute(request, environment=environment)
+        command_time = time.perf_counter() - command_start if TimeIt.is_active() else None
+        if run_timeit := TimeIt.current():
+            run_timeit.child_orchestration_time += result.orchestration_time
+            run_timeit.child_work_time += result.work_time
 
-        worker = self.script_workers[run.script_worker_id]
-
-        raise NotImplementedError
+        self.logger.info(
+            "Script worker finished run %s with exit code %s.",
+            js_run.run_id,
+            result.exit_code,
+        )
+        return result.exit_code, command_time
 
     async def _finish_action(
         self,

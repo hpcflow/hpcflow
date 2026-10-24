@@ -567,6 +567,12 @@ def _make_workflow_CLI(app: BaseApp):
     @submit_quiet_opt
     @timeit_exec_opt
     @modify_js_opt
+    @click.option(
+        "--enable-script-workers",
+        is_flag=True,
+        default=False,
+        help="Enable experimental persistent Python workers for eligible snippets.",
+    )
     @_pass_workflow
     def submit_workflow(
         wf: Workflow,
@@ -580,6 +586,7 @@ def _make_workflow_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
@@ -593,6 +600,7 @@ def _make_workflow_CLI(app: BaseApp):
             status=status,
             quiet=quiet,
             timeit=timeit,
+            enable_script_workers=enable_script_workers,
         )
         if print_idx:
             click.echo(out)
@@ -604,6 +612,12 @@ def _make_workflow_CLI(app: BaseApp):
     @min_jobscripts_opt
     @submit_status_opt
     @timeit_exec_opt
+    @click.option(
+        "--enable-script-workers",
+        is_flag=True,
+        default=False,
+        help="Enable experimental persistent Python workers for eligible snippets.",
+    )
     @_pass_workflow
     def add_submission(
         wf: Workflow,
@@ -613,6 +627,7 @@ def _make_workflow_CLI(app: BaseApp):
         min_jobscripts=True,
         status=True,
         timeit=False,
+        enable_script_workers=False,
     ):
         """Add a new submission to the workflow, but do not submit."""
         wf.add_submission(
@@ -622,6 +637,7 @@ def _make_workflow_CLI(app: BaseApp):
             min_jobscripts=min_jobscripts,
             status=status,
             timeit=timeit,
+            enable_script_workers=enable_script_workers,
         )
 
     @workflow.command(name="wait")
@@ -1041,12 +1057,19 @@ def _make_internal_CLI(app: BaseApp):
     @click.argument("submission_idx", type=click.INT)
     @click.argument("jobscript_idx", type=click.INT)
     @click.option("array_idx", "--array-idx", type=click.INT)
+    @click.option(
+        "--enable-script-workers",
+        is_flag=True,
+        default=False,
+        help="Use experimental persistent Python workers for eligible snippets.",
+    )
     def execute_jobscript(
         ctx: click.Context,
         wf: Workflow,
         submission_idx: int,
         jobscript_idx: int,
         array_idx: int,
+        enable_script_workers: bool,
     ):
         app.CLI_logger.info(
             f"execute command for jobscript {jobscript_idx} (element index: "
@@ -1057,6 +1080,7 @@ def _make_internal_CLI(app: BaseApp):
             submission_idx=submission_idx,
             jobscript_idx=jobscript_idx,
             array_idx=array_idx,
+            enable_script_workers=enable_script_workers,
         )
         if timeit_session := TimeIt.current():
             timeit_session.title = ctx.command_path

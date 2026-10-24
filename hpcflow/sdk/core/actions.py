@@ -954,12 +954,13 @@ class ElementActionRun(AppAware):
         return self.get_script_worker_args(self.jobscript_idx)
 
     def get_script_worker_args(self, jobscript_idx: int) -> ScriptWorkerArgs:
-        """Use this before the jobscript index is set."""
+        """Resolve interpreter, environment, and shell details for a worker."""
         return ScriptWorkerArgs(
             jobscript_idx=jobscript_idx,
             env=self.get_environment(),
             exec_cmd=self.get_executable_instance().command,
             language="python",
+            shell_name=self.resources.shell or self._app.config.default_shell,
         )
 
     @property
@@ -1050,7 +1051,7 @@ class ElementActionRun(AppAware):
                 out[dat_key] = val_i
 
         if self.action.script_pass_env_spec:
-            out["env_spec"] = cast("Any", self.env_spec)
+            out["env_spec"] = dict(self.env_spec)
 
         return out
 
@@ -1105,7 +1106,7 @@ class ElementActionRun(AppAware):
         }
 
         if self.action.script_pass_env_spec:
-            inputs["env_spec"] = self.env_spec
+            inputs["env_spec"] = dict(self.env_spec)
 
         return inputs
 
@@ -2542,6 +2543,11 @@ class Action(JSONLike):
         if self.script and (snip_path := self.get_snippet_script_path(self.script)):
             return snip_path.suffix == ".py"
         return False
+
+    @property
+    def supports_script_worker(self) -> bool:
+        """Return whether this action can be composed into a Python script worker."""
+        return self.script_is_python_snippet and self.script_exe is not None
 
     @property
     def use_script_worker(self) -> bool:
