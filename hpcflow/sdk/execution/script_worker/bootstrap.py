@@ -138,8 +138,9 @@ def build_script_worker_invocations(
 ) -> dict[ExecuteScriptRequest, ScriptWorkerInvocation]:
     """Bind generated callables to persisted runs at declared coordinates.
 
-    Each requested action key must exist in both the manifest and generated registry;
-    every matching persisted run must also match the worker's environment identity.
+    Each action key is local to its jobscript block, not the task's action list.
+    Keys must exist in both the manifest and generated registry; registered runs
+    must also match the worker's environment identity.
     """
     function_keys = set(action_scripts)
     if function_keys != set(manifest.action_keys):
@@ -181,7 +182,6 @@ def build_script_worker_invocations(
             if (
                 run.submission_idx != manifest.submission_idx
                 or run.jobscript_idx != manifest.jobscript_idx
-                or run.element_action.action_idx != action_idx
             ):
                 raise ValueError(
                     f"Run {run_id} does not match manifest block/action identity."

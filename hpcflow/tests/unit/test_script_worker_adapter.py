@@ -42,6 +42,8 @@ def make_run(
     enable_script_workers=False,
     script="<<script:main_script_test_direct_in_direct_out.py>>",
     abortable=False,
+    resources=None,
+    add_submission=True,
 ):
     schema = hf.TaskSchema(
         objective="worker_adapter",
@@ -64,11 +66,55 @@ def make_run(
         path=tmp_path,
         store=store,
         tasks=[hf.Task(schema, inputs={"p1": 101}, repeats=repeats)],
+        resources=resources,
     )
-    workflow.add_submission(enable_script_workers=enable_script_workers)
+    if add_submission:
+        workflow.add_submission(enable_script_workers=enable_script_workers)
     run = workflow.get_all_EARs()[0]
-    run.prepare_directory()
+    if add_submission:
+        run.prepare_directory()
     return workflow, run
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("enable_script_workers", [False, True])
+def test_retired_combined_scripts_rejected_before_submission(
+    tmp_path, store, enable_script_workers
+):
+    workflow, run = make_run(
+        tmp_path,
+        store=store,
+        resources={"any": {"combine_scripts": True}},
+        add_submission=False,
+    )
+    artifacts_before = set(workflow.submissions_path.rglob("*"))
+    assignment_before = (run.submission_idx, run.jobscript_idx)
+    with pytest.raises(ValueError, match="combine_scripts=True is no longer supported"):
+        workflow.add_submission(enable_script_workers=enable_script_workers)
+    assert workflow.num_submissions == 0
+    assert set(workflow.submissions_path.rglob("*")) == artifacts_before
+    assert (run.submission_idx, run.jobscript_idx) == assignment_before
+    fresh = hf.Workflow(workflow.path)
+    assert fresh.num_submissions == 0
+    fresh_run = fresh.get_all_EARs()[0]
+    assert (fresh_run.submission_idx, fresh_run.jobscript_idx) == assignment_before
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_old_combined_submission_readable_but_cannot_execute(tmp_path, store):
+    workflow, _ = make_run(tmp_path, store=store)
+    data = workflow.submissions[0].to_json_like()[0]
+    data["jobscripts"][0]["resources"]["combine_scripts"] = True
+    old_submission = hf.Submission.from_json_like({"index": 0, **data})
+    old_submission.workflow = workflow
+    workflow._submissions = [old_submission]
+    assert old_submission.jobscripts[0].resources.combine_scripts is True
+    with pytest.raises(ValueError, match="combine_scripts=True is no longer supported"):
+        old_submission.prepare_submit(ignore_errors=True)
+    with pytest.raises(ValueError, match="combine_scripts=True is no longer supported"):
+        old_submission.jobscripts[0].write_jobscript()
+    with pytest.raises(ValueError, match="combine_scripts=True is no longer supported"):
+        hf.JobscriptExecutor(workflow, 0, 0)
 
 
 @pytest.mark.asyncio
@@ -174,6 +220,9 @@ async def test_active_worker_abort_or_cancellation_reaps_process(
     )
     monkeypatch.setenv("HPCFLOW_WK_PATH_ARG", str(workflow.path))
     task = asyncio.create_task(executor._execute())
+    waiter = None
+    finalize = Mock(wraps=executor._finalize_run)
+    monkeypatch.setattr(executor, "_finalize_run", finalize)
     try:
 
         async def started():
@@ -203,6 +252,18 @@ async def test_active_worker_abort_or_cancellation_reaps_process(
             with pytest.raises(asyncio.CancelledError):
                 await asyncio.wait_for(task, timeout=15)
         else:
+            executor.jobscript._set_process_ID(os.getpid())
+            monkeypatch.setattr(workflow, "WAIT_STATE_CHECK_INTERVAL", 60)
+            waiter = asyncio.create_task(workflow._wait(sub_js={0: [0]}, quiet=True))
+
+            async def registered():
+                while not executor._get_wait_endpoints():
+                    if waiter.done():
+                        await waiter
+                        pytest.fail("Workflow waiter ended before registration.")
+                    await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(registered(), timeout=5)
             assert server.port_number is not None
             response = await asyncio.to_thread(
                 JobscriptClient.send_abort, "127.0.0.1", server.port_number, 0
@@ -216,6 +277,9 @@ async def test_active_worker_abort_or_cancellation_reaps_process(
             assert first.end_time is not None
             assert second.success and second.end_time is not None
             assert fresh.tasks[0].elements[1].outputs.p2.value != pid
+            await asyncio.wait_for(waiter, timeout=5)
+            assert [call.kwargs["run"].id_ for call in finalize.call_args_list] == [0, 1]
+            assert not executor._get_wait_endpoints()
         assert not psutil.pid_exists(pid)
         assert process.returncode is not None
         assert client.worker.process is None
@@ -228,6 +292,10 @@ async def test_active_worker_abort_or_cancellation_reaps_process(
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        if waiter is not None:
+            if not waiter.done():
+                waiter.cancel()
+            await asyncio.gather(waiter, return_exceptions=True)
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])

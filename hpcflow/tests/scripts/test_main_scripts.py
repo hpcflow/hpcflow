@@ -15,11 +15,9 @@ from hpcflow.sdk.core.test_utils import P1_parameter_cls as P1
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
+def test_script_direct_in_direct_out(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -40,9 +38,8 @@ def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -51,11 +48,11 @@ def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: bool):
+def test_script_direct_sub_param_in_direct_out(
+    tmp_path: Path, enable_script_workers: bool
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -76,9 +73,8 @@ def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: 
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -87,11 +83,11 @@ def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_direct_in_direct_out_single_label(tmp_path: Path, combine_scripts: bool):
+def test_script_direct_in_direct_out_single_label(
+    tmp_path: Path, enable_script_workers: bool
+):
     """This uses the same test script as the `test_script_direct_in_direct_out` test;
     single labels are trivial and need not be referenced in the script."""
     p1_label = "one"
@@ -115,9 +111,8 @@ def test_script_direct_in_direct_out_single_label(tmp_path: Path, combine_script
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -126,11 +121,9 @@ def test_script_direct_in_direct_out_single_label(tmp_path: Path, combine_script
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_direct_in_direct_out_labels(tmp_path: Path, combine_scripts: bool):
+def test_script_direct_in_direct_out_labels(tmp_path: Path, enable_script_workers: bool):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -166,9 +159,8 @@ def test_script_direct_in_direct_out_labels(tmp_path: Path, combine_scripts: boo
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -177,11 +169,9 @@ def test_script_direct_in_direct_out_labels(tmp_path: Path, combine_scripts: boo
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
+def test_script_json_in_json_out(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -203,9 +193,10 @@ def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
+    assert all(run.success and run.end_time for run in wk.get_all_EARs())
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -219,11 +210,9 @@ def test_script_json_in_json_out(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
+def test_script_json_in_json_out_labels(tmp_path: Path, enable_script_workers: bool):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -260,9 +249,8 @@ def test_script_json_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -271,11 +259,11 @@ def test_script_json_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_sub_param_in_json_out_labels(tmp_path: Path, combine_scripts: bool):
+def test_script_json_sub_param_in_json_out_labels(
+    tmp_path: Path, enable_script_workers: bool
+):
     p1_label_1 = "one"
     p1_label_2 = "two"
     s1 = hf.TaskSchema(
@@ -312,9 +300,8 @@ def test_script_json_sub_param_in_json_out_labels(tmp_path: Path, combine_script
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -323,11 +310,9 @@ def test_script_json_sub_param_in_json_out_labels(tmp_path: Path, combine_script
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_and_direct_in_json_out(tmp_path: Path, combine_scripts: bool):
+def test_script_json_and_direct_in_json_out(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[
@@ -353,9 +338,8 @@ def test_script_json_and_direct_in_json_out(tmp_path: Path, combine_scripts: boo
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p3 = wk.tasks[0].elements[0].outputs.p3
     assert isinstance(p3, hf.ElementParameter)
@@ -364,11 +348,9 @@ def test_script_json_and_direct_in_json_out(tmp_path: Path, combine_scripts: boo
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_in_json_and_direct_out(tmp_path: Path, combine_scripts: bool):
+def test_script_json_in_json_and_direct_out(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -393,9 +375,8 @@ def test_script_json_in_json_and_direct_out(tmp_path: Path, combine_scripts: boo
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -407,11 +388,9 @@ def test_script_json_in_json_and_direct_out(tmp_path: Path, combine_scripts: boo
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_in_obj(tmp_path: Path, combine_scripts: bool):
+def test_script_json_in_obj(tmp_path: Path, enable_script_workers: bool):
     """Use a custom JSON dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -435,9 +414,8 @@ def test_script_json_in_obj(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -446,11 +424,9 @@ def test_script_json_in_obj(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_hdf5_in_obj(tmp_path: Path, combine_scripts: bool):
+def test_script_hdf5_in_obj(tmp_path: Path, enable_script_workers: bool):
     """Use a custom HDF5 dumper defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -474,9 +450,8 @@ def test_script_hdf5_in_obj(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -485,11 +460,9 @@ def test_script_hdf5_in_obj(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_hdf5_in_obj_group(tmp_path: Path, combine_scripts: bool):
+def test_script_hdf5_in_obj_group(tmp_path: Path, enable_script_workers: bool):
     s0 = hf.TaskSchema(
         objective="define_p1c",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1c"))],
@@ -521,9 +494,13 @@ def test_script_hdf5_in_obj_group(tmp_path: Path, combine_scripts: bool):
         tasks=[t0, t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
 
     p2 = wk.tasks[1].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -532,11 +509,9 @@ def test_script_hdf5_in_obj_group(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_json_out_obj(tmp_path: Path, combine_scripts: bool):
+def test_script_json_out_obj(tmp_path: Path, enable_script_workers: bool):
     """Use a custom JSON saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -560,9 +535,8 @@ def test_script_json_out_obj(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p1c = wk.tasks[0].elements[0].outputs.p1c
     assert isinstance(p1c, hf.ElementParameter)
@@ -571,11 +545,9 @@ def test_script_json_out_obj(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_hdf5_out_obj(tmp_path: Path, combine_scripts: bool):
+def test_script_hdf5_out_obj(tmp_path: Path, enable_script_workers: bool):
     """Use a custom HDF5 saver defined in the P1 class."""
     s1 = hf.TaskSchema(
         objective="t1",
@@ -599,9 +571,8 @@ def test_script_hdf5_out_obj(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p1c = wk.tasks[0].elements[0].outputs.p1c
     assert isinstance(p1c, hf.ElementParameter)
@@ -610,12 +581,10 @@ def test_script_hdf5_out_obj(tmp_path: Path, combine_scripts: bool):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
 def test_script_direct_in_pass_env_spec(
-    tmp_path: Path, combine_scripts: bool, reload_template_components
+    tmp_path: Path, enable_script_workers: bool, reload_template_components
 ):
     vers_spec = {"version": "1.2"}
     env = hf.envs.python_env.copy(name="python_env_with_specifiers", specifiers=vers_spec)
@@ -646,9 +615,8 @@ def test_script_direct_in_pass_env_spec(
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -659,13 +627,8 @@ def test_script_direct_in_pass_env_spec(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
-)
 def test_script_std_stream_redirect_on_exception(
-    tmp_path: Path, combine_scripts: bool, reload_template_components
+    tmp_path: Path, reload_template_components
 ):
     """Test exceptions raised by the app during execution of a script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
@@ -704,7 +667,6 @@ def test_script_std_stream_redirect_on_exception(
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
@@ -712,24 +674,20 @@ def test_script_std_stream_redirect_on_exception(
     assert not wk.submissions[0].jobscripts[0].direct_stderr_path.read_text()
 
     # std stream file has workflow not found traceback
-    if combine_scripts:
-        std_stream_path = wk.submissions[0].jobscripts[0].get_app_std_path()
-    else:
-        run = wk.get_all_EARs()[0]
-        std_stream_path = run.get_app_std_path()
+    run = wk.get_all_EARs()[0]
+    std_stream_path = run.get_app_std_path()
     assert std_stream_path.is_file()
     assert "WorkflowNotFoundError" in std_stream_path.read_text()
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_std_out_std_err_not_redirected(tmp_path: Path, combine_scripts: bool):
-    """Test that standard error and output streams from a script are written to the jobscript
-    standard error and output files."""
+def test_script_std_out_std_err_not_redirected(
+    tmp_path: Path, enable_script_workers: bool
+):
+    """Check ordinary jobscript streams and workers' per-run combined logs."""
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[
@@ -753,11 +711,14 @@ def test_script_std_out_std_err_not_redirected(tmp_path: Path, combine_scripts: 
         tasks=[t1],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
-    if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
+    if enable_script_workers:
+        run = wk.get_all_EARs()[0]
+        stream = run.get_app_std_path().read_text()
+        assert f"{stdout_msg}\n{stderr_msg}" in stream
+    elif wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
         assert std_out_err.strip() == f"{stdout_msg}\n{stderr_msg}"
     else:
@@ -769,11 +730,9 @@ def test_script_std_out_std_err_not_redirected(tmp_path: Path, combine_scripts: 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_pass_env_spec(tmp_path: Path, combine_scripts: bool):
+def test_script_pass_env_spec(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -795,25 +754,35 @@ def test_script_pass_env_spec(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test_pass_env_spec",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
 
-    std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text().strip()
+    std_path = (
+        wk.get_all_EARs()[0].get_app_std_path()
+        if enable_script_workers
+        else wk.submissions[0].jobscripts[0].direct_stdout_path
+    )
+    std_out = std_path.read_text().strip()
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
-    assert std_out == "{'name': 'python_env'}"
+    if enable_script_workers:
+        assert "{'name': 'python_env'}" in std_out.splitlines()
+    else:
+        assert std_out == "{'name': 'python_env'}"
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
 def test_env_specifier_in_main_script_path(
-    tmp_path: Path, combine_scripts: bool, reload_template_components
+    tmp_path: Path, enable_script_workers: bool, reload_template_components
 ):
     py_env = hf.envs.python_env.copy(specifiers={"version": "v1"})
     hf.envs.add_object(py_env, skip_duplicates=True)
@@ -843,9 +812,13 @@ def test_env_specifier_in_main_script_path(
         tasks=[t1],
         template_name="main_script_test_env_spec_script_path",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
@@ -854,12 +827,10 @@ def test_env_specifier_in_main_script_path(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
 def test_env_specifier_in_main_script_path_multiple_scripts(
-    tmp_path: Path, combine_scripts: bool, reload_template_components
+    tmp_path: Path, enable_script_workers: bool, reload_template_components
 ):
     """Test two elements with different environment specifiers use two distinct scripts"""
     py_env_v1 = hf.envs.python_env.copy(specifiers={"version": "v1"})
@@ -897,9 +868,13 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
         tasks=[t1],
         template_name="main_script_test_multiple_env_spec_script",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
 
     # v1 and v2 scripts output different values:
     e1, e2 = wk.tasks.t1.elements
@@ -913,11 +888,11 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_direct_in_direct_out_multi_element(tmp_path: Path, combine_scripts: bool):
+def test_script_direct_in_direct_out_multi_element(
+    tmp_path: Path, enable_script_workers: bool
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -940,9 +915,13 @@ def test_script_direct_in_direct_out_multi_element(tmp_path: Path, combine_scrip
         tasks=[t1],
         template_name="main_script_test_multi_element",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
 
     e0_p2 = wk.tasks[0].elements[0].outputs.p2
     e1_p2 = wk.tasks[0].elements[1].outputs.p2
@@ -956,11 +935,18 @@ def test_script_direct_in_direct_out_multi_element(tmp_path: Path, combine_scrip
     assert e1_p2.value == p1_vals[1] + 100
     assert e2_p2.value == p1_vals[2] + 100
 
-    # check only one script generated, and its name:
     script_name, _ = t1.schema.actions[0].get_script_artifact_name(env_spec={}, act_idx=0)
-    script_files = list(i.name for i in wk.submissions[0].scripts_path.glob("*"))
-    assert len(script_files) == 1
-    assert script_files[0] == script_name if not combine_scripts else "js_0.py"
+    submission = wk.submissions[0]
+    expected_files = {script_name}
+    if enable_script_workers:
+        args = wk.get_all_EARs()[0].get_script_worker_args(0)
+        expected_files.update(
+            (
+                args.get_script_path(submission.scripts_path).name,
+                args.get_manifest_path(submission.scripts_path).name,
+            )
+        )
+    assert {i.name for i in submission.scripts_path.glob("*")} == expected_files
 
 
 @pytest.mark.integration
@@ -1246,8 +1232,7 @@ def test_shell_env_vars(tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.combine_scripts
-def test_combine_scripts_script_data_multiple_input_file_formats(tmp_path: Path):
+def test_worker_script_data_multiple_input_file_formats(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -1289,9 +1274,8 @@ def test_combine_scripts_script_data_multiple_input_file_formats(tmp_path: Path)
         tasks=[t1, t2],
         template_name="main_script_test",
         path=tmp_path,
-        resources={"any": {"combine_scripts": True}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(wait=True, add_to_known=False, status=False, enable_script_workers=True)
 
     t0_p2 = wk.tasks[0].elements[0].outputs.p2
     t1_p3 = wk.tasks[1].elements[0].outputs.p3
@@ -1302,8 +1286,7 @@ def test_combine_scripts_script_data_multiple_input_file_formats(tmp_path: Path)
 
 
 @pytest.mark.integration
-@pytest.mark.combine_scripts
-def test_combine_scripts_from_future_import(tmp_path: Path):
+def test_worker_from_future_import(tmp_path: Path):
     s1 = hf.TaskSchema(
         objective="t1",
         actions=[
@@ -1318,10 +1301,9 @@ def test_combine_scripts_from_future_import(tmp_path: Path):
     wk = hf.Workflow.from_template_data(
         template_name="test_future_import",
         tasks=[hf.Task(schema=s1)],
-        resources={"any": {"combine_scripts": True}},
         path=tmp_path,
     )
-    wk.submit(status=False, add_to_known=False, wait=True)
+    wk.submit(status=False, add_to_known=False, wait=True, enable_script_workers=True)
 
     run = wk.get_EARs_from_IDs([0])[0]
     assert run.status is EARStatus.success
@@ -1329,11 +1311,9 @@ def test_combine_scripts_from_future_import(tmp_path: Path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "combine_scripts",
-    [False, True],
-    ids=["combine-scripts-false", "combine-scripts-true"],
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_random_seed(tmp_path: Path, combine_scripts: bool):
+def test_script_random_seed(tmp_path: Path, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[],
@@ -1354,9 +1334,9 @@ def test_script_random_seed(tmp_path: Path, combine_scripts: bool):
         tasks=[t1],
         template_name="main_script_test_random_seed",
         path=tmp_path,
-        resources={"any": {"combine_scripts": combine_scripts, "random_seed": SEED}},
+        resources={"any": {"random_seed": SEED}},
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)

@@ -317,7 +317,8 @@ class ElementResources(JSONLike):
     combine_jobscript_std: bool
         Whether jobscript standard output and error streams should be combined.
     combine_scripts: bool
-        Whether Python scripts should be combined.
+        Retired execution option retained for stored-data compatibility. Must be False
+        or unset for execution.
     time_limit: str
         How long to run for.
     scheduler_args: dict[str, Any]
@@ -394,7 +395,7 @@ class ElementResources(JSONLike):
     write_app_logs: bool = False
     #: Whether jobscript standard output and error streams should be combined.
     combine_jobscript_std: bool = field(default_factory=lambda: os.name != "nt")
-    #: Whether Python scripts should be combined.
+    #: Retired option, retained for stored data; execution requires False or None.
     combine_scripts: bool | None = None
     #: How long to run for.
     time_limit: str | None = None

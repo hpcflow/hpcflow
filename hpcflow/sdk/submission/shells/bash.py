@@ -147,11 +147,6 @@ class Bash(Shell):
         "execute-run $SUB_IDX $JS_IDX $block_idx $block_act_idx $EAR_ID\n"
     )
 
-    #: Template for the execution command for multiple combined runs.
-    JS_RUN_CMD_COMBINED: ClassVar[str] = (
-        '{workflow_app_alias} internal workflow "$WK_PATH_ARG" execute-combined-runs '
-        "$SUB_IDX $JS_IDX\n"
-    )
     #: Template for setting up run environment variables and executing the run.
     JS_RUN: ClassVar[str] = dedent("""\
         EAR_ID="$(cut -d'{EAR_files_delimiter}' -f $(($block_act_idx + 1)) <<< $elem_EAR_IDs)"

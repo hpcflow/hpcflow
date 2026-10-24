@@ -1473,12 +1473,7 @@ class ElementActionRun(AppAware):
 
         commands_fmt = jobscript.shell.format_commands_file(app_name, commands)
 
-        if jobscript.resources.combine_scripts:
-            stem = f"js_{jobscript.index}"  # TODO: refactor
-        else:
-            stem = str(self.id_)
-
-        cmd_file_name = f"{stem}{jobscript.shell.JS_EXT}"
+        cmd_file_name = f"{self.id_}{jobscript.shell.JS_EXT}"
         cmd_file_path: Path = jobscript.submission.commands_path / cmd_file_name
         with cmd_file_path.open("wt", newline="\n") as fp:
             fp.write(commands_fmt)

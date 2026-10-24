@@ -1036,23 +1036,6 @@ def _make_internal_CLI(app: BaseApp):
 
     @workflow.command()
     @_pass_workflow
-    @click.argument("submission_idx", type=click.INT)
-    @click.argument("jobscript_idx", type=click.INT)
-    def execute_combined_runs(
-        wf: Workflow,
-        submission_idx: int,
-        jobscript_idx: int,
-    ):
-        app.CLI_logger.info(
-            f"execute command for combined scripts of jobscript {jobscript_idx}."
-        )
-        wf.execute_combined_runs(
-            submission_idx=submission_idx,
-            jobscript_idx=jobscript_idx,
-        )
-
-    @workflow.command()
-    @_pass_workflow
     @click.pass_context
     @click.argument("submission_idx", type=click.INT)
     @click.argument("jobscript_idx", type=click.INT)

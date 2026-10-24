@@ -4604,6 +4604,7 @@ class Workflow(AppAware):
                 timeit=timeit,
                 enable_script_workers=enable_script_workers,
             )
+            sub_obj.validate_execution_mode()
             if status:
                 status.update("Adding new submission: setting environments...")
             sub_obj._set_environments()
@@ -4644,9 +4645,6 @@ class Workflow(AppAware):
 
         if sub_obj.needs_win_pids_dir:
             sub_obj.js_win_pids_path.mkdir(exist_ok=True)
-
-        if sub_obj.needs_script_indices_dir:
-            sub_obj.js_script_indices_path.mkdir(exist_ok=True)
 
         if status:
             status.update("Adding new submission: writing scripts and command files...")
@@ -4874,51 +4872,6 @@ class Workflow(AppAware):
                 submission_jobscripts[new_js_idx] = js_i
 
         return submission_jobscripts, all_element_deps
-
-    @load_workflow_config
-    def execute_combined_runs(self, submission_idx: int, jobscript_idx: int) -> None:
-        """Execute a combined script (multiple runs) via a subprocess."""
-
-        # CD to submission tmp dir to ensure std streams and exceptions have somewhere
-        # sensible to go:
-        os.chdir(Submission.get_tmp_path(self.submissions_path, submission_idx))
-
-        sub = self.submissions[submission_idx]
-        js = sub.jobscripts[jobscript_idx]
-
-        app_caps = self._app.package_name.upper()
-        script_dir = Path(os.environ[f"{app_caps}_SUB_SCRIPTS_DIR"])
-        script_name = f"js_{jobscript_idx}.py"  # TODO: refactor script name
-        script_path = script_dir / script_name
-
-        add_env = {
-            f"{app_caps}_RUN_SCRIPT_NAME": script_name,
-            f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT": script_path.stem,
-            f"{app_caps}_RUN_SCRIPT_DIR": str(script_dir),
-            f"{app_caps}_RUN_SCRIPT_PATH": str(script_path),
-            f"{app_caps}_SCRIPT_INDICES_FILE": str(js.combined_script_indices_file_path),
-        }
-        env = {**dict(os.environ), **add_env}
-
-        # note: unlike in `Workflow.execute_run`, here we can be reasonably sure the
-        # commands file already exists, because we call `Action.try_write_commands` with
-        # `raise_on_unset=True` in `Workflow._add_submission` during submission.
-
-        # TODO: refactor cmd file name:
-        cmd_file_path = sub.commands_path / f"js_{jobscript_idx}{js.shell.JS_EXT}"
-        cmd = js.shell.get_command_file_launch_command(str(cmd_file_path))
-
-        self._app.submission_logger.debug(
-            f"Executing combined runs via subprocess with command {cmd!r}, and "
-            f"environment variables as below."
-        )
-        for k, v in env.items():
-            if k.startswith(app_caps):
-                self._app.submission_logger.debug(f"{k} = {v}")
-
-        exe = self._app.Executor(cmd, env, self._app.package_name)
-        exe.start_zmq_server()  # start the server
-        exe.run()  # this also shuts down the server
 
     @TimeIt.decorator
     def process_shell_parameter_output(

@@ -9,11 +9,19 @@ from hpcflow import __version__
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
+    _make_internal_CLI,
     _make_workflow_CLI,
     _make_zip_CLI,
 )
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.cli_common import BoolOrString
+
+
+def test_cli_retired_combined_execution_command_removed():
+    workflow_cli = _make_internal_CLI(hf).commands["workflow"]
+    assert isinstance(workflow_cli, click.Group)
+    assert "execute-combined-runs" not in workflow_cli.commands
+    assert "execute-jobscript" in workflow_cli.commands
 
 
 @pytest.mark.parametrize(

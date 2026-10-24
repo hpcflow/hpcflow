@@ -53,6 +53,8 @@ class ScriptWorkerRun:
         async def execute() -> int:
             if not self.client.worker.is_running:
                 await self.client.start()
+            if self._abort_event.is_set():
+                raise asyncio.CancelledError
             result = await self.client.execute(self.request, environment=self.environment)
             self.child_orchestration_times.append(result.orchestration_time)
             self.child_work_times.append(result.work_time)

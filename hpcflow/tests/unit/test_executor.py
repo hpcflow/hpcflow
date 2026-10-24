@@ -32,7 +32,10 @@ from hpcflow.sdk.execution.protocol import (
 )
 from hpcflow.sdk.execution.script_worker.executor import ScriptWorkerExecutor
 from hpcflow.sdk.execution.script_worker.run import ScriptWorkerRun
-from hpcflow.sdk.execution.script_worker.protocol import ExecuteScriptRequest
+from hpcflow.sdk.execution.script_worker.protocol import (
+    ExecuteScriptRequest,
+    ScriptExecutionResult,
+)
 
 
 @pytest.mark.asyncio
@@ -93,6 +96,63 @@ async def test_worker_run_surfaces_abort_cleanup_failure():
     invocation.abort()
     with pytest.raises(RuntimeError, match="worker cleanup failed"):
         await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finish_start_on_abort", [False, True])
+async def test_worker_run_abort_during_startup_never_executes(finish_start_on_abort):
+    client = Mock()
+    client.worker.is_running = False
+    entered = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def start():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            if not finish_start_on_abort:
+                raise
+        finally:
+            stopped.set()
+
+    client.start = start
+    client.execute = AsyncMock()
+    client.abort = AsyncMock()
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(0, 0, 0, 0), {})
+    task = asyncio.create_task(invocation.run())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        invocation.abort()
+        assert await asyncio.wait_for(task, timeout=5) == ABORT_EXIT_CODE
+        assert stopped.is_set()
+        client.execute.assert_not_awaited()
+        client.abort.assert_awaited_once()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_code", [0, 1])
+async def test_worker_run_completed_result_wins_simultaneous_abort(exit_code):
+    client = Mock()
+    client.worker.is_running = True
+    client.abort = AsyncMock()
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(0, 0, 0, 0), {})
+
+    async def execute(*args, **kwargs):
+        invocation.abort()
+        return ScriptExecutionResult(0, 0, 0, 0, exit_code, 0.25, 0.5)
+
+    client.execute = AsyncMock(side_effect=execute)
+    assert await asyncio.wait_for(invocation.run(), timeout=5) == exit_code
+    assert invocation.return_code == exit_code
+    assert invocation.child_work_times == [0.25]
+    assert invocation.child_orchestration_times == [0.5]
+    client.execute.assert_awaited_once()
+    client.abort.assert_not_awaited()
 
 
 @pytest.mark.asyncio

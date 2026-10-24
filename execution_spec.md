@@ -150,6 +150,30 @@ and passes the returned exit code through normal parent-side finalization. Suppo
 shells are Bash, WSL Bash, and PowerShell. Submissions without the opt-in continue to
 use the legacy path and do not generate worker artifacts.
 
+Script workers replace interpreter reuse from combined-script execution,
+not its whole-block batching. Execution parity tests compare ordinary
+per-run execution against opted-in workers with `combine_scripts=False`.
+They cover IFG/OFP retention policies, promised-file failures, JSON and HDF5
+script data, downstream failure/skip propagation, and completion after waiting.
+Worker invocation stdout/stderr continue to share the run's app-standard-stream
+log, rather than the jobscript's separate stdout/stderr files. Stream tests check
+the appropriate location for each execution path.
+
+`combine_scripts=True` is retired and rejected before creating a submission,
+regenerating a jobscript, or launching an existing submission. Set it to False
+explicitly in old templates/configurations. Old stored submissions remain readable
+for inspection, but require a new submission with supported resources to execute.
+The obsolete `execute-combined-runs` CLI command and shell templates are removed.
+Only legacy resource fields, resource-hash semantics, and explicit rejection checks
+remain for data compatibility. Combined-script composers, index files/directories,
+and combined command generation have been removed. Ordinary execution tests omit
+the retired setting; dedicated compatibility tests retain it.
+
+Whole-block batching is a separate future optimization, requiring compatible
+worker identities and per-run preparation/finalization boundaries. It must have
+its own explicit opt-in toggle, disabled by default, independently of interpreter
+reuse. No batching setting or batching implementation is introduced here.
+
 The opt-in is persisted with the submission for both JSON and Zarr stores and
 retained when jobscripts are regenerated after reload. Submissions created before
 the option was introduced default to disabled. Reload tests launch the generated
@@ -187,6 +211,15 @@ this change does not add cancellation of queued runs. Jobscript task cancellatio
 waits for active worker cleanup and the ordinary completion/waiter cleanup before
 propagating, including repeated cancellation. As before, task cancellation alone
 does not invent a persisted run-end result for the interrupted run.
+
+An abort observed during startup prevents dispatch even if readiness finishes
+concurrently with cancellation. If the invocation task and abort signal are both
+complete when inspected, the completed invocation's result takes precedence.
+Unexpected worker exit remains an explicit transport error, not an aborted or
+successful result; cleanup closes the transport without retrying the invocation.
+The executor does not fabricate a run-end result for that transport failure.
+Abort/replacement tests check exactly-once finalization and notification-driven
+workflow waiter completion.
 
 Worker command-file generation substitutes the generated script path using the
 target shell's quoting rules and removes the empty argument placeholder. Legacy

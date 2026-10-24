@@ -65,7 +65,7 @@ async def clients(
         def failure():
             raise ValueError("test script failure")
 
-        def exit_worker():
+        def exit_worker(environment=None):
             os._exit(9)
 
         mode = os.environ.get("MODE", "")
@@ -136,6 +136,42 @@ async def wait_for_file(path: Path) -> None:
     async with asyncio_timeout(5):
         while not path.exists():
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_run_abort_during_real_worker_readiness_cleans_up(clients):
+    client = clients(MODE="silent")
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(7, 0, 0, 0), {})
+    task = asyncio.create_task(invocation.run())
+    try:
+        async with asyncio_timeout(5):
+            while client.worker.process is None:
+                await asyncio.sleep(0.01)
+        process = client.worker.process
+        invocation.abort()
+        assert await asyncio.wait_for(task, timeout=10) == ABORT_EXIT_CODE
+        assert process.returncode is not None
+        assert client.worker.process is None
+        assert client.endpoint is None
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_run_worker_death_is_error_without_retry(clients, tmp_path):
+    client = clients()
+    invocation = ScriptWorkerRun(client, ExecuteScriptRequest(10, 0, 2, 0), {})
+    with pytest.raises(ScriptWorkerExitedError, match="exited with code"):
+        await asyncio.wait_for(invocation.run(), timeout=10)
+    assert invocation.return_code is None
+    assert client.worker.process is None
+    assert client.endpoint is None
+    assert not (tmp_path / "count.txt").exists()
+    following = ScriptWorkerRun(client, ExecuteScriptRequest(7, 0, 0, 0), {})
+    assert await following.run() == 0
+    assert (tmp_path / "count.txt").read_text().splitlines() == ["one"]
 
 
 @pytest.mark.asyncio

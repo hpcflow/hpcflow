@@ -121,6 +121,7 @@ class JobscriptExecutor(AppAware):
 
         self.submission_idx = submission_idx
         self.submission = workflow.submissions[submission_idx]
+        self.submission.validate_execution_mode()
 
         self.jobscript_idx = jobscript_idx
         self.jobscript = self.submission.jobscripts[jobscript_idx]
