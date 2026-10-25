@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from textwrap import dedent
 from typing import TYPE_CHECKING
 import numpy as np
@@ -18,8 +19,286 @@ from hpcflow.sdk.core.test_utils import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Any
     from hpcflow.sdk.core.parameters import Parameter
     from hpcflow.sdk.core.types import RuleArgs
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("multiplicity", [1, 3])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "plain",
+        "filtered",
+        "grouped",
+        "filtered_grouped",
+        "labelled",
+        "nested",
+        "looped_grouped",
+    ],
+)
+def test_output_member_input_sources(
+    tmp_path: Path, store: str, multiplicity: int, mode: str
+) -> None:
+    output = hf.SchemaOutput("p2", multiplicity=multiplicity)
+    upstream = hf.TaskSchema(
+        "producer",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[output],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo <<parameter:p1>>", stdout="<<parameter:p2>>")]
+            )
+        ],
+    )
+    input_name = "p2[chosen]" if mode == "labelled" else "p2"
+    downstream = hf.TaskSchema(
+        "consumer",
+        inputs=[
+            hf.SchemaInput(
+                "p2",
+                multiple=mode == "labelled",
+                labels={"chosen": {}} if mode == "labelled" else None,
+                group="members" if "grouped" in mode else None,
+            ),
+            *([hf.SchemaInput("p3")] if mode == "nested" else []),
+        ],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        f"echo <<parameter:{input_name}>>"
+                        + (" <<parameter:p3>>" if mode == "nested" else "")
+                    )
+                ]
+            )
+        ],
+    )
+    source = hf.InputSource.task(
+        task_ref=0,
+        task_source_type="output",
+        element_iters=[1] if "filtered" in mode else None,
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="output_members",
+        tasks=[
+            hf.Task(
+                upstream,
+                element_sets=(
+                    [
+                        hf.ElementSet(inputs={"p1": 0}),
+                        hf.ElementSet(
+                            inputs={"p1": 1}, groups=[hf.ElementGroup("members")]
+                        ),
+                    ]
+                    if mode == "filtered_grouped"
+                    else [
+                        hf.ElementSet(
+                            sequences=[hf.ValueSequence("inputs.p1", [0, 1])],
+                            groups=(
+                                [hf.ElementGroup("members")] if "grouped" in mode else []
+                            ),
+                        )
+                    ]
+                ),
+            ),
+            hf.Task(
+                downstream,
+                input_sources={input_name: [source]},
+                sequences=(
+                    [hf.ValueSequence("inputs.p3", [100, 200])]
+                    if mode == "nested"
+                    else []
+                ),
+                nesting_order=(
+                    {"inputs.p2": 0, "inputs.p3": 1} if mode == "nested" else {}
+                ),
+            ),
+        ],
+        path=tmp_path,
+        store=store,
+        loops=(
+            [hf.Loop(tasks=[0, 1], num_iterations=2)] if mode == "looped_grouped" else []
+        ),
+    )
+    expected: list[Any] = (
+        [10, 11, 12, 20, 21, 22] if multiplicity == 3 else [[10, 11, 12], [20, 21, 22]]
+    )
+    if "filtered" in mode:
+        expected = expected[multiplicity:]
+    if "grouped" in mode:
+        expected = [expected]
+    if mode == "nested":
+        expected = [value for value in expected for _ in range(2)]
+    assert wk.tasks[1].num_elements == len(expected)
+    member_ids = [
+        element.get_data_idx()[f"inputs.{input_name}"] for element in wk.tasks[1].elements
+    ]
+    if "grouped" not in mode:
+        for idx in member_ids:
+            assert isinstance(idx, int)
+            assert not wk.is_parameter_set(idx)
+    wk.add_submission()
+    for element, value in zip(wk.tasks[0].elements, ([10, 11, 12], [20, 21, 22])):
+        output_id = element.get_data_idx()["outputs.p2"]
+        wk.set_parameter_value(output_id, value, commit=True)
+
+    for workflow in (wk, hf.Workflow(wk.path)):
+        assert (
+            workflow.tasks[0].template.all_schema_outputs[0].multiplicity == multiplicity
+        )
+        actual = [
+            element.get(f"inputs.{input_name}") for element in workflow.tasks[1].elements
+        ]
+        assert actual == expected
+        all_sources = workflow.get_all_parameter_sources()
+        for element in workflow.tasks[1].elements:
+            member_source = element.get_parameter_sources()["inputs." + input_name]
+            assert member_source
+            indices = element.get_data_idx()[f"inputs.{input_name}"]
+            for idx in indices if isinstance(indices, list) else [indices]:
+                assert workflow.is_parameter_set(idx)
+                assert all_sources[idx] == workflow.get_parameter_source(idx)
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("value", [42, [1], [1, 2, 3], [7, 9]])
+def test_output_multiplicity_from_yaml(
+    tmp_path: Path, store: str, value: int | list[int]
+) -> None:
+    wk = hf.Workflow.from_YAML_string(
+        YAML_str=dedent("""
+            name: output_members_yaml
+            template_components:
+              task_schemas:
+                - objective: producer
+                  outputs:
+                    - parameter: p2
+                      multiplicity: 2
+                  actions:
+                    - commands:
+                        - command: echo members
+                          stdout: <<parameter:p2>>
+                - objective: consumer
+                  inputs:
+                    - parameter: p2
+                  actions:
+                    - commands:
+                        - command: echo <<parameter:p2>>
+            tasks:
+              - schema: producer
+              - schema: consumer
+            """),
+        path=tmp_path,
+        store=store,
+    )
+    assert wk.tasks[1].num_elements == 2
+    wk.add_submission()
+    output_id = wk.tasks[0].elements[0].get_data_idx()["outputs.p2"]
+    wk.set_parameter_value(output_id, value, commit=True)
+    if value != [7, 9]:
+        with pytest.raises(ValueError, match="must contain 2 members"):
+            _ = wk.tasks[1].elements[0].get("inputs.p2")
+    else:
+        assert [el.get("inputs.p2") for el in hf.Workflow(wk.path).tasks[1].elements] == [
+            7,
+            9,
+        ]
+
+
+@pytest.mark.parametrize("legacy_array", [False, True])
+@pytest.mark.parametrize("as_tuple", [False, True])
+def test_output_member_array_values(
+    tmp_path: Path, legacy_array: bool, as_tuple: bool
+) -> None:
+    producer, consumer = make_schemas(
+        ({}, ("p2",), "producer"), ({"p2": None}, (), "consumer")
+    )
+    producer.outputs[0].multiplicity = 2
+    wk = hf.Workflow.from_template_data(
+        template_name="output_array_members",
+        tasks=[
+            hf.Task(
+                producer,
+                disable_array_outputs=["p2"] if legacy_array else [],
+            ),
+            hf.Task(consumer),
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    wk.add_submission()
+    output_id = wk.tasks[0].elements[0].get_data_idx()["outputs.p2"]
+    array = np.array([[10, 11, 12], [20, 21, 22]])
+    wk.set_parameter_value(
+        output_id, tuple(array.tolist()) if as_tuple else array, commit=True
+    )
+    restored = hf.Workflow(wk.path)
+    for idx, element in enumerate(restored.tasks[1].elements):
+        np.testing.assert_array_equal(element.get("inputs.p2"), array[idx])
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(os.name != "posix", reason="Uses POSIX shell arithmetic")
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("loop_tasks", [None, [0], [0, 1]])
+def test_output_members_execution(
+    tmp_path: Path, store: str, loop_tasks: list[int] | None
+) -> None:
+    producer = hf.TaskSchema(
+        "producer",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2", multiplicity=2)],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        "echo <<parameter:p1>>,$((<<parameter:p1>> + 1))",
+                        stdout='<<list[item_type=int, delim=","](parameter:p2)>>',
+                    )
+                ]
+            )
+        ],
+    )
+    consumer = hf.TaskSchema(
+        "consumer",
+        inputs=[hf.SchemaInput("p2")],
+        outputs=[hf.SchemaOutput("p3")],
+        actions=[
+            hf.Action(
+                commands=[
+                    hf.Command(
+                        "echo $((<<parameter:p2>> * 10))",
+                        stdout="<<int(parameter:p3)>>",
+                    )
+                ]
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="output_members_execution",
+        tasks=[
+            hf.Task(producer, sequences=[hf.ValueSequence("inputs.p1", [10, 20])]),
+            hf.Task(consumer),
+        ],
+        path=tmp_path,
+        store=store,
+        loops=[hf.Loop(tasks=loop_tasks, num_iterations=2)] if loop_tasks else [],
+    )
+    assert wk.tasks[1].num_elements == 4
+    for idx, element in enumerate(wk.tasks[1].elements):
+        source_run = wk.tasks[0].elements[idx // 2].latest_iteration.action_runs[0]
+        assert element.get_EAR_dependencies() == {source_run.id_}
+    wk.submit(wait=True, add_to_known=False, status=False)
+    restored = hf.Workflow(wk.path)
+    assert [el.get("inputs.p2") for el in restored.tasks[1].elements] == [10, 11, 20, 21]
+    assert [el.get("outputs.p3") for el in restored.tasks[1].elements] == [
+        100,
+        110,
+        200,
+        210,
+    ]
 
 
 def test_input_source_class_method_local() -> None:

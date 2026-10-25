@@ -15,9 +15,11 @@ from hpcflow.sdk.core.errors import (
     TaskSchemaMissingActionOutputs,
 )
 from hpcflow.sdk.core.parameters import NullDefault
+from hpcflow.sdk.core.object_list import ObjectList
 from hpcflow.sdk.core.test_utils import make_actions, make_parameters, make_schemas
 
 if TYPE_CHECKING:
+    from hpcflow.sdk.core.json_like import JSONable
     from hpcflow.sdk.core.actions import Action, ActionEnvironment
     from hpcflow.sdk.core.task import TaskObjective
 
@@ -46,6 +48,54 @@ def test_task_schema_equality() -> None:
     t1a = hf.TaskSchema("t1", actions=[])
     t1b = hf.TaskSchema("t1", actions=[])
     assert t1a == t1b
+
+
+@pytest.mark.parametrize("multiplicity", [1, 3])
+def test_schema_output_multiplicity_round_trip(multiplicity: int) -> None:
+    output = hf.SchemaOutput("p1", hf.ParameterPropagationMode.EXPLICIT, multiplicity)
+    assert output.multiplicity == multiplicity
+    assert output.propagation_mode is hf.ParameterPropagationMode.EXPLICIT
+    schema = hf.TaskSchema(
+        "t1",
+        outputs=[output],
+        actions=[hf.Action(commands=[hf.Command("echo 1", stdout="<<parameter:p1>>")])],
+    )
+    data, shared = schema.to_json_like()
+    assert isinstance(data, dict)
+    assert shared is not None
+    output.parameter._hash_value = next(iter(shared["parameters"]))
+    parameters: ObjectList[JSONable] = ObjectList([output.parameter])
+    restored = hf.TaskSchema.from_json_like(data, shared_data={"parameters": parameters})
+    assert restored is not None
+    assert restored.outputs[0].multiplicity == multiplicity
+    assert restored == schema
+    assert copy.deepcopy(output).multiplicity == multiplicity
+    if multiplicity != 1:
+        assert f"multiplicity={multiplicity}" in repr(output)
+        assert output != hf.SchemaOutput("p1", hf.ParameterPropagationMode.EXPLICIT)
+
+
+def test_schema_output_legacy_multiplicity() -> None:
+    parameters: ObjectList[JSONable] = ObjectList([hf.Parameter("p1")])
+    output = hf.SchemaOutput.from_json_like(
+        {"parameter": "p1"},
+        shared_data={"parameters": parameters},
+    )
+    assert output is not None
+    assert output.multiplicity == 1
+    assert output == hf.SchemaOutput("p1", multiplicity=1)
+
+
+@pytest.mark.parametrize("multiplicity", [True, False, 1.0, "2", None, [], {}])
+def test_schema_output_invalid_multiplicity_type(multiplicity: object) -> None:
+    with pytest.raises(TypeError, match="multiplicity.*positive integer"):
+        hf.SchemaOutput("p1", multiplicity=cast("int", multiplicity))
+
+
+@pytest.mark.parametrize("multiplicity", [0, -1])
+def test_schema_output_invalid_multiplicity_value(multiplicity: int) -> None:
+    with pytest.raises(ValueError, match="multiplicity.*positive integer"):
+        hf.SchemaOutput("p1", multiplicity=multiplicity)
 
 
 def test_disable_array_outputs() -> None:

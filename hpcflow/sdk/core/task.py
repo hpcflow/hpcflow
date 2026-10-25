@@ -2073,7 +2073,7 @@ class WorkflowTask(AppAware):
         if inp_src.element_iters:
             # only include "sourceable" element iterations:
             src_iters_list = [src_iters[itr_id] for itr_id in inp_src.element_iters]
-            set_indices = [el.element.element_set_idx for el in src_iters.values()]
+            set_indices = [el.element.element_set_idx for el in src_iters_list]
             return src_iters_list, set_indices
         return src_iters.values(), []
 
@@ -2105,17 +2105,47 @@ class WorkflowTask(AppAware):
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
 
+        multiplicity = 1
+        if task_source_type == TaskSourceType.OUTPUT:
+            multiplicity = next(
+                output.multiplicity
+                for output in src_task.template.all_schema_outputs
+                if output.typ == src_key.split(".")[1]
+            )
+        member_indices: list[list[int | list[int]]]
+        if multiplicity > 1:
+            member_indices = [
+                [
+                    (
+                        self.workflow._add_unset_parameter_data(
+                            {
+                                "type": "output_member",
+                                "parameter_ID": cast("int", dat_idx),
+                                "member_idx": member_idx,
+                                "multiplicity": multiplicity,
+                            }
+                        )
+                        if dat_idx != -1
+                        else -1
+                    )
+                    for member_idx in range(multiplicity)
+                ]
+                for dat_idx in grp_idx
+            ]
+        else:
+            member_indices = [[dat_idx] for dat_idx in grp_idx]
+
         if not inp_group_name:
-            return grp_idx
+            return [idx for members in member_indices for idx in members]
 
         group_dat_idx: list[int | list[int]] = []
         element_sets = src_task.template.element_sets
-        for dat_idx, src_set_idx, src_iter in zip(
-            grp_idx, src_elem_set_idx, src_elem_iters
+        for members, src_set_idx, src_iter in zip(
+            member_indices, src_elem_set_idx, src_elem_iters
         ):
             src_es = element_sets[src_set_idx]
             if any(inp_group_name == grp.name for grp in src_es.groups):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
             # if for any recursive iteration dependency, this group is
             # defined, assign:
@@ -2128,7 +2158,7 @@ class WorkflowTask(AppAware):
                 for el_iter in src_iter_deps
                 for grp in el_iter.element.element_set.groups
             ):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
 
             # also check input dependencies
@@ -2137,7 +2167,7 @@ class WorkflowTask(AppAware):
                     insert_ID=p_src["task_insert_ID"]
                 ).template.element_sets[p_src["element_set_idx"]]
                 if any(inp_group_name == grp.name for grp in k_es.groups):
-                    group_dat_idx.append(dat_idx)
+                    group_dat_idx.extend(members)
                     break
 
             # TODO: this only goes to one level of dependency

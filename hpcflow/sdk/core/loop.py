@@ -991,6 +991,7 @@ class WorkflowLoop(AppAware):
 
         # identify the ElementIteration from which this input should be
         # parametrised:
+        updated: int | list[int]
         if grouped_elems:
             src_data_idx = [
                 cache.data_idx[src_elem_ID][loop_idx_key] for src_elem_ID in grouped_elems
@@ -1000,9 +1001,14 @@ class WorkflowLoop(AppAware):
                     f"Could not find a source iteration with loop_idx: "
                     f"{loop_idx_key!r}."
                 )
-            return [i[f"outputs.{inp.typ}"] for i in src_data_idx]
+            updated = [cast("int", i[f"outputs.{inp.typ}"]) for i in src_data_idx]
         else:
-            return cache.data_idx[src_elem_ID][loop_idx_key][f"outputs.{inp.typ}"]
+            updated = cache.data_idx[src_elem_ID][loop_idx_key][f"outputs.{inp.typ}"]
+        return self.__preserve_output_members(
+            cache.get_latest_data_idx(elem_ID).get(f"inputs.{inp.typ}", updated),
+            updated,
+            cache,
+        )
 
     def __get_task_index(
         self,
@@ -1059,9 +1065,10 @@ class WorkflowLoop(AppAware):
                 if elem_ID in cache.element_dependents[src_elem_IDs_all[e_idx]]:
                     new_sources.append((tiID, e_idx))
 
+        updated: int | list[int]
         if is_group:
             # Convert into simple list of indices
-            return list(
+            updated = list(
                 chain.from_iterable(
                     self.__as_sequence(all_new_data_idx[src][prev_dat_idx_key])
                     for src in new_sources
@@ -1069,7 +1076,39 @@ class WorkflowLoop(AppAware):
             )
         else:
             assert len(new_sources) == 1
-            return all_new_data_idx[new_sources[0]][prev_dat_idx_key]
+            updated = all_new_data_idx[new_sources[0]][prev_dat_idx_key]
+        if orig_inp_src.task_source_type is TaskSourceType.OUTPUT:
+            return self.__preserve_output_members(
+                cache.get_latest_data_idx(elem_ID)[inp_key], updated, cache
+            )
+        return updated
+
+    def __preserve_output_members(
+        self, previous: int | list[int], updated: int | list[int], cache: LoopCache
+    ) -> int | list[int]:
+        """Retarget references without losing an element's output-member selection."""
+        previous_ids = list(self.__as_sequence(previous))
+        sources = self.workflow._store.get_parameter_sources(previous_ids)
+        if not any(source.get("type") == "output_member" for source in sources):
+            return updated
+        updated_ids = list(self.__as_sequence(updated))
+        parent_ids = [
+            source.get("parameter_ID", idx) for idx, source in zip(previous_ids, sources)
+        ]
+        if len(updated_ids) != len(previous_ids):
+            replacements = dict(zip(dict.fromkeys(parent_ids), updated_ids, strict=True))
+            updated_ids = [replacements[idx] for idx in parent_ids]
+        result = []
+        for source, parent_id in zip(sources, updated_ids, strict=True):
+            if source.get("type") == "output_member":
+                member_id = self.workflow._add_unset_parameter_data(
+                    {**source, "parameter_ID": parent_id}
+                )
+                cache.param_EAR_ID[member_id] = cache.param_EAR_ID[parent_id]
+                result.append(member_id)
+            else:
+                result.append(parent_id)
+        return result if isinstance(previous, list) else result[0]
 
     @staticmethod
     def __as_sequence(seq: int | Iterable[int]) -> Iterable[int]:
@@ -1166,6 +1205,12 @@ class WorkflowLoop(AppAware):
                                 )
                                 for _, src_elem_ID in iter_old_run_meta
                             ]
+                            iter_new_dis = cast(
+                                "list[int]",
+                                self.__preserve_output_members(
+                                    iter_old_di, iter_new_dis, cache
+                                ),
+                            )
 
                             # keep track of updates so we can also update task-input
                             # type sources:
@@ -1219,6 +1264,12 @@ class WorkflowLoop(AppAware):
                                     )
                                     for _, src_elem_ID in old_run_meta
                                 ]
+                                new_dis = cast(
+                                    "list[int]",
+                                    self.__preserve_output_members(
+                                        old_di, new_dis, cache
+                                    ),
+                                )
 
                                 run_new_data_idx[run_ID][f"inputs.{param_typ}"] = (
                                     new_dis if is_group else new_dis[0]

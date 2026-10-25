@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 import copy
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from io import BytesIO
 
 from datetime import datetime, timezone
@@ -29,6 +29,7 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
+from zarr import Array as ZarrArray  # type: ignore
 import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
@@ -2841,21 +2842,92 @@ class Workflow(AppAware):
         dataset_copy: bool
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
-        return self._store.get_parameters(id_lst, **kwargs)
+        parameters = self._store.get_parameters(id_lst, **kwargs)
+        parent_ids = {
+            parameter.source["parameter_ID"]
+            for parameter in parameters
+            if parameter.source.get("type") == "output_member"
+        }
+        parents = (
+            {parent.id_: parent for parent in self.get_parameters(parent_ids, **kwargs)}
+            if parent_ids
+            else {}
+        )
+        for idx, parameter in enumerate(parameters):
+            if parameter.source.get("type") != "output_member":
+                continue
+            source = parameter.source
+            parent = parents[source["parameter_ID"]]
+            data = parent.data
+            if parent.is_set:
+                if (
+                    not isinstance(data, (list, tuple, np.ndarray, ZarrArray))
+                    or (hasattr(data, "ndim") and data.ndim == 0)
+                    or len(data) != source["multiplicity"]
+                ):
+                    raise ValueError(
+                        f"Output parameter {source['parameter_ID']} must contain "
+                        f"{source['multiplicity']} members."
+                    )
+                data = data[source["member_idx"]]
+            parameters[idx] = replace(parent, id_=parameter.id_, data=data)
+        return parameters
 
     @TimeIt.decorator
     def get_parameter_sources(self, id_lst: Iterable[int]) -> list[ParamSource]:
         """
         Get parameter sources known to the workflow.
         """
-        return self._store.get_parameter_sources(id_lst)
+        sources = self._store.get_parameter_sources(id_lst)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_sources(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else source
+            )
+            for source in sources
+        ]
 
     @TimeIt.decorator
     def get_parameter_set_statuses(self, id_lst: Iterable[int]) -> list[bool]:
         """
         Get whether some parameters are set.
         """
-        return self._store.get_parameter_set_statuses(id_lst)
+        ids = list(id_lst)
+        sources = self._store.get_parameter_sources(ids)
+        statuses = self._store.get_parameter_set_statuses(ids)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_set_statuses(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else status
+            )
+            for source, status in zip(sources, statuses)
+        ]
 
     @TimeIt.decorator
     def get_parameter(self, index: int, **kwargs) -> StoreParameter:
@@ -2910,13 +2982,13 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameters(range(num_params), **kwargs)
+        return list(self.get_parameters(range(num_params), **kwargs))
 
     @TimeIt.decorator
     def get_all_parameter_sources(self, **kwargs) -> list[ParamSource]:
         """Retrieve all persistent parameters sources."""
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameter_sources(range(num_params), **kwargs)
+        return self.get_parameter_sources(range(num_params))
 
     @TimeIt.decorator
     def get_all_parameter_data(self, **kwargs) -> dict[int, Any]:

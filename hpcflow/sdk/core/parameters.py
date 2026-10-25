@@ -675,18 +675,39 @@ class SchemaInput(SchemaParameter):
 @dataclass(init=False)
 @hydrate
 class SchemaOutput(SchemaParameter):
-    """A Parameter as outputted from particular task."""
+    """A Parameter as outputted from particular task.
+
+    Parameters
+    ----------
+    parameter:
+        The parameter supplied by this output.
+    propagation_mode:
+        How this output propagates to downstream tasks.
+    multiplicity:
+        Positive integer number of output members supplied by each element to
+        downstream tasks. For values greater than one, the output must be an
+        indexable sequence of this length. The default, one, supplies the whole
+        output value unchanged, even if that value is a sequence.
+    """
 
     #: The basic parameter this supplies.
     parameter: Parameter
     #: How this output propagates.
     propagation_mode: ParameterPropagationMode
+    #: Number of sourceable output members per element.
+    multiplicity: int = 1
 
     def __init__(
         self,
         parameter: Parameter | str,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
+        multiplicity: int = 1,
     ):
+        if isinstance(multiplicity, bool) or not isinstance(multiplicity, int):
+            raise TypeError("SchemaOutput multiplicity must be a positive integer.")
+        if multiplicity < 1:
+            raise ValueError("SchemaOutput multiplicity must be a positive integer.")
+        self.multiplicity = multiplicity
         if isinstance(parameter, str):
             self.parameter: Parameter = self._app.Parameter(typ=parameter)
         else:
@@ -710,6 +731,7 @@ class SchemaOutput(SchemaParameter):
             f"{self.__class__.__name__}("
             f"parameter={self.parameter.__class__.__name__}({self.parameter.typ!r}), "
             f"propagation_mode={self.propagation_mode.name!r}"
+            f"{f', multiplicity={self.multiplicity!r}' if self.multiplicity != 1 else ''}"
             f")"
         )
 
