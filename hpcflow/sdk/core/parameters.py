@@ -684,10 +684,12 @@ class SchemaOutput(SchemaParameter):
     propagation_mode:
         How this output propagates to downstream tasks.
     multiplicity:
-        Positive integer number of output members supplied by each element to
-        downstream tasks. For values greater than one, the output must be an
-        indexable sequence of this length. The default, one, supplies the whole
-        output value unchanged, even if that value is a sequence.
+        Positive integer number of sourceable members supplied by each producing
+        element. For values greater than one, each output value must be a list,
+        tuple, or NumPy array of exactly this length; the length is checked when a
+        downstream member is read. The default, one, supplies the whole output
+        value unchanged, even if that value is a sequence. Booleans and non-integers
+        raise ``TypeError``; zero and negative values raise ``ValueError``.
     """
 
     #: The basic parameter this supplies.

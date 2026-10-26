@@ -1130,6 +1130,11 @@ class Task(JSONLike):
     def _prepare_persistent_outputs(
         self, workflow: Workflow, local_element_idx_range: Sequence[int]
     ) -> Mapping[str, Sequence[int]]:
+        """Allocate one persistent whole-output slot for each task element.
+
+        Schema output multiplicity is represented by downstream member references,
+        not by splitting the producer's output into separate stored parameters.
+        """
         # TODO: check that schema is present when adding task? (should this be here?)
 
         # allocate schema-level output parameter; precise EAR index will not be known
@@ -2068,6 +2073,12 @@ class WorkflowTask(AppAware):
     def __get_src_elem_iters(
         src_task: WorkflowTask, inp_src: InputSource
     ) -> tuple[Iterable[ElementIteration], list[int]]:
+        """Return source iterations and their element-set indices when filtered.
+
+        The indices keep selected iterations aligned with element sets when a
+        source is filtered; unfiltered sources can use the iteration mapping
+        directly.
+        """
         src_iters = src_task.get_all_element_iterations()
 
         if inp_src.element_iters:
@@ -2085,6 +2096,11 @@ class WorkflowTask(AppAware):
         padded_elem_iters: Mapping[str, Sequence[int]],
         inp_group_name: str | None,
     ) -> None | Sequence[int | list[int]]:
+        """Build source parameter IDs, expanding each output into its members.
+
+        Multiplicity greater than one creates deferred references to the whole
+        output. Grouping collects those member references in source-element order.
+        """
         src_task = inp_src.get_task(self.workflow)
         assert src_task
         src_elem_iters, src_elem_set_idx = self.__get_src_elem_iters(src_task, inp_src)

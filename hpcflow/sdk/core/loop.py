@@ -1086,7 +1086,13 @@ class WorkflowLoop(AppAware):
     def __preserve_output_members(
         self, previous: int | list[int], updated: int | list[int], cache: LoopCache
     ) -> int | list[int]:
-        """Retarget references without losing an element's output-member selection."""
+        """Retarget output sources while preserving any selected member indices.
+
+        Loop iterations replace references to whole outputs with references to the
+        corresponding outputs from the new iteration. When the old input points to
+        output members, recreate those deferred references against the new whole
+        outputs so the member selection and EAR dependency are retained.
+        """
         previous_ids = list(self.__as_sequence(previous))
         sources = self.workflow._store.get_parameter_sources(previous_ids)
         if not any(source.get("type") == "output_member" for source in sources):

@@ -2832,6 +2832,11 @@ class Workflow(AppAware):
         """
         Get parameters known to the workflow.
 
+        Output-member references are resolved here to the indexed value from their
+        producing whole output. The member itself remains a deferred reference in
+        persistent storage, so callers should use this API rather than reading the
+        backing store directly.
+
         Parameter
         ---------
         id_lst:
@@ -2877,6 +2882,10 @@ class Workflow(AppAware):
     def get_parameter_sources(self, id_lst: Iterable[int]) -> list[ParamSource]:
         """
         Get parameter sources known to the workflow.
+
+        An output-member reference has the same source as its producing whole
+        output; its member index is metadata for value resolution, not a separate
+        producer.
         """
         sources = self._store.get_parameter_sources(id_lst)
         parent_ids = list(
@@ -2904,6 +2913,9 @@ class Workflow(AppAware):
     def get_parameter_set_statuses(self, id_lst: Iterable[int]) -> list[bool]:
         """
         Get whether some parameters are set.
+
+        An output-member reference is set exactly when its producing whole output
+        is set.
         """
         ids = list(id_lst)
         sources = self._store.get_parameter_sources(ids)
