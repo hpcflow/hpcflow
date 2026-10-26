@@ -1130,6 +1130,11 @@ class Task(JSONLike):
     def _prepare_persistent_outputs(
         self, workflow: Workflow, local_element_idx_range: Sequence[int]
     ) -> Mapping[str, Sequence[int]]:
+        """Allocate one persistent whole-output slot for each task element.
+
+        Schema output multiplicity is represented by downstream member references,
+        not by splitting the producer's output into separate stored parameters.
+        """
         # TODO: check that schema is present when adding task? (should this be here?)
 
         # allocate schema-level output parameter; precise EAR index will not be known
@@ -2068,12 +2073,18 @@ class WorkflowTask(AppAware):
     def __get_src_elem_iters(
         src_task: WorkflowTask, inp_src: InputSource
     ) -> tuple[Iterable[ElementIteration], list[int]]:
+        """Return source iterations and their element-set indices when filtered.
+
+        The indices keep selected iterations aligned with element sets when a
+        source is filtered; unfiltered sources can use the iteration mapping
+        directly.
+        """
         src_iters = src_task.get_all_element_iterations()
 
         if inp_src.element_iters:
             # only include "sourceable" element iterations:
             src_iters_list = [src_iters[itr_id] for itr_id in inp_src.element_iters]
-            set_indices = [el.element.element_set_idx for el in src_iters.values()]
+            set_indices = [el.element.element_set_idx for el in src_iters_list]
             return src_iters_list, set_indices
         return src_iters.values(), []
 
@@ -2085,6 +2096,11 @@ class WorkflowTask(AppAware):
         padded_elem_iters: Mapping[str, Sequence[int]],
         inp_group_name: str | None,
     ) -> None | Sequence[int | list[int]]:
+        """Build source parameter IDs, expanding each output into its members.
+
+        Multiplicity greater than one creates deferred references to the whole
+        output. Grouping collects those member references in source-element order.
+        """
         src_task = inp_src.get_task(self.workflow)
         assert src_task
         src_elem_iters, src_elem_set_idx = self.__get_src_elem_iters(src_task, inp_src)
@@ -2105,17 +2121,62 @@ class WorkflowTask(AppAware):
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
 
+        multiplicities = [1] * len(grp_idx)
+        if task_source_type == TaskSourceType.OUTPUT:
+            schema_output = next(
+                output
+                for output in src_task.template.all_schema_outputs
+                if output.typ == src_key.split(".")[1]
+            )
+            if schema_output.multiplicity_input is None:
+                multiplicities = [schema_output.resolve_multiplicity()] * len(grp_idx)
+            else:
+                multiplicities = [
+                    schema_output.resolve_multiplicity(
+                        src_iter.get(
+                            f"inputs.{schema_output.multiplicity_input}",
+                            raise_on_unset=True,
+                        )
+                    )
+                    for src_iter in src_elem_iters
+                ]
+        member_indices: list[list[int | list[int]]]
+        if any(multiplicity > 1 for multiplicity in multiplicities):
+            member_indices = []
+            for dat_idx, multiplicity in zip(grp_idx, multiplicities, strict=True):
+                if dat_idx == -1:
+                    member_indices.append([-1] * multiplicity)
+                    continue
+                if multiplicity == 1:
+                    member_indices.append([dat_idx])
+                    continue
+                member_indices.append(
+                    [
+                        self.workflow._add_unset_parameter_data(
+                            {
+                                "type": "output_member",
+                                "parameter_ID": cast("int", dat_idx),
+                                "member_idx": member_idx,
+                                "multiplicity": multiplicity,
+                            }
+                        )
+                        for member_idx in range(multiplicity)
+                    ]
+                )
+        else:
+            member_indices = [[dat_idx] for dat_idx in grp_idx]
+
         if not inp_group_name:
-            return grp_idx
+            return [idx for members in member_indices for idx in members]
 
         group_dat_idx: list[int | list[int]] = []
         element_sets = src_task.template.element_sets
-        for dat_idx, src_set_idx, src_iter in zip(
-            grp_idx, src_elem_set_idx, src_elem_iters
+        for members, src_set_idx, src_iter in zip(
+            member_indices, src_elem_set_idx, src_elem_iters
         ):
             src_es = element_sets[src_set_idx]
             if any(inp_group_name == grp.name for grp in src_es.groups):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
             # if for any recursive iteration dependency, this group is
             # defined, assign:
@@ -2128,7 +2189,7 @@ class WorkflowTask(AppAware):
                 for el_iter in src_iter_deps
                 for grp in el_iter.element.element_set.groups
             ):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
 
             # also check input dependencies
@@ -2137,7 +2198,7 @@ class WorkflowTask(AppAware):
                     insert_ID=p_src["task_insert_ID"]
                 ).template.element_sets[p_src["element_set_idx"]]
                 if any(inp_group_name == grp.name for grp in k_es.groups):
-                    group_dat_idx.append(dat_idx)
+                    group_dat_idx.extend(members)
                     break
 
             # TODO: this only goes to one level of dependency

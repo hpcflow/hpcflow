@@ -59,6 +59,12 @@ class ParamSource(TypedDict):
     #: For EAR-output parameters, input files and output files, the index across the action,
     #: as determined by ``Action.get_output_indices()``:
     output_idx: NotRequired[int]
+    #: Whole output parameter referenced by an output member.
+    parameter_ID: NotRequired[int]
+    #: Zero-based member index within the whole output.
+    member_idx: NotRequired[int]
+    #: Declared number of members in the whole output.
+    multiplicity: NotRequired[int]
 
 
 class KnownSubmission(TypedDict):

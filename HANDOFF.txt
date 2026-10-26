@@ -1,0 +1,175 @@
+LOCAL SESSION HANDOFF: SchemaOutput multiplicity
+Date: 2026-10-26
+Repository: hpcflow/hpcflow
+PR: https://github.com/hpcflow/hpcflow/pull/1049
+Branch: copilot/add-schemaoutput-multiplicity-argument
+
+STATUS
+
+The requested feature and follow-up script-based integration test are implemented
+and pushed. No further feature changes were requested before this handoff.
+This file records earlier validation; those checks were not rerun just to write
+the handoff. The local environment and conversation do not transfer automatically.
+
+Relevant implementation commits:
+  f6a2736b feat: resolve schema output multiplicity as persistent member sources
+  337b4e69 test: cover output multiplicity with Python script actions
+
+FEATURE CONTRACT
+
+SchemaOutput accepts multiplicity as a positive integer, default 1. The argument
+follows propagation_mode, preserving existing positional propagation-mode calls:
+  hf.SchemaOutput("p2", multiplicity=3)
+
+Multiplicity is the number of sourceable output members PER upstream element,
+not the number of upstream elements. Two upstream elements producing [10, 11, 12]
+and [20, 21, 22], each with multiplicity=3, supply six downstream input candidates
+in element order followed by member order.
+
+Actions still write the whole output. For multiplicity > 1, it must be a list,
+tuple or NumPy array of the declared length. Length is checked when a downstream
+member is read. Multiplicity omitted or equal to 1 supplies the whole output
+unchanged, including when it is itself a list. Booleans/non-integers raise
+TypeError; zero/negative integers raise ValueError.
+
+Python/YAML definitions, schema serialization, and JSON/Zarr workflow reloads
+preserve multiplicity; legacy definitions default to 1. Existing source precedence,
+propagation rules, labels, element selection, grouping and nesting remain in use.
+
+IMPLEMENTATION MAP
+
+Paths below are absolute in the cloud checkout. Substitute your local repository
+root for /home/runner/work/hpcflow/hpcflow when continuing locally.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/sdk/core/parameters.py
+  SchemaOutput constructor, validation, field, representation and API docstring.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/sdk/core/task.py
+  WorkflowTask.__get_task_group_index expands each selected output into integer
+  parameter IDs representing distinct members. Grouped inputs collect members.
+  __get_src_elem_iters aligns element-set indices with selected iterations, fixing
+  combined element filtering/grouping for this path.
+  _prepare_persistent_outputs still allocates one whole-output slot per element.
+  Existing prepare_element_resolution/resolve_element_data_indices compute nesting
+  from the expanded candidate lists.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/sdk/typing.py
+  ParamSource fields parameter_ID, member_idx and multiplicity describe references.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/sdk/core/workflow.py
+  Workflow.get_parameters resolves output_member references to the indexed value.
+  Sources and set status resolve to the producing whole output, preserving its
+  EAR dependency and unset behavior. Parent lookups are batched.
+  get_all_parameters/get_all_parameter_sources use the same resolution; bulk
+  sources are important to dependency graph and loop-cache construction.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/sdk/core/loop.py
+  __preserve_output_members retains member selection when loop iterations replace
+  whole-output references, including downstream iteration/run data indices.
+
+Important invariant: ordinary callers must use Workflow parameter APIs, not raw
+store reads. The raw output_member entry remains unset and carries the parent ID
+and member index; it is not a copied value. Raw sources are intentionally read
+when retargeting references, to recover member selection.
+
+/home/runner/work/hpcflow/hpcflow/docs/source/user/how_to/task_schemas.rst
+  Output multiplicity documentation with Python/YAML examples and semantics.
+
+TEST COVERAGE
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/tests/unit/test_task_schema.py
+  Schema round trips, deep copy/equality/repr, legacy defaults and invalid values.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/tests/unit/test_input_source.py
+  Multiple upstream elements; unit/multi-member outputs; filtering, groups, labels,
+  nesting, arrays/tuples; JSON/Zarr persistence/reloads; dependency/source/status
+  handling; invalid output lengths; command-based end-to-end execution with no
+  loop, producer-only loop and shared producer/consumer loop.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/tests/scripts/test_main_scripts.py
+  Follow-up test_script_output_multiplicity uses Python script actions on BOTH
+  sides, with direct script input/output. Two upstream elements produce [10, 11]
+  and [20, 21]; four downstream script elements receive individual integers and
+  produce 110, 111, 120, 121. Asserts producer dependencies and values before/after
+  reload. Parameterized over JSON/Zarr and combined/uncombined scripts.
+
+/home/runner/work/hpcflow/hpcflow/hpcflow/data/scripts/main_script_test_output_multiplicity.py
+  Producer test script: takes p2 and returns {"p1": [p2, p2 + 1]}.
+  Consumer reuses the existing main_script_test_direct_in_direct_out.py script.
+
+VALIDATION RECORDED IN THE CLOUD SESSION
+
+All commands ran from /home/runner/work/hpcflow/hpcflow. Poetry was unavailable;
+the existing project dependencies, pytest, mypy and Black were installed into a
+temporary virtual environment, without changing dependency files. The interpreter
+was /tmp/hpcflow-venv/bin/python. Do not assume that environment exists locally.
+
+The following commands use python to mean the configured project interpreter.
+For local Poetry environments, use poetry run python instead.
+
+1. Affected unit/regression suites:
+   python -m pytest -p hpcflow.pytest_plugin --configure-python-env \
+     hpcflow/tests/unit/test_input_source.py \
+     hpcflow/tests/unit/test_task_schema.py \
+     hpcflow/tests/unit/test_schema_input.py \
+     hpcflow/tests/unit/test_element_iteration.py \
+     hpcflow/tests/unit/test_persistence.py \
+     hpcflow/tests/unit/test_task.py \
+     hpcflow/tests/unit/test_workflow.py \
+     hpcflow/tests/unit/test_loop.py -q
+   Result after feature implementation: 536 passed, 33 skipped.
+
+2. Command-based end-to-end multiplicity cases:
+   python -m pytest -p hpcflow.pytest_plugin --configure-python-env --integration \
+     hpcflow/tests/unit/test_input_source.py -k output_members_execution -q
+   Result: 6 passed, 96 deselected.
+   POSIX-shell arithmetic cases skip Windows.
+
+3. Follow-up script-based regression and existing direct-script checks:
+   python -m pytest -p hpcflow.pytest_plugin --configure-python-env --integration \
+     hpcflow/tests/scripts/test_main_scripts.py \
+     -k 'test_script_output_multiplicity or test_script_direct_in_direct_out' -q
+   Result: 12 passed, 42 deselected.
+   The virtual environment's bin directory was prepended to PATH for subprocesses.
+
+4. Type checks after feature implementation:
+   python -m mypy hpcflow
+   Result: passed, 219 source files.
+   Focused mypy on the five modified SDK files plus the two unit-test files:
+   passed, 7 source files.
+   After the script-only follow-up:
+   python -m mypy \
+     hpcflow/data/scripts/main_script_test_output_multiplicity.py \
+     hpcflow/tests/scripts/test_main_scripts.py
+   Result: passed, 2 source files.
+
+5. Black --check passed on all changed Python files; git diff --check passed.
+   Secret scans were clean. Post-commit CodeQL on the feature found 0 alerts.
+   CodeQL was requested for the script-test follow-up and skipped as test-only.
+   No full-repository test suite was run.
+
+The initial feature-session GitHub Actions run required approval and had no failed
+jobs/logs. Current remote CI status has not been checked for this handoff.
+
+LOCAL CONTINUATION
+
+From your local checkout:
+  gh pr checkout 1049
+  git pull --ff-only
+
+Ask the local agent to read HANDOFF.txt, review PR #1049 and inspect the current
+diff before making further changes. Replace cloud absolute paths with your local
+checkout root. A suitable starting prompt is:
+  Read HANDOFF.txt and review the SchemaOutput multiplicity implementation and
+  script-based integration coverage on this branch; wait for my next request.
+
+Use the project's configured interpreter. Direct pytest MUST load
+-p hpcflow.pytest_plugin. For integration tests, include --configure-python-env.
+Read the optional local-testing instructions before running integrations:
+  /home/runner/work/hpcflow/hpcflow/.github/instructions/local-testing.instructions.md
+If present locally, this machine-specific file must not be committed.
+Python typechecking instructions are in:
+  /home/runner/work/hpcflow/hpcflow/.github/instructions/python-typechecking.instructions.md
+
+No new dependencies or production changes were needed for the script-test
+follow-up. This handoff itself is documentation only.

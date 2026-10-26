@@ -46,6 +46,78 @@ def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_script_output_multiplicity(
+    tmp_path: Path, store: str, combine_scripts: bool
+) -> None:
+    producer = hf.TaskSchema(
+        objective="produce_members",
+        inputs=[hf.SchemaInput("p2")],
+        outputs=[hf.SchemaOutput("p1", multiplicity=2)],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_output_multiplicity.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    consumer = hf.TaskSchema(
+        objective="consume_member",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_direct_in_direct_out.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        tasks=[
+            hf.Task(producer, sequences=[hf.ValueSequence("inputs.p2", [10, 20])]),
+            hf.Task(consumer),
+        ],
+        template_name="script_output_multiplicity",
+        path=tmp_path,
+        store=store,
+        resources={"any": {"combine_scripts": combine_scripts}},
+    )
+    assert wk.tasks[0].num_elements == 2
+    assert wk.tasks[1].num_elements == 4
+    for idx, element in enumerate(wk.tasks[1].elements):
+        producer_run = wk.tasks[0].elements[idx // 2].latest_iteration.action_runs[0]
+        assert element.get_EAR_dependencies() == {producer_run.id_}
+
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    for workflow in (wk, hf.Workflow(wk.path)):
+        assert workflow.tasks[0].template.all_schema_outputs[0].multiplicity == 2
+        assert [el.get("outputs.p1") for el in workflow.tasks[0].elements] == [
+            [10, 11],
+            [20, 21],
+        ]
+        assert [el.get("inputs.p1") for el in workflow.tasks[1].elements] == [
+            10,
+            11,
+            20,
+            21,
+        ]
+        assert [el.get("outputs.p2") for el in workflow.tasks[1].elements] == [
+            110,
+            111,
+            120,
+            121,
+        ]
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("combine_scripts", [False, True])
 def test_script_direct_sub_param_in_direct_out(tmp_path: Path, combine_scripts: bool):
     s1 = hf.TaskSchema(

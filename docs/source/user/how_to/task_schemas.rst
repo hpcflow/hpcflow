@@ -189,6 +189,55 @@ Additionally, an action may output a parameter that is *not* a task schema outpu
                 ],
             )
 
+Output multiplicity
+~~~~~~~~~~~~~~~~~~~
+
+``SchemaOutput.multiplicity`` is a positive integer (default ``1``). It declares
+how many output members **each upstream element** supplies as possible input
+values to downstream tasks. For example:
+
+.. code-block:: python
+
+    hf.SchemaOutput("p2", multiplicity=3)
+
+The equivalent YAML task-schema output is:
+
+.. code-block:: yaml
+
+    outputs:
+      - parameter: p2
+        multiplicity: 3
+
+Each producing element must write a list, tuple, or NumPy array of length three
+as its whole ``p2`` output. Downstream inputs then reference individual members,
+in element order followed by member order. Thus two upstream elements producing
+``[10, 11, 12]`` and ``[20, 21, 22]`` supply six candidate input values, not
+three upstream elements or repeated copies of either whole list. Existing input
+source selection, labels, grouping and nesting still apply; selecting one
+upstream element selects all its members, and grouping collects the selected
+members together.
+
+Omitting ``multiplicity`` or setting it to ``1`` preserves the whole output as
+one candidate per upstream element, even when the output itself is a list.
+Zero, negative integers, booleans, and non-integer values are not supported.
+The declared length is checked when a downstream member is read.
+
+The multiplicity can also be taken from a schema input, resolved separately for
+each producing element:
+
+.. code-block:: yaml
+
+        inputs:
+            - parameter: member_count
+        outputs:
+            - parameter: p2
+                multiplicity: <<input:member_count>>
+
+The referenced input must be set to a positive integer when workflow elements are
+built. This allows locally supplied values and sequences to determine different
+member counts for different elements. A value that will only become available after
+workflow execution cannot be used to determine multiplicity.
+
 Show information about a task schema
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
