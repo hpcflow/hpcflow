@@ -5,6 +5,7 @@ Main workflow model.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
+import codecs
 from contextlib import contextmanager, nullcontext
 import copy
 from dataclasses import dataclass, field, fields, replace
@@ -115,6 +116,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
+    from typing import TextIO
     from typing_extensions import Self
     from numpy.typing import NDArray
     import psutil
@@ -3999,6 +4001,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -4019,6 +4022,8 @@ class Workflow(AppAware):
             If True, pause before submitting each jobscript, print the new jobscript's
             path and await confirmation before continuing submission. This allows ad hoc
             modifications to the jobscript to be made.
+        follow
+            Require direct schedulers for all outstanding jobscripts before submission.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -4051,6 +4056,13 @@ class Workflow(AppAware):
         if status:
             status.update("Committing to the store...")
         self._store._pending.commit_all()
+
+        if follow:
+            self._validate_follow_jobscripts(
+                sub.jobscripts[js_idx]
+                for sub in pending
+                for js_idx in sub.outstanding_jobscripts
+            )
 
         # submit all pending submissions:
         exceptions: list[SubmissionFailure] = []
@@ -4090,6 +4102,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -4109,6 +4122,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> None: ...
 
     def submit(
@@ -4127,6 +4141,7 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -4154,6 +4169,11 @@ class Workflow(AppAware):
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
             If True, this command will block until the workflow execution is complete.
+        follow
+            If True, follow jobscript stdout and stderr until execution completes.
+            Implies `wait`. Ctrl+C stops following without cancelling execution.
+            Only direct schedulers are supported; other schedulers are rejected
+            before any jobscripts are submitted.
         add_to_known
             If True, add the submitted submissions to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -4203,6 +4223,7 @@ class Workflow(AppAware):
                     tasks=tasks,
                     quiet=quiet,
                     timeit=timeit,
+                    follow=follow,
                 )
 
         if exceptions:
@@ -4211,8 +4232,8 @@ class Workflow(AppAware):
         if cancel:
             self.cancel(status=status, quiet=quiet)
 
-        elif wait:
-            self.wait(submitted_js, quiet=quiet)
+        elif wait or follow:
+            self.wait(submitted_js, quiet=quiet, follow=follow)
 
         if return_idx:
             return submitted_js
@@ -4263,21 +4284,164 @@ class Workflow(AppAware):
         for thr in threads:
             thr.join()
 
+    @staticmethod
+    def _validate_follow_jobscripts(jobscripts: Iterable[Jobscript]) -> None:
+        for js in jobscripts:
+            if not isinstance(js.scheduler, DirectScheduler):
+                raise NotImplementedError(
+                    "Following jobscript output is currently supported only for direct "
+                    f"schedulers (submission {js.submission.index}, "
+                    f"jobscript {js.index} uses a non-direct scheduler)."
+                )
+
+    def _follow_jobscripts(self, jobscripts: Sequence[Jobscript], quiet: bool) -> None:
+        """Print jobscript stdout/stderr files as they are written, like ``tail -f``.
+
+        Each jobscript's output files are polled every 0.5 s and any new bytes are
+        printed. Following stops once all jobscripts have exited and their output has
+        been fully read.
+
+        Parameters
+        ----------
+        jobscripts
+            The jobscripts to follow. These must all use a direct scheduler, since
+            checking whether a job is running is done once per poll per jobscript, and
+            is not yet efficient for queued schedulers.
+        quiet
+            If True, do not print a ``==> label <==`` header when the output source
+            changes; only the raw job output is printed.
+
+        Raises
+        ------
+        NotImplementedError
+            If any jobscript does not use a direct scheduler.
+
+        Notes
+        -----
+        - Output is read from the beginning of each file, so output written before
+          following started is also printed.
+        - Separate stderr files are printed to `sys.stderr`. If
+          `resources.combine_jobscript_std` is True, the stdout and stderr paths are the
+          same, so the combined file is read once and printed to `sys.stdout`.
+        - Output files that do not exist yet are skipped until they are created.
+        - Bytes are decoded as UTF-8 incrementally, so a multi-byte character split
+          across reads is not corrupted. Invalid bytes are replaced.
+        - If a file shrinks (e.g. it was truncated or replaced), it is read again from
+          the start.
+        - The running state of each jobscript is checked *before* reading its files.
+          If it was not running, the subsequent read is guaranteed to include all of
+          its output, which is then flushed and the jobscript is no longer followed.
+        - Output is only visible once the job's program has flushed it to disk.
+        """
+        self._validate_follow_jobscripts(jobscripts)
+        # map each unique output file to the stream to print to, and its header label:
+        streams: dict[Path, tuple[TextIO, str]] = {}
+        paths_by_jobscript: list[tuple[Jobscript, list[Path]]] = []
+        for js in jobscripts:
+            paths = []
+            label = f"submission {js.submission.index}, jobscript {js.index}"
+            for path, stream, name in (
+                (js.get_stdout_path(), sys.stdout, "stdout"),
+                (js.get_stderr_path(), sys.stderr, "stderr"),
+            ):
+                if path not in streams:
+                    name = "stdout/stderr" if js.resources.combine_jobscript_std else name
+                    streams[path] = stream, f"{label}, {name}"
+                    paths.append(path)
+            paths_by_jobscript.append((js, paths))
+
+        # number of bytes already read from each file:
+        offsets = dict.fromkeys(streams, 0)
+        decoders = {
+            path: codecs.getincrementaldecoder("utf-8")(errors="replace")
+            for path in streams
+        }
+        last_path: Path | None = None
+
+        def emit(path: Path, text: str) -> None:
+            """Print text from a file, preceded by a header if the source changed."""
+            nonlocal last_path
+            if text:
+                stream, label = streams[path]
+                if not quiet and path != last_path:
+                    print(f"\n==> {label} <==", file=stream, flush=True)
+                print(text, end="", file=stream, flush=True)
+                last_path = path
+
+        while paths_by_jobscript:
+            active = []
+            for js, paths in paths_by_jobscript:
+                # Query the process, not EAR completion: scripts can still
+                # write output after their last EAR finishes.
+                running = bool(
+                    js.scheduler.get_job_state_info(js_refs=[js.scheduler_js_ref])
+                )
+                for path in paths:
+                    try:
+                        handle = path.open("rb")
+                    except FileNotFoundError:
+                        # Jobs may not have created their output files yet.
+                        continue
+                    with handle:
+                        handle.seek(0, os.SEEK_END)
+                        if handle.tell() < offsets[path]:
+                            # file was truncated; start again from the beginning:
+                            offsets[path] = 0
+                            decoders[path].reset()
+                        handle.seek(offsets[path])
+                        while data := handle.read(65536):
+                            emit(path, decoders[path].decode(data))
+                        offsets[path] = handle.tell()
+                    if not running:
+                        # flush any incomplete multi-byte sequence:
+                        emit(path, decoders[path].decode(b"", final=True))
+                if running:
+                    active.append((js, paths))
+            paths_by_jobscript = active
+            if active:
+                time.sleep(0.5)
+
     def wait(
-        self, sub_js: Mapping[int, Sequence[int]] | None = None, quiet: bool = False
+        self,
+        sub_js: Mapping[int, Sequence[int]] | None = None,
+        quiet: bool = False,
+        *,
+        follow: bool = False,
     ):
-        """Wait for the completion of specified/all submitted jobscripts."""
+        """Wait for specified/all active jobscripts, optionally following their output.
+
+        With `follow=True`, print existing output from the beginning, then stream new
+        output until all selected jobscripts finish. Separate error streams are written
+        to stderr; combined streams are written once to stdout. `quiet` hides status
+        messages and stream headers, but not job output.
+        Following is supported only for direct schedulers. Selecting a non-direct
+        jobscript raises `NotImplementedError` without polling its scheduler.
+        """
 
         # TODO: think about how this might work with remote workflow submission (via SSH)
 
         # TODO: add a log file to the submission dir where we can log stuff (e.g starting
         # a thread...)
 
-        if not sub_js:
+        if sub_js is None:
             # find any active jobscripts first:
             sub_js_: dict[int, list[int]] = defaultdict(list)
-            for sub in self.submissions:
-                sub_js_[sub.index].extend(sub.get_active_jobscripts())
+            if follow:
+                finished_states = EARStatus.get_non_running_submitted_states()
+                candidates = [
+                    js
+                    for sub in self.submissions
+                    for js in sub.jobscripts
+                    if js.is_submitted
+                    and any(ear.status not in finished_states for ear in js.all_EARs)
+                ]
+                self._validate_follow_jobscripts(candidates)
+                for js in candidates:
+                    if js.get_active_states():
+                        sub_js_[js.submission.index].append(js.index)
+            else:
+                for sub in self.submissions:
+                    sub_js_[sub.index].extend(sub.get_active_jobscripts())
             sub_js = sub_js_
 
         js_direct: list[Jobscript] = []
@@ -4300,6 +4464,9 @@ class Workflow(AppAware):
                         f"Process ID nor scheduler job ID is set for {js!r}."
                     )
 
+        if follow:
+            self._validate_follow_jobscripts(js_direct + js_sched)
+
         if js_direct or js_sched:
             # TODO: use a rich console status? how would that appear in stdout though?
             if not quiet:
@@ -4310,6 +4477,11 @@ class Workflow(AppAware):
             return
 
         try:
+            if follow:
+                self._follow_jobscripts(js_direct + js_sched, quiet=quiet)
+                if not quiet:
+                    print("Specified submissions have finished.")
+                return
             t_direct = Thread(
                 target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
             )

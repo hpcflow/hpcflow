@@ -39,6 +39,42 @@
   However, in general workflows would first be created in a yaml file which is then submitted using
   ``{{ app_package_name }} go WORKFLOW_FILE``.
 
+  Follow jobscript output
+  ~~~~~~~~~~~~~~~~~~~~~~~
+
+  Add ``--follow`` (or ``-f``) when submitting to display jobscript standard output
+  and error as they are written:
+
+  .. code-block:: console
+
+      {{ app_package_name }} go WORKFLOW_FILE --follow
+      {{ app_package_name }} workflow WORKFLOW_REF submit --follow
+      {{ app_package_name }} demo-workflow go <workflow_name.yaml> --follow
+
+  Following also waits for execution to finish; ``--wait`` is not required.
+  Output already written is displayed from the beginning, followed by new output.
+  As jobscripts start, their output is picked up automatically, including parallel
+  direct jobscripts. Following is currently supported only for direct schedulers.
+  Submission with ``--follow`` is rejected before launching any jobscripts if a
+  jobscript to be submitted uses a non-direct scheduler (such as Slurm or SGE).
+  Likewise, ``wait --follow`` rejects selections containing non-direct jobscripts
+  without polling their schedulers. Scheduler array jobs are not supported yet.
+  Headers identify the submission, jobscript, and stream. Separate error streams
+  are sent to stderr; combined stdout/error files are displayed only once, on stdout.
+  ``--quiet`` hides headers and status messages, but still displays job output.
+
+  Press Ctrl+C to stop following without cancelling workflow execution. To attach
+  to an existing workflow's active jobscripts later, use:
+
+  .. code-block:: console
+
+      {{ app_package_name }} workflow WORKFLOW_REF wait --follow
+
+  Use ``--jobscripts '0:0,1;1:0'`` with ``wait`` to select particular jobscripts,
+  including ones that have already finished. Output appears only when the job's
+  program or scheduler flushes it to disk, so buffered programs may need their own
+  unbuffered-output options. Following does not change buffering or jobscript files.
+
   Check the status of a workflow
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

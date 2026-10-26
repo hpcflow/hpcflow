@@ -180,6 +180,18 @@ wait_option = click.option(
     default=False,
 )
 #: Standard option
+follow_option = click.option(
+    "-f",
+    "--follow",
+    help=(
+        "Follow direct jobscript stdout and stderr until execution finishes. "
+        "Non-direct schedulers are not supported. Implies --wait. "
+        "Ctrl+C stops following without cancelling execution."
+    ),
+    is_flag=True,
+    default=False,
+)
+#: Standard option
 add_to_known_opt = click.option(
     "--add-to-known/--no-add-to-known",
     default=True,
@@ -500,6 +512,7 @@ _add_doc_from_help(
     variables_option,
     js_parallelism_option,
     wait_option,
+    follow_option,
     add_to_known_opt,
     print_idx_opt,
     tasks_opt,

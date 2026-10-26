@@ -271,6 +271,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
+            follow: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
@@ -305,6 +306,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
+            follow: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
@@ -321,6 +323,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             quiet: bool = False,
             timeit: bool = False,
+            follow: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
@@ -1580,6 +1583,9 @@ class BaseApp(metaclass=Singleton):
             such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
+        follow: bool
+            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
+            Non-direct schedulers are not supported.
         add_to_known: bool
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -1674,6 +1680,9 @@ class BaseApp(metaclass=Singleton):
             such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
+        follow: bool
+            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
+            Non-direct schedulers are not supported.
         add_to_known: bool
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3199,6 +3208,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3272,6 +3282,9 @@ class BaseApp(metaclass=Singleton):
             modifications to the jobscript to be made.
         wait
             If True, this command will block until the workflow execution is complete.
+        follow
+            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
+            Non-direct schedulers are not supported.
         add_to_known
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3327,6 +3340,7 @@ class BaseApp(metaclass=Singleton):
             min_jobscripts=min_jobscripts,
             modify_js=modify_js,
             wait=wait,
+            follow=follow,
             add_to_known=add_to_known,
             return_idx=True,
             tasks=tasks,
@@ -3508,6 +3522,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3578,6 +3593,9 @@ class BaseApp(metaclass=Singleton):
             modifications to the jobscript to be made.
         wait
             If True, this command will block until the workflow execution is complete.
+        follow
+            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
+            Non-direct schedulers are not supported.
         add_to_known
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3631,6 +3649,7 @@ class BaseApp(metaclass=Singleton):
             min_jobscripts=min_jobscripts,
             modify_js=modify_js,
             wait=wait,
+            follow=follow,
             add_to_known=add_to_known,
             return_idx=True,
             tasks=tasks,
@@ -3655,6 +3674,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
@@ -3680,6 +3700,9 @@ class BaseApp(metaclass=Singleton):
             modifications to the jobscript to be made.
         wait:
             Whether to wait for the submission to complete.
+        follow:
+            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
+            Non-direct schedulers are not supported.
         return_idx:
             Whether to return the index information.
         tasks:
@@ -3707,13 +3730,18 @@ class BaseApp(metaclass=Singleton):
                 min_jobscripts=min_jobscripts,
                 modify_js=modify_js,
                 wait=wait,
+                follow=follow,
                 return_idx=True,
                 tasks=tasks,
                 quiet=quiet,
                 timeit=timeit,
             )
         wk.submit(
-            JS_parallelism=JS_parallelism, wait=wait, tasks=tasks, modify_js=modify_js
+            JS_parallelism=JS_parallelism,
+            wait=wait,
+            tasks=tasks,
+            modify_js=modify_js,
+            follow=follow,
         )
         return None
 
