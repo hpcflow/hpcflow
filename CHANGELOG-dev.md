@@ -1,7 +1,3 @@
-### 🐛 Bug Fixes
-
-* preserve independent tasks when merging into an already-merged jobscript
-
 <a name="v0.4.0a2"></a>
 ## [v0.4.0a2](https://github.com/hpcflow/hpcflow/compare/v0.4.0a1...v0.4.0a2) - 2026.10.26
 
