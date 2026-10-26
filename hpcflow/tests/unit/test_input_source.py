@@ -207,6 +207,58 @@ def test_output_multiplicity_from_yaml(
         ]
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_output_multiplicity_from_schema_input_in_yaml(
+    tmp_path: Path, store: str
+) -> None:
+    YAML_str = dedent("""
+    name: output_members_input_yaml
+    template_components:
+      task_schemas:
+        - objective: dynamic_output_multiplicity_producer
+          inputs:
+            - parameter: p1
+          outputs:
+            - parameter: p2
+              multiplicity: <<input:p1>>
+          actions:
+            - commands:
+              - command: 'echo <<parameter:p1>>'
+                stdout: '<<parameter:p2>>'
+        - objective: dynamic_output_multiplicity_consumer
+          inputs:
+            - parameter: p2
+          actions:
+            - commands:
+              - command: 'echo <<parameter:p2>>'
+    tasks:
+      - schema: dynamic_output_multiplicity_producer
+        sequences:
+          - path: inputs.p1
+            values: [1, 3]
+      - schema: dynamic_output_multiplicity_consumer
+    """)
+    wk = hf.Workflow.from_YAML_string(
+        YAML_str=YAML_str,
+        path=tmp_path,
+        store=store,
+    )
+    assert wk.tasks[1].num_elements == 4
+
+    wk.add_submission()
+    for element, output in zip(wk.tasks[0].elements, ([10, 11], [20, 21, 22])):
+        output_id = element.get_data_idx()["outputs.p2"]
+        wk.set_parameter_value(output_id, output, commit=True)
+
+    restored = hf.Workflow(wk.path)
+    assert [element.get("inputs.p2") for element in restored.tasks[1].elements] == [
+        [10, 11],
+        20,
+        21,
+        22,
+    ]
+
+
 @pytest.mark.parametrize("legacy_array", [False, True])
 @pytest.mark.parametrize("as_tuple", [False, True])
 def test_output_member_array_values(

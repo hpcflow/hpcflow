@@ -98,6 +98,32 @@ def test_schema_output_invalid_multiplicity_value(multiplicity: int) -> None:
         hf.SchemaOutput("p1", multiplicity=multiplicity)
 
 
+def test_schema_output_multiplicity_reference_requires_schema_input() -> None:
+    with pytest.raises(ValueError, match="does not match an input"):
+        hf.TaskSchema(
+            "t1",
+            inputs=[hf.SchemaInput("p1")],
+            outputs=[hf.SchemaOutput("p2", multiplicity="<<input:p3>>")],
+            actions=[
+                hf.Action(commands=[hf.Command("echo 1", stdout="<<parameter:p2>>")])
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(None, ValueError), (True, TypeError), (1.5, TypeError), (0, ValueError)],
+)
+def test_schema_output_resolves_and_validates_dynamic_multiplicity(
+    value: object, error: type[Exception]
+) -> None:
+    output = hf.SchemaOutput("p2", multiplicity="<<input:p1>>")
+    with pytest.raises(error, match="multiplicity input 'p1'"):
+        output.resolve_multiplicity(value)
+
+    assert output.resolve_multiplicity(3) == 3
+
+
 def test_disable_array_outputs() -> None:
     schema = hf.TaskSchema("t1", disable_array_outputs=["outputs.foo.bar"])
 

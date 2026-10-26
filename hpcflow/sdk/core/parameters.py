@@ -685,11 +685,13 @@ class SchemaOutput(SchemaParameter):
         How this output propagates to downstream tasks.
     multiplicity:
         Positive integer number of sourceable members supplied by each producing
-        element. For values greater than one, each output value must be a list,
-        tuple, or NumPy array of exactly this length; the length is checked when a
-        downstream member is read. The default, one, supplies the whole output
-        value unchanged, even if that value is a sequence. Booleans and non-integers
-        raise ``TypeError``; zero and negative values raise ``ValueError``.
+        element, or an input reference such as ``"<<input:p1>>"``. An input
+        reference is resolved for each producing element when workflow elements are
+        built, and must identify a set scalar positive integer input. For values
+        greater than one, each output value must be a list, tuple, or NumPy array of
+        exactly this length; the length is checked when a downstream member is read.
+        The default, one, supplies the whole output value unchanged, even if that
+        value is a sequence.
     """
 
     #: The basic parameter this supplies.
@@ -697,17 +699,31 @@ class SchemaOutput(SchemaParameter):
     #: How this output propagates.
     propagation_mode: ParameterPropagationMode
     #: Number of sourceable output members per element.
-    multiplicity: int = 1
+    multiplicity: int | str = 1
 
     def __init__(
         self,
         parameter: Parameter | str,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
-        multiplicity: int = 1,
+        multiplicity: int | str = 1,
     ):
-        if isinstance(multiplicity, bool) or not isinstance(multiplicity, int):
-            raise TypeError("SchemaOutput multiplicity must be a positive integer.")
-        if multiplicity < 1:
+        if isinstance(multiplicity, str):
+            prefix, suffix = "<<input:", ">>"
+            if (
+                not multiplicity.startswith(prefix)
+                or not multiplicity.endswith(suffix)
+                or not multiplicity[len(prefix) : -len(suffix)]
+            ):
+                raise TypeError(
+                    "SchemaOutput multiplicity must be a positive integer or an "
+                    "input reference such as '<<input:p1>>'."
+                )
+        elif isinstance(multiplicity, bool) or not isinstance(multiplicity, int):
+            raise TypeError(
+                "SchemaOutput multiplicity must be a positive integer or an input "
+                "reference such as '<<input:p1>>'."
+            )
+        elif multiplicity < 1:
             raise ValueError("SchemaOutput multiplicity must be a positive integer.")
         self.multiplicity = multiplicity
         if isinstance(parameter, str):
@@ -727,6 +743,38 @@ class SchemaOutput(SchemaParameter):
         Whether this is an input or output. Always ``output``.
         """
         return "output"
+
+    @property
+    def multiplicity_input(self) -> str | None:
+        """Return the schema input named by a dynamic multiplicity, if any."""
+        if not isinstance(self.multiplicity, str):
+            return None
+        return self.multiplicity[len("<<input:") : -len(">>")]
+
+    def resolve_multiplicity(self, input_value: object = None) -> int:
+        """Resolve and validate this output's fixed or input-driven member count."""
+        if isinstance(self.multiplicity, int) and not isinstance(self.multiplicity, bool):
+            return self.multiplicity
+
+        input_name = self.multiplicity_input
+        if input_name is None:
+            raise AssertionError("Invalid SchemaOutput multiplicity reference.")
+        if input_value is None:
+            raise ValueError(
+                f"SchemaOutput multiplicity input {input_name!r} must be set to a "
+                "positive integer when workflow elements are built."
+            )
+        if isinstance(input_value, bool) or not isinstance(input_value, int):
+            raise TypeError(
+                f"SchemaOutput multiplicity input {input_name!r} must be a "
+                "positive integer."
+            )
+        if input_value < 1:
+            raise ValueError(
+                f"SchemaOutput multiplicity input {input_name!r} must be a "
+                "positive integer."
+            )
+        return input_value
 
     def __repr__(self) -> str:
         return (

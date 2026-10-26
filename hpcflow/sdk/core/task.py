@@ -2121,18 +2121,37 @@ class WorkflowTask(AppAware):
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
 
-        multiplicity = 1
+        multiplicities = [1] * len(grp_idx)
         if task_source_type == TaskSourceType.OUTPUT:
-            multiplicity = next(
-                output.multiplicity
+            schema_output = next(
+                output
                 for output in src_task.template.all_schema_outputs
                 if output.typ == src_key.split(".")[1]
             )
+            if schema_output.multiplicity_input is None:
+                multiplicities = [schema_output.resolve_multiplicity()] * len(grp_idx)
+            else:
+                multiplicities = [
+                    schema_output.resolve_multiplicity(
+                        src_iter.get(
+                            f"inputs.{schema_output.multiplicity_input}",
+                            raise_on_unset=True,
+                        )
+                    )
+                    for src_iter in src_elem_iters
+                ]
         member_indices: list[list[int | list[int]]]
-        if multiplicity > 1:
-            member_indices = [
-                [
-                    (
+        if any(multiplicity > 1 for multiplicity in multiplicities):
+            member_indices = []
+            for dat_idx, multiplicity in zip(grp_idx, multiplicities, strict=True):
+                if dat_idx == -1:
+                    member_indices.append([-1] * multiplicity)
+                    continue
+                if multiplicity == 1:
+                    member_indices.append([dat_idx])
+                    continue
+                member_indices.append(
+                    [
                         self.workflow._add_unset_parameter_data(
                             {
                                 "type": "output_member",
@@ -2141,13 +2160,9 @@ class WorkflowTask(AppAware):
                                 "multiplicity": multiplicity,
                             }
                         )
-                        if dat_idx != -1
-                        else -1
-                    )
-                    for member_idx in range(multiplicity)
-                ]
-                for dat_idx in grp_idx
-            ]
+                        for member_idx in range(multiplicity)
+                    ]
+                )
         else:
             member_indices = [[dat_idx] for dat_idx in grp_idx]
 
