@@ -9,11 +9,74 @@ from hpcflow import __version__
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
+    _make_API_CLI,
     _make_workflow_CLI,
     _make_zip_CLI,
 )
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.cli_common import BoolOrString
+from hpcflow.sdk.demo.cli import get_demo_workflow_CLI
+
+
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_submit_follow(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize("option", [[], ["--delete"]])
+def test_cli_submit_delete(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["delete"] == bool(option)
+
+
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_wait_follow(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["wait"]
+    result = CliRunner().invoke(
+        command, ["--jobscripts", "0:0,1;1:2", *option], obj=workflow
+    )
+    assert result.exit_code == 0, result.output
+    workflow.wait.assert_called_once_with(
+        sub_js={0: [0, 1], 1: [2]}, quiet=False, follow=bool(option)
+    )
+
+
+@pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_go_follow(demo: bool, option: list[str]) -> None:
+    app = Mock(wraps=hf)
+    if demo:
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+    result = CliRunner().invoke(command, ["workflow.yaml", *option])
+    assert result.exit_code == 0, result.output
+    assert submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("option", [[], ["--delete"]])
+def test_cli_go_delete(demo: bool, option: list[str]) -> None:
+    app = Mock(wraps=hf)
+    if demo:
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+    result = CliRunner().invoke(command, ["workflow.yaml", *option])
+    assert result.exit_code == 0, result.output
+    assert submit.call_args.kwargs["delete"] == bool(option)
 
 
 @pytest.mark.parametrize(

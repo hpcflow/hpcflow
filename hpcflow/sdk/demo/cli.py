@@ -23,6 +23,8 @@ from hpcflow.sdk.cli_common import (
     variables_option,
     js_parallelism_option,
     wait_option,
+    follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
     tasks_opt,
@@ -203,6 +205,8 @@ def get_demo_workflow_CLI(app: BaseApp):
     @js_parallelism_option
     @min_jobscripts_opt
     @wait_option
+    @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
     @tasks_opt
@@ -237,6 +241,8 @@ def get_demo_workflow_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ):
         out = app.make_and_submit_demo_workflow(
             workflow_name=workflow_name,
@@ -257,6 +263,8 @@ def get_demo_workflow_CLI(app: BaseApp):
             min_jobscripts=min_jobscripts,
             modify_js=modify_js,
             wait=wait,
+            follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             return_idx=print_idx,
             tasks=tasks,
