@@ -1,4 +1,17 @@
 
+<a name="v0.4.0a2"></a>
+## [v0.4.0a2](https://github.com/hpcflow/hpcflow/compare/v0.4.0a1...v0.4.0a2) - 2026.10.26
+
+### ✨ Features
+
+* add workflow delete-on-completion option
+* add --follow option to stream jobscript output
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a1"></a>
 ## [v0.4.0a1](https://github.com/hpcflow/hpcflow/compare/v0.4.0a0...v0.4.0a1) - 2026.10.26
 
