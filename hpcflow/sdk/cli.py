@@ -34,6 +34,7 @@ from hpcflow.sdk.cli_common import (
     js_parallelism_option,
     wait_option,
     follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
     tasks_opt,
@@ -274,6 +275,7 @@ def _make_API_CLI(app: BaseApp):
     @min_jobscripts_opt
     @wait_option
     @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
     @tasks_opt
@@ -310,6 +312,7 @@ def _make_API_CLI(app: BaseApp):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -339,6 +342,7 @@ def _make_API_CLI(app: BaseApp):
             modify_js=modify_js,
             wait=wait,
             follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             return_idx=print_idx,
             tasks=tasks,
@@ -562,6 +566,7 @@ def _make_workflow_CLI(app: BaseApp):
     @js_parallelism_option
     @wait_option
     @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
     @tasks_opt
@@ -584,12 +589,14 @@ def _make_workflow_CLI(app: BaseApp):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
             JS_parallelism=js_parallelism,
             wait=wait,
             follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             modify_js=modify_js,
             return_idx=True,

@@ -50,3 +50,19 @@ def test_submit_follow_streams_before_jobscript_finishes(
     assert not jobscript.get_active_states()
     assert out == jobscript.get_stdout()
     assert err == jobscript.get_stderr()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("follow", [False, True])
+def test_submit_delete_removes_workflow_after_completion(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], follow: bool
+) -> None:
+    workflow = make_workflow_to_run_command("echo DELETE_ME", tmp_path)
+    workflow_path = Path(workflow.path)
+    assert workflow_path.exists()
+    workflow.submit(
+        delete=True, follow=follow, add_to_known=False, status=False, quiet=True
+    )
+    assert not workflow_path.exists()
+    if follow:
+        assert "DELETE_ME" in capsys.readouterr().out

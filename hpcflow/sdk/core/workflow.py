@@ -4103,6 +4103,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -4123,6 +4124,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> None: ...
 
     def submit(
@@ -4142,6 +4144,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -4174,6 +4177,11 @@ class Workflow(AppAware):
             Implies `wait`. Ctrl+C stops following without cancelling execution.
             Only direct schedulers are supported; other schedulers are rejected
             before any jobscripts are submitted.
+        delete
+            If True, permanently delete the workflow, without confirmation, after
+            execution completes, whether or not it succeeded. Implies `wait`. If waiting
+            is interrupted (e.g. by Ctrl+C), the workflow is not deleted. If `cancel` is
+            also True, wait for the cancelled jobscripts to stop before deleting.
         add_to_known
             If True, add the submitted submissions to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -4229,11 +4237,19 @@ class Workflow(AppAware):
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
 
+        finished = False
         if cancel:
             self.cancel(status=status, quiet=quiet)
+            if delete:
+                finished = self.wait(submitted_js, quiet=quiet)
 
-        elif wait or follow:
-            self.wait(submitted_js, quiet=quiet, follow=follow)
+        elif wait or follow or delete:
+            finished = self.wait(submitted_js, quiet=quiet, follow=follow)
+
+        if delete and finished:
+            if not quiet:
+                print(f"Deleting workflow {self.path!r}.")
+            self._delete_no_confirm()
 
         if return_idx:
             return submitted_js
@@ -4407,7 +4423,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         *,
         follow: bool = False,
-    ):
+    ) -> bool:
         """Wait for specified/all active jobscripts, optionally following their output.
 
         With `follow=True`, print existing output from the beginning, then stream new
@@ -4416,6 +4432,12 @@ class Workflow(AppAware):
         messages and stream headers, but not job output.
         Following is supported only for direct schedulers. Selecting a non-direct
         jobscript raises `NotImplementedError` without polling its scheduler.
+
+        Returns
+        -------
+        bool
+            True if all specified jobscripts finished (or none were running), or False
+            if waiting was interrupted by Ctrl+C.
         """
 
         # TODO: think about how this might work with remote workflow submission (via SSH)
@@ -4474,14 +4496,14 @@ class Workflow(AppAware):
         else:
             if not quiet:
                 print("No running jobscripts.")
-            return
+            return True
 
         try:
             if follow:
                 self._follow_jobscripts(js_direct + js_sched, quiet=quiet)
                 if not quiet:
                     print("Specified submissions have finished.")
-                return
+                return True
             t_direct = Thread(
                 target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
             )
@@ -4501,9 +4523,11 @@ class Workflow(AppAware):
         except KeyboardInterrupt:
             if not quiet:
                 print("No longer waiting (workflow execution will continue).")
+            return False
         else:
             if not quiet:
                 print("Specified submissions have finished.")
+            return True
 
     def get_running_elements(
         self,

@@ -272,6 +272,7 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             follow: bool = False,
+            delete: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _MakeAndSubmitDemoWorkflow(Protocol):
@@ -307,6 +308,7 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             follow: bool = False,
+            delete: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
     class _SubmitWorkflow(Protocol):
@@ -324,6 +326,7 @@ if TYPE_CHECKING:
             quiet: bool = False,
             timeit: bool = False,
             follow: bool = False,
+            delete: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
     class _GetKnownSubmissions(Protocol):
@@ -1586,6 +1589,10 @@ class BaseApp(metaclass=Singleton):
         follow: bool
             Follow direct jobscript stdout and stderr until completion. Implies `wait`.
             Non-direct schedulers are not supported.
+        delete: bool
+            Permanently delete the workflow, without confirmation, after execution
+            completes, regardless of success. Implies `wait`. Not deleted if waiting is
+            interrupted.
         add_to_known: bool
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -1683,6 +1690,10 @@ class BaseApp(metaclass=Singleton):
         follow: bool
             Follow direct jobscript stdout and stderr until completion. Implies `wait`.
             Non-direct schedulers are not supported.
+        delete: bool
+            Permanently delete the workflow, without confirmation, after execution
+            completes, regardless of success. Implies `wait`. Not deleted if waiting is
+            interrupted.
         add_to_known: bool
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3209,6 +3220,7 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3285,6 +3297,10 @@ class BaseApp(metaclass=Singleton):
         follow
             Follow direct jobscript stdout and stderr until completion. Implies `wait`.
             Non-direct schedulers are not supported.
+        delete
+            Permanently delete the workflow, without confirmation, after execution
+            completes, regardless of success. Implies `wait`. Not deleted if waiting is
+            interrupted.
         add_to_known
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3341,6 +3357,7 @@ class BaseApp(metaclass=Singleton):
             modify_js=modify_js,
             wait=wait,
             follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             return_idx=True,
             tasks=tasks,
@@ -3523,6 +3540,7 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
         Generate and submit a new {app_name} workflow from a file or string containing a
@@ -3596,6 +3614,10 @@ class BaseApp(metaclass=Singleton):
         follow
             Follow direct jobscript stdout and stderr until completion. Implies `wait`.
             Non-direct schedulers are not supported.
+        delete
+            Permanently delete the workflow, without confirmation, after execution
+            completes, regardless of success. Implies `wait`. Not deleted if waiting is
+            interrupted.
         add_to_known
             If True, add the new submission to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -3650,6 +3672,7 @@ class BaseApp(metaclass=Singleton):
             modify_js=modify_js,
             wait=wait,
             follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             return_idx=True,
             tasks=tasks,
@@ -3675,6 +3698,7 @@ class BaseApp(metaclass=Singleton):
         quiet: bool = False,
         timeit: bool = False,
         follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
         Submit an existing {app_name} workflow.
@@ -3703,6 +3727,10 @@ class BaseApp(metaclass=Singleton):
         follow:
             Follow direct jobscript stdout and stderr until completion. Implies `wait`.
             Non-direct schedulers are not supported.
+        delete:
+            Permanently delete the workflow, without confirmation, after execution
+            completes, regardless of success. Implies `wait`. Not deleted if waiting is
+            interrupted.
         return_idx:
             Whether to return the index information.
         tasks:
@@ -3731,6 +3759,7 @@ class BaseApp(metaclass=Singleton):
                 modify_js=modify_js,
                 wait=wait,
                 follow=follow,
+                delete=delete,
                 return_idx=True,
                 tasks=tasks,
                 quiet=quiet,
@@ -3742,6 +3771,7 @@ class BaseApp(metaclass=Singleton):
             tasks=tasks,
             modify_js=modify_js,
             follow=follow,
+            delete=delete,
         )
         return None
 

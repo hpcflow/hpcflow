@@ -8,6 +8,7 @@ import pytest
 
 from hpcflow.sdk.app import BaseApp
 from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.errors import WorkflowSubmissionFailure
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.submission.jobscript import Jobscript
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
@@ -179,10 +180,13 @@ def test_follow_propagates_read_and_scheduler_errors(tmp_path: Path) -> None:
         Workflow._follow_jobscripts(_make_workflow(), [job], quiet=True)
 
 
+@pytest.mark.parametrize("delete", [False, True])
 @pytest.mark.parametrize("follow", [False, True])
 @pytest.mark.parametrize("wait", [False, True])
 @pytest.mark.parametrize("cancel", [False, True])
-def test_submit_follow_implies_wait(follow: bool, wait: bool, cancel: bool) -> None:
+def test_submit_follow_and_delete_imply_wait(
+    follow: bool, wait: bool, cancel: bool, delete: bool
+) -> None:
     workflow = _make_workflow()
     workflow._store = Mock()
     workflow._store.cached_load.return_value = nullcontext()
@@ -191,11 +195,13 @@ def test_submit_follow_implies_wait(follow: bool, wait: bool, cancel: bool) -> N
     workflow._store.parameters_array_cache.return_value = nullcontext()
     workflow._store.cache_ctx.return_value = nullcontext()
     workflow._submit.return_value = [], {0: [0, 1]}
+    workflow.wait.return_value = True
     result = Workflow.submit(
         workflow,
         follow=follow,
         wait=wait,
         cancel=cancel,
+        delete=delete,
         return_idx=True,
         status=False,
         quiet=True,
@@ -204,11 +210,50 @@ def test_submit_follow_implies_wait(follow: bool, wait: bool, cancel: bool) -> N
     assert workflow._submit.call_args.kwargs["follow"] == follow
     if cancel:
         workflow.cancel.assert_called_once_with(status=False, quiet=True)
-        workflow.wait.assert_not_called()
-    elif follow or wait:
+        if delete:
+            # wait for cancelled jobscripts to stop before deleting:
+            workflow.wait.assert_called_once_with({0: [0, 1]}, quiet=True)
+        else:
+            workflow.wait.assert_not_called()
+    elif follow or wait or delete:
         workflow.wait.assert_called_once_with({0: [0, 1]}, quiet=True, follow=follow)
     else:
         workflow.wait.assert_not_called()
+    if delete:
+        workflow._delete_no_confirm.assert_called_once_with()
+    else:
+        workflow._delete_no_confirm.assert_not_called()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_submit_delete_skipped_if_wait_interrupted(cancel: bool) -> None:
+    workflow = _make_workflow()
+    workflow._store = Mock()
+    workflow._store.cached_load.return_value = nullcontext()
+    workflow.batch_update.return_value = nullcontext()
+    workflow._store.parameters_metadata_cache.return_value = nullcontext()
+    workflow._store.parameters_array_cache.return_value = nullcontext()
+    workflow._store.cache_ctx.return_value = nullcontext()
+    workflow._submit.return_value = [], {0: [0]}
+    workflow.wait.return_value = False
+    Workflow.submit(workflow, delete=True, cancel=cancel, status=False, quiet=True)
+    workflow.wait.assert_called_once()
+    workflow._delete_no_confirm.assert_not_called()
+
+
+def test_submit_delete_skipped_on_submission_failure() -> None:
+    workflow = _make_workflow()
+    workflow._store = Mock()
+    workflow._store.cached_load.return_value = nullcontext()
+    workflow.batch_update.return_value = nullcontext()
+    workflow._store.parameters_metadata_cache.return_value = nullcontext()
+    workflow._store.parameters_array_cache.return_value = nullcontext()
+    workflow._store.cache_ctx.return_value = nullcontext()
+    workflow._submit.return_value = [Mock(message="failed")], {}
+    with pytest.raises(WorkflowSubmissionFailure):
+        Workflow.submit(workflow, delete=True, status=False, quiet=True)
+    workflow.wait.assert_not_called()
+    workflow._delete_no_confirm.assert_not_called()
 
 
 def test_wait_follow_dispatch_and_interrupt(
@@ -218,7 +263,7 @@ def test_wait_follow_dispatch_and_interrupt(
     job = _make_jobscript(tmp_path)
     workflow.submissions = [Mock(jobscripts=[job])]
     workflow._follow_jobscripts.side_effect = KeyboardInterrupt
-    Workflow.wait(workflow, {0: [0]}, follow=True)
+    assert Workflow.wait(workflow, {0: [0]}, follow=True) is False
     workflow._follow_jobscripts.assert_called_once_with([job], quiet=False)
     workflow.cancel.assert_not_called()
     assert "workflow execution will continue" in capsys.readouterr().out
@@ -226,7 +271,7 @@ def test_wait_follow_dispatch_and_interrupt(
 
 def test_wait_empty_selection_does_not_follow_other_jobs() -> None:
     workflow = _make_workflow()
-    Workflow.wait(workflow, {}, quiet=True, follow=True)
+    assert Workflow.wait(workflow, {}, quiet=True, follow=True) is True
     workflow._follow_jobscripts.assert_not_called()
 
 
@@ -236,7 +281,7 @@ def test_wait_follow_finds_active_jobscripts(tmp_path: Path) -> None:
     submission = Mock(index=0, jobscripts=[job])
     submission.get_active_jobscripts.return_value = {0: {}}
     workflow.submissions = [submission]
-    Workflow.wait(workflow, quiet=True, follow=True)
+    assert Workflow.wait(workflow, quiet=True, follow=True) is True
     workflow._follow_jobscripts.assert_called_once_with([job], quiet=True)
 
 
@@ -300,8 +345,10 @@ def test_submit_follow_rejects_non_direct_before_launch(
 
 @pytest.mark.parametrize("method", ["make", "demo", "existing"])
 @pytest.mark.parametrize("return_idx", [False, True])
-@pytest.mark.parametrize("follow", [False, True])
-def test_app_forwards_follow(method: str, return_idx: bool, follow: bool) -> None:
+@pytest.mark.parametrize("flag", [False, True])
+def test_app_forwards_follow_and_delete(
+    method: str, return_idx: bool, flag: bool
+) -> None:
     app = Mock(spec=BaseApp)
     workflow = Mock(spec=Workflow)
     app._make_workflow.return_value = workflow
@@ -310,12 +357,15 @@ def test_app_forwards_follow(method: str, return_idx: bool, follow: bool) -> Non
     workflow.submit.return_value = {0: [0]}
     if method == "make":
         BaseApp._make_and_submit_workflow(
-            app, "workflow.yaml", follow=follow, return_idx=return_idx
+            app, "workflow.yaml", follow=flag, delete=flag, return_idx=return_idx
         )
     elif method == "demo":
         BaseApp._make_and_submit_demo_workflow(
-            app, "workflow.yaml", follow=follow, return_idx=return_idx
+            app, "workflow.yaml", follow=flag, delete=flag, return_idx=return_idx
         )
     else:
-        BaseApp._submit_workflow(app, "workflow", follow=follow, return_idx=return_idx)
-    assert workflow.submit.call_args.kwargs["follow"] == follow
+        BaseApp._submit_workflow(
+            app, "workflow", follow=flag, delete=flag, return_idx=return_idx
+        )
+    assert workflow.submit.call_args.kwargs["follow"] == flag
+    assert workflow.submit.call_args.kwargs["delete"] == flag

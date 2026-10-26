@@ -75,6 +75,23 @@
   program or scheduler flushes it to disk, so buffered programs may need their own
   unbuffered-output options. Following does not change buffering or jobscript files.
 
+  Delete the workflow after completion
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  Add ``--delete`` when submitting to permanently delete the workflow directory once
+  execution has finished, for example when only the job output or side effects are
+  needed:
+
+  .. code-block:: console
+
+      {{ app_package_name }} go WORKFLOW_FILE --delete
+      {{ app_package_name }} go WORKFLOW_FILE --follow --delete
+
+  ``--delete`` implies ``--wait``, and works with any scheduler. The workflow is
+  deleted without confirmation, whether or not execution succeeded, so any outputs
+  stored in the workflow (including jobscript standard output and error files) are
+  lost. If waiting is interrupted with Ctrl+C, the workflow is not deleted.
+
   Check the status of a workflow
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -192,6 +192,17 @@ follow_option = click.option(
     default=False,
 )
 #: Standard option
+delete_option = click.option(
+    "--delete",
+    help=(
+        "Permanently delete the workflow, without confirmation, once execution has "
+        "finished, regardless of success. Implies --wait. The workflow is not deleted "
+        "if waiting is interrupted with Ctrl+C."
+    ),
+    is_flag=True,
+    default=False,
+)
+#: Standard option
 add_to_known_opt = click.option(
     "--add-to-known/--no-add-to-known",
     default=True,
@@ -513,6 +524,7 @@ _add_doc_from_help(
     js_parallelism_option,
     wait_option,
     follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
     tasks_opt,
