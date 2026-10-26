@@ -48,13 +48,14 @@ def test_script_direct_in_direct_out(tmp_path: Path, combine_scripts: bool):
 @pytest.mark.integration
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize("combine_scripts", [False, True])
+@pytest.mark.parametrize("multiplicity", [1, 2])
 def test_script_output_multiplicity(
-    tmp_path: Path, store: str, combine_scripts: bool
+    tmp_path: Path, store: str, combine_scripts: bool, multiplicity: int
 ) -> None:
     producer = hf.TaskSchema(
         objective="produce_members",
-        inputs=[hf.SchemaInput("p2")],
-        outputs=[hf.SchemaOutput("p1", multiplicity=2)],
+        inputs=[hf.SchemaInput("p2"), hf.SchemaInput("p3")],
+        outputs=[hf.SchemaOutput("p1", multiplicity="<<input:p3>>")],
         actions=[
             hf.Action(
                 script="<<script:main_script_test_output_multiplicity.py>>",
@@ -81,7 +82,11 @@ def test_script_output_multiplicity(
     )
     wk = hf.Workflow.from_template_data(
         tasks=[
-            hf.Task(producer, sequences=[hf.ValueSequence("inputs.p2", [10, 20])]),
+            hf.Task(
+                producer,
+                inputs={"p3": multiplicity},
+                sequences=[hf.ValueSequence("inputs.p2", [10, 20])],
+            ),
             hf.Task(consumer),
         ],
         template_name="script_output_multiplicity",
@@ -90,30 +95,28 @@ def test_script_output_multiplicity(
         resources={"any": {"combine_scripts": combine_scripts}},
     )
     assert wk.tasks[0].num_elements == 2
-    assert wk.tasks[1].num_elements == 4
+    assert wk.tasks[1].num_elements == 2 * multiplicity
     for idx, element in enumerate(wk.tasks[1].elements):
-        producer_run = wk.tasks[0].elements[idx // 2].latest_iteration.action_runs[0]
+        producer_run = (
+            wk.tasks[0].elements[idx // multiplicity].latest_iteration.action_runs[0]
+        )
         assert element.get_EAR_dependencies() == {producer_run.id_}
 
     wk.submit(wait=True, add_to_known=False, status=False)
 
     for workflow in (wk, hf.Workflow(wk.path)):
-        assert workflow.tasks[0].template.all_schema_outputs[0].multiplicity == 2
+        assert (
+            workflow.tasks[0].template.all_schema_outputs[0].multiplicity
+            == "<<input:p3>>"
+        )
         assert [el.get("outputs.p1") for el in workflow.tasks[0].elements] == [
-            [10, 11],
-            [20, 21],
+            [base + idx for idx in range(multiplicity)] for base in (10, 20)
         ]
         assert [el.get("inputs.p1") for el in workflow.tasks[1].elements] == [
-            10,
-            11,
-            20,
-            21,
+            base + idx for base in (10, 20) for idx in range(multiplicity)
         ]
         assert [el.get("outputs.p2") for el in workflow.tasks[1].elements] == [
-            110,
-            111,
-            120,
-            121,
+            base + idx + 100 for base in (10, 20) for idx in range(multiplicity)
         ]
 
 

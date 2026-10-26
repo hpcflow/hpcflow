@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-@pytest.mark.parametrize("multiplicity", [1, 3])
+@pytest.mark.parametrize("multiplicity", [None, 1, 3])
 @pytest.mark.parametrize(
     "mode",
     [
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_output_member_input_sources(
-    tmp_path: Path, store: str, multiplicity: int, mode: str
+    tmp_path: Path, store: str, multiplicity: int | None, mode: str
 ) -> None:
     output = hf.SchemaOutput("p2", multiplicity=multiplicity)
     upstream = hf.TaskSchema(
@@ -122,11 +122,16 @@ def test_output_member_input_sources(
             [hf.Loop(tasks=[0, 1], num_iterations=2)] if mode == "looped_grouped" else []
         ),
     )
+    outputs = [[10, 11, 12], [20, 21, 22]]
+    if multiplicity is not None:
+        outputs = [value[:multiplicity] for value in outputs]
     expected: list[Any] = (
-        [10, 11, 12, 20, 21, 22] if multiplicity == 3 else [[10, 11, 12], [20, 21, 22]]
+        [member for value in outputs for member in value]
+        if multiplicity is not None
+        else outputs
     )
     if "filtered" in mode:
-        expected = expected[multiplicity:]
+        expected = expected[multiplicity or 1 :]
     if "grouped" in mode:
         expected = [expected]
     if mode == "nested":
@@ -140,7 +145,7 @@ def test_output_member_input_sources(
             assert isinstance(idx, int)
             assert not wk.is_parameter_set(idx)
     wk.add_submission()
-    for element, value in zip(wk.tasks[0].elements, ([10, 11, 12], [20, 21, 22])):
+    for element, value in zip(wk.tasks[0].elements, outputs):
         output_id = element.get_data_idx()["outputs.p2"]
         wk.set_parameter_value(output_id, value, commit=True)
 
@@ -163,53 +168,61 @@ def test_output_member_input_sources(
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-@pytest.mark.parametrize("value", [42, [1], [1, 2, 3], [7, 9]])
+@pytest.mark.parametrize("multiplicity", [None, 1, 2])
+@pytest.mark.parametrize("value", [7, [], [7], [7, 9], [1, 2, 3], [[7, 9]]])
 def test_output_multiplicity_from_yaml(
-    tmp_path: Path, store: str, value: int | list[int]
+    tmp_path: Path,
+    store: str,
+    multiplicity: int | None,
+    value: int | list[int] | list[list[int]],
 ) -> None:
     wk = hf.Workflow.from_YAML_string(
         YAML_str=dedent("""
             name: output_members_yaml
             template_components:
               task_schemas:
-                - objective: producer
+                - objective: output_multiplicity_yaml_producer_MULTIPLICITY
                   outputs:
                     - parameter: p2
-                      multiplicity: 2
+                      multiplicity: MULTIPLICITY
                   actions:
                     - commands:
                         - command: echo members
                           stdout: <<parameter:p2>>
-                - objective: consumer
+                - objective: output_multiplicity_yaml_consumer
                   inputs:
                     - parameter: p2
                   actions:
                     - commands:
                         - command: echo <<parameter:p2>>
             tasks:
-              - schema: producer
-              - schema: consumer
-            """),
+              - schema: output_multiplicity_yaml_producer_MULTIPLICITY
+              - schema: output_multiplicity_yaml_consumer
+            """).replace(
+            "MULTIPLICITY", "null" if multiplicity is None else str(multiplicity)
+        ),
         path=tmp_path,
         store=store,
     )
-    assert wk.tasks[1].num_elements == 2
+    assert wk.tasks[1].num_elements == (multiplicity or 1)
     wk.add_submission()
     output_id = wk.tasks[0].elements[0].get_data_idx()["outputs.p2"]
     wk.set_parameter_value(output_id, value, commit=True)
-    if value != [7, 9]:
-        with pytest.raises(ValueError, match="must contain 2 members"):
+    if multiplicity is not None and (
+        not isinstance(value, list) or len(value) != multiplicity
+    ):
+        with pytest.raises(ValueError, match=f"must contain {multiplicity} members"):
             _ = wk.tasks[1].elements[0].get("inputs.p2")
     else:
-        assert [el.get("inputs.p2") for el in hf.Workflow(wk.path).tasks[1].elements] == [
-            7,
-            9,
-        ]
+        assert [el.get("inputs.p2") for el in hf.Workflow(wk.path).tasks[1].elements] == (
+            [value] if multiplicity is None else value
+        )
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("counts", [[None], [1], [1, 3], [None, 1, 3]])
 def test_output_multiplicity_from_schema_input_in_yaml(
-    tmp_path: Path, store: str
+    tmp_path: Path, store: str, counts: list[int | None]
 ) -> None:
     YAML_str = dedent("""
     name: output_members_input_yaml
@@ -235,39 +248,45 @@ def test_output_multiplicity_from_schema_input_in_yaml(
       - schema: dynamic_output_multiplicity_producer
         sequences:
           - path: inputs.p1
-            values: [1, 3]
+            values: COUNTS
       - schema: dynamic_output_multiplicity_consumer
-    """)
+    """).replace(
+        "COUNTS", "[" + ", ".join("null" if n is None else str(n) for n in counts) + "]"
+    )
     wk = hf.Workflow.from_YAML_string(
         YAML_str=YAML_str,
         path=tmp_path,
         store=store,
     )
-    assert wk.tasks[1].num_elements == 4
+    assert wk.tasks[1].num_elements == sum(count or 1 for count in counts)
 
     wk.add_submission()
-    for element, output in zip(wk.tasks[0].elements, ([10, 11], [20, 21, 22])):
+    outputs = [
+        [10 * (idx + 1) + member for member in range(count or 2)]
+        for idx, count in enumerate(counts)
+    ]
+    for element, output in zip(wk.tasks[0].elements, outputs):
         output_id = element.get_data_idx()["outputs.p2"]
         wk.set_parameter_value(output_id, output, commit=True)
 
     restored = hf.Workflow(wk.path)
     assert [element.get("inputs.p2") for element in restored.tasks[1].elements] == [
-        [10, 11],
-        20,
-        21,
-        22,
+        member
+        for count, output in zip(counts, outputs)
+        for member in ([output] if count is None else output)
     ]
 
 
 @pytest.mark.parametrize("legacy_array", [False, True])
 @pytest.mark.parametrize("as_tuple", [False, True])
+@pytest.mark.parametrize("multiplicity", [1, 2])
 def test_output_member_array_values(
-    tmp_path: Path, legacy_array: bool, as_tuple: bool
+    tmp_path: Path, legacy_array: bool, as_tuple: bool, multiplicity: int
 ) -> None:
     producer, consumer = make_schemas(
         ({}, ("p2",), "producer"), ({"p2": None}, (), "consumer")
     )
-    producer.outputs[0].multiplicity = 2
+    producer.outputs[0].multiplicity = multiplicity
     wk = hf.Workflow.from_template_data(
         template_name="output_array_members",
         tasks=[
@@ -282,11 +301,12 @@ def test_output_member_array_values(
     )
     wk.add_submission()
     output_id = wk.tasks[0].elements[0].get_data_idx()["outputs.p2"]
-    array = np.array([[10, 11, 12], [20, 21, 22]])
+    array = np.array([[10, 11, 12], [20, 21, 22]])[:multiplicity]
     wk.set_parameter_value(
         output_id, tuple(array.tolist()) if as_tuple else array, commit=True
     )
     restored = hf.Workflow(wk.path)
+    assert restored.tasks[1].num_elements == multiplicity
     for idx, element in enumerate(restored.tasks[1].elements):
         np.testing.assert_array_equal(element.get("inputs.p2"), array[idx])
 
