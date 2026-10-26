@@ -1,4 +1,17 @@
 
+<a name="v0.4.0a1"></a>
+## [v0.4.0a1](https://github.com/hpcflow/hpcflow/compare/v0.4.0a0...v0.4.0a1) - 2026.10.26
+
+### ✨ Features
+
+* allow input-driven schema output multiplicity
+* resolve schema output multiplicity as persistent member sources
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a0"></a>
 ## [v0.4.0a0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0a0) - 2026.10.22
 
