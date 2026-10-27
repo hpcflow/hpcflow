@@ -1,4 +1,20 @@
 
+<a name="v0.4.0a3"></a>
+## [v0.4.0a3](https://github.com/hpcflow/hpcflow/compare/v0.4.0a2...v0.4.0a3) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* distinguish whole outputs from singleton output members
+* un-modify changelog
+* un-modify changelog
+* un-modify changelog
+* preserve independent tasks when merging jobscripts
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a2"></a>
 ## [v0.4.0a2](https://github.com/hpcflow/hpcflow/compare/v0.4.0a1...v0.4.0a2) - 2026.10.26
 
