@@ -768,7 +768,10 @@ class WorkflowLoop(AppAware):
                                 # keep locally defined inputs from original element
                                 inp_dat_idx = zi_data_idx[inp_key]
 
-                            elif orig_inp_src.source_type is InputSourceType.DEFAULT:
+                            elif orig_inp_src.source_type in (
+                                InputSourceType.DEFAULT,
+                                InputSourceType.WORKFLOW,
+                            ):
                                 # keep default value from original element
                                 try:
                                     inp_dat_idx = zi_data_idx[inp_key]

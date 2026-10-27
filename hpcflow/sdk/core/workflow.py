@@ -10,6 +10,7 @@ from contextlib import contextmanager, nullcontext
 import copy
 from dataclasses import dataclass, field, fields, replace
 from io import BytesIO
+import json
 
 from datetime import datetime, timezone
 from functools import wraps
@@ -62,6 +63,7 @@ from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
 from hpcflow.sdk.core.task_schema import split_save_files_policy
+from hpcflow.sdk.core.template_expressions import resolve_workflow_input_references
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
@@ -100,10 +102,12 @@ from hpcflow.sdk.core.utils import (
     normalise_timestamp,
     parse_timestamp,
     get_in_container,
+    get_duplicate_items,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
     InvalidInputSourceTaskReference,
+    TaskTemplateMultipleInputValues,
     LoopAlreadyExistsError,
     OutputFileParserNoOutputError,
     RunNotAbortableError,
@@ -127,7 +131,7 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
-    from .parameters import InputSource, ResourceSpec
+    from .parameters import InputSource, InputValue, ResourceSpec
     from .task import Task, WorkflowTask, InputStatus, TaskCondition
     from .imports import Import
     from .types import (
@@ -229,11 +233,22 @@ class WorkflowTemplate(JSONLike):
         template-level resources are ignored.
     merge_envs:
         Whether to merge the environments into task resources.
+    inputs:
+        Shared input values available to tasks, supplied as a list of InputValue objects
+        or a parameter-to-value mapping. Local and upstream task sources take precedence.
     """
 
     _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
+        ChildObjectSpec(
+            name="inputs",
+            class_name="InputValue",
+            is_multiple=True,
+            dict_key_attr="parameter",
+            dict_val_attr="value",
+            parent_ref="_workflow_template",
+        ),
         ChildObjectSpec(
             name="imports",
             class_name="Import",
@@ -287,8 +302,23 @@ class WorkflowTemplate(JSONLike):
     merge_resources: bool = True
     #: Whether to merge the environments into task resources.
     merge_envs: bool = True
+    #: Shared inputs used when no local or upstream task source is available.
+    inputs: list[InputValue] | dict[str, Any] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        #: String variables passed on creation (including defaults used); not persisted
+        #: in the template itself, but recorded in the workflow creation info.
+        self._creation_variables: dict[str, Any] = {}
+        #: Results of `<<calc(...)>>` expressions, keyed by expression.
+        self._creation_calculations: dict[str, Any] = {}
+
+        self.inputs = self._app.InputValue.normalise(self.inputs)
+        if duplicates := get_duplicate_items(
+            [inp.normalised_inputs_path for inp in self.inputs]
+        ):
+            raise TaskTemplateMultipleInputValues(
+                f"Workflow inputs have multiple value definitions: {duplicates!r}."
+            )
 
         # TODO: in what scenario is the reindex required? are loops initialised?
 
@@ -360,6 +390,16 @@ class WorkflowTemplate(JSONLike):
         )
         resources.merge_other(res_defaults)
         return resources
+
+    def _postprocess_to_dict(self, dct: dict[str, Any]) -> dict[str, Any]:
+        dct.pop("_creation_variables", None)
+        dct.pop("_creation_calculations", None)
+        return dct
+
+    @property
+    def _inputs(self) -> dict[str, InputValue]:
+        assert isinstance(self.inputs, list)
+        return {inp.normalised_inputs_path: inp for inp in self.inputs}
 
     @property
     def _resources(self) -> ResourceList:
@@ -455,6 +495,8 @@ class WorkflowTemplate(JSONLike):
         updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
+        used_variables: dict[str, str] | None = None,
     ) -> WorkflowTemplate:
         """
         Generate a new workflow template from template data that has typically been
@@ -473,6 +515,12 @@ class WorkflowTemplate(JSONLike):
             merged into `updates`.
         config
             Any updates to template-level config items. This is merged into `updates`.
+        variables
+            The string variables passed on creation, which are recorded in the creation
+            information of any workflow generated from this template.
+        used_variables
+            Values substituted for string variables (including defaults used), which are
+            also recorded.
 
         """
         updates = updates or {}
@@ -487,6 +535,11 @@ class WorkflowTemplate(JSONLike):
                 f"Updating workflow template data: {upd_path!r} to {upd_val!r}."
             )
             set_in_container(data, upd_path, upd_val, cast_indices=True, ensure_path=True)
+
+        calculations: dict[str, Any] = {}
+        data = resolve_workflow_input_references(
+            data, input_value_cls=cls._app.InputValue, calculations=calculations
+        )
 
         def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
             """
@@ -697,6 +750,8 @@ class WorkflowTemplate(JSONLike):
         #     if isinstance(task.schema, cls._app.MetaTaskSchema):
         #         print(f"{task=!r}")
         #         wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
+        wkt._creation_variables = {**(variables or {}), **(used_variables or {})}
+        wkt._creation_calculations = calculations
         return wkt
 
     @classmethod
@@ -730,15 +785,19 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
             read_YAML_str(
                 string,
                 variables=variables,
                 source="(from the inline workflow template definition)",
+                used_variables=used_variables,
             ),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -789,10 +848,18 @@ class WorkflowTemplate(JSONLike):
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
-        data = read_YAML_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_YAML_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
-        return cls._from_data(data, updates=updates, resources=resources, config=config)
+        return cls._from_data(
+            data,
+            updates=updates,
+            resources=resources,
+            config=config,
+            variables=variables,
+            used_variables=used_variables,
+        )
 
     @classmethod
     @TimeIt.decorator
@@ -825,11 +892,14 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
-            read_JSON_string(string, variables=variables),
+            read_JSON_string(string, variables=variables, used_variables=used_variables),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -864,7 +934,8 @@ class WorkflowTemplate(JSONLike):
             Any updates to template-level config items. This is merged into `updates`.
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
-        data = read_JSON_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_JSON_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
         return cls._from_data(
@@ -872,6 +943,8 @@ class WorkflowTemplate(JSONLike):
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -1842,6 +1915,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
+        inputs: list[InputValue] | dict[str, Any] | None = None,
     ) -> Workflow:
         """Generate from the data associated with a WorkflowTemplate object.
 
@@ -1856,6 +1930,8 @@ class Workflow(AppAware):
             List of Task objects to add to the new workflow.
         loops:
             List of Loop objects to add to the new workflow.
+        inputs:
+            Shared workflow-template input values. Task sources take precedence.
         resources:
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
@@ -1905,6 +1981,7 @@ class Workflow(AppAware):
             resources=resources,
             environments=environments,
             config=config or {},
+            inputs=inputs or [],
         )
         return cls.from_template(
             template,
@@ -2103,6 +2180,9 @@ class Workflow(AppAware):
                 "user_name": info.get("user_name"),
                 "user_orcid": info.get("user_orcid"),
                 "user_affiliations": info.get("user_affiliations"),
+                "variables": info.get("variables", {}),
+                "calculations": info.get("calculations", {}),
+                "command_line": info.get("command_line"),
             }
         return self._creation_info
 
@@ -2731,7 +2811,14 @@ class Workflow(AppAware):
         for res_i_copy in template._get_resources_copy():
             res_i_copy.make_persistent(grabber, param_src)
 
-        template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
+        inputs_copy = copy.deepcopy(list(template._inputs.values()))
+        for inp in inputs_copy:
+            inp.make_persistent(grabber, {"type": "workflow_input"})
+        template_data = {
+            k: v for k, v in template.to_dict().items() if k not in {"tasks", "loops"}
+        }
+        template_data["inputs"] = inputs_copy
+        template_js_, template_sh = template.to_json_like(dct=template_data)
         template_js: TemplateMeta = {
             **cast("TemplateMeta", template_js_),  # Trust me, bro!
             "tasks": [],
@@ -2755,6 +2842,13 @@ class Workflow(AppAware):
                 "user_name": cls._app.config.user_name,
                 "user_orcid": cls._app.config.user_orcid,
                 "user_affiliations": cls._app.config.user_affiliations,
+                "variables": json.loads(
+                    json.dumps(template._creation_variables, default=str)
+                ),
+                "calculations": json.loads(
+                    json.dumps(template._creation_calculations, default=str)
+                ),
+                "command_line": cls._app.run_time_info.command_line,
             },
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
