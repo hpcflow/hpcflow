@@ -1967,7 +1967,8 @@ class WorkflowTask(AppAware):
         parameter's first source action from
         :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
         are sorted lexicographically by element index, iteration index, action index,
-        then run index. With ``sort=False``, order follows
+        then run index and member index. Member outputs retain their original
+        indices in ``ArrayOutput.member_idx``. With ``sort=False``, order follows
         :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
         workflow reader; missing saved data therefore raises rather than being skipped.
 

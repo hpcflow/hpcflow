@@ -248,6 +248,28 @@ determine multiplicity.
 For a positive resolved multiplicity, the producer must write a sequence of that
 length, including a singleton sequence when the input is ``1``.
 
+With the Zarr store, array sub-parameters of output members share a compressed
+NPZ archive per logical sub-parameter and run-file shard. For example, arrays at
+``load_case.0.steps.0.stress`` and ``load_case.1.steps.0.stress`` are stored under
+``load_case.steps.0.stress``; the outer member index is recorded as ``member_idx``
+metadata rather than as a directory name. Writes are batched across members.
+This also applies to an explicit multiplicity of ``1``.
+
+Members may have different numbers of steps: ``load_case.steps.1.stress`` contains
+only the members that have a second step. Their original member indices are
+retained, not renumbered. Array sizes may vary within a sub-parameter; the archive
+pads to the largest shape and records each original shape, which is restored on
+reading. Arrays sharing a sub-parameter must have the same dimensionality and
+compatible dtypes. Mask data is stored in a corresponding ``.__mask__`` archive.
+
+``Workflow.get_array_output`` and ``WorkflowTask.get_array_output`` expose
+``member_idx`` alongside the producing run metadata. A scalar run ID returns all
+its saved members, stacked when shapes match or as a list when shapes vary.
+Ordinary non-member outputs retain their existing scalar-run behavior and have
+``member_idx=None``. In an archive shared by member and whole-value outputs,
+``member_idx=-1`` identifies a whole-value entry. Sorting, export, consolidation,
+and zipped-workflow reads preserve member metadata and ordering.
+
 Show information about a task schema
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
