@@ -1,4 +1,17 @@
 
+<a name="v0.4.0a5"></a>
+## [v0.4.0a5](https://github.com/hpcflow/hpcflow/compare/v0.4.0a4...v0.4.0a5) - 2026.10.27
+
+### ✨ Features
+
+* build-time workflow input references, calculations and creation info
+* add workflow-template level inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a4"></a>
 ## [v0.4.0a4](https://github.com/hpcflow/hpcflow/compare/v0.4.0a3...v0.4.0a4) - 2026.10.27
 
