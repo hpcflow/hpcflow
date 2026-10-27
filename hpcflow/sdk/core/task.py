@@ -2098,7 +2098,7 @@ class WorkflowTask(AppAware):
     ) -> None | Sequence[int | list[int]]:
         """Build source parameter IDs, expanding each output into its members.
 
-        Multiplicity greater than one creates deferred references to the whole
+        Any positive multiplicity creates deferred references to the whole
         output. Grouping collects those member references in source-element order.
         """
         src_task = inp_src.get_task(self.workflow)
@@ -2121,7 +2121,7 @@ class WorkflowTask(AppAware):
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
 
-        multiplicities = [1] * len(grp_idx)
+        multiplicities: list[int | None] = [None] * len(grp_idx)
         if task_source_type == TaskSourceType.OUTPUT:
             schema_output = next(
                 output
@@ -2140,31 +2140,27 @@ class WorkflowTask(AppAware):
                     )
                     for src_iter in src_elem_iters
                 ]
-        member_indices: list[list[int | list[int]]]
-        if any(multiplicity > 1 for multiplicity in multiplicities):
-            member_indices = []
-            for dat_idx, multiplicity in zip(grp_idx, multiplicities, strict=True):
-                if dat_idx == -1:
-                    member_indices.append([-1] * multiplicity)
-                    continue
-                if multiplicity == 1:
-                    member_indices.append([dat_idx])
-                    continue
-                member_indices.append(
-                    [
-                        self.workflow._add_unset_parameter_data(
-                            {
-                                "type": "output_member",
-                                "parameter_ID": cast("int", dat_idx),
-                                "member_idx": member_idx,
-                                "multiplicity": multiplicity,
-                            }
-                        )
-                        for member_idx in range(multiplicity)
-                    ]
-                )
-        else:
-            member_indices = [[dat_idx] for dat_idx in grp_idx]
+        member_indices: list[list[int | list[int]]] = []
+        for dat_idx, multiplicity in zip(grp_idx, multiplicities, strict=True):
+            if multiplicity is None:
+                member_indices.append([dat_idx])
+                continue
+            if dat_idx == -1:
+                member_indices.append([-1] * multiplicity)
+                continue
+            member_indices.append(
+                [
+                    self.workflow._add_unset_parameter_data(
+                        {
+                            "type": "output_member",
+                            "parameter_ID": cast("int", dat_idx),
+                            "member_idx": member_idx,
+                            "multiplicity": multiplicity,
+                        }
+                    )
+                    for member_idx in range(multiplicity)
+                ]
+            )
 
         if not inp_group_name:
             return [idx for members in member_indices for idx in members]

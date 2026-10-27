@@ -687,10 +687,10 @@ class SchemaOutput(SchemaParameter):
         Positive integer number of sourceable members supplied by each producing
         element, or an input reference such as ``"<<input:p1>>"``. An input
         reference is resolved for each producing element when workflow elements are
-        built, and must identify a set scalar positive integer input. For values
-        greater than one, each output value must be a list, tuple, or NumPy array of
+        built, and must identify an input set to None or a scalar positive integer. For every
+        positive multiplicity, each output value must be a list, tuple, or NumPy array of
         exactly this length; the length is checked when a downstream member is read.
-        The default, one, supplies the whole output value unchanged, even if that
+        The default, None, supplies the whole output value unchanged, even if that
         value is a sequence.
     """
 
@@ -698,14 +698,14 @@ class SchemaOutput(SchemaParameter):
     parameter: Parameter
     #: How this output propagates.
     propagation_mode: ParameterPropagationMode
-    #: Number of sourceable output members per element.
-    multiplicity: int | str = 1
+    #: Number of sourceable output members per element, or None for the whole output.
+    multiplicity: int | str | None = None
 
     def __init__(
         self,
         parameter: Parameter | str,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
-        multiplicity: int | str = 1,
+        multiplicity: int | str | None = None,
     ):
         if isinstance(multiplicity, str):
             prefix, suffix = "<<input:", ">>"
@@ -715,15 +715,17 @@ class SchemaOutput(SchemaParameter):
                 or not multiplicity[len(prefix) : -len(suffix)]
             ):
                 raise TypeError(
-                    "SchemaOutput multiplicity must be a positive integer or an "
+                    "SchemaOutput multiplicity must be None, a positive integer, or an "
                     "input reference such as '<<input:p1>>'."
                 )
-        elif isinstance(multiplicity, bool) or not isinstance(multiplicity, int):
+        elif multiplicity is not None and (
+            isinstance(multiplicity, bool) or not isinstance(multiplicity, int)
+        ):
             raise TypeError(
-                "SchemaOutput multiplicity must be a positive integer or an input "
+                "SchemaOutput multiplicity must be None, a positive integer, or an input "
                 "reference such as '<<input:p1>>'."
             )
-        elif multiplicity < 1:
+        elif multiplicity is not None and multiplicity < 1:
             raise ValueError("SchemaOutput multiplicity must be a positive integer.")
         self.multiplicity = multiplicity
         if isinstance(parameter, str):
@@ -751,23 +753,27 @@ class SchemaOutput(SchemaParameter):
             return None
         return self.multiplicity[len("<<input:") : -len(">>")]
 
-    def resolve_multiplicity(self, input_value: object = None) -> int:
+    def resolve_multiplicity(self, input_value: object = NullDefault.NULL) -> int | None:
         """Resolve and validate this output's fixed or input-driven member count."""
+        if self.multiplicity is None:
+            return None
         if isinstance(self.multiplicity, int) and not isinstance(self.multiplicity, bool):
             return self.multiplicity
 
         input_name = self.multiplicity_input
         if input_name is None:
             raise AssertionError("Invalid SchemaOutput multiplicity reference.")
-        if input_value is None:
+        if input_value is NullDefault.NULL:
             raise ValueError(
-                f"SchemaOutput multiplicity input {input_name!r} must be set to a "
-                "positive integer when workflow elements are built."
+                f"SchemaOutput multiplicity input {input_name!r} must be set to None "
+                "or a positive integer when workflow elements are built."
             )
+        if input_value is None:
+            return None
         if isinstance(input_value, bool) or not isinstance(input_value, int):
             raise TypeError(
-                f"SchemaOutput multiplicity input {input_name!r} must be a "
-                "positive integer."
+                f"SchemaOutput multiplicity input {input_name!r} must be None "
+                "or a positive integer."
             )
         if input_value < 1:
             raise ValueError(
@@ -781,7 +787,7 @@ class SchemaOutput(SchemaParameter):
             f"{self.__class__.__name__}("
             f"parameter={self.parameter.__class__.__name__}({self.parameter.typ!r}), "
             f"propagation_mode={self.propagation_mode.name!r}"
-            f"{f', multiplicity={self.multiplicity!r}' if self.multiplicity != 1 else ''}"
+            f"{f', multiplicity={self.multiplicity!r}' if self.multiplicity is not None else ''}"
             f")"
         )
 

@@ -50,29 +50,41 @@ def test_task_schema_equality() -> None:
     assert t1a == t1b
 
 
-@pytest.mark.parametrize("multiplicity", [1, 3])
-def test_schema_output_multiplicity_round_trip(multiplicity: int) -> None:
+@pytest.mark.parametrize("multiplicity", [None, 1, 3, "<<input:p2>>"])
+def test_schema_output_multiplicity_round_trip(multiplicity: int | str | None) -> None:
     output = hf.SchemaOutput("p1", hf.ParameterPropagationMode.EXPLICIT, multiplicity)
     assert output.multiplicity == multiplicity
     assert output.propagation_mode is hf.ParameterPropagationMode.EXPLICIT
     schema = hf.TaskSchema(
         "t1",
+        inputs=[hf.SchemaInput("p2")],
         outputs=[output],
-        actions=[hf.Action(commands=[hf.Command("echo 1", stdout="<<parameter:p1>>")])],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo <<parameter:p2>>", stdout="<<parameter:p1>>")]
+            )
+        ],
     )
     data, shared = schema.to_json_like()
     assert isinstance(data, dict)
     assert shared is not None
-    output.parameter._hash_value = next(iter(shared["parameters"]))
-    parameters: ObjectList[JSONable] = ObjectList([output.parameter])
+    output.parameter._set_hash()
+    schema.inputs[0].parameter._set_hash()
+    parameters: ObjectList[JSONable] = ObjectList(
+        [output.parameter, schema.inputs[0].parameter]
+    )
     restored = hf.TaskSchema.from_json_like(data, shared_data={"parameters": parameters})
     assert restored is not None
     assert restored.outputs[0].multiplicity == multiplicity
     assert restored == schema
     assert copy.deepcopy(output).multiplicity == multiplicity
-    if multiplicity != 1:
-        assert f"multiplicity={multiplicity}" in repr(output)
+    if multiplicity is not None:
+        assert f"multiplicity={multiplicity!r}" in repr(output)
         assert output != hf.SchemaOutput("p1", hf.ParameterPropagationMode.EXPLICIT)
+    else:
+        assert "multiplicity=" not in repr(output)
+    if not isinstance(multiplicity, str):
+        assert output.resolve_multiplicity() == multiplicity
 
 
 def test_schema_output_legacy_multiplicity() -> None:
@@ -82,11 +94,12 @@ def test_schema_output_legacy_multiplicity() -> None:
         shared_data={"parameters": parameters},
     )
     assert output is not None
-    assert output.multiplicity == 1
-    assert output == hf.SchemaOutput("p1", multiplicity=1)
+    assert output.multiplicity is None
+    assert output == hf.SchemaOutput("p1", multiplicity=None)
+    assert output != hf.SchemaOutput("p1", multiplicity=1)
 
 
-@pytest.mark.parametrize("multiplicity", [True, False, 1.0, "2", None, [], {}])
+@pytest.mark.parametrize("multiplicity", [True, False, 1.0, "2", [], {}])
 def test_schema_output_invalid_multiplicity_type(multiplicity: object) -> None:
     with pytest.raises(TypeError, match="multiplicity.*positive integer"):
         hf.SchemaOutput("p1", multiplicity=cast("int", multiplicity))
@@ -112,7 +125,7 @@ def test_schema_output_multiplicity_reference_requires_schema_input() -> None:
 
 @pytest.mark.parametrize(
     ("value", "error"),
-    [(None, ValueError), (True, TypeError), (1.5, TypeError), (0, ValueError)],
+    [(True, TypeError), (1.5, TypeError), (0, ValueError)],
 )
 def test_schema_output_resolves_and_validates_dynamic_multiplicity(
     value: object, error: type[Exception]
@@ -121,6 +134,11 @@ def test_schema_output_resolves_and_validates_dynamic_multiplicity(
     with pytest.raises(error, match="multiplicity input 'p1'"):
         output.resolve_multiplicity(value)
 
+    with pytest.raises(ValueError, match="must be set"):
+        output.resolve_multiplicity()
+
+    assert output.resolve_multiplicity(None) is None
+    assert output.resolve_multiplicity(1) == 1
     assert output.resolve_multiplicity(3) == 3
 
 

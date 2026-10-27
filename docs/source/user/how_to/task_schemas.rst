@@ -192,9 +192,11 @@ Additionally, an action may output a parameter that is *not* a task schema outpu
 Output multiplicity
 ~~~~~~~~~~~~~~~~~~~
 
-``SchemaOutput.multiplicity`` is a positive integer (default ``1``). It declares
-how many output members **each upstream element** supplies as possible input
-values to downstream tasks. For example:
+``SchemaOutput.multiplicity`` defaults to ``None``, which preserves the whole
+output value as one candidate input per upstream element, even when the value
+itself is a list. A positive integer instead declares how many output members
+**each upstream element** supplies as possible input values to downstream tasks.
+For example:
 
 .. code-block:: python
 
@@ -217,8 +219,11 @@ source selection, labels, grouping and nesting still apply; selecting one
 upstream element selects all its members, and grouping collects the selected
 members together.
 
-Omitting ``multiplicity`` or setting it to ``1`` preserves the whole output as
-one candidate per upstream element, even when the output itself is a list.
+Every positive multiplicity extracts members, including ``1``: an output
+``[value]`` supplies ``value`` to a downstream task, not the singleton list.
+To supply a list as a single member with ``multiplicity=1``, write a nested list
+such as ``[[10, 11, 12]]``. To propagate a list unchanged without member extraction,
+omit ``multiplicity`` or set it to ``None`` (``null`` in YAML).
 Zero, negative integers, booleans, and non-integer values are not supported.
 The declared length is checked when a downstream member is read.
 
@@ -227,16 +232,21 @@ each producing element:
 
 .. code-block:: yaml
 
-        inputs:
-            - parameter: member_count
-        outputs:
-            - parameter: p2
-                multiplicity: <<input:member_count>>
+    inputs:
+      - parameter: member_count
+    outputs:
+      - parameter: p2
+        multiplicity: <<input:member_count>>
 
-The referenced input must be set to a positive integer when workflow elements are
-built. This allows locally supplied values and sequences to determine different
-member counts for different elements. A value that will only become available after
-workflow execution cannot be used to determine multiplicity.
+The referenced input must be set to ``None`` (``null`` in YAML) or a positive integer
+when workflow elements are built. These values have the same meaning as a directly
+declared multiplicity: ``None`` preserves the whole output, and a positive integer
+extracts that many members. This allows locally supplied values and sequences to
+mix whole outputs and member counts for different elements. An unset input or a
+value that will only become available after workflow execution cannot be used to
+determine multiplicity.
+For a positive resolved multiplicity, the producer must write a sequence of that
+length, including a singleton sequence when the input is ``1``.
 
 Show information about a task schema
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
