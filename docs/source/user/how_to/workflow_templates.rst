@@ -42,6 +42,78 @@ Workflow templates how-tos
     ``InputSource.workflow()`` to explicitly select a shared input. Shared inputs
     remain available after reloading a workflow, including for tasks added later.
 
+    Referencing workflow inputs in template values
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    YAML and JSON templates can reference workflow-level inputs using
+    ``<<input:NAME>>``. References are resolved after template variables and
+    ``updates`` have been applied, but before tasks and their descriptors are
+    constructed. They always refer to workflow-level values, even if a task
+    overrides an input of the same name.
+
+    Use an explicit ``<<calc(EXPRESSION)>>`` marker for arithmetic:
+
+    .. code-block:: yaml
+
+        name: shared_calculations
+        inputs:
+          p1: 2
+          p2: 3
+          p3: "<<calc(<<input:p1>> * <<input:p2>>)>>"
+        tasks:
+          - schema: my_schema
+            inputs:
+              p4: "<<input:p3>>"
+            repeats:
+              number: "<<input:p3>>"
+              nesting_order: 2
+            resources:
+              any:
+                num_cores: "<<calc(<<input:p1>> + 1)>>"
+
+    A reference or calculation occupying an entire value preserves its type:
+    the example above supplies the integer ``6`` for both ``p4`` and the repeat
+    count. Lists, mappings, booleans and null values can also be referenced.
+    Within surrounding text, references and calculations are interpolated as
+    strings, for example ``"run_<<input:p1>>"`` becomes ``"run_2"``.
+    Bare arithmetic is not evaluated: ``"<<input:p1>> * <<input:p2>>"`` becomes
+    the string ``"2 * 3"``.
+
+    Calculations accept numeric literals, input references, parentheses,
+    unary ``+`` and ``-``, and the operators ``+``, ``-``, ``*``, ``/``, ``//``,
+    ``%`` and ``**``. Division with ``/`` produces a float; use ``//`` when a
+    descriptor requires an integer. Boolean and non-numeric operands are rejected.
+    Functions, attribute access and arbitrary Python code are not supported.
+    Expression size, integer size and exponent limits guard against excessive
+    calculations.
+
+    References also support labels and nested data paths, such as
+    ``<<input:p1[label].settings.count>>`` or ``<<input:p1.0>>`` for a list member.
+    Workflow inputs may reference other workflow inputs, including inputs declared
+    later. Input-value factories that run during template loading (for example
+    ``p1::from_linear_space``) can also supply references; their values are generated
+    once and reused by the workflow input and its references.
+    Missing inputs, cycles, invalid calculations and references to deferred
+    values produce errors when loading the template. Task inputs and outputs,
+    resource references, and deferred value-class methods cannot supply values for
+    this build-time substitution.
+
+    Plain ``<<input:NAME>>`` references in schema-output ``multiplicity`` retain
+    their existing meaning: they refer to each element's task input, including
+    any task-level override. An explicit ``<<calc(...)>>`` there instead evaluates
+    workflow-level inputs when loading the template.
+
+    Recording creation information
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    A workflow's creation information (``Workflow.creation_info``) also records
+    the string variables passed on creation (including any ``[default=...]`` values
+    used) under ``"variables"``, the result of each ``<<calc(...)>>`` expression
+    (keyed by expression text) under ``"calculations"``, and, if the workflow was
+    created via the CLI, the command line used under ``"command_line"`` (otherwise
+    ``None``). For workflows created before these were recorded, ``"variables"`` and
+    ``"calculations"`` are empty and ``"command_line"`` is ``None``.
+
     Loading workflow templates
     ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

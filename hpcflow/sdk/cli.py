@@ -7,6 +7,7 @@ import contextlib
 from datetime import datetime, timezone
 import json
 import os
+import sys
 import time
 import click
 from colorama import init as colorama_init
@@ -2095,6 +2096,19 @@ def make_cli(app: BaseApp):
             TimeIt.summarise_string()
 
     new_CLI.context_class = ErrorPropagatingClickContext
+
+    _click_main = new_CLI.main
+
+    def main_with_command_line(args=None, *main_args, **main_kwargs):
+        # record the command line so it can be saved in the creation info of workflows:
+        cli_args = sys.argv[1:] if args is None else args
+        app.run_time_info.cli_args = [str(i) for i in cli_args]
+        try:
+            return _click_main(args, *main_args, **main_kwargs)
+        finally:
+            app.run_time_info.cli_args = None
+
+    new_CLI.main = main_with_command_line  # type: ignore[method-assign]
 
     new_CLI.__doc__ = app.description
 
