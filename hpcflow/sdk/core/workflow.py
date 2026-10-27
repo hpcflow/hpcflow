@@ -1030,6 +1030,10 @@ class ArrayOutput:
     one entry. For multiple IDs, ``data`` is stacked when no shape metadata is
     present and all shapes match, otherwise it is a list. ``shape`` is omitted
     when none of the source archives has shape metadata.
+
+    Member outputs have one row per saved member, even for a scalar run ID.
+    ``member_idx`` contains the original outer member indices, or -1 for whole-value
+    entries in mixed archives. It is None for ordinary non-member archives.
     """
 
     name: str
@@ -1044,6 +1048,7 @@ class ArrayOutput:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
     @property
     def dtype(self) -> np.dtype:
@@ -1074,7 +1079,7 @@ class ArrayOutput:
 
 @dataclass(frozen=True)
 class _ArrayOutputArchive:
-    """Array data and per-run metadata loaded from an array-output NPZ archive."""
+    """Array data and per-run/member metadata loaded from an NPZ archive."""
 
     data: np.ndarray
     task_insert_ID: np.ndarray
@@ -1087,6 +1092,7 @@ class _ArrayOutputArchive:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
 
 def _resolve_array_output_dtype(
@@ -5602,12 +5608,17 @@ class Workflow(AppAware):
 
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
         """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
-        value = np.asarray(value)
-        if value.dtype.hasobject:
-            raise TypeError(
-                f"Array output {name!r} has object dtype, which cannot be "
-                "stored without pickle."
-            )
+        self._save_array_output_entries(EAR, name, [(None, np.asarray(value))])
+
+    def _save_array_output_entries(
+        self,
+        EAR: ElementActionRun,
+        name: str,
+        entries: Sequence[tuple[int | None, np.ndarray]],
+    ) -> None:
+        """Append a producing run's arrays in one write per logical sub-parameter."""
+        if not entries:
+            raise ValueError(f"No entries supplied for array output {name!r}.")
         if EAR.run_file_ID is None:
             raise ValueError(
                 f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
@@ -5627,69 +5638,57 @@ class Workflow(AppAware):
             "run_ID": EAR.id_,
         }
 
-        array_data = value[np.newaxis, ...]
-        shapes = np.asarray([value.shape], dtype=np.int32)
-        stored_metadata: dict[str, np.ndarray] = {
-            key: np.asarray([metadata_value], dtype=np.int32)
+        dtype = entries[0][1].dtype
+        ndim = entries[0][1].ndim
+        for _, value in entries:
+            if value.dtype.hasobject:
+                raise TypeError(
+                    f"Array output {name!r} has object dtype, which cannot be "
+                    "stored without pickle."
+                )
+            dtype = _resolve_array_output_dtype(
+                name, dtype, value.dtype, action="append to"
+            )
+            if value.ndim != ndim:
+                raise ValueError(
+                    f"Array output {name!r} has different dimensionality across members."
+                )
+        shapes = np.asarray([value.shape for _, value in entries], dtype=np.int32)
+        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+        data = np.zeros((len(entries), *max_shape), dtype=dtype)
+        for idx, (_, value) in enumerate(entries):
+            value_index: tuple[int | slice, ...] = (
+                idx,
+                *(slice(0, dim) for dim in value.shape),
+            )
+            data[value_index] = value
+        stored_metadata = {
+            key: np.full(len(entries), metadata_value, dtype=np.int64)
             for key, metadata_value in metadata_values.items()
         }
+        member_indices = (
+            np.asarray(
+                [idx if idx is not None else -1 for idx, _ in entries], dtype=np.int64
+            )
+            if any(idx is not None for idx, _ in entries)
+            else None
+        )
+        archive = _ArrayOutputArchive(
+            data=data,
+            shape=shapes if not np.all(shapes == shapes[0]) else None,
+            member_idx=member_indices,
+            **stored_metadata,
+        )
+        archives = [archive]
         if archive_path.exists():
-            archive = self._read_array_output_archive(archive_path)
-            previous_data = archive.data
-            # widen fixed-width strings (e.g. <U2 -> <U6); reject other mismatches:
-            stored_dtype = _resolve_array_output_dtype(
-                name, previous_data.dtype, value.dtype, action="append to"
+            previous = self._read_array_output_archive(archive_path)
+            _resolve_array_output_dtype(
+                name, previous.data.dtype, dtype, action="append to"
             )
-            if previous_data.ndim != value.ndim + 1:
-                raise ValueError(
-                    f"Array output {name!r} has {value.ndim} "
-                    f"dimensions, but existing values have "
-                    f"{previous_data.ndim - 1} dimensions."
-                )
-
-            if archive.shape is not None:
-                previous_shapes = archive.shape
-            else:
-                previous_shapes = np.broadcast_to(
-                    previous_data.shape[1:],
-                    (previous_data.shape[0], value.ndim),
-                ).copy()
-            shapes = np.concatenate((previous_shapes, shapes), axis=0)
-
-            max_shape = tuple(
-                max(previous_data.shape[axis + 1], value.shape[axis])
-                for axis in range(value.ndim)
-            )
-            expanded_data = np.zeros(
-                (previous_data.shape[0] + 1, *max_shape), dtype=stored_dtype
-            )
-            previous_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in previous_data.shape[1:]
-            )
-            previous_index: tuple[slice, ...] = (
-                slice(None, -1),
-                *previous_slices,
-            )
-            expanded_data[previous_index] = previous_data
-            value_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in value.shape
-            )
-            value_index: tuple[int | slice, ...] = (-1, *value_slices)
-            expanded_data[value_index] = value
-            array_data = expanded_data
-
-            for key in metadata_values:
-                stored_metadata[key] = np.append(
-                    getattr(archive, key),
-                    np.asarray([metadata_values[key]], dtype=np.int64),
-                )
-
-        archive_data = {"data": array_data, **stored_metadata}
-        if not np.all(shapes == shapes[0]):
-            archive_data["shape"] = shapes
-
+            archives.insert(0, previous)
+        archive_data = self._merge_array_output_archives(name, archives)
         buffer = BytesIO()
-        np.savez(buffer, **archive_data)
+        np.savez(buffer, allow_pickle=False, **archive_data)
         atomic_write(
             archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
         )
@@ -5702,11 +5701,15 @@ class Workflow(AppAware):
 
         Return an :class:`ArrayOutput` with data and all per-run metadata selected
         including repeated IDs. By default, sort lexicographically by task insert ID,
-        element index, iteration index, action index, then run index. Equal keys retain
-        their requested order. With ``sort=False``, preserve the requested order. Data,
+        element index, iteration index, action index, run index, then member index.
+        Equal keys retain their requested order. With ``sort=False``, preserve the
+        requested order. Data,
         metadata, and shapes are reordered together. For a scalar ID, ``data`` is that
-        run's array. For multiple IDs it is stacked when no shape metadata is present
-        and all shapes match, otherwise it is a list.
+        run's array for ordinary outputs. Member outputs retain their leading member
+        axis even for a scalar run ID, with original indices in ``member_idx``.
+        For multiple entries, data is stacked when no shape metadata is present
+        and all shapes match, otherwise it is a list. Sparse sub-parameters contain
+        only members that supplied that array.
 
         Archives are Zstandard-compressed NPZ files in 500-file shard directories,
         optionally merged into one ``consolidated.npz.zst`` per output by
@@ -5723,7 +5726,10 @@ class Workflow(AppAware):
             for archive_path in self._list_array_output_archive_paths(name):
                 archive = self._read_array_output_archive(archive_path)
                 loaded_archives[archive_path] = archive
-                run_files.extend((int(run_ID), archive_path) for run_ID in archive.run_ID)
+                run_files.extend(
+                    (int(run_ID), archive_path)
+                    for run_ID in dict.fromkeys(archive.run_ID)
+                )
         elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
@@ -5756,40 +5762,64 @@ class Workflow(AppAware):
         metadata: dict[str, list[np.ndarray]] = {
             field.name: []
             for field in fields(ArrayOutput)
-            if field.name not in {"name", "data", "shape"}
+            if field.name not in {"name", "data", "shape", "member_idx"}
         }
         output_shapes: list[tuple[int, ...]] = []
         has_shape_metadata = False
+        has_member_metadata = False
+        member_indices: list[int] = []
         for run_ID, archive_path in run_files:
             archive = self._load_array_output_archive(name, archive_path, loaded_archives)
             data, shapes = archive.data, archive.shape
             has_shape_metadata |= shapes is not None
+            has_member_metadata |= archive.member_idx is not None
             matching_indices = np.flatnonzero(archive.run_ID == run_ID)
-            if len(matching_indices) != 1:
+            if not len(matching_indices) or (
+                archive.member_idx is None and len(matching_indices) != 1
+            ):
                 raise ValueError(
                     f"Expected one entry for run ID {run_ID} in array-output archive "
                     f"for {name!r}, found {len(matching_indices)}."
                 )
 
-            archive_idx = int(matching_indices[0])
-            if shapes is None:
-                array_shape = data.shape[1:]
-            else:
-                array_shape = tuple(int(dim) for dim in shapes[archive_idx])
-            array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
-            output_arrays.append(np.array(data[archive_idx][array_slices]))
-            output_shapes.append(array_shape)
-            for key, values in metadata.items():
-                values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
+            if archive.member_idx is not None:
+                selected_members = archive.member_idx[matching_indices]
+                if len(np.unique(selected_members)) != len(selected_members):
+                    raise ValueError(
+                        f"Duplicate member indices for run ID {run_ID} in "
+                        f"array output {name!r}."
+                    )
+                matching_indices = matching_indices[
+                    np.argsort(selected_members, kind="stable")
+                ]
+            for archive_idx in matching_indices:
+                if shapes is None:
+                    array_shape = data.shape[1:]
+                else:
+                    array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+                array_slices: tuple[slice, ...] = tuple(
+                    slice(0, dim) for dim in array_shape
+                )
+                output_arrays.append(np.array(data[archive_idx][array_slices]))
+                output_shapes.append(array_shape)
+                member_indices.append(
+                    int(archive.member_idx[archive_idx])
+                    if archive.member_idx is not None
+                    else -1
+                )
+                for key, values in metadata.items():
+                    values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
 
         combined_metadata = {
             key: np.concatenate(values) for key, values in metadata.items()
         }
+        members = np.asarray(member_indices, dtype=np.int64)
         if sort and not is_single_run:
             order = np.lexsort(
                 tuple(
-                    combined_metadata[key]
+                    members if key == "member_idx" else combined_metadata[key]
                     for key in (
+                        "member_idx",
                         "run_idx",
                         "action_idx",
                         "iteration_idx",
@@ -5800,12 +5830,13 @@ class Workflow(AppAware):
             )
             output_arrays = [output_arrays[idx] for idx in order]
             output_shapes = [output_shapes[idx] for idx in order]
+            members = members[order]
             combined_metadata = {
                 key: values[order] for key, values in combined_metadata.items()
             }
 
         result_data: np.ndarray | list[np.ndarray]
-        if is_single_run:
+        if is_single_run and not has_member_metadata:
             result_data = output_arrays[0]
         elif not has_shape_metadata and all(
             array.shape == output_arrays[0].shape for array in output_arrays[1:]
@@ -5820,6 +5851,7 @@ class Workflow(AppAware):
             shape=(
                 np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
             ),
+            member_idx=members if has_member_metadata else None,
         )
 
     def export_array_output(
@@ -5908,7 +5940,7 @@ class Workflow(AppAware):
             have different dtypes.
         ValueError
             If a named output has no archives, shards differ in dimensionality, or a
-            run ID appears more than once.
+            a run/member pair appears more than once.
         """
         if not self._store._features.edit:
             raise TypeError(
@@ -5984,7 +6016,7 @@ class Workflow(AppAware):
     def _merge_array_output_archives(
         name: str, archives: Sequence[_ArrayOutputArchive]
     ) -> dict[str, np.ndarray]:
-        """Merge archives into NPZ contents, sorted by run ID.
+        """Merge archives into NPZ contents, sorted by run ID then member index.
 
         Entries are zero-padded to the largest shape; ``shape`` is included only when
         entry shapes differ, matching :meth:`_save_array_output`.
@@ -6033,20 +6065,38 @@ class Workflow(AppAware):
         metadata_names = [
             field.name
             for field in fields(_ArrayOutputArchive)
-            if field.name not in {"data", "shape"}
+            if field.name not in {"data", "shape", "member_idx"}
         ]
         metadata = {
             key: np.concatenate([getattr(archive, key) for archive in archives])
             for key in metadata_names
         }
         run_IDs = metadata["run_ID"]
-        unique_IDs, counts = np.unique(run_IDs, return_counts=True)
+        has_members = any(archive.member_idx is not None for archive in archives)
+        member_indices = np.concatenate(
+            [
+                (
+                    archive.member_idx
+                    if archive.member_idx is not None
+                    else np.full(len(archive.run_ID), -1, dtype=np.int64)
+                )
+                for archive in archives
+            ]
+        )
+        keys = np.column_stack((run_IDs, member_indices))
+        unique_IDs, counts = np.unique(keys, axis=0, return_counts=True)
         if np.any(counts > 1):
+            duplicates = unique_IDs[counts > 1]
+            if not has_members:
+                raise ValueError(
+                    f"Cannot consolidate array output {name!r}: run IDs appear more than "
+                    f"once: {duplicates[:, 0].tolist()}."
+                )
             raise ValueError(
                 f"Cannot consolidate array output {name!r}: run IDs appear more than "
-                f"once: {unique_IDs[counts > 1].tolist()}."
+                f"once for the same member: {duplicates.tolist()}."
             )
-        order = np.argsort(run_IDs, kind="stable")
+        order = np.lexsort((member_indices, run_IDs))
         merged: dict[str, np.ndarray] = {
             "data": data[order],
             **{key: values[order] for key, values in metadata.items()},
@@ -6054,6 +6104,8 @@ class Workflow(AppAware):
         shapes = shapes[order]
         if not np.all(shapes == shapes[0]):
             merged["shape"] = shapes
+        if has_members:
+            merged["member_idx"] = member_indices[order]
         return merged
 
     @TimeIt.decorator
@@ -6065,7 +6117,7 @@ class Workflow(AppAware):
             required_names = [
                 field.name
                 for field in fields(_ArrayOutputArchive)
-                if field.name != "shape"
+                if field.name not in {"shape", "member_idx"}
             ]
             if not all(name in archive.files for name in required_names):
                 raise ValueError(
@@ -6076,6 +6128,7 @@ class Workflow(AppAware):
             data = arrays["data"]
             run_ids = arrays["run_ID"]
             shapes = archive["shape"] if "shape" in archive.files else None
+            members = archive["member_idx"] if "member_idx" in archive.files else None
             if data.ndim < 1 or run_ids.ndim != 1:
                 raise ValueError(
                     f"Array-output archive {path} has invalid data or run_ID dimensions."
@@ -6097,7 +6150,15 @@ class Workflow(AppAware):
                 raise ValueError(
                     f"Array-output archive {path} has invalid shape metadata."
                 )
-            return _ArrayOutputArchive(**arrays, shape=shapes)
+            if members is not None and (
+                members.shape != (len(data),)
+                or members.dtype.kind not in "iu"
+                or np.any(members < -1)
+            ):
+                raise ValueError(
+                    f"Array-output archive {path} has invalid member_idx metadata."
+                )
+            return _ArrayOutputArchive(**arrays, shape=shapes, member_idx=members)
 
     def show_all_EAR_statuses(self) -> None:
         """
