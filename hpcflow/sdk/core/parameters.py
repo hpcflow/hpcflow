@@ -2051,6 +2051,7 @@ class AbstractInputValue(JSONLike):
     """Class to represent all sequence-able inputs to a task."""
 
     _workflow: Workflow | None = None
+    _workflow_template: WorkflowTemplate | None = None
     _element_set: ElementSet | None = None
     _schema_input: SchemaInput | None = None
     _value: Any | None = None
@@ -2070,10 +2071,11 @@ class AbstractInputValue(JSONLike):
         out = super()._postprocess_to_dict(d)
         out.pop("_workflow", None)
         out.pop("_schema_input", None)
+        out.pop("_workflow_template", None)
         return out
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: ResourcePersistingWorkflow, source: ParamSource
     ) -> tuple[str, list[int | list[int]], bool]:
         """Save value to a persistent workflow.
 
@@ -2118,6 +2120,8 @@ class AbstractInputValue(JSONLike):
         """
         if self._workflow:
             return self._workflow
+        if self._workflow_template:
+            return self._workflow_template.workflow
         if self._element_set:
             if w_tmpl := self._element_set.task_template.workflow_template:
                 return w_tmpl.workflow
@@ -2192,6 +2196,19 @@ class InputValue(AbstractInputValue, ValuesMixin):
             shared_data_name="parameters",
         ),
     )
+
+    @classmethod
+    def normalise(cls, inputs: list[InputValue] | dict[str, Any]) -> list[InputValue]:
+        """Normalise input values supplied as a list or parameter-to-value mapping."""
+        if isinstance(inputs, dict):
+            out: list[InputValue] = []
+            for key, value in inputs.items():
+                parameter, label = split_param_label(key)
+                assert parameter
+                parameter, _, path = parameter.partition(".")
+                out.append(cls(parameter=parameter, label=label, path=path, value=value))
+            return out
+        return inputs
 
     def __init__(
         self,
@@ -2275,6 +2292,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         obj._value_method_args = _value_method_args
         obj._element_set = self._element_set
         obj._schema_input = self._schema_input
+        obj._workflow_template = self._workflow_template
         return obj
 
     def __repr__(self) -> str:
@@ -2348,7 +2366,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         return f"inputs.{self.normalised_inputs_path}"
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: ResourcePersistingWorkflow, source: ParamSource
     ) -> tuple[str, list[int | list[int]], bool]:
         source = copy.deepcopy(source)
         if self.value_class_method is not None:
@@ -3740,7 +3758,12 @@ class InputSource(JSONLike):
         import_ref: int | str | None = None
         if (
             (
-                source_type in (InputSourceType.LOCAL, InputSourceType.DEFAULT)
+                source_type
+                in (
+                    InputSourceType.LOCAL,
+                    InputSourceType.DEFAULT,
+                    InputSourceType.WORKFLOW,
+                )
                 and len(parts) > 1
             )
             or (source_type is InputSourceType.TASK and len(parts) > 3)
@@ -3815,6 +3838,11 @@ class InputSource(JSONLike):
         Make an instance of an input source that is default.
         """
         return cls(source_type=InputSourceType.DEFAULT)
+
+    @classmethod
+    def workflow(cls) -> Self:
+        """Use an input defined on the workflow template."""
+        return cls(source_type=InputSourceType.WORKFLOW)
 
     @classmethod
     def task(

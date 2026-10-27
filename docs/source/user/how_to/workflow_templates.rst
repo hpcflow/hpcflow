@@ -3,6 +3,45 @@ Workflow templates how-tos
 
 .. jinja:: first_ctx
 
+    Sharing inputs across tasks
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Define ``inputs`` at the workflow-template level to make values available to any
+    task requiring the corresponding parameter:
+
+    .. code-block:: yaml
+
+        name: shared_inputs
+        inputs:
+          p1: 10
+        tasks:
+          - schema: my_first_schema
+          - schema: my_second_schema
+            inputs:
+              p1: 20
+
+    The first task can use the shared value ``10``; the second uses its local value
+    ``20``. Local task inputs (including sequences) and sources from preceding tasks
+    take precedence over workflow inputs. Workflow inputs take precedence over schema
+    defaults. Inputs that a task does not require are ignored.
+
+    As with task inputs, workflow inputs accept either a parameter-to-value mapping
+    or a list of input-value specifications. Parameter labels and sub-parameter paths
+    are supported. A list value remains a single input value, not a value sequence.
+
+    To explicitly choose a workflow input instead of another available source, use:
+
+    .. code-block:: yaml
+
+        input_sources:
+          p1: workflow
+
+    In Python, supply ``inputs`` to
+    :class:`{{ app_package_name }}.app.WorkflowTemplate` or
+    :meth:`{{ app_package_name }}.app.Workflow.from_template_data`, and use
+    ``InputSource.workflow()`` to explicitly select a shared input. Shared inputs
+    remain available after reloading a workflow, including for tasks added later.
+
     Loading workflow templates
     ~~~~~~~~~~~~~~~~~~~~~~~~~~
 

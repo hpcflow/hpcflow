@@ -14,6 +14,7 @@ rules:
         - meta_tasks
         - loops
         - imports
+        - inputs
         - store_kwargs
         - merge_resources
         - merge_envs

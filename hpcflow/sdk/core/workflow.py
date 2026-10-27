@@ -100,10 +100,12 @@ from hpcflow.sdk.core.utils import (
     normalise_timestamp,
     parse_timestamp,
     get_in_container,
+    get_duplicate_items,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
     InvalidInputSourceTaskReference,
+    TaskTemplateMultipleInputValues,
     LoopAlreadyExistsError,
     OutputFileParserNoOutputError,
     RunNotAbortableError,
@@ -127,7 +129,7 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
-    from .parameters import InputSource, ResourceSpec
+    from .parameters import InputSource, InputValue, ResourceSpec
     from .task import Task, WorkflowTask, InputStatus, TaskCondition
     from .imports import Import
     from .types import (
@@ -229,11 +231,22 @@ class WorkflowTemplate(JSONLike):
         template-level resources are ignored.
     merge_envs:
         Whether to merge the environments into task resources.
+    inputs:
+        Shared input values available to tasks, supplied as a list of InputValue objects
+        or a parameter-to-value mapping. Local and upstream task sources take precedence.
     """
 
     _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
+        ChildObjectSpec(
+            name="inputs",
+            class_name="InputValue",
+            is_multiple=True,
+            dict_key_attr="parameter",
+            dict_val_attr="value",
+            parent_ref="_workflow_template",
+        ),
         ChildObjectSpec(
             name="imports",
             class_name="Import",
@@ -287,8 +300,18 @@ class WorkflowTemplate(JSONLike):
     merge_resources: bool = True
     #: Whether to merge the environments into task resources.
     merge_envs: bool = True
+    #: Shared inputs used when no local or upstream task source is available.
+    inputs: list[InputValue] | dict[str, Any] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+
+        self.inputs = self._app.InputValue.normalise(self.inputs)
+        if duplicates := get_duplicate_items(
+            [inp.normalised_inputs_path for inp in self.inputs]
+        ):
+            raise TaskTemplateMultipleInputValues(
+                f"Workflow inputs have multiple value definitions: {duplicates!r}."
+            )
 
         # TODO: in what scenario is the reindex required? are loops initialised?
 
@@ -360,6 +383,11 @@ class WorkflowTemplate(JSONLike):
         )
         resources.merge_other(res_defaults)
         return resources
+
+    @property
+    def _inputs(self) -> dict[str, InputValue]:
+        assert isinstance(self.inputs, list)
+        return {inp.normalised_inputs_path: inp for inp in self.inputs}
 
     @property
     def _resources(self) -> ResourceList:
@@ -1842,6 +1870,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
+        inputs: list[InputValue] | dict[str, Any] | None = None,
     ) -> Workflow:
         """Generate from the data associated with a WorkflowTemplate object.
 
@@ -1856,6 +1885,8 @@ class Workflow(AppAware):
             List of Task objects to add to the new workflow.
         loops:
             List of Loop objects to add to the new workflow.
+        inputs:
+            Shared workflow-template input values. Task sources take precedence.
         resources:
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
@@ -1905,6 +1936,7 @@ class Workflow(AppAware):
             resources=resources,
             environments=environments,
             config=config or {},
+            inputs=inputs or [],
         )
         return cls.from_template(
             template,
@@ -2731,7 +2763,14 @@ class Workflow(AppAware):
         for res_i_copy in template._get_resources_copy():
             res_i_copy.make_persistent(grabber, param_src)
 
-        template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
+        inputs_copy = copy.deepcopy(list(template._inputs.values()))
+        for inp in inputs_copy:
+            inp.make_persistent(grabber, {"type": "workflow_input"})
+        template_data = {
+            k: v for k, v in template.to_dict().items() if k not in {"tasks", "loops"}
+        }
+        template_data["inputs"] = inputs_copy
+        template_js_, template_sh = template.to_json_like(dct=template_data)
         template_js: TemplateMeta = {
             **cast("TemplateMeta", template_js_),  # Trust me, bro!
             "tasks": [],

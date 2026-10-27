@@ -292,7 +292,7 @@ class ElementSet(JSONLike):
         is_creation: bool = True,
     ):
         #: Inputs to the set of elements.
-        self.inputs = self.__decode_inputs(inputs or [])
+        self.inputs = self._app.InputValue.normalise(inputs or [])
         #: Input files to the set of elements.
         self.input_files = input_files or []
         #: Description of how to repeat the set of elements.
@@ -438,27 +438,6 @@ class ElementSet(JSONLike):
     def element_local_idx_range(self) -> tuple[int, ...]:
         """Indices of elements belonging to this element set."""
         return tuple(self._element_local_idx_range or ())
-
-    @classmethod
-    def __decode_inputs(
-        cls, inputs: list[InputValue] | dict[str, Any]
-    ) -> list[InputValue]:
-        """support inputs passed as a dict"""
-        if isinstance(inputs, dict):
-            _inputs: list[InputValue] = []
-            for k, v in inputs.items():
-                param, label = split_param_label(k)
-                assert param
-                path = None
-                if "." in param:
-                    param, path = param.split(".")
-                assert param is not None
-                _inputs.append(
-                    cls._app.InputValue(parameter=param, label=label, path=path, value=v)
-                )
-            return _inputs
-        else:
-            return inputs
 
     _ALLOWED_NESTING_PATHS: ClassVar[frozenset[str]] = frozenset(
         {"inputs", "resources", "repeats"}
@@ -1265,6 +1244,11 @@ class Task(JSONLike):
                 sourceable_elem_iters=element_set.sourceable_elem_iters,
             )
 
+            if self.workflow_template and inputs_path in self.workflow_template._inputs:
+                available.setdefault(inputs_path, []).append(
+                    self._app.InputSource.workflow()
+                )
+
             if inp_status.has_default:
                 available.setdefault(inputs_path, []).append(
                     self._app.InputSource.default()
@@ -1474,6 +1458,16 @@ class Task(JSONLike):
                 is_provided=True,
                 is_required=status[root_param].is_required,
             )
+
+        if self.workflow_template:
+            for inp_path in self.workflow_template._inputs:
+                root_param, sep, _ = inp_path.partition(".")
+                if sep and root_param in status and inp_path not in status:
+                    status[inp_path] = InputStatus(
+                        has_default=False,
+                        is_provided=False,
+                        is_required=status[root_param].is_required,
+                    )
 
         return status
 
@@ -2330,6 +2324,22 @@ class WorkflowTask(AppAware):
                             sequence_idx.pop(key)
                             # TODO: Use the value retrieved below?
                             _ = element_set.get_sequence_from_path(key)
+
+                elif inp_src.source_type is InputSourceType.WORKFLOW:
+                    inp = self.workflow.template._inputs[labelled_path_i]
+                    assert inp._value_group_idx is not None
+                    if self._app.InputSource.local() in sources_i:
+                        input_data_idx[key].append(inp._value_group_idx)
+                        source_idx[key].append(inp_src_idx)
+                    else:
+                        input_data_idx.setdefault(key, [])
+                        source_idx.setdefault(key, [])
+                        if has_local.pop(key, None):
+                            input_data_idx[key] = []
+                            source_idx[key] = []
+                            sequence_idx.pop(key, None)
+                        input_data_idx[key].append(inp._value_group_idx)
+                        source_idx[key].append(inp_src_idx)
 
                 elif inp_src.source_type is InputSourceType.DEFAULT:
                     assert def_val is not None
