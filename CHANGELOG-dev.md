@@ -1,4 +1,16 @@
 
+<a name="v0.4.0a4"></a>
+## [v0.4.0a4](https://github.com/hpcflow/hpcflow/compare/v0.4.0a3...v0.4.0a4) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* share array archives across output members
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a3"></a>
 ## [v0.4.0a3](https://github.com/hpcflow/hpcflow/compare/v0.4.0a2...v0.4.0a3) - 2026.10.27
 
