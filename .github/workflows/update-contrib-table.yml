@@ -1,16 +1,17 @@
+name: Update Contributor Table
+description: >
+  Updates the table of contributors.
 on:
   push:
     branches:
-      - main
-  workflow_dispatch:
-    # Allow manual triggering
+      - develop
 jobs:
   update-contrib-table:
     runs-on: ubuntu-latest
     name: Update the table of contributors in the README
     permissions:
       contents: write
-      pull-requests: write
+      # Documentation has 'pull-requests: write', but that's disabled by policy...
     steps:
       - name: Update contributor table
         uses: akhilmhdh/contributors-readme-action@83ea0b4f1ac928fbfe88b9e8460a932a528eb79f
