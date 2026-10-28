@@ -1,4 +1,16 @@
 
+<a name="v0.4.0a7"></a>
+## [v0.4.0a7](https://github.com/hpcflow/hpcflow/compare/v0.4.0a6...v0.4.0a7) - 2026.10.28
+
+### 🐛 Bug Fixes
+
+* demo-data references are resolvable at build time and should be allowed in workflow inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a6"></a>
 ## [v0.4.0a6](https://github.com/hpcflow/hpcflow/compare/v0.4.0a5...v0.4.0a6) - 2026.10.27
 
