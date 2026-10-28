@@ -19,4 +19,4 @@ jobs:
         with:
           commit_message: update-contrib-table has updated README.md [skip ci]
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.HPCFLOW_ACTIONS_TOKEN }}
