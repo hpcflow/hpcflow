@@ -1,3 +1,6 @@
+name: Update Contributor Table
+description: >
+  Updates the table of contributors.
 on:
   push:
     branches:
