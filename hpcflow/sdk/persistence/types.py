@@ -98,6 +98,12 @@ class StoreCreationInfo(TypedDict):
     user_orcid: str
     #: User's affiliations.
     user_affiliations: list[str]
+    #: String variables passed on creation (including defaults used).
+    variables: NotRequired[dict[str, Any]]
+    #: Results of `<<calc(...)>>` expressions in the template, keyed by expression.
+    calculations: NotRequired[dict[str, Any]]
+    #: The command line used to create the workflow, if created via the CLI.
+    command_line: NotRequired[list[str] | None]
 
 
 class ElemMeta(TypedDict):

@@ -1,4 +1,100 @@
 
+<a name="v0.4.0a8"></a>
+## [v0.4.0a8](https://github.com/hpcflow/hpcflow/compare/v0.4.0a7...v0.4.0a8) - 2026.10.28
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-paramiko
+
+
+<a name="v0.4.0a7"></a>
+## [v0.4.0a7](https://github.com/hpcflow/hpcflow/compare/v0.4.0a6...v0.4.0a7) - 2026.10.28
+
+### 🐛 Bug Fixes
+
+* demo-data references are resolvable at build time and should be allowed in workflow inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a6"></a>
+## [v0.4.0a6](https://github.com/hpcflow/hpcflow/compare/v0.4.0a5...v0.4.0a6) - 2026.10.27
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a5"></a>
+## [v0.4.0a5](https://github.com/hpcflow/hpcflow/compare/v0.4.0a4...v0.4.0a5) - 2026.10.27
+
+### ✨ Features
+
+* build-time workflow input references, calculations and creation info
+* add workflow-template level inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a4"></a>
+## [v0.4.0a4](https://github.com/hpcflow/hpcflow/compare/v0.4.0a3...v0.4.0a4) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* share array archives across output members
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a3"></a>
+## [v0.4.0a3](https://github.com/hpcflow/hpcflow/compare/v0.4.0a2...v0.4.0a3) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* distinguish whole outputs from singleton output members
+* un-modify changelog
+* un-modify changelog
+* un-modify changelog
+* preserve independent tasks when merging jobscripts
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a2"></a>
+## [v0.4.0a2](https://github.com/hpcflow/hpcflow/compare/v0.4.0a1...v0.4.0a2) - 2026.10.26
+
+### ✨ Features
+
+* add workflow delete-on-completion option
+* add --follow option to stream jobscript output
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a1"></a>
+## [v0.4.0a1](https://github.com/hpcflow/hpcflow/compare/v0.4.0a0...v0.4.0a1) - 2026.10.26
+
+### ✨ Features
+
+* allow input-driven schema output multiplicity
+* resolve schema output multiplicity as persistent member sources
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a0"></a>
 ## [v0.4.0a0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0a0) - 2026.10.22
 

@@ -47,6 +47,87 @@ def test_script_direct_in_direct_out(tmp_path: Path, enable_script_workers: bool
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+@pytest.mark.parametrize("multiplicity", [1, 2])
+def test_script_output_multiplicity(
+    tmp_path: Path, store: str, enable_script_workers: bool, multiplicity: int
+) -> None:
+    producer = hf.TaskSchema(
+        objective="produce_members",
+        inputs=[hf.SchemaInput("p2"), hf.SchemaInput("p3")],
+        outputs=[hf.SchemaOutput("p1", multiplicity="<<input:p3>>")],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_output_multiplicity.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    consumer = hf.TaskSchema(
+        objective="consume_member",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_direct_in_direct_out.py>>",
+                script_data_in="direct",
+                script_data_out="direct",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+            )
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        tasks=[
+            hf.Task(
+                producer,
+                inputs={"p3": multiplicity},
+                sequences=[hf.ValueSequence("inputs.p2", [10, 20])],
+            ),
+            hf.Task(consumer),
+        ],
+        template_name="script_output_multiplicity",
+        path=tmp_path,
+        store=store,
+    )
+    assert wk.tasks[0].num_elements == 2
+    assert wk.tasks[1].num_elements == 2 * multiplicity
+    for idx, element in enumerate(wk.tasks[1].elements):
+        producer_run = (
+            wk.tasks[0].elements[idx // multiplicity].latest_iteration.action_runs[0]
+        )
+        assert element.get_EAR_dependencies() == {producer_run.id_}
+
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
+
+    for workflow in (wk, hf.Workflow(wk.path)):
+        assert (
+            workflow.tasks[0].template.all_schema_outputs[0].multiplicity
+            == "<<input:p3>>"
+        )
+        assert [el.get("outputs.p1") for el in workflow.tasks[0].elements] == [
+            [base + idx for idx in range(multiplicity)] for base in (10, 20)
+        ]
+        assert [el.get("inputs.p1") for el in workflow.tasks[1].elements] == [
+            base + idx for base in (10, 20) for idx in range(multiplicity)
+        ]
+        assert [el.get("outputs.p2") for el in workflow.tasks[1].elements] == [
+            base + idx + 100 for base in (10, 20) for idx in range(multiplicity)
+        ]
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )

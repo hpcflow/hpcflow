@@ -174,6 +174,190 @@ def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> N
     assert parameter_name not in inner_group
 
 
+@pytest.mark.parametrize("storage", ["shards", "consolidated", "zip"])
+@pytest.mark.parametrize("disabled", [False, True])
+def test_zarr_output_members_share_array_archives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, storage: str, disabled: bool
+) -> None:
+    producer = hf.TaskSchema(
+        "array_member_producer",
+        inputs=[hf.SchemaInput("p2")],
+        outputs=[hf.SchemaOutput("p1", multiplicity="<<input:p2>>")],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo <<parameter:p2>>", stdout="<<parameter:p1>>")]
+            )
+        ],
+    )
+    consumer = hf.TaskSchema(
+        "array_member_consumer",
+        inputs=[hf.SchemaInput("p1")],
+        actions=[hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="shared_member_arrays",
+        tasks=[
+            hf.Task(
+                producer,
+                sequences=[hf.ValueSequence("inputs.p2", [1, 7])],
+                disable_array_outputs=["p1.steps.1.stress"] if disabled else [],
+            ),
+            hf.Task(consumer),
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    workflow.add_submission()
+    write = Mock(wraps=workflow._save_array_output_entries)
+    monkeypatch.setattr(workflow, "_save_array_output_entries", write)
+    expected: list[dict[str, Any]] = []
+    runs = list(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID]))
+    for run, count in zip(runs, [1, 7]):
+        members: list[dict[str, Any]] = [
+            {
+                "orientations": {"data": np.full((idx % 3 + 1, 4), idx, dtype=float)},
+                "steps": [
+                    {
+                        "stress": np.ma.array(
+                            np.full((3, 3), idx + step, dtype=float),
+                            mask=np.eye(3, dtype=bool),
+                            fill_value=-1.0,
+                        )
+                    }
+                    for step in range(idx % 3 + 1)
+                ],
+            }
+            for idx in range(count)
+        ]
+        workflow.save_parameter("outputs.p1", members, EAR_ID=run.id_)
+        expected.extend(members)
+
+    names = ["p1.orientations.data", "p1.steps.0.stress", "p1.steps.2.stress"]
+    if not disabled:
+        names.append("p1.steps.1.stress")
+    assert workflow.list_array_outputs() == sorted(names)
+    assert write.call_count == (8 if disabled else 10)
+    root = Path(workflow.path) / "parameters" / "array_outputs"
+    assert len(list(root.iterdir())) == (5 if disabled else 7)
+    assert len(list(root.rglob("*.npz.zst"))) <= write.call_count
+    data = workflow.get_array_output("p1.orientations.data", runs[1].id_)
+    assert data.member_idx is not None
+    np.testing.assert_array_equal(data.member_idx, np.arange(7))
+    assert isinstance(data.data, list)
+    for idx, array in enumerate(data.data):
+        np.testing.assert_array_equal(array, expected[idx + 1]["orientations"]["data"])
+    sparse = workflow.get_array_output("p1.steps.2.stress", runs[1].id_)
+    np.testing.assert_array_equal(sparse.member_idx, np.arange(2, 7, 3))
+    np.testing.assert_array_equal(
+        workflow.tasks[0].get_array_output("p1.orientations.data").member_idx,
+        [0, *range(7)],
+    )
+    all_data = workflow.get_array_output("p1.orientations.data")
+    assert len(all_data.run_ID) == 8
+    repeated = workflow.get_array_output(
+        "p1.orientations.data", [runs[1].id_, runs[0].id_, runs[1].id_], sort=False
+    )
+    assert len(repeated.run_ID) == 15
+    np.testing.assert_array_equal(repeated.member_idx, [*range(7), 0, *range(7)])
+
+    if storage == "consolidated":
+        workflow.consolidate_array_outputs(status=False)
+    if storage == "zip":
+        saved_path = workflow.zip(path=str(tmp_path), status=False)
+    else:
+        saved_path = workflow.path
+    restored = hf.Workflow(saved_path)
+    restored_data = restored.get_array_output("p1.orientations.data")
+    np.testing.assert_array_equal(restored_data.member_idx, all_data.member_idx)
+    assert len(restored_data.data) == 8
+    assert restored.tasks[0].list_array_outputs() == sorted(names)
+    for element, member in zip(restored.tasks[1].elements, expected, strict=True):
+        actual = element.get("inputs.p1")
+        np.testing.assert_array_equal(
+            actual["orientations"]["data"], member["orientations"]["data"]
+        )
+        assert len(actual["steps"]) == len(member["steps"])
+        for actual_step, expected_step in zip(
+            actual["steps"], member["steps"], strict=True
+        ):
+            stress = actual_step["stress"]
+            assert isinstance(stress, np.ma.MaskedArray)
+            np.testing.assert_array_equal(stress.data, expected_step["stress"].data)
+            np.testing.assert_array_equal(stress.mask, expected_step["stress"].mask)
+            assert stress.fill_value == -1.0
+
+
+def test_zarr_output_member_arrays_written_once(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow, run = zarr_array_workflow
+    run.task.template.all_schema_outputs[0].multiplicity = 1000
+    values = [{"data": np.array([idx], dtype=np.int64)} for idx in range(1000)]
+    write = Mock(wraps=workflow._save_array_output_entries)
+    monkeypatch.setattr(workflow, "_save_array_output_entries", write)
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    write.assert_called_once()
+    root = Path(workflow.path) / "parameters" / "array_outputs"
+    assert [path.name for path in root.iterdir()] == ["p1.data"]
+    assert len(list(root.rglob("*.npz.zst"))) == 1
+    saved = workflow.get_array_output("p1.data", run.id_)
+    np.testing.assert_array_equal(saved.member_idx, np.arange(1000))
+    np.testing.assert_array_equal(saved.data, np.arange(1000).reshape(-1, 1))
+    destination = root.parent / "members.npy"
+    workflow.export_array_output("p1.data", run.id_, destination)
+    np.testing.assert_array_equal(np.load(destination), saved.data)
+
+
+@pytest.mark.parametrize("multiplicity", [None, 1, 3])
+@pytest.mark.parametrize("as_tuple", [False, True])
+def test_zarr_member_array_grouping_respects_multiplicity(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    multiplicity: int | None,
+    as_tuple: bool,
+) -> None:
+    workflow, run = zarr_array_workflow
+    run.task.template.all_schema_outputs[0].multiplicity = multiplicity
+    members = [{"data": np.arange(3) + idx} for idx in range(multiplicity or 3)]
+    values = tuple(members) if as_tuple else members
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    expected_names = (
+        ["p1.data"]
+        if multiplicity is not None
+        else [f"p1.{idx}.data" for idx in range(3)]
+    )
+    assert workflow.list_array_outputs() == expected_names
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    decoded = workflow.get_parameter_data(run.data_idx["outputs.p1"])
+    assert isinstance(decoded, tuple if as_tuple else list)
+    for actual, expected in zip(decoded, members, strict=True):
+        np.testing.assert_array_equal(actual["data"], expected["data"])
+
+
+def test_zarr_old_member_array_archives_still_decode(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow, run = zarr_array_workflow
+    values = [{"data": np.arange(3)}, {"data": np.arange(4)}]
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+    assert workflow.list_array_outputs() == ["p1.0.data", "p1.1.data"]
+    run.task.template.all_schema_outputs[0].multiplicity = 2
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    decoded = workflow.get_parameter_data(run.data_idx["outputs.p1"])
+    for actual, expected in zip(decoded, values, strict=True):
+        np.testing.assert_array_equal(actual["data"], expected["data"])
+
+
 @pytest.mark.parametrize("run_file_ID", [499, 500, 1000])
 def test_zarr_array_output_zstandard_compression(
     zarr_array_workflow: tuple,

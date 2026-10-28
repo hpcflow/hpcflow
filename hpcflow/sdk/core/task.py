@@ -292,7 +292,7 @@ class ElementSet(JSONLike):
         is_creation: bool = True,
     ):
         #: Inputs to the set of elements.
-        self.inputs = self.__decode_inputs(inputs or [])
+        self.inputs = self._app.InputValue.normalise(inputs or [])
         #: Input files to the set of elements.
         self.input_files = input_files or []
         #: Description of how to repeat the set of elements.
@@ -438,27 +438,6 @@ class ElementSet(JSONLike):
     def element_local_idx_range(self) -> tuple[int, ...]:
         """Indices of elements belonging to this element set."""
         return tuple(self._element_local_idx_range or ())
-
-    @classmethod
-    def __decode_inputs(
-        cls, inputs: list[InputValue] | dict[str, Any]
-    ) -> list[InputValue]:
-        """support inputs passed as a dict"""
-        if isinstance(inputs, dict):
-            _inputs: list[InputValue] = []
-            for k, v in inputs.items():
-                param, label = split_param_label(k)
-                assert param
-                path = None
-                if "." in param:
-                    param, path = param.split(".")
-                assert param is not None
-                _inputs.append(
-                    cls._app.InputValue(parameter=param, label=label, path=path, value=v)
-                )
-            return _inputs
-        else:
-            return inputs
 
     _ALLOWED_NESTING_PATHS: ClassVar[frozenset[str]] = frozenset(
         {"inputs", "resources", "repeats"}
@@ -1130,6 +1109,11 @@ class Task(JSONLike):
     def _prepare_persistent_outputs(
         self, workflow: Workflow, local_element_idx_range: Sequence[int]
     ) -> Mapping[str, Sequence[int]]:
+        """Allocate one persistent whole-output slot for each task element.
+
+        Schema output multiplicity is represented by downstream member references,
+        not by splitting the producer's output into separate stored parameters.
+        """
         # TODO: check that schema is present when adding task? (should this be here?)
 
         # allocate schema-level output parameter; precise EAR index will not be known
@@ -1259,6 +1243,11 @@ class Task(JSONLike):
                 available=available,
                 sourceable_elem_iters=element_set.sourceable_elem_iters,
             )
+
+            if self.workflow_template and inputs_path in self.workflow_template._inputs:
+                available.setdefault(inputs_path, []).append(
+                    self._app.InputSource.workflow()
+                )
 
             if inp_status.has_default:
                 available.setdefault(inputs_path, []).append(
@@ -1469,6 +1458,16 @@ class Task(JSONLike):
                 is_provided=True,
                 is_required=status[root_param].is_required,
             )
+
+        if self.workflow_template:
+            for inp_path in self.workflow_template._inputs:
+                root_param, sep, _ = inp_path.partition(".")
+                if sep and root_param in status and inp_path not in status:
+                    status[inp_path] = InputStatus(
+                        has_default=False,
+                        is_provided=False,
+                        is_required=status[root_param].is_required,
+                    )
 
         return status
 
@@ -1962,7 +1961,8 @@ class WorkflowTask(AppAware):
         parameter's first source action from
         :meth:`.TaskSchema.get_action_parameter_flow` are included. By default, results
         are sorted lexicographically by element index, iteration index, action index,
-        then run index. With ``sort=False``, order follows
+        then run index and member index. Member outputs retain their original
+        indices in ``ArrayOutput.member_idx``. With ``sort=False``, order follows
         :meth:`.Workflow.get_EAR_IDs_of_tasks`. Archives are read only by the
         workflow reader; missing saved data therefore raises rather than being skipped.
 
@@ -2068,12 +2068,18 @@ class WorkflowTask(AppAware):
     def __get_src_elem_iters(
         src_task: WorkflowTask, inp_src: InputSource
     ) -> tuple[Iterable[ElementIteration], list[int]]:
+        """Return source iterations and their element-set indices when filtered.
+
+        The indices keep selected iterations aligned with element sets when a
+        source is filtered; unfiltered sources can use the iteration mapping
+        directly.
+        """
         src_iters = src_task.get_all_element_iterations()
 
         if inp_src.element_iters:
             # only include "sourceable" element iterations:
             src_iters_list = [src_iters[itr_id] for itr_id in inp_src.element_iters]
-            set_indices = [el.element.element_set_idx for el in src_iters.values()]
+            set_indices = [el.element.element_set_idx for el in src_iters_list]
             return src_iters_list, set_indices
         return src_iters.values(), []
 
@@ -2085,6 +2091,11 @@ class WorkflowTask(AppAware):
         padded_elem_iters: Mapping[str, Sequence[int]],
         inp_group_name: str | None,
     ) -> None | Sequence[int | list[int]]:
+        """Build source parameter IDs, expanding each output into its members.
+
+        Any positive multiplicity creates deferred references to the whole
+        output. Grouping collects those member references in source-element order.
+        """
         src_task = inp_src.get_task(self.workflow)
         assert src_task
         src_elem_iters, src_elem_set_idx = self.__get_src_elem_iters(src_task, inp_src)
@@ -2105,17 +2116,58 @@ class WorkflowTask(AppAware):
             for itr_idx, itr in enumerate(src_elem_iters)
         ]
 
+        multiplicities: list[int | None] = [None] * len(grp_idx)
+        if task_source_type == TaskSourceType.OUTPUT:
+            schema_output = next(
+                output
+                for output in src_task.template.all_schema_outputs
+                if output.typ == src_key.split(".")[1]
+            )
+            if schema_output.multiplicity_input is None:
+                multiplicities = [schema_output.resolve_multiplicity()] * len(grp_idx)
+            else:
+                multiplicities = [
+                    schema_output.resolve_multiplicity(
+                        src_iter.get(
+                            f"inputs.{schema_output.multiplicity_input}",
+                            raise_on_unset=True,
+                        )
+                    )
+                    for src_iter in src_elem_iters
+                ]
+        member_indices: list[list[int | list[int]]] = []
+        for dat_idx, multiplicity in zip(grp_idx, multiplicities, strict=True):
+            if multiplicity is None:
+                member_indices.append([dat_idx])
+                continue
+            if dat_idx == -1:
+                member_indices.append([-1] * multiplicity)
+                continue
+            member_indices.append(
+                [
+                    self.workflow._add_unset_parameter_data(
+                        {
+                            "type": "output_member",
+                            "parameter_ID": cast("int", dat_idx),
+                            "member_idx": member_idx,
+                            "multiplicity": multiplicity,
+                        }
+                    )
+                    for member_idx in range(multiplicity)
+                ]
+            )
+
         if not inp_group_name:
-            return grp_idx
+            return [idx for members in member_indices for idx in members]
 
         group_dat_idx: list[int | list[int]] = []
         element_sets = src_task.template.element_sets
-        for dat_idx, src_set_idx, src_iter in zip(
-            grp_idx, src_elem_set_idx, src_elem_iters
+        for members, src_set_idx, src_iter in zip(
+            member_indices, src_elem_set_idx, src_elem_iters
         ):
             src_es = element_sets[src_set_idx]
             if any(inp_group_name == grp.name for grp in src_es.groups):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
             # if for any recursive iteration dependency, this group is
             # defined, assign:
@@ -2128,7 +2180,7 @@ class WorkflowTask(AppAware):
                 for el_iter in src_iter_deps
                 for grp in el_iter.element.element_set.groups
             ):
-                group_dat_idx.append(dat_idx)
+                group_dat_idx.extend(members)
                 continue
 
             # also check input dependencies
@@ -2137,7 +2189,7 @@ class WorkflowTask(AppAware):
                     insert_ID=p_src["task_insert_ID"]
                 ).template.element_sets[p_src["element_set_idx"]]
                 if any(inp_group_name == grp.name for grp in k_es.groups):
-                    group_dat_idx.append(dat_idx)
+                    group_dat_idx.extend(members)
                     break
 
             # TODO: this only goes to one level of dependency
@@ -2272,6 +2324,22 @@ class WorkflowTask(AppAware):
                             sequence_idx.pop(key)
                             # TODO: Use the value retrieved below?
                             _ = element_set.get_sequence_from_path(key)
+
+                elif inp_src.source_type is InputSourceType.WORKFLOW:
+                    inp = self.workflow.template._inputs[labelled_path_i]
+                    assert inp._value_group_idx is not None
+                    if self._app.InputSource.local() in sources_i:
+                        input_data_idx[key].append(inp._value_group_idx)
+                        source_idx[key].append(inp_src_idx)
+                    else:
+                        input_data_idx.setdefault(key, [])
+                        source_idx.setdefault(key, [])
+                        if has_local.pop(key, None):
+                            input_data_idx[key] = []
+                            source_idx[key] = []
+                            sequence_idx.pop(key, None)
+                        input_data_idx[key].append(inp._value_group_idx)
+                        source_idx[key].append(inp_src_idx)
 
                 elif inp_src.source_type is InputSourceType.DEFAULT:
                     assert def_val is not None

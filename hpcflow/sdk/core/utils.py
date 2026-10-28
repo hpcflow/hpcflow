@@ -376,13 +376,20 @@ _STRING_VARS_RE = re.compile(r"\<\<var:(.*?)(?:\[(.*)\])?\>\>")
 
 
 @TimeIt.decorator
-def substitute_string_vars(string: str, variables: dict[str, str]):
+def substitute_string_vars(
+    string: str,
+    variables: dict[str, str],
+    used: dict[str, str] | None = None,
+):
     """
     Scan ``string`` and substitute sequences like ``<<var:ABC>>`` with the value
     looked up in the supplied dictionary (with ``ABC`` as the key).
 
     Default values for the substitution can be supplied like:
     ``<<var:ABC[default=XYZ]>>``
+
+    If ``used`` is given, it is updated with the value substituted for each variable
+    name (including any default values used).
 
     Examples
     --------
@@ -409,6 +416,8 @@ def substitute_string_vars(string: str, variables: dict[str, str]):
                 )
             else:
                 raise MissingVariableSubstitutionError(var_name, variables)
+        if used is not None:
+            used[var_name] = out
         return out
 
     return _STRING_VARS_RE.sub(
@@ -423,6 +432,7 @@ def read_YAML_str(
     typ="safe",
     variables: dict[str, str] | Literal[False] | None = None,
     source: str | None = None,
+    used_variables: dict[str, str] | None = None,
 ) -> Any:
     """Load a YAML string. This will produce basic objects.
 
@@ -440,9 +450,13 @@ def read_YAML_str(
         Used to document the source of the YAML string if raising a parsing error.
         Typically, this should be a string that starts with "from ...", e.g.
         "from the file path '/path/to/bad/file'".
+    used_variables:
+        If given, updated with the values substituted for each variable.
     """
     if variables is not False and "<<var:" in yaml_str:
-        yaml_str = substitute_string_vars(yaml_str, variables=variables or {})
+        yaml_str = substitute_string_vars(
+            yaml_str, variables=variables or {}, used=used_variables
+        )
     yaml = YAML(typ=typ)
     try:
         return yaml.load(yaml_str)
@@ -455,7 +469,10 @@ def read_YAML_str(
 
 @TimeIt.decorator
 def read_YAML_file(
-    path: PathLike, typ="safe", variables: dict[str, str] | Literal[False] | None = None
+    path: PathLike,
+    typ="safe",
+    variables: dict[str, str] | Literal[False] | None = None,
+    used_variables: dict[str, str] | None = None,
 ) -> Any:
     """Load a YAML file. This will produce basic objects.
 
@@ -472,7 +489,13 @@ def read_YAML_file(
     """
     with fsspec.open(path, "rt") as f:
         yaml_str: str = f.read()
-    return read_YAML_str(yaml_str, typ=typ, variables=variables, source=f"from {path!r}")
+    return read_YAML_str(
+        yaml_str,
+        typ=typ,
+        variables=variables,
+        source=f"from {path!r}",
+        used_variables=used_variables,
+    )
 
 
 def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
@@ -483,7 +506,9 @@ def write_YAML_file(obj, path: str | Path, typ: str = "safe") -> None:
 
 
 def read_JSON_string(
-    json_str: str, variables: dict[str, str] | Literal[False] | None = None
+    json_str: str,
+    variables: dict[str, str] | Literal[False] | None = None,
+    used_variables: dict[str, str] | None = None,
 ) -> Any:
     """Load a JSON string. This will produce basic objects.
 
@@ -495,13 +520,21 @@ def read_JSON_string(
         String variables to substitute in `json_str`. Substitutions will be attempted if
         the file looks to contain variable references (like "<<var:name>>"). If set to
         `False`, no substitutions will occur.
+    used_variables:
+        If given, updated with the values substituted for each variable.
     """
     if variables is not False and "<<var:" in json_str:
-        json_str = substitute_string_vars(json_str, variables=variables or {})
+        json_str = substitute_string_vars(
+            json_str, variables=variables or {}, used=used_variables
+        )
     return json.loads(json_str)
 
 
-def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = None) -> Any:
+def read_JSON_file(
+    path,
+    variables: dict[str, str] | Literal[False] | None = None,
+    used_variables: dict[str, str] | None = None,
+) -> Any:
     """Load a JSON file. This will produce basic objects.
 
     Parameters
@@ -515,7 +548,7 @@ def read_JSON_file(path, variables: dict[str, str] | Literal[False] | None = Non
     """
     with fsspec.open(path, "rt") as f:
         json_str: str = f.read()
-    return read_JSON_string(json_str, variables=variables)
+    return read_JSON_string(json_str, variables=variables, used_variables=used_variables)
 
 
 def write_JSON_file(obj, path: str | Path) -> None:

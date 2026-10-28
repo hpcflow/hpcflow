@@ -34,6 +34,8 @@ from hpcflow.sdk.cli_common import (
     variables_option,
     js_parallelism_option,
     wait_option,
+    follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
     tasks_opt,
@@ -274,6 +276,8 @@ def _make_API_CLI(app: BaseApp):
     @js_parallelism_option
     @min_jobscripts_opt
     @wait_option
+    @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
     @tasks_opt
@@ -309,6 +313,8 @@ def _make_API_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -337,6 +343,8 @@ def _make_API_CLI(app: BaseApp):
             min_jobscripts=min_jobscripts,
             modify_js=modify_js,
             wait=wait,
+            follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             return_idx=print_idx,
             tasks=tasks,
@@ -559,6 +567,8 @@ def _make_workflow_CLI(app: BaseApp):
     @workflow.command(name="submit")
     @js_parallelism_option
     @wait_option
+    @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
     @tasks_opt
@@ -587,11 +597,15 @@ def _make_workflow_CLI(app: BaseApp):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ):
         """Submit the workflow."""
         out = wf.submit(
             JS_parallelism=js_parallelism,
             wait=wait,
+            follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             modify_js=modify_js,
             return_idx=True,
@@ -653,10 +667,11 @@ def _make_workflow_CLI(app: BaseApp):
         ),
     )
     @wait_quiet_opt
+    @follow_option
     @_pass_workflow
-    def wait(wf: Workflow, jobscripts: str | None, quiet: bool):
+    def wait(wf: Workflow, jobscripts: str | None, quiet: bool, follow: bool):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
-        wf.wait(sub_js=js_spec, quiet=quiet)
+        wf.wait(sub_js=js_spec, quiet=quiet, follow=follow)
 
     @workflow.command("wait-run-start")
     @click.argument("runs", nargs=-1, type=click.INT)
@@ -2117,6 +2132,19 @@ def make_cli(app: BaseApp):
             timeit.summarise_string()
 
     new_CLI.context_class = ErrorPropagatingClickContext
+
+    _click_main = new_CLI.main
+
+    def main_with_command_line(args=None, *main_args, **main_kwargs):
+        # record the command line so it can be saved in the creation info of workflows:
+        cli_args = sys.argv[1:] if args is None else args
+        app.run_time_info.cli_args = [str(i) for i in cli_args]
+        try:
+            return _click_main(args, *main_args, **main_kwargs)
+        finally:
+            app.run_time_info.cli_args = None
+
+    new_CLI.main = main_with_command_line  # type: ignore[method-assign]
 
     new_CLI.__doc__ = app.description
 

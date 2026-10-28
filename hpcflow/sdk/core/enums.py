@@ -188,6 +188,8 @@ class InputSourceType(Enum):
     DEFAULT = 2
     #: Input source is a task.
     TASK = 3
+    #: Input source is a workflow-template input.
+    WORKFLOW = 4
 
 
 class ParallelMode(Enum):

@@ -1068,6 +1068,8 @@ class ElementIteration(AppAware):
                         out_strs[k] = f"task.{v['task_insert_ID']}.input"
             elif v["type"] == "default_input":
                 out_strs == "default"
+            elif v["type"] == "workflow_input":
+                out_strs[k] = "workflow"
             else:
                 idx = v["task_idx"] if use_task_index else v["task_insert_ID"]
                 out_strs[k] = (

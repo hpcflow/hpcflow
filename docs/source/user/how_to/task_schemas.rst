@@ -189,6 +189,87 @@ Additionally, an action may output a parameter that is *not* a task schema outpu
                 ],
             )
 
+Output multiplicity
+~~~~~~~~~~~~~~~~~~~
+
+``SchemaOutput.multiplicity`` defaults to ``None``, which preserves the whole
+output value as one candidate input per upstream element, even when the value
+itself is a list. A positive integer instead declares how many output members
+**each upstream element** supplies as possible input values to downstream tasks.
+For example:
+
+.. code-block:: python
+
+    hf.SchemaOutput("p2", multiplicity=3)
+
+The equivalent YAML task-schema output is:
+
+.. code-block:: yaml
+
+    outputs:
+      - parameter: p2
+        multiplicity: 3
+
+Each producing element must write a list, tuple, or NumPy array of length three
+as its whole ``p2`` output. Downstream inputs then reference individual members,
+in element order followed by member order. Thus two upstream elements producing
+``[10, 11, 12]`` and ``[20, 21, 22]`` supply six candidate input values, not
+three upstream elements or repeated copies of either whole list. Existing input
+source selection, labels, grouping and nesting still apply; selecting one
+upstream element selects all its members, and grouping collects the selected
+members together.
+
+Every positive multiplicity extracts members, including ``1``: an output
+``[value]`` supplies ``value`` to a downstream task, not the singleton list.
+To supply a list as a single member with ``multiplicity=1``, write a nested list
+such as ``[[10, 11, 12]]``. To propagate a list unchanged without member extraction,
+omit ``multiplicity`` or set it to ``None`` (``null`` in YAML).
+Zero, negative integers, booleans, and non-integer values are not supported.
+The declared length is checked when a downstream member is read.
+
+The multiplicity can also be taken from a schema input, resolved separately for
+each producing element:
+
+.. code-block:: yaml
+
+    inputs:
+      - parameter: member_count
+    outputs:
+      - parameter: p2
+        multiplicity: <<input:member_count>>
+
+The referenced input must be set to ``None`` (``null`` in YAML) or a positive integer
+when workflow elements are built. These values have the same meaning as a directly
+declared multiplicity: ``None`` preserves the whole output, and a positive integer
+extracts that many members. This allows locally supplied values and sequences to
+mix whole outputs and member counts for different elements. An unset input or a
+value that will only become available after workflow execution cannot be used to
+determine multiplicity.
+For a positive resolved multiplicity, the producer must write a sequence of that
+length, including a singleton sequence when the input is ``1``.
+
+With the Zarr store, array sub-parameters of output members share a compressed
+NPZ archive per logical sub-parameter and run-file shard. For example, arrays at
+``load_case.0.steps.0.stress`` and ``load_case.1.steps.0.stress`` are stored under
+``load_case.steps.0.stress``; the outer member index is recorded as ``member_idx``
+metadata rather than as a directory name. Writes are batched across members.
+This also applies to an explicit multiplicity of ``1``.
+
+Members may have different numbers of steps: ``load_case.steps.1.stress`` contains
+only the members that have a second step. Their original member indices are
+retained, not renumbered. Array sizes may vary within a sub-parameter; the archive
+pads to the largest shape and records each original shape, which is restored on
+reading. Arrays sharing a sub-parameter must have the same dimensionality and
+compatible dtypes. Mask data is stored in a corresponding ``.__mask__`` archive.
+
+``Workflow.get_array_output`` and ``WorkflowTask.get_array_output`` expose
+``member_idx`` alongside the producing run metadata. A scalar run ID returns all
+its saved members, stacked when shapes match or as a list when shapes vary.
+Ordinary non-member outputs retain their existing scalar-run behavior and have
+``member_idx=None``. In an archive shared by member and whole-value outputs,
+``member_idx=-1`` identifies a whole-value entry. Sorting, export, consolidation,
+and zipped-workflow reads preserve member metadata and ordering.
+
 Show information about a task schema
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

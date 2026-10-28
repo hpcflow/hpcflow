@@ -349,7 +349,7 @@ def test_get_array_output_sort(
     metadata = {
         field.name: np.arange(6)
         for field in fields(_ArrayOutputArchive)
-        if field.name not in {"data", "shape"}
+        if field.name not in {"data", "shape", "member_idx"}
     }
     for column, key in enumerate(
         ("element_idx", "iteration_idx", "action_idx", "run_idx")
@@ -466,8 +466,8 @@ def test_read_array_output_archive(
 
     assert is_dataclass(archive)
     for field in fields(archive):
-        if field.name == "shape" and shape is None:
-            assert archive.shape is None
+        if field.name == "member_idx" or (field.name == "shape" and shape is None):
+            assert getattr(archive, field.name) is None
         else:
             np.testing.assert_array_equal(
                 getattr(archive, field.name), contents[field.name]
@@ -852,6 +852,39 @@ def test_merge_array_output_archives() -> None:
     assert merged["shape"].dtype == np.int32
 
 
+def test_merge_member_array_output_archives() -> None:
+    members = replace(
+        _make_archive(np.array([[12, 0], [10, 11]]), [4, 4], np.array([[1], [2]])),
+        member_idx=np.array([2, 0]),
+    )
+    ordinary = _make_archive(np.array([[20, 21, 22]]), [3])
+    merged = hf.Workflow._merge_array_output_archives("x", [members, ordinary])
+    np.testing.assert_array_equal(merged["run_ID"], [3, 4, 4])
+    np.testing.assert_array_equal(merged["member_idx"], [-1, 0, 2])
+    np.testing.assert_array_equal(merged["data"], [[20, 21, 22], [10, 11, 0], [12, 0, 0]])
+    np.testing.assert_array_equal(merged["shape"], [[3], [2], [1]])
+    with pytest.raises(ValueError, match="same member"):
+        hf.Workflow._merge_array_output_archives("x", [members, members])
+
+
+@pytest.mark.parametrize("member_idx", [[0], [[0, 1]], [-2, 1], [0.0, 1.0]])
+def test_read_array_output_rejects_invalid_member_metadata(
+    empty_workflow: Workflow, tmp_path: Path, member_idx: list
+) -> None:
+    archive = _make_archive(np.array([[1, 2], [3, 4]]), [0, 0])
+    contents = {
+        field.name: getattr(archive, field.name)
+        for field in fields(archive)
+        if field.name not in {"shape", "member_idx"}
+    }
+    buffer = BytesIO()
+    np.savez(buffer, member_idx=np.asarray(member_idx), **contents)
+    path = tmp_path / "bad_members.npz.zst"
+    path.write_bytes(zstd.ZstdCompressor(level=1).compress(buffer.getvalue()))
+    with pytest.raises(ValueError, match="invalid member_idx metadata"):
+        empty_workflow._read_array_output_archive(path)
+
+
 @pytest.mark.parametrize("as_list", [False, True])
 @pytest.mark.parametrize("with_shape", [False, True])
 @pytest.mark.parametrize("dtype", ["float64", "int32"])
@@ -890,7 +923,7 @@ def test_array_output_repr(as_list: bool, with_shape: bool, dtype: str) -> None:
     )
     for name in metadata:
         assert (f"    {name}=[0, 1, 2, 3, 4, 5, 6, 7, 8, ..., 19],") in lines
-    assert lines[-2] == (
+    assert lines[-3] == (
         "    shape=[[2], [2], [2], [2], [2], [2], [2], [2], [2], ..., [2]],"
         if with_shape
         else "    shape=None,"

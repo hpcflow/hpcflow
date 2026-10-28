@@ -68,6 +68,8 @@ class RunTimeInfo:
         self.in_pytest = False  # set in `conftest.py`
         #: Whether this application is being run from the CLI.
         self.from_CLI = False  # set in CLI
+        #: The command line arguments (excluding the program) if run from the CLI.
+        self.cli_args: list[str] | None = None  # set in CLI
 
         if self.is_frozen:
             #: The bundle directory, if frozen.
@@ -338,6 +340,18 @@ class RunTimeInfo:
         cli_path = Path(*app_module.__path__, "cli.py")
 
         return (str(self.python_executable_path), str(cli_path))
+
+    @property
+    def command_line(self) -> list[str] | None:
+        """The full command line used to invoke the app (the invocation command followed
+        by the arguments), if run from the CLI; otherwise None."""
+        if self.cli_args is None:
+            return None
+        try:
+            command = list(self.invocation_command)
+        except RuntimeError:
+            command = [self.name]
+        return [*command, *self.cli_args]
 
     @property
     def is_apple_silicon(self) -> bool:

@@ -341,11 +341,11 @@ def merge_jobscripts_across_tasks(
 
     """
 
-    # The set of IDs of dicts that we've merged, allowing us to not keep that info in
-    # the dicts themselves.
-    merged: set[int] = set()
+    # Map discarded jobscript indices to their surviving merge targets.
+    merged: dict[int, int] = {}
 
     for js_idx, js in jobscripts.items():
+        previous_idx = merged.get(js_idx - 1, js_idx - 1)
         if not js["dependencies"]:
             if js_idx == 0 or not min_jobscripts:
                 if logger:
@@ -359,7 +359,7 @@ def merge_jobscripts_across_tasks(
                 # it has no dependency relationship; skip if not compatible (equal number
                 # of elements):
                 if not (
-                    js["EAR_ID"].shape[1] == jobscripts[js_idx - 1]["EAR_ID"].shape[1]
+                    js["EAR_ID"].shape[1] == jobscripts[previous_idx]["EAR_ID"].shape[1]
                 ):
                     if logger:
                         logger.info(
@@ -368,7 +368,7 @@ def merge_jobscripts_across_tasks(
                         )
                     continue
 
-        closest_idx = cast("int", max(js["dependencies"], default=js_idx - 1))
+        closest_idx = cast("int", max(js["dependencies"], default=previous_idx))
         closest_js = jobscripts[closest_idx]
         other_deps = {k: v for k, v in js["dependencies"].items() if k != closest_idx}
 
@@ -453,7 +453,7 @@ def merge_jobscripts_across_tasks(
                 js_j["EAR_ID"] = np.vstack((js_j["EAR_ID"], js["EAR_ID"]))
 
                 # mark this js as defunct
-                merged.add(id(js))
+                merged[js_idx] = js_j_idx
 
                 # add dependencies that were defined current jobscript (`js_idx`) but not
                 # in `js_j`:
@@ -469,7 +469,7 @@ def merge_jobscripts_across_tasks(
                 )
 
     # remove is_merged jobscripts:
-    return {k: v for k, v in jobscripts.items() if id(v) not in merged}
+    return {k: v for k, v in jobscripts.items() if k not in merged}
 
 
 @TimeIt.decorator

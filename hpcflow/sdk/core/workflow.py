@@ -5,10 +5,12 @@ Main workflow model.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
+import codecs
 from contextlib import contextmanager, nullcontext
 import copy
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from io import BytesIO
+import json
 
 from datetime import datetime, timezone
 from functools import wraps
@@ -27,6 +29,7 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
+from zarr import Array as ZarrArray  # type: ignore
 import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
@@ -60,6 +63,7 @@ from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
 from hpcflow.sdk.core.task_schema import split_save_files_policy
+from hpcflow.sdk.core.template_expressions import resolve_workflow_input_references
 from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
@@ -99,10 +103,12 @@ from hpcflow.sdk.core.utils import (
     normalise_timestamp,
     parse_timestamp,
     get_in_container,
+    get_duplicate_items,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
     InvalidInputSourceTaskReference,
+    TaskTemplateMultipleInputValues,
     LoopAlreadyExistsError,
     OutputFileParserNoOutputError,
     RunNotAbortableError,
@@ -119,6 +125,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
+    from typing import TextIO
     from typing_extensions import Self
     from numpy.typing import NDArray
     import psutil
@@ -129,7 +136,7 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
-    from .parameters import InputSource, ResourceSpec
+    from .parameters import InputSource, InputValue, ResourceSpec
     from .task import Task, WorkflowTask, InputStatus, TaskCondition
     from .imports import Import
     from .types import (
@@ -227,11 +234,22 @@ class WorkflowTemplate(JSONLike):
         template-level resources are ignored.
     merge_envs:
         Whether to merge the environments into task resources.
+    inputs:
+        Shared input values available to tasks, supplied as a list of InputValue objects
+        or a parameter-to-value mapping. Local and upstream task sources take precedence.
     """
 
     _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
+        ChildObjectSpec(
+            name="inputs",
+            class_name="InputValue",
+            is_multiple=True,
+            dict_key_attr="parameter",
+            dict_val_attr="value",
+            parent_ref="_workflow_template",
+        ),
         ChildObjectSpec(
             name="imports",
             class_name="Import",
@@ -285,8 +303,23 @@ class WorkflowTemplate(JSONLike):
     merge_resources: bool = True
     #: Whether to merge the environments into task resources.
     merge_envs: bool = True
+    #: Shared inputs used when no local or upstream task source is available.
+    inputs: list[InputValue] | dict[str, Any] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        #: String variables passed on creation (including defaults used); not persisted
+        #: in the template itself, but recorded in the workflow creation info.
+        self._creation_variables: dict[str, Any] = {}
+        #: Results of `<<calc(...)>>` expressions, keyed by expression.
+        self._creation_calculations: dict[str, Any] = {}
+
+        self.inputs = self._app.InputValue.normalise(self.inputs)
+        if duplicates := get_duplicate_items(
+            [inp.normalised_inputs_path for inp in self.inputs]
+        ):
+            raise TaskTemplateMultipleInputValues(
+                f"Workflow inputs have multiple value definitions: {duplicates!r}."
+            )
 
         # TODO: in what scenario is the reindex required? are loops initialised?
 
@@ -358,6 +391,16 @@ class WorkflowTemplate(JSONLike):
         )
         resources.merge_other(res_defaults)
         return resources
+
+    def _postprocess_to_dict(self, dct: dict[str, Any]) -> dict[str, Any]:
+        dct.pop("_creation_variables", None)
+        dct.pop("_creation_calculations", None)
+        return dct
+
+    @property
+    def _inputs(self) -> dict[str, InputValue]:
+        assert isinstance(self.inputs, list)
+        return {inp.normalised_inputs_path: inp for inp in self.inputs}
 
     @property
     def _resources(self) -> ResourceList:
@@ -453,6 +496,8 @@ class WorkflowTemplate(JSONLike):
         updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
+        used_variables: dict[str, str] | None = None,
     ) -> WorkflowTemplate:
         """
         Generate a new workflow template from template data that has typically been
@@ -471,6 +516,12 @@ class WorkflowTemplate(JSONLike):
             merged into `updates`.
         config
             Any updates to template-level config items. This is merged into `updates`.
+        variables
+            The string variables passed on creation, which are recorded in the creation
+            information of any workflow generated from this template.
+        used_variables
+            Values substituted for string variables (including defaults used), which are
+            also recorded.
 
         """
         updates = updates or {}
@@ -485,6 +536,11 @@ class WorkflowTemplate(JSONLike):
                 f"Updating workflow template data: {upd_path!r} to {upd_val!r}."
             )
             set_in_container(data, upd_path, upd_val, cast_indices=True, ensure_path=True)
+
+        calculations: dict[str, Any] = {}
+        data = resolve_workflow_input_references(
+            data, input_value_cls=cls._app.InputValue, calculations=calculations
+        )
 
         def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
             """
@@ -695,6 +751,8 @@ class WorkflowTemplate(JSONLike):
         #     if isinstance(task.schema, cls._app.MetaTaskSchema):
         #         print(f"{task=!r}")
         #         wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
+        wkt._creation_variables = {**(variables or {}), **(used_variables or {})}
+        wkt._creation_calculations = calculations
         return wkt
 
     @classmethod
@@ -728,15 +786,19 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
             read_YAML_str(
                 string,
                 variables=variables,
                 source="(from the inline workflow template definition)",
+                used_variables=used_variables,
             ),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -787,10 +849,18 @@ class WorkflowTemplate(JSONLike):
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
-        data = read_YAML_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_YAML_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
-        return cls._from_data(data, updates=updates, resources=resources, config=config)
+        return cls._from_data(
+            data,
+            updates=updates,
+            resources=resources,
+            config=config,
+            variables=variables,
+            used_variables=used_variables,
+        )
 
     @classmethod
     @TimeIt.decorator
@@ -823,11 +893,14 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
-            read_JSON_string(string, variables=variables),
+            read_JSON_string(string, variables=variables, used_variables=used_variables),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -862,7 +935,8 @@ class WorkflowTemplate(JSONLike):
             Any updates to template-level config items. This is merged into `updates`.
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
-        data = read_JSON_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_JSON_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
         return cls._from_data(
@@ -870,6 +944,8 @@ class WorkflowTemplate(JSONLike):
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -1028,6 +1104,10 @@ class ArrayOutput:
     one entry. For multiple IDs, ``data`` is stacked when no shape metadata is
     present and all shapes match, otherwise it is a list. ``shape`` is omitted
     when none of the source archives has shape metadata.
+
+    Member outputs have one row per saved member, even for a scalar run ID.
+    ``member_idx`` contains the original outer member indices, or -1 for whole-value
+    entries in mixed archives. It is None for ordinary non-member archives.
     """
 
     name: str
@@ -1042,6 +1122,7 @@ class ArrayOutput:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
     @property
     def dtype(self) -> np.dtype:
@@ -1072,7 +1153,7 @@ class ArrayOutput:
 
 @dataclass(frozen=True)
 class _ArrayOutputArchive:
-    """Array data and per-run metadata loaded from an array-output NPZ archive."""
+    """Array data and per-run/member metadata loaded from an NPZ archive."""
 
     data: np.ndarray
     task_insert_ID: np.ndarray
@@ -1085,6 +1166,7 @@ class _ArrayOutputArchive:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
 
 def _resolve_array_output_dtype(
@@ -1822,6 +1904,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
+        inputs: list[InputValue] | dict[str, Any] | None = None,
     ) -> Workflow:
         """Generate from the data associated with a WorkflowTemplate object.
 
@@ -1836,6 +1919,8 @@ class Workflow(AppAware):
             List of Task objects to add to the new workflow.
         loops:
             List of Loop objects to add to the new workflow.
+        inputs:
+            Shared workflow-template input values. Task sources take precedence.
         resources:
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
@@ -1885,6 +1970,7 @@ class Workflow(AppAware):
             resources=resources,
             environments=environments,
             config=config or {},
+            inputs=inputs or [],
         )
         return cls.from_template(
             template,
@@ -2083,6 +2169,9 @@ class Workflow(AppAware):
                 "user_name": info.get("user_name"),
                 "user_orcid": info.get("user_orcid"),
                 "user_affiliations": info.get("user_affiliations"),
+                "variables": info.get("variables", {}),
+                "calculations": info.get("calculations", {}),
+                "command_line": info.get("command_line"),
             }
         return self._creation_info
 
@@ -2720,7 +2809,14 @@ class Workflow(AppAware):
         for res_i_copy in template._get_resources_copy():
             res_i_copy.make_persistent(grabber, param_src)
 
-        template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
+        inputs_copy = copy.deepcopy(list(template._inputs.values()))
+        for inp in inputs_copy:
+            inp.make_persistent(grabber, {"type": "workflow_input"})
+        template_data = {
+            k: v for k, v in template.to_dict().items() if k not in {"tasks", "loops"}
+        }
+        template_data["inputs"] = inputs_copy
+        template_js_, template_sh = template.to_json_like(dct=template_data)
         template_js: TemplateMeta = {
             **cast("TemplateMeta", template_js_),  # Trust me, bro!
             "tasks": [],
@@ -2744,6 +2840,13 @@ class Workflow(AppAware):
                 "user_name": cls._app.config.user_name,
                 "user_orcid": cls._app.config.user_orcid,
                 "user_affiliations": cls._app.config.user_affiliations,
+                "variables": json.loads(
+                    json.dumps(template._creation_variables, default=str)
+                ),
+                "calculations": json.loads(
+                    json.dumps(template._creation_calculations, default=str)
+                ),
+                "command_line": cls._app.run_time_info.command_line,
             },
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
@@ -2829,6 +2932,11 @@ class Workflow(AppAware):
         """
         Get parameters known to the workflow.
 
+        Output-member references are resolved here to the indexed value from their
+        producing whole output. The member itself remains a deferred reference in
+        persistent storage, so callers should use this API rather than reading the
+        backing store directly.
+
         Parameter
         ---------
         id_lst:
@@ -2839,21 +2947,99 @@ class Workflow(AppAware):
         dataset_copy: bool
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
-        return self._store.get_parameters(id_lst, **kwargs)
+        parameters = self._store.get_parameters(id_lst, **kwargs)
+        parent_ids = {
+            parameter.source["parameter_ID"]
+            for parameter in parameters
+            if parameter.source.get("type") == "output_member"
+        }
+        parents = (
+            {parent.id_: parent for parent in self.get_parameters(parent_ids, **kwargs)}
+            if parent_ids
+            else {}
+        )
+        for idx, parameter in enumerate(parameters):
+            if parameter.source.get("type") != "output_member":
+                continue
+            source = parameter.source
+            parent = parents[source["parameter_ID"]]
+            data = parent.data
+            if parent.is_set:
+                if (
+                    not isinstance(data, (list, tuple, np.ndarray, ZarrArray))
+                    or (hasattr(data, "ndim") and data.ndim == 0)
+                    or len(data) != source["multiplicity"]
+                ):
+                    raise ValueError(
+                        f"Output parameter {source['parameter_ID']} must contain "
+                        f"{source['multiplicity']} members."
+                    )
+                data = data[source["member_idx"]]
+            parameters[idx] = replace(parent, id_=parameter.id_, data=data)
+        return parameters
 
     @TimeIt.decorator
     def get_parameter_sources(self, id_lst: Iterable[int]) -> list[ParamSource]:
         """
         Get parameter sources known to the workflow.
+
+        An output-member reference has the same source as its producing whole
+        output; its member index is metadata for value resolution, not a separate
+        producer.
         """
-        return self._store.get_parameter_sources(id_lst)
+        sources = self._store.get_parameter_sources(id_lst)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_sources(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else source
+            )
+            for source in sources
+        ]
 
     @TimeIt.decorator
     def get_parameter_set_statuses(self, id_lst: Iterable[int]) -> list[bool]:
         """
         Get whether some parameters are set.
+
+        An output-member reference is set exactly when its producing whole output
+        is set.
         """
-        return self._store.get_parameter_set_statuses(id_lst)
+        ids = list(id_lst)
+        sources = self._store.get_parameter_sources(ids)
+        statuses = self._store.get_parameter_set_statuses(ids)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_set_statuses(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else status
+            )
+            for source, status in zip(sources, statuses)
+        ]
 
     @TimeIt.decorator
     def get_parameter(self, index: int, **kwargs) -> StoreParameter:
@@ -2908,13 +3094,13 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameters(range(num_params), **kwargs)
+        return list(self.get_parameters(range(num_params), **kwargs))
 
     @TimeIt.decorator
     def get_all_parameter_sources(self, **kwargs) -> list[ParamSource]:
         """Retrieve all persistent parameters sources."""
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameter_sources(range(num_params), **kwargs)
+        return self.get_parameter_sources(range(num_params))
 
     @TimeIt.decorator
     def get_all_parameter_data(self, **kwargs) -> dict[int, Any]:
@@ -3914,6 +4100,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
+        follow: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -3934,6 +4121,8 @@ class Workflow(AppAware):
             If True, pause before submitting each jobscript, print the new jobscript's
             path and await confirmation before continuing submission. This allows ad hoc
             modifications to the jobscript to be made.
+        follow
+            Require direct schedulers for all outstanding jobscripts before submission.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -3967,6 +4156,13 @@ class Workflow(AppAware):
         if status:
             status.update("Committing to the store...")
         self._store._pending.commit_all()
+
+        if follow:
+            self._validate_follow_jobscripts(
+                sub.jobscripts[js_idx]
+                for sub in pending
+                for js_idx in sub.outstanding_jobscripts
+            )
 
         # submit all pending submissions:
         exceptions: list[SubmissionFailure] = []
@@ -4007,6 +4203,8 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -4027,6 +4225,8 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> None: ...
 
     def submit(
@@ -4046,6 +4246,8 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -4073,6 +4275,16 @@ class Workflow(AppAware):
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
             If True, this command will block until the workflow execution is complete.
+        follow
+            If True, follow jobscript stdout and stderr until execution completes.
+            Implies `wait`. Ctrl+C stops following without cancelling execution.
+            Only direct schedulers are supported; other schedulers are rejected
+            before any jobscripts are submitted.
+        delete
+            If True, permanently delete the workflow, without confirmation, after
+            execution completes, whether or not it succeeded. Implies `wait`. If waiting
+            is interrupted (e.g. by Ctrl+C), the workflow is not deleted. If `cancel` is
+            also True, wait for the cancelled jobscripts to stop before deleting.
         add_to_known
             If True, add the submitted submissions to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -4123,16 +4335,25 @@ class Workflow(AppAware):
                     quiet=quiet,
                     timeit=timeit,
                     enable_script_workers=enable_script_workers,
+                    follow=follow,
                 )
 
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
 
+        finished = False
         if cancel:
             self.cancel(status=status, quiet=quiet)
+            if delete:
+                finished = self.wait(submitted_js, quiet=quiet)
 
-        elif wait:
-            self.wait(submitted_js, quiet=quiet)
+        elif wait or follow or delete:
+            finished = self.wait(submitted_js, quiet=quiet, follow=follow)
+
+        if delete and finished:
+            if not quiet:
+                print(f"Deleting workflow {self.path!r}.")
+            self._delete_no_confirm()
 
         if return_idx:
             return submitted_js
@@ -4149,21 +4370,198 @@ class Workflow(AppAware):
             .completion_obj.is_complete()
         )
 
+    @staticmethod
+    def _validate_follow_jobscripts(jobscripts: Iterable[Jobscript]) -> None:
+        for js in jobscripts:
+            if not isinstance(js.scheduler, DirectScheduler):
+                raise NotImplementedError(
+                    "Following jobscript output is currently supported only for direct "
+                    f"schedulers (submission {js.submission.index}, "
+                    f"jobscript {js.index} uses a non-direct scheduler)."
+                )
+
+    def _follow_jobscripts(self, jobscripts: Sequence[Jobscript], quiet: bool) -> None:
+        """Print jobscript stdout/stderr files as they are written, like ``tail -f``.
+
+        Each jobscript's output files are polled every 0.5 s and any new bytes are
+        printed. Following stops once all jobscripts have exited and their output has
+        been fully read.
+
+        Parameters
+        ----------
+        jobscripts
+            The jobscripts to follow. These must all use a direct scheduler, since
+            checking whether a job is running is done once per poll per jobscript, and
+            is not yet efficient for queued schedulers.
+        quiet
+            If True, do not print a ``==> label <==`` header when the output source
+            changes; only the raw job output is printed.
+
+        Raises
+        ------
+        NotImplementedError
+            If any jobscript does not use a direct scheduler.
+
+        Notes
+        -----
+        - Output is read from the beginning of each file, so output written before
+          following started is also printed.
+        - Separate stderr files are printed to `sys.stderr`. If
+          `resources.combine_jobscript_std` is True, the stdout and stderr paths are the
+          same, so the combined file is read once and printed to `sys.stdout`.
+        - Output files that do not exist yet are skipped until they are created.
+        - Bytes are decoded as UTF-8 incrementally, so a multi-byte character split
+          across reads is not corrupted. Invalid bytes are replaced.
+        - If a file shrinks (e.g. it was truncated or replaced), it is read again from
+          the start.
+        - The running state of each jobscript is checked *before* reading its files.
+          If it was not running, the subsequent read is guaranteed to include all of
+          its output, which is then flushed and the jobscript is no longer followed.
+        - Output is only visible once the job's program has flushed it to disk.
+        """
+        self._validate_follow_jobscripts(jobscripts)
+        # map each unique output file to the stream to print to, and its header label:
+        streams: dict[Path, tuple[TextIO, str]] = {}
+        paths_by_jobscript: list[tuple[Jobscript, list[Path]]] = []
+        for js in jobscripts:
+            paths = []
+            label = f"submission {js.submission.index}, jobscript {js.index}"
+            for path, stream, name in (
+                (js.get_stdout_path(), sys.stdout, "stdout"),
+                (js.get_stderr_path(), sys.stderr, "stderr"),
+            ):
+                if path not in streams:
+                    name = "stdout/stderr" if js.resources.combine_jobscript_std else name
+                    streams[path] = stream, f"{label}, {name}"
+                    paths.append(path)
+            paths_by_jobscript.append((js, paths))
+
+        # number of bytes already read from each file:
+        offsets = dict.fromkeys(streams, 0)
+        decoders = {
+            path: codecs.getincrementaldecoder("utf-8")(errors="replace")
+            for path in streams
+        }
+        last_path: Path | None = None
+
+        def emit(path: Path, text: str) -> None:
+            """Print text from a file, preceded by a header if the source changed."""
+            nonlocal last_path
+            if text:
+                stream, label = streams[path]
+                if not quiet and path != last_path:
+                    print(f"\n==> {label} <==", file=stream, flush=True)
+                print(text, end="", file=stream, flush=True)
+                last_path = path
+
+        while paths_by_jobscript:
+            active = []
+            for js, paths in paths_by_jobscript:
+                # Query the process, not EAR completion: scripts can still
+                # write output after their last EAR finishes.
+                running = bool(
+                    js.scheduler.get_job_state_info(js_refs=[js.scheduler_js_ref])
+                )
+                for path in paths:
+                    try:
+                        handle = path.open("rb")
+                    except FileNotFoundError:
+                        # Jobs may not have created their output files yet.
+                        continue
+                    with handle:
+                        handle.seek(0, os.SEEK_END)
+                        if handle.tell() < offsets[path]:
+                            # file was truncated; start again from the beginning:
+                            offsets[path] = 0
+                            decoders[path].reset()
+                        handle.seek(offsets[path])
+                        while data := handle.read(65536):
+                            emit(path, decoders[path].decode(data))
+                        offsets[path] = handle.tell()
+                    if not running:
+                        # flush any incomplete multi-byte sequence:
+                        emit(path, decoders[path].decode(b"", final=True))
+                if running:
+                    active.append((js, paths))
+            paths_by_jobscript = active
+            if active:
+                time.sleep(0.5)
+
     def wait(
         self,
         sub_js: Mapping[int, Sequence[int]] | None = None,
         quiet: bool = False,
-    ) -> None:
-        """Wait for the completion of specified/all submitted jobscripts."""
+        *,
+        follow: bool = False,
+    ) -> bool:
+        """Wait for specified/all active jobscripts, optionally following their output.
+
+        With `follow=True`, print existing output from the beginning, then stream new
+        output until all selected jobscripts finish. Separate error streams are written
+        to stderr; combined streams are written once to stdout. `quiet` hides status
+        messages and stream headers, but not job output.
+        Following is supported only for direct schedulers. Selecting a non-direct
+        jobscript raises `NotImplementedError` without polling its scheduler.
+
+        Returns
+        -------
+        bool
+            True if all specified jobscripts finished (or none were running), or False
+            if waiting was interrupted by Ctrl+C.
+        """
         try:
-            run_coroutine_sync(self._wait(sub_js=sub_js, quiet=quiet))
+            if follow:
+                sub_js = self._get_wait_jobscripts(sub_js, follow=True)
+                jobscripts = [
+                    self.submissions[sub_idx].jobscripts[js_idx]
+                    for sub_idx, js_indices in sub_js.items()
+                    for js_idx in js_indices
+                ]
+                self._validate_follow_jobscripts(jobscripts)
+                if jobscripts:
+                    if not quiet:
+                        print("Waiting for workflow submissions to finish...")
+                    self._follow_jobscripts(jobscripts, quiet=quiet)
+                    if not quiet:
+                        print("Specified submissions have finished.")
+                elif not quiet:
+                    print("No running jobscripts.")
+            else:
+                run_coroutine_sync(self._wait(sub_js=sub_js, quiet=quiet))
         except KeyboardInterrupt:
             if not quiet:
                 print("No longer waiting (workflow execution will continue).")
+            return False
+        return True
 
     #: Interval between checking the filesystem for jobscript completion, in the event
     #: we are not notified/woken up by ZeroMQ:
     WAIT_STATE_CHECK_INTERVAL = 5 * 60
+
+    def _get_wait_jobscripts(
+        self, sub_js: Mapping[int, Sequence[int]] | None, follow: bool = False
+    ) -> Mapping[int, Sequence[int]]:
+        """Get the jobscripts to wait for, defaulting to all active jobscripts."""
+        if sub_js is not None:
+            return sub_js
+        sub_js_: dict[int, list[int]] = defaultdict(list)
+        if follow:
+            finished_states = EARStatus.get_terminal_states()
+            candidates = [
+                js
+                for sub in self.submissions
+                for js in sub.jobscripts
+                if js.is_submitted
+                and any(ear.status not in finished_states for ear in js.all_EARs)
+            ]
+            self._validate_follow_jobscripts(candidates)
+            for js in candidates:
+                if js.get_active_states():
+                    sub_js_[js.submission.index].append(js.index)
+        else:
+            for sub in self.submissions:
+                sub_js_[sub.index].extend(sub.get_active_jobscripts())
+        return sub_js_
 
     async def _wait(
         self,
@@ -4172,11 +4570,7 @@ class Workflow(AppAware):
     ) -> None:
         """Asynchronously wait for specified/all submitted jobscripts."""
 
-        if not sub_js:
-            sub_js_: DefaultDict[int, list[int]] = defaultdict(list)
-            for sub in self.submissions:
-                sub_js_[sub.index].extend(sub.get_active_jobscripts())
-            sub_js = sub_js_
+        sub_js = self._get_wait_jobscripts(sub_js)
 
         # validate and flatten the requested jobscripts:
         pending: set[tuple[int, int]] = set()
@@ -5026,12 +5420,17 @@ class Workflow(AppAware):
 
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
         """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
-        value = np.asarray(value)
-        if value.dtype.hasobject:
-            raise TypeError(
-                f"Array output {name!r} has object dtype, which cannot be "
-                "stored without pickle."
-            )
+        self._save_array_output_entries(EAR, name, [(None, np.asarray(value))])
+
+    def _save_array_output_entries(
+        self,
+        EAR: ElementActionRun,
+        name: str,
+        entries: Sequence[tuple[int | None, np.ndarray]],
+    ) -> None:
+        """Append a producing run's arrays in one write per logical sub-parameter."""
+        if not entries:
+            raise ValueError(f"No entries supplied for array output {name!r}.")
         if EAR.run_file_ID is None:
             raise ValueError(
                 f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
@@ -5051,69 +5450,57 @@ class Workflow(AppAware):
             "run_ID": EAR.id_,
         }
 
-        array_data = value[np.newaxis, ...]
-        shapes = np.asarray([value.shape], dtype=np.int32)
-        stored_metadata: dict[str, np.ndarray] = {
-            key: np.asarray([metadata_value], dtype=np.int32)
+        dtype = entries[0][1].dtype
+        ndim = entries[0][1].ndim
+        for _, value in entries:
+            if value.dtype.hasobject:
+                raise TypeError(
+                    f"Array output {name!r} has object dtype, which cannot be "
+                    "stored without pickle."
+                )
+            dtype = _resolve_array_output_dtype(
+                name, dtype, value.dtype, action="append to"
+            )
+            if value.ndim != ndim:
+                raise ValueError(
+                    f"Array output {name!r} has different dimensionality across members."
+                )
+        shapes = np.asarray([value.shape for _, value in entries], dtype=np.int32)
+        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+        data = np.zeros((len(entries), *max_shape), dtype=dtype)
+        for idx, (_, value) in enumerate(entries):
+            value_index: tuple[int | slice, ...] = (
+                idx,
+                *(slice(0, dim) for dim in value.shape),
+            )
+            data[value_index] = value
+        stored_metadata = {
+            key: np.full(len(entries), metadata_value, dtype=np.int64)
             for key, metadata_value in metadata_values.items()
         }
+        member_indices = (
+            np.asarray(
+                [idx if idx is not None else -1 for idx, _ in entries], dtype=np.int64
+            )
+            if any(idx is not None for idx, _ in entries)
+            else None
+        )
+        archive = _ArrayOutputArchive(
+            data=data,
+            shape=shapes if not np.all(shapes == shapes[0]) else None,
+            member_idx=member_indices,
+            **stored_metadata,
+        )
+        archives = [archive]
         if archive_path.exists():
-            archive = self._read_array_output_archive(archive_path)
-            previous_data = archive.data
-            # widen fixed-width strings (e.g. <U2 -> <U6); reject other mismatches:
-            stored_dtype = _resolve_array_output_dtype(
-                name, previous_data.dtype, value.dtype, action="append to"
+            previous = self._read_array_output_archive(archive_path)
+            _resolve_array_output_dtype(
+                name, previous.data.dtype, dtype, action="append to"
             )
-            if previous_data.ndim != value.ndim + 1:
-                raise ValueError(
-                    f"Array output {name!r} has {value.ndim} "
-                    f"dimensions, but existing values have "
-                    f"{previous_data.ndim - 1} dimensions."
-                )
-
-            if archive.shape is not None:
-                previous_shapes = archive.shape
-            else:
-                previous_shapes = np.broadcast_to(
-                    previous_data.shape[1:],
-                    (previous_data.shape[0], value.ndim),
-                ).copy()
-            shapes = np.concatenate((previous_shapes, shapes), axis=0)
-
-            max_shape = tuple(
-                max(previous_data.shape[axis + 1], value.shape[axis])
-                for axis in range(value.ndim)
-            )
-            expanded_data = np.zeros(
-                (previous_data.shape[0] + 1, *max_shape), dtype=stored_dtype
-            )
-            previous_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in previous_data.shape[1:]
-            )
-            previous_index: tuple[slice, ...] = (
-                slice(None, -1),
-                *previous_slices,
-            )
-            expanded_data[previous_index] = previous_data
-            value_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in value.shape
-            )
-            value_index: tuple[int | slice, ...] = (-1, *value_slices)
-            expanded_data[value_index] = value
-            array_data = expanded_data
-
-            for key in metadata_values:
-                stored_metadata[key] = np.append(
-                    getattr(archive, key),
-                    np.asarray([metadata_values[key]], dtype=np.int64),
-                )
-
-        archive_data = {"data": array_data, **stored_metadata}
-        if not np.all(shapes == shapes[0]):
-            archive_data["shape"] = shapes
-
+            archives.insert(0, previous)
+        archive_data = self._merge_array_output_archives(name, archives)
         buffer = BytesIO()
-        np.savez(buffer, **archive_data)
+        np.savez(buffer, allow_pickle=False, **archive_data)
         atomic_write(
             archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
         )
@@ -5126,11 +5513,15 @@ class Workflow(AppAware):
 
         Return an :class:`ArrayOutput` with data and all per-run metadata selected
         including repeated IDs. By default, sort lexicographically by task insert ID,
-        element index, iteration index, action index, then run index. Equal keys retain
-        their requested order. With ``sort=False``, preserve the requested order. Data,
+        element index, iteration index, action index, run index, then member index.
+        Equal keys retain their requested order. With ``sort=False``, preserve the
+        requested order. Data,
         metadata, and shapes are reordered together. For a scalar ID, ``data`` is that
-        run's array. For multiple IDs it is stacked when no shape metadata is present
-        and all shapes match, otherwise it is a list.
+        run's array for ordinary outputs. Member outputs retain their leading member
+        axis even for a scalar run ID, with original indices in ``member_idx``.
+        For multiple entries, data is stacked when no shape metadata is present
+        and all shapes match, otherwise it is a list. Sparse sub-parameters contain
+        only members that supplied that array.
 
         Archives are Zstandard-compressed NPZ files in 500-file shard directories,
         optionally merged into one ``consolidated.npz.zst`` per output by
@@ -5147,7 +5538,10 @@ class Workflow(AppAware):
             for archive_path in self._list_array_output_archive_paths(name):
                 archive = self._read_array_output_archive(archive_path)
                 loaded_archives[archive_path] = archive
-                run_files.extend((int(run_ID), archive_path) for run_ID in archive.run_ID)
+                run_files.extend(
+                    (int(run_ID), archive_path)
+                    for run_ID in dict.fromkeys(archive.run_ID)
+                )
         elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
@@ -5180,40 +5574,64 @@ class Workflow(AppAware):
         metadata: dict[str, list[np.ndarray]] = {
             field.name: []
             for field in fields(ArrayOutput)
-            if field.name not in {"name", "data", "shape"}
+            if field.name not in {"name", "data", "shape", "member_idx"}
         }
         output_shapes: list[tuple[int, ...]] = []
         has_shape_metadata = False
+        has_member_metadata = False
+        member_indices: list[int] = []
         for run_ID, archive_path in run_files:
             archive = self._load_array_output_archive(name, archive_path, loaded_archives)
             data, shapes = archive.data, archive.shape
             has_shape_metadata |= shapes is not None
+            has_member_metadata |= archive.member_idx is not None
             matching_indices = np.flatnonzero(archive.run_ID == run_ID)
-            if len(matching_indices) != 1:
+            if not len(matching_indices) or (
+                archive.member_idx is None and len(matching_indices) != 1
+            ):
                 raise ValueError(
                     f"Expected one entry for run ID {run_ID} in array-output archive "
                     f"for {name!r}, found {len(matching_indices)}."
                 )
 
-            archive_idx = int(matching_indices[0])
-            if shapes is None:
-                array_shape = data.shape[1:]
-            else:
-                array_shape = tuple(int(dim) for dim in shapes[archive_idx])
-            array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
-            output_arrays.append(np.array(data[archive_idx][array_slices]))
-            output_shapes.append(array_shape)
-            for key, values in metadata.items():
-                values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
+            if archive.member_idx is not None:
+                selected_members = archive.member_idx[matching_indices]
+                if len(np.unique(selected_members)) != len(selected_members):
+                    raise ValueError(
+                        f"Duplicate member indices for run ID {run_ID} in "
+                        f"array output {name!r}."
+                    )
+                matching_indices = matching_indices[
+                    np.argsort(selected_members, kind="stable")
+                ]
+            for archive_idx in matching_indices:
+                if shapes is None:
+                    array_shape = data.shape[1:]
+                else:
+                    array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+                array_slices: tuple[slice, ...] = tuple(
+                    slice(0, dim) for dim in array_shape
+                )
+                output_arrays.append(np.array(data[archive_idx][array_slices]))
+                output_shapes.append(array_shape)
+                member_indices.append(
+                    int(archive.member_idx[archive_idx])
+                    if archive.member_idx is not None
+                    else -1
+                )
+                for key, values in metadata.items():
+                    values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
 
         combined_metadata = {
             key: np.concatenate(values) for key, values in metadata.items()
         }
+        members = np.asarray(member_indices, dtype=np.int64)
         if sort and not is_single_run:
             order = np.lexsort(
                 tuple(
-                    combined_metadata[key]
+                    members if key == "member_idx" else combined_metadata[key]
                     for key in (
+                        "member_idx",
                         "run_idx",
                         "action_idx",
                         "iteration_idx",
@@ -5224,12 +5642,13 @@ class Workflow(AppAware):
             )
             output_arrays = [output_arrays[idx] for idx in order]
             output_shapes = [output_shapes[idx] for idx in order]
+            members = members[order]
             combined_metadata = {
                 key: values[order] for key, values in combined_metadata.items()
             }
 
         result_data: np.ndarray | list[np.ndarray]
-        if is_single_run:
+        if is_single_run and not has_member_metadata:
             result_data = output_arrays[0]
         elif not has_shape_metadata and all(
             array.shape == output_arrays[0].shape for array in output_arrays[1:]
@@ -5244,6 +5663,7 @@ class Workflow(AppAware):
             shape=(
                 np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
             ),
+            member_idx=members if has_member_metadata else None,
         )
 
     def export_array_output(
@@ -5332,7 +5752,7 @@ class Workflow(AppAware):
             have different dtypes.
         ValueError
             If a named output has no archives, shards differ in dimensionality, or a
-            run ID appears more than once.
+            a run/member pair appears more than once.
         """
         if not self._store._features.edit:
             raise TypeError(
@@ -5408,7 +5828,7 @@ class Workflow(AppAware):
     def _merge_array_output_archives(
         name: str, archives: Sequence[_ArrayOutputArchive]
     ) -> dict[str, np.ndarray]:
-        """Merge archives into NPZ contents, sorted by run ID.
+        """Merge archives into NPZ contents, sorted by run ID then member index.
 
         Entries are zero-padded to the largest shape; ``shape`` is included only when
         entry shapes differ, matching :meth:`_save_array_output`.
@@ -5457,20 +5877,38 @@ class Workflow(AppAware):
         metadata_names = [
             field.name
             for field in fields(_ArrayOutputArchive)
-            if field.name not in {"data", "shape"}
+            if field.name not in {"data", "shape", "member_idx"}
         ]
         metadata = {
             key: np.concatenate([getattr(archive, key) for archive in archives])
             for key in metadata_names
         }
         run_IDs = metadata["run_ID"]
-        unique_IDs, counts = np.unique(run_IDs, return_counts=True)
+        has_members = any(archive.member_idx is not None for archive in archives)
+        member_indices = np.concatenate(
+            [
+                (
+                    archive.member_idx
+                    if archive.member_idx is not None
+                    else np.full(len(archive.run_ID), -1, dtype=np.int64)
+                )
+                for archive in archives
+            ]
+        )
+        keys = np.column_stack((run_IDs, member_indices))
+        unique_IDs, counts = np.unique(keys, axis=0, return_counts=True)
         if np.any(counts > 1):
+            duplicates = unique_IDs[counts > 1]
+            if not has_members:
+                raise ValueError(
+                    f"Cannot consolidate array output {name!r}: run IDs appear more than "
+                    f"once: {duplicates[:, 0].tolist()}."
+                )
             raise ValueError(
                 f"Cannot consolidate array output {name!r}: run IDs appear more than "
-                f"once: {unique_IDs[counts > 1].tolist()}."
+                f"once for the same member: {duplicates.tolist()}."
             )
-        order = np.argsort(run_IDs, kind="stable")
+        order = np.lexsort((member_indices, run_IDs))
         merged: dict[str, np.ndarray] = {
             "data": data[order],
             **{key: values[order] for key, values in metadata.items()},
@@ -5478,6 +5916,8 @@ class Workflow(AppAware):
         shapes = shapes[order]
         if not np.all(shapes == shapes[0]):
             merged["shape"] = shapes
+        if has_members:
+            merged["member_idx"] = member_indices[order]
         return merged
 
     @TimeIt.decorator
@@ -5489,7 +5929,7 @@ class Workflow(AppAware):
             required_names = [
                 field.name
                 for field in fields(_ArrayOutputArchive)
-                if field.name != "shape"
+                if field.name not in {"shape", "member_idx"}
             ]
             if not all(name in archive.files for name in required_names):
                 raise ValueError(
@@ -5500,6 +5940,7 @@ class Workflow(AppAware):
             data = arrays["data"]
             run_ids = arrays["run_ID"]
             shapes = archive["shape"] if "shape" in archive.files else None
+            members = archive["member_idx"] if "member_idx" in archive.files else None
             if data.ndim < 1 or run_ids.ndim != 1:
                 raise ValueError(
                     f"Array-output archive {path} has invalid data or run_ID dimensions."
@@ -5521,7 +5962,15 @@ class Workflow(AppAware):
                 raise ValueError(
                     f"Array-output archive {path} has invalid shape metadata."
                 )
-            return _ArrayOutputArchive(**arrays, shape=shapes)
+            if members is not None and (
+                members.shape != (len(data),)
+                or members.dtype.kind not in "iu"
+                or np.any(members < -1)
+            ):
+                raise ValueError(
+                    f"Array-output archive {path} has invalid member_idx metadata."
+                )
+            return _ArrayOutputArchive(**arrays, shape=shapes, member_idx=members)
 
     def show_all_EAR_statuses(self) -> None:
         """

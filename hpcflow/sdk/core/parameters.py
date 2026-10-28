@@ -675,18 +675,59 @@ class SchemaInput(SchemaParameter):
 @dataclass(init=False)
 @hydrate
 class SchemaOutput(SchemaParameter):
-    """A Parameter as outputted from particular task."""
+    """A Parameter as outputted from particular task.
+
+    Parameters
+    ----------
+    parameter:
+        The parameter supplied by this output.
+    propagation_mode:
+        How this output propagates to downstream tasks.
+    multiplicity:
+        Positive integer number of sourceable members supplied by each producing
+        element, or an input reference such as ``"<<input:p1>>"``. An input
+        reference is resolved for each producing element when workflow elements are
+        built, and must identify an input set to None or a scalar positive integer. For every
+        positive multiplicity, each output value must be a list, tuple, or NumPy array of
+        exactly this length; the length is checked when a downstream member is read.
+        The default, None, supplies the whole output value unchanged, even if that
+        value is a sequence.
+    """
 
     #: The basic parameter this supplies.
     parameter: Parameter
     #: How this output propagates.
     propagation_mode: ParameterPropagationMode
+    #: Number of sourceable output members per element, or None for the whole output.
+    multiplicity: int | str | None = None
 
     def __init__(
         self,
         parameter: Parameter | str,
         propagation_mode: ParameterPropagationMode = ParameterPropagationMode.IMPLICIT,
+        multiplicity: int | str | None = None,
     ):
+        if isinstance(multiplicity, str):
+            prefix, suffix = "<<input:", ">>"
+            if (
+                not multiplicity.startswith(prefix)
+                or not multiplicity.endswith(suffix)
+                or not multiplicity[len(prefix) : -len(suffix)]
+            ):
+                raise TypeError(
+                    "SchemaOutput multiplicity must be None, a positive integer, or an "
+                    "input reference such as '<<input:p1>>'."
+                )
+        elif multiplicity is not None and (
+            isinstance(multiplicity, bool) or not isinstance(multiplicity, int)
+        ):
+            raise TypeError(
+                "SchemaOutput multiplicity must be None, a positive integer, or an input "
+                "reference such as '<<input:p1>>'."
+            )
+        elif multiplicity is not None and multiplicity < 1:
+            raise ValueError("SchemaOutput multiplicity must be a positive integer.")
+        self.multiplicity = multiplicity
         if isinstance(parameter, str):
             self.parameter: Parameter = self._app.Parameter(typ=parameter)
         else:
@@ -705,11 +746,48 @@ class SchemaOutput(SchemaParameter):
         """
         return "output"
 
+    @property
+    def multiplicity_input(self) -> str | None:
+        """Return the schema input named by a dynamic multiplicity, if any."""
+        if not isinstance(self.multiplicity, str):
+            return None
+        return self.multiplicity[len("<<input:") : -len(">>")]
+
+    def resolve_multiplicity(self, input_value: object = NullDefault.NULL) -> int | None:
+        """Resolve and validate this output's fixed or input-driven member count."""
+        if self.multiplicity is None:
+            return None
+        if isinstance(self.multiplicity, int) and not isinstance(self.multiplicity, bool):
+            return self.multiplicity
+
+        input_name = self.multiplicity_input
+        if input_name is None:
+            raise AssertionError("Invalid SchemaOutput multiplicity reference.")
+        if input_value is NullDefault.NULL:
+            raise ValueError(
+                f"SchemaOutput multiplicity input {input_name!r} must be set to None "
+                "or a positive integer when workflow elements are built."
+            )
+        if input_value is None:
+            return None
+        if isinstance(input_value, bool) or not isinstance(input_value, int):
+            raise TypeError(
+                f"SchemaOutput multiplicity input {input_name!r} must be None "
+                "or a positive integer."
+            )
+        if input_value < 1:
+            raise ValueError(
+                f"SchemaOutput multiplicity input {input_name!r} must be a "
+                "positive integer."
+            )
+        return input_value
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
             f"parameter={self.parameter.__class__.__name__}({self.parameter.typ!r}), "
             f"propagation_mode={self.propagation_mode.name!r}"
+            f"{f', multiplicity={self.multiplicity!r}' if self.multiplicity is not None else ''}"
             f")"
         )
 
@@ -1973,6 +2051,7 @@ class AbstractInputValue(JSONLike):
     """Class to represent all sequence-able inputs to a task."""
 
     _workflow: Workflow | None = None
+    _workflow_template: WorkflowTemplate | None = None
     _element_set: ElementSet | None = None
     _schema_input: SchemaInput | None = None
     _value: Any | None = None
@@ -1992,10 +2071,11 @@ class AbstractInputValue(JSONLike):
         out = super()._postprocess_to_dict(d)
         out.pop("_workflow", None)
         out.pop("_schema_input", None)
+        out.pop("_workflow_template", None)
         return out
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: ResourcePersistingWorkflow, source: ParamSource
     ) -> tuple[str, list[int | list[int]], bool]:
         """Save value to a persistent workflow.
 
@@ -2040,6 +2120,8 @@ class AbstractInputValue(JSONLike):
         """
         if self._workflow:
             return self._workflow
+        if self._workflow_template:
+            return self._workflow_template.workflow
         if self._element_set:
             if w_tmpl := self._element_set.task_template.workflow_template:
                 return w_tmpl.workflow
@@ -2114,6 +2196,19 @@ class InputValue(AbstractInputValue, ValuesMixin):
             shared_data_name="parameters",
         ),
     )
+
+    @classmethod
+    def normalise(cls, inputs: list[InputValue] | dict[str, Any]) -> list[InputValue]:
+        """Normalise input values supplied as a list or parameter-to-value mapping."""
+        if isinstance(inputs, dict):
+            out: list[InputValue] = []
+            for key, value in inputs.items():
+                parameter, label = split_param_label(key)
+                assert parameter
+                parameter, _, path = parameter.partition(".")
+                out.append(cls(parameter=parameter, label=label, path=path, value=value))
+            return out
+        return inputs
 
     def __init__(
         self,
@@ -2197,6 +2292,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         obj._value_method_args = _value_method_args
         obj._element_set = self._element_set
         obj._schema_input = self._schema_input
+        obj._workflow_template = self._workflow_template
         return obj
 
     def __repr__(self) -> str:
@@ -2270,7 +2366,7 @@ class InputValue(AbstractInputValue, ValuesMixin):
         return f"inputs.{self.normalised_inputs_path}"
 
     def make_persistent(
-        self, workflow: Workflow, source: ParamSource
+        self, workflow: ResourcePersistingWorkflow, source: ParamSource
     ) -> tuple[str, list[int | list[int]], bool]:
         source = copy.deepcopy(source)
         if self.value_class_method is not None:
@@ -3663,7 +3759,12 @@ class InputSource(JSONLike):
         import_ref: int | str | None = None
         if (
             (
-                source_type in (InputSourceType.LOCAL, InputSourceType.DEFAULT)
+                source_type
+                in (
+                    InputSourceType.LOCAL,
+                    InputSourceType.DEFAULT,
+                    InputSourceType.WORKFLOW,
+                )
                 and len(parts) > 1
             )
             or (source_type is InputSourceType.TASK and len(parts) > 3)
@@ -3738,6 +3839,11 @@ class InputSource(JSONLike):
         Make an instance of an input source that is default.
         """
         return cls(source_type=InputSourceType.DEFAULT)
+
+    @classmethod
+    def workflow(cls) -> Self:
+        """Use an input defined on the workflow template."""
+        return cls(source_type=InputSourceType.WORKFLOW)
 
     @classmethod
     def task(
