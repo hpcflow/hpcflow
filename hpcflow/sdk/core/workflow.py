@@ -4511,7 +4511,7 @@ class Workflow(AppAware):
         """
         try:
             if follow:
-                sub_js = self._get_wait_jobscripts(sub_js, follow=True)
+                sub_js = Workflow._get_wait_jobscripts(self, sub_js, follow=True)
                 jobscripts = [
                     self.submissions[sub_idx].jobscripts[js_idx]
                     for sub_idx, js_indices in sub_js.items()

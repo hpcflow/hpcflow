@@ -330,7 +330,7 @@ def test_zarr_member_array_grouping_respects_multiplicity(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
     decoded = workflow.get_parameter_data(run.data_idx["outputs.p1"])
@@ -350,7 +350,7 @@ def test_zarr_old_member_array_archives_still_decode(
     monkeypatch.setattr(
         workflow._store,
         "_get_run_submission_metadata",
-        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+        lambda IDs: {ID: (0, 0, None, 6, 0) for ID in IDs},
     )
     workflow._store.parameter_cache.clear()
     decoded = workflow.get_parameter_data(run.data_idx["outputs.p1"])
