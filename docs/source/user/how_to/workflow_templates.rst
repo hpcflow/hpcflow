@@ -93,6 +93,11 @@ Workflow templates how-tos
     later. Input-value factories that run during template loading (for example
     ``p1::from_linear_space``) can also supply references; their values are generated
     once and reused by the workflow input and its references.
+    Demo-data file markers (``<<demo_data_file:NAME>>``) in workflow inputs are
+    resolved to local file paths before substitution, including in nested values.
+    For example, a workflow input ``material_parameters: <<demo_data_file:posterior.txt>>``
+    can supply ``file_path: <<input:material_parameters>>`` in a sequence's
+    ``values::from_load_txt`` arguments.
     Missing inputs, cycles, invalid calculations and references to deferred
     values produce errors when loading the template. Task inputs and outputs,
     resource references, and deferred value-class methods cannot supply values for

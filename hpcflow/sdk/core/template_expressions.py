@@ -12,6 +12,7 @@ from typing import Any, TYPE_CHECKING
 
 from hpcflow.sdk.core.errors import TaskTemplateMultipleInputValues
 from hpcflow.sdk.core.utils import get_in_container, split_param_label
+from hpcflow.sdk.core.values import process_demo_data_strings
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.parameters import InputValue
@@ -169,6 +170,8 @@ def resolve_workflow_input_references(
         else:
             value = walk(spec.get("value", spec.get("_value")), ("inputs", name))
         resolving.pop()
+        if input_value_cls is not None:
+            value = process_demo_data_strings(input_value_cls._app, value)
         if has_placeholder(value):
             raise ValueError(
                 f"Workflow input {name!r} contains a deferred reference and cannot be "

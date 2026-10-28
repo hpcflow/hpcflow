@@ -12,6 +12,88 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.core.template_expressions import resolve_workflow_input_references
 
 
+@pytest.mark.parametrize("list_form", [False, True])
+def test_template_demo_data_input_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, list_form: bool
+) -> None:
+    file_path = tmp_path / "posterior.txt"
+
+    def demo_path(name: str) -> Path:
+        assert name == "posterior.txt"
+        return file_path
+
+    monkeypatch.setattr(hf, "get_demo_data_file_path", demo_path)
+    inputs = {
+        "p1": "<<input:p2>>",
+        "p2": {"files": ["<<demo_data_file:posterior.txt>>"]},
+    }
+    data = {
+        "inputs": (
+            [{"parameter": key, "value": value} for key, value in inputs.items()]
+            if list_form
+            else inputs
+        ),
+        "value": "<<input:p1>>",
+        "path": "<<input:p2.files.0>>",
+        "command": "load <<input:p1.files.0>>",
+    }
+    original = copy.deepcopy(data)
+    result = resolve_workflow_input_references(data, input_value_cls=hf.InputValue)
+    assert result["value"] == {"files": [str(file_path)]}
+    assert result["path"] == str(file_path)
+    assert result["command"] == f"load {file_path}"
+    assert data == original
+
+
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_template_demo_data_input_in_load_txt_sequence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str
+) -> None:
+    file_path = tmp_path / "posterior.txt"
+    file_path.write_text("1 2 3 4\n5 6 7 8\n9 10 11 12\n", encoding="utf-8", newline="\n")
+
+    def demo_path(name: str) -> Path:
+        assert name == "posterior.txt"
+        return file_path
+
+    monkeypatch.setattr(hf, "get_demo_data_file_path", demo_path)
+    template = hf.WorkflowTemplate.from_YAML_string(dedent("""\
+        name: demo_data_input_reference
+        inputs:
+          material_parameters: <<demo_data_file:posterior.txt>>
+          num_simulations: 2
+        template_components:
+          task_schemas:
+            - objective: demo_data_input_reference_consumer
+              inputs:
+                - parameter: p1
+        tasks:
+          - schema: demo_data_input_reference_consumer
+            inputs:
+              p1: {}
+            multi_path_sequences:
+              - paths: [inputs.p1.a, inputs.p1.b, inputs.p1.c, inputs.p1.d]
+                values::from_load_txt:
+                  file_path: <<input:material_parameters>>
+                  num_samples: <<input:num_simulations>>
+                  seed: 2
+    """))
+    assert template._inputs["material_parameters"].value == str(file_path)
+    sequence = template.tasks[0].element_sets[0].multi_path_sequences[0]
+    assert sequence._values_method_args is not None
+    assert sequence._values_method_args["file_path"] == str(file_path)
+    assert sequence._values_method_args["num_samples"] == 2
+    wk = hf.Workflow.from_template(template, path=tmp_path, store=store)
+    for workflow in (wk, hf.Workflow(wk.path)):
+        assert workflow.tasks[0].num_elements == 2
+        rows = [
+            [element.get(f"inputs.p1.{key}") for key in "abcd"]
+            for element in workflow.tasks[0].elements
+        ]
+        assert len({tuple(row) for row in rows}) == 2
+        assert all(row in ([1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]) for row in rows)
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
