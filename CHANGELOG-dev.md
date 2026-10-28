@@ -1,4 +1,13 @@
 
+<a name="v0.4.0a8"></a>
+## [v0.4.0a8](https://github.com/hpcflow/hpcflow/compare/v0.4.0a7...v0.4.0a8) - 2026.10.28
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-paramiko
+
+
 <a name="v0.4.0a7"></a>
 ## [v0.4.0a7](https://github.com/hpcflow/hpcflow/compare/v0.4.0a6...v0.4.0a7) - 2026.10.28
 
