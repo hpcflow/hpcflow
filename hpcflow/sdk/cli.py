@@ -91,6 +91,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Literal
     from .app import BaseApp
+    from .core.types import FollowSpec
 
 #: Standard option
 string_option = click.option(
@@ -313,7 +314,7 @@ def _make_API_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
@@ -597,7 +598,7 @@ def _make_workflow_CLI(app: BaseApp):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ):
         """Submit the workflow."""
@@ -669,7 +670,7 @@ def _make_workflow_CLI(app: BaseApp):
     @wait_quiet_opt
     @follow_option
     @_pass_workflow
-    def wait(wf: Workflow, jobscripts: str | None, quiet: bool, follow: bool):
+    def wait(wf: Workflow, jobscripts: str | None, quiet: bool, follow: FollowSpec):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
         wf.wait(sub_js=js_spec, quiet=quiet, follow=follow)
 

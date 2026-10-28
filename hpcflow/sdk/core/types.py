@@ -473,6 +473,14 @@ class ResourcePersistingWorkflow(Protocol):
         """
 
 
+FollowSpec: TypeAlias = "bool | int | Literal['all']"
+"""
+Which jobscript output to follow. `False` disables following; `True` follows all
+non-array jobscripts, and is an error if any selected jobscript is a job array; an
+integer follows that array item of each selected job array (and all non-array
+jobscripts); "all" follows every array item.
+"""
+
 BlockActionKey: TypeAlias = "tuple[int | str, int | str, int | str]"
 """
 The type of indices that locate an action within a submission. The indices represent,

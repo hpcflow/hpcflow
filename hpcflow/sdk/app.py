@@ -126,6 +126,7 @@ if TYPE_CHECKING:
         ElementGroup,
     )
     from .core.enums import ActionScopeType, InputSourceType, TaskSourceType
+    from .core.types import FollowSpec
     from .core.environment import (
         NumCores,
         Environment as _Environment,
@@ -276,7 +277,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
-            follow: bool = False,
+            follow: FollowSpec = False,
             delete: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
@@ -312,7 +313,7 @@ if TYPE_CHECKING:
             status: bool = True,
             quiet: bool = False,
             timeit: bool = False,
-            follow: bool = False,
+            follow: FollowSpec = False,
             delete: bool = False,
         ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow: ...
 
@@ -330,7 +331,7 @@ if TYPE_CHECKING:
             tasks: list[int] | None = None,
             quiet: bool = False,
             timeit: bool = False,
-            follow: bool = False,
+            follow: FollowSpec = False,
             delete: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
@@ -1627,9 +1628,9 @@ class BaseApp(metaclass=Singleton):
             such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
-        follow: bool
-            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
-            Non-direct schedulers are not supported.
+        follow: bool | int | Literal["all"]
+            Follow jobscript stdout and stderr until completion. Implies `wait`. For job
+            arrays, specify the array index to follow, or "all", instead of True.
         delete: bool
             Permanently delete the workflow, without confirmation, after execution
             completes, regardless of success. Implies `wait`. Not deleted if waiting is
@@ -1728,9 +1729,9 @@ class BaseApp(metaclass=Singleton):
             such that they are run sequentially rather than in parallel.
         wait: bool
             If True, this command will block until the workflow execution is complete.
-        follow: bool
-            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
-            Non-direct schedulers are not supported.
+        follow: bool | int | Literal["all"]
+            Follow jobscript stdout and stderr until completion. Implies `wait`. For job
+            arrays, specify the array index to follow, or "all", instead of True.
         delete: bool
             Permanently delete the workflow, without confirmation, after execution
             completes, regardless of success. Implies `wait`. Not deleted if waiting is
@@ -3257,7 +3258,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
@@ -3333,8 +3334,8 @@ class BaseApp(metaclass=Singleton):
         wait
             If True, this command will block until the workflow execution is complete.
         follow
-            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
-            Non-direct schedulers are not supported.
+            Follow jobscript stdout and stderr until completion. Implies `wait`. For job
+            arrays, specify the array index to follow, or "all", instead of True.
         delete
             Permanently delete the workflow, without confirmation, after execution
             completes, regardless of success. Implies `wait`. Not deleted if waiting is
@@ -3577,7 +3578,7 @@ class BaseApp(metaclass=Singleton):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> tuple[_Workflow, Mapping[int, Sequence[int]]] | _Workflow:
         """
@@ -3650,8 +3651,8 @@ class BaseApp(metaclass=Singleton):
         wait
             If True, this command will block until the workflow execution is complete.
         follow
-            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
-            Non-direct schedulers are not supported.
+            Follow jobscript stdout and stderr until completion. Implies `wait`. For job
+            arrays, specify the array index to follow, or "all", instead of True.
         delete
             Permanently delete the workflow, without confirmation, after execution
             completes, regardless of success. Implies `wait`. Not deleted if waiting is
@@ -3735,7 +3736,7 @@ class BaseApp(metaclass=Singleton):
         tasks: list[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """
@@ -3763,8 +3764,8 @@ class BaseApp(metaclass=Singleton):
         wait:
             Whether to wait for the submission to complete.
         follow:
-            Follow direct jobscript stdout and stderr until completion. Implies `wait`.
-            Non-direct schedulers are not supported.
+            Follow jobscript stdout and stderr until completion. Implies `wait`. For job
+            arrays, specify the array index to follow, or "all", instead of True.
         delete:
             Permanently delete the workflow, without confirmation, after execution
             completes, regardless of success. Implies `wait`. Not deleted if waiting is

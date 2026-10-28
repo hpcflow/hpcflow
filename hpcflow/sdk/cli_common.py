@@ -179,17 +179,51 @@ wait_option = click.option(
     is_flag=True,
     default=False,
 )
+class FollowParamType(click.ParamType):
+    """Parameter type for `--follow`: a flag, or an array index, or "all"."""
+
+    name = "ARRAY_ID|all"
+
+    #: Value used when the option is given without a value.
+    FLAG_VALUE = "true"
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, (bool, int)):
+            return value
+        text = str(value).strip().lower()
+        if text == self.FLAG_VALUE:
+            return True
+        if text == "all":
+            return "all"
+        try:
+            idx = int(text)
+        except ValueError:
+            idx = -1
+        if idx < 0:
+            self.fail(
+                f"{value!r} is not a valid array index or 'all'. If it is a command "
+                f"argument, place it before the --follow option.",
+                param,
+                ctx,
+            )
+        return idx
+
+
 #: Standard option
 follow_option = click.option(
     "-f",
     "--follow",
     help=(
-        "Follow direct jobscript stdout and stderr until execution finishes. "
-        "Non-direct schedulers are not supported. Implies --wait. "
-        "Ctrl+C stops following without cancelling execution."
+        "Follow jobscript stdout and stderr until execution finishes. For job arrays, "
+        "specify the array index to follow, or `all` (e.g. `--follow=all`); this is "
+        "required if there are any job arrays. Implies --wait. Ctrl+C stops following "
+        "without cancelling execution."
     ),
-    is_flag=True,
+    type=FollowParamType(),
+    is_flag=False,
+    flag_value=FollowParamType.FLAG_VALUE,
     default=False,
+    metavar="[ARRAY_ID|all]",
 )
 #: Standard option
 delete_option = click.option(

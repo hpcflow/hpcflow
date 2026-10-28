@@ -86,7 +86,6 @@ from hpcflow.sdk.submission.jobscript import (
     resolve_jobscript_dependencies,
 )
 from hpcflow.sdk.submission.enums import JobscriptElementState
-from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.run_file_resolver import get_run_multi_chunk_path
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
@@ -147,6 +146,7 @@ if TYPE_CHECKING:
         WorkflowTemplateTaskData,
         WorkflowTemplateElementSetData,
         BlockActionKey,
+        FollowSpec,
     )
     from ..submission.submission import Submission
     from ..submission.jobscript import (
@@ -166,6 +166,12 @@ if TYPE_CHECKING:
 
     #: Convenience alias
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
+
+
+def _follow_enabled(follow: FollowSpec | None) -> bool:
+    """Whether following is requested; array item 0 is enabled, unlike a plain truth
+    test."""
+    return follow is not None and follow is not False
 
 
 @dataclass
@@ -4100,7 +4106,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -4122,7 +4128,8 @@ class Workflow(AppAware):
             path and await confirmation before continuing submission. This allows ad hoc
             modifications to the jobscript to be made.
         follow
-            Require direct schedulers for all outstanding jobscripts before submission.
+            The jobscript output to follow (see `submit`). Job arrays are rejected before
+            submission unless an array item or "all" is specified.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -4157,11 +4164,14 @@ class Workflow(AppAware):
             status.update("Committing to the store...")
         self._store._pending.commit_all()
 
-        if follow:
+        if _follow_enabled(follow):
             self._validate_follow_jobscripts(
-                sub.jobscripts[js_idx]
-                for sub in pending
-                for js_idx in sub.outstanding_jobscripts
+                (
+                    sub.jobscripts[js_idx]
+                    for sub in pending
+                    for js_idx in sub.outstanding_jobscripts
+                ),
+                follow,
             )
 
         # submit all pending submissions:
@@ -4203,7 +4213,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
@@ -4225,7 +4235,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> None: ...
 
@@ -4246,7 +4256,7 @@ class Workflow(AppAware):
         quiet: bool = False,
         timeit: bool = False,
         enable_script_workers: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
@@ -4277,9 +4287,10 @@ class Workflow(AppAware):
             If True, this command will block until the workflow execution is complete.
         follow
             If True, follow jobscript stdout and stderr until execution completes.
-            Implies `wait`. Ctrl+C stops following without cancelling execution.
-            Only direct schedulers are supported; other schedulers are rejected
-            before any jobscripts are submitted.
+            Implies `wait`. Ctrl+C stops following without cancelling execution. For
+            job arrays, an explicit array item index or "all" must be given instead of
+            True; jobscripts that would be rejected are rejected before any are
+            submitted. Non-array jobscripts are followed in all cases.
         delete
             If True, permanently delete the workflow, without confirmation, after
             execution completes, whether or not it succeeded. Implies `wait`. If waiting
@@ -4347,7 +4358,7 @@ class Workflow(AppAware):
             if delete:
                 finished = self.wait(submitted_js, quiet=quiet)
 
-        elif wait or follow or delete:
+        elif wait or _follow_enabled(follow) or delete:
             finished = self.wait(submitted_js, quiet=quiet, follow=follow)
 
         if delete and finished:
@@ -4371,36 +4382,60 @@ class Workflow(AppAware):
         )
 
     @staticmethod
-    def _validate_follow_jobscripts(jobscripts: Iterable[Jobscript]) -> None:
+    def _validate_follow_jobscripts(
+        jobscripts: Iterable[Jobscript], follow: FollowSpec
+    ) -> None:
+        """Check that the requested `follow` selection is valid for the jobscripts.
+
+        Raises
+        ------
+        ValueError
+            If any jobscript is a job array, and `follow` is True (no array item
+            specified), or is an array index that does not exist for that jobscript.
+        """
         for js in jobscripts:
-            if not isinstance(js.scheduler, DirectScheduler):
-                raise NotImplementedError(
-                    "Following jobscript output is currently supported only for direct "
-                    f"schedulers (submission {js.submission.index}, "
-                    f"jobscript {js.index} uses a non-direct scheduler)."
+            if not js.is_array:
+                continue
+            where = f"submission {js.submission.index}, jobscript {js.index}"
+            if follow is True:
+                raise ValueError(
+                    f"Cannot follow job array ({where}) without specifying the array "
+                    f"item(s). Specify an array index, or 'all' to follow all items."
+                )
+            if follow != "all" and follow not in (js.array_indices or ()):
+                raise ValueError(
+                    f"Array index {follow!r} does not exist for job array ({where})."
                 )
 
-    def _follow_jobscripts(self, jobscripts: Sequence[Jobscript], quiet: bool) -> None:
+    def _follow_jobscripts(
+        self,
+        jobscripts: Sequence[Jobscript],
+        quiet: bool,
+        follow: FollowSpec = True,
+    ) -> None:
         """Print jobscript stdout/stderr files as they are written, like ``tail -f``.
 
-        Each jobscript's output files are polled every 0.5 s and any new bytes are
-        printed. Following stops once all jobscripts have exited and their output has
-        been fully read.
+        Each output file is polled every 0.5 s (less often for very many files) and any
+        new bytes are printed. Following stops once all followed jobscripts (or array
+        items) have completed and their output has been fully read.
 
         Parameters
         ----------
         jobscripts
-            The jobscripts to follow. These must all use a direct scheduler, since
-            checking whether a job is running is done once per poll per jobscript, and
-            is not yet efficient for queued schedulers.
+            The jobscripts to follow.
         quiet
             If True, do not print a ``==> label <==`` header when the output source
             changes; only the raw job output is printed.
+        follow
+            For job array jobscripts, the array index to follow, or "all" to follow all
+            array items. Must not be True if any jobscript is a job array. Non-array
+            jobscripts are always followed.
 
         Raises
         ------
-        NotImplementedError
-            If any jobscript does not use a direct scheduler.
+        ValueError
+            If `follow` is not valid for the jobscripts; see
+            `_validate_follow_jobscripts`.
 
         Notes
         -----
@@ -4409,32 +4444,50 @@ class Workflow(AppAware):
         - Separate stderr files are printed to `sys.stderr`. If
           `resources.combine_jobscript_std` is True, the stdout and stderr paths are the
           same, so the combined file is read once and printed to `sys.stdout`.
-        - Output files that do not exist yet are skipped until they are created.
+        - Output files that do not exist yet (e.g. while a scheduled job is queued) are
+          skipped until they are created.
         - Bytes are decoded as UTF-8 incrementally, so a multi-byte character split
           across reads is not corrupted. Invalid bytes are replaced.
         - If a file shrinks (e.g. it was truncated or replaced), it is read again from
           the start.
-        - The running state of each jobscript is checked *before* reading its files.
-          If it was not running, the subsequent read is guaranteed to include all of
-          its output, which is then flushed and the jobscript is no longer followed.
+        - Completion is determined from the jobscript's completion marker on the
+          filesystem, not by querying the scheduler. The marker is checked *before*
+          reading the files; if it was already present, the subsequent read is
+          guaranteed to include all of the output, which is then flushed and the
+          jobscript (item) is no longer followed. A job that is killed without writing
+          its marker (e.g. exceeding a scheduler time limit) is followed until
+          interrupted.
         - Output is only visible once the job's program has flushed it to disk.
         """
-        self._validate_follow_jobscripts(jobscripts)
+        self._validate_follow_jobscripts(jobscripts, follow)
         # map each unique output file to the stream to print to, and its header label:
         streams: dict[Path, tuple[TextIO, str]] = {}
-        paths_by_jobscript: list[tuple[Jobscript, list[Path]]] = []
+        targets: list[tuple[JobscriptCompletion, int | None, list[Path]]] = []
         for js in jobscripts:
-            paths = []
-            label = f"submission {js.submission.index}, jobscript {js.index}"
-            for path, stream, name in (
-                (js.get_stdout_path(), sys.stdout, "stdout"),
-                (js.get_stderr_path(), sys.stderr, "stderr"),
-            ):
-                if path not in streams:
-                    name = "stdout/stderr" if js.resources.combine_jobscript_std else name
-                    streams[path] = stream, f"{label}, {name}"
-                    paths.append(path)
-            paths_by_jobscript.append((js, paths))
+            if not js.is_array:
+                array_indices: Sequence[int | None] = (None,)
+            elif follow == "all":
+                array_indices = js.array_indices or ()
+            else:
+                array_indices = (int(follow),)
+
+            completion = js.completion_obj
+            for array_idx in array_indices:
+                paths = []
+                label = f"submission {js.submission.index}, jobscript {js.index}"
+                if array_idx is not None:
+                    label += f", array {array_idx}"
+                for path, stream, name in (
+                    (js.get_stdout_path(array_idx=array_idx), sys.stdout, "stdout"),
+                    (js.get_stderr_path(array_idx=array_idx), sys.stderr, "stderr"),
+                ):
+                    if path not in streams:
+                        name = (
+                            "stdout/stderr" if js.resources.combine_jobscript_std else name
+                        )
+                        streams[path] = stream, f"{label}, {name}"
+                        paths.append(path)
+                targets.append((completion, array_idx, paths))
 
         # number of bytes already read from each file:
         offsets = dict.fromkeys(streams, 0)
@@ -4454,13 +4507,18 @@ class Workflow(AppAware):
                 print(text, end="", file=stream, flush=True)
                 last_path = path
 
-        while paths_by_jobscript:
+        # poll less often if there are very many files to check:
+        interval = max(0.5, 0.01 * len(streams))
+
+        while targets:
             active = []
-            for js, paths in paths_by_jobscript:
-                # Query the process, not EAR completion: scripts can still
+            for completion, array_idx, paths in targets:
+                # Check the completion marker, not EAR statuses: scripts can still
                 # write output after their last EAR finishes.
-                running = bool(
-                    js.scheduler.get_job_state_info(js_refs=[js.scheduler_js_ref])
+                complete = (
+                    completion.is_complete()
+                    if array_idx is None
+                    else completion.is_array_item_complete(array_idx)
                 )
                 for path in paths:
                     try:
@@ -4478,30 +4536,37 @@ class Workflow(AppAware):
                         while data := handle.read(65536):
                             emit(path, decoders[path].decode(data))
                         offsets[path] = handle.tell()
-                    if not running:
+                    if complete:
                         # flush any incomplete multi-byte sequence:
                         emit(path, decoders[path].decode(b"", final=True))
-                if running:
-                    active.append((js, paths))
-            paths_by_jobscript = active
+                if not complete:
+                    active.append((completion, array_idx, paths))
+            targets = active
             if active:
-                time.sleep(0.5)
+                time.sleep(interval)
 
     def wait(
         self,
         sub_js: Mapping[int, Sequence[int]] | None = None,
         quiet: bool = False,
         *,
-        follow: bool = False,
+        follow: FollowSpec = False,
     ) -> bool:
         """Wait for specified/all active jobscripts, optionally following their output.
 
-        With `follow=True`, print existing output from the beginning, then stream new
+        With `follow` set, print existing output from the beginning, then stream new
         output until all selected jobscripts finish. Separate error streams are written
         to stderr; combined streams are written once to stdout. `quiet` hides status
         messages and stream headers, but not job output.
-        Following is supported only for direct schedulers. Selecting a non-direct
-        jobscript raises `NotImplementedError` without polling its scheduler.
+
+        Parameters
+        ----------
+        follow
+            False to not follow output. True to follow all non-array jobscripts;
+            selecting a job array jobscript with True raises a `ValueError`, since the
+            array item(s) must be explicit. Specify an integer to follow that array item
+            of each selected job array, or "all" to follow all array items. Non-array
+            jobscripts are followed regardless.
 
         Returns
         -------
@@ -4510,18 +4575,18 @@ class Workflow(AppAware):
             if waiting was interrupted by Ctrl+C.
         """
         try:
-            if follow:
+            if _follow_enabled(follow):
                 sub_js = Workflow._get_wait_jobscripts(self, sub_js, follow=True)
                 jobscripts = [
                     self.submissions[sub_idx].jobscripts[js_idx]
                     for sub_idx, js_indices in sub_js.items()
                     for js_idx in js_indices
                 ]
-                self._validate_follow_jobscripts(jobscripts)
+                self._validate_follow_jobscripts(jobscripts, follow)
                 if jobscripts:
                     if not quiet:
                         print("Waiting for workflow submissions to finish...")
-                    self._follow_jobscripts(jobscripts, quiet=quiet)
+                    self._follow_jobscripts(jobscripts, quiet=quiet, follow=follow)
                     if not quiet:
                         print("Specified submissions have finished.")
                 elif not quiet:
@@ -4546,6 +4611,7 @@ class Workflow(AppAware):
             return sub_js
         sub_js_: dict[int, list[int]] = defaultdict(list)
         if follow:
+            # skip jobscripts with no unfinished runs to avoid querying their schedulers:
             finished_states = EARStatus.get_terminal_states()
             candidates = [
                 js
@@ -4554,7 +4620,6 @@ class Workflow(AppAware):
                 if js.is_submitted
                 and any(ear.status not in finished_states for ear in js.all_EARs)
             ]
-            self._validate_follow_jobscripts(candidates)
             for js in candidates:
                 if js.get_active_states():
                     sub_js_[js.submission.index].append(js.index)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from collections.abc import Sequence
 
@@ -116,7 +117,7 @@ class JobscriptCompletion:
             (children_path / f"{child.name}_complete").exists() for child in node.children
         )
 
-    @property
+    @cached_property
     def array_tree(self) -> ArrayCompletionTree:
         if self.array_indices is None:
             raise ValueError("Jobscript is not a job array.")
