@@ -1,0 +1,19 @@
+/* Let Furo handle navigation, search and colour modes. */
+.announcement { background: var(--color-background-secondary); color: var(--color-foreground-primary); border-bottom: 1px solid var(--color-background-border); }
+.announcement-content { max-width: none; padding: .7rem 1.2rem; }
+.section-nav { display: flex; gap: 1.6rem; align-items: center; flex-wrap: wrap; }
+.section-nav a { color: var(--color-foreground-primary); text-decoration: none; font-size: .9rem; }
+.section-nav a:hover, .section-nav a[aria-current] { color: var(--color-brand-primary); text-decoration: underline; text-underline-offset: .4rem; }
+.section-nav .project-home { font-weight: 750; margin-right: auto; font-size: 1.15rem; }
+.preview-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--color-foreground-muted); }
+.hero-kicker { color: var(--color-brand-primary); text-transform: uppercase; letter-spacing: .15em; font-weight: 700; font-size: .8rem; }
+.sd-card { border-radius: .65rem; box-shadow: none; }
+.sd-card:hover { border-color: var(--color-brand-primary); }
+article h1 { letter-spacing: -.035em; }
+.workflow-map { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; margin: 1.8rem 0; }
+.workflow-map span { border: 1px solid var(--color-background-border); border-radius: .5rem; padding: .75rem 1rem; background: var(--color-background-secondary); }
+@media (max-width: 720px) {
+  .section-nav { gap: .8rem; }
+  .section-nav .project-home { width: 100%; }
+  .preview-label { display: none; }
+}

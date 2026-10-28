@@ -1,0 +1,10 @@
+{% extends "!page.html" %}
+{% block announcement %}
+<nav class="section-nav" aria-label="Main sections">
+  <a class="project-home" href="{{ pathto('index') }}">{{ project }}</a>
+  {% for target, label in sections %}
+  <a href="{{ pathto(target) }}"{% if pagename.split('/')[0] == target.split('/')[0] %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <span class="preview-label">Preview</span>
+</nav>
+{% endblock %}

@@ -1,0 +1,8 @@
+template_components:
+  task_schemas:
+    - objective: hello
+      actions:
+        - commands:
+            - command: echo "Hello from a workflow"
+tasks:
+  - schema: hello

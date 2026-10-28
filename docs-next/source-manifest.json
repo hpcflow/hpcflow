@@ -1,0 +1,19 @@
+{
+  "hpcflow": {
+    "commit": "7aa0b37c444a3850c1d30e7d1fccc3f2696aeb66",
+    "data_has_local_changes": false,
+    "sha256": {
+      "hpcflow/data/workflows/workflow_1.yaml": "c95adc6e0a02d01f0c881ae5e6f0716f201e38b22187cf82a8c543d0be02439a"
+    }
+  },
+  "matflow": {
+    "commit": "1eec25503f153e6779d9253b660816bd7204d8d0",
+    "data_has_local_changes": true,
+    "sha256": {
+      "matflow/data/workflows/generate_volume_element_from_statistics.yaml": "068f9bc71d950243cf237a67a39b80c29460f0de6cc9d2dea83c0c6609d6d584",
+      "matflow/data/workflows/sample_texture_random.yaml": "cfa471d65f58456d16da7520ad1ae6951b86476853ce6bb28103a4c4736b7921",
+      "matflow/data/workflows/tension_DAMASK_Al.yaml": "904917456c0e0a168d1a139ebb3fdffe47599ebac31117ce2be888c8db1be2e5",
+      "matflow/data/workflows/subset_simulation_toy_model.yaml": "2fda39bbe24943af4f59fde4b608eda0bf9eb8d8763416770b589f5ecb2e0139"
+    }
+  }
+}
