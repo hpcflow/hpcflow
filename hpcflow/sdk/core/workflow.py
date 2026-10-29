@@ -4483,7 +4483,9 @@ class Workflow(AppAware):
                 ):
                     if path not in streams:
                         name = (
-                            "stdout/stderr" if js.resources.combine_jobscript_std else name
+                            "stdout/stderr"
+                            if js.resources.combine_jobscript_std
+                            else name
                         )
                         streams[path] = stream, f"{label}, {name}"
                         paths.append(path)

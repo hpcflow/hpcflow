@@ -179,6 +179,8 @@ wait_option = click.option(
     is_flag=True,
     default=False,
 )
+
+
 class FollowParamType(click.ParamType):
     """Parameter type for `--follow`: a flag, or an array index, or "all"."""
 
