@@ -3,7 +3,7 @@
 <nav class="section-nav" aria-label="Main sections">
   <a class="project-home" href="{{ pathto('index') }}">{{ project }}</a>
   {% for target, label in sections %}
-  <a href="{{ pathto(target) }}"{% if pagename.split('/')[0] == target.split('/')[0] %} aria-current="page"{% endif %}>{{ label }}</a>
+  <a href="{{ pathto(target) }}"{% if active_section and active_section[0] == target %} aria-current="{{ 'page' if pagename == target else 'true' }}"{% endif %}>{{ label }}</a>
   {% endfor %}
   <span class="preview-label">Preview</span>
 </nav>

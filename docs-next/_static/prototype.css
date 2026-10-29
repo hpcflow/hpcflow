@@ -6,6 +6,9 @@
 .section-nav a:hover, .section-nav a[aria-current] { color: var(--color-brand-primary); text-decoration: underline; text-underline-offset: .4rem; }
 .section-nav .project-home { font-weight: 750; margin-right: auto; font-size: 1.15rem; }
 .preview-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--color-foreground-muted); }
+.sidebar-section-title { padding: 1rem var(--sidebar-item-spacing-horizontal) .5rem; font-weight: 700; }
+.sidebar-section-title a { color: var(--color-brand-primary); text-decoration: none; }
+.sidebar-section-title a:hover, .sidebar-section-title a[aria-current] { text-decoration: underline; }
 .hero-kicker { color: var(--color-brand-primary); text-transform: uppercase; letter-spacing: .15em; font-weight: 700; font-size: .8rem; }
 .sd-card { border-radius: .65rem; box-shadow: none; }
 .sd-card:hover { border-color: var(--color-brand-primary); }

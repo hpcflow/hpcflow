@@ -10,7 +10,7 @@ def configure(name, namespace):
         author=f"{name} contributors",
         copyright=f"2026, {name} contributors",
         root_doc="index",
-        extensions=["sphinx_design", "sphinx_copybutton"],
+        extensions=["sphinx_design", "sphinx_copybutton", "section_navigation"],
         html_theme="furo",
         html_title=f"{name} documentation",
         html_static_path=[str(ROOT / "_static")],

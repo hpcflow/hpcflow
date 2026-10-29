@@ -3,7 +3,12 @@
 This directory contains three independent Sphinx/Furo sites: `hpcflow/`,
 `matflow/`, and `matflow-landing/`. Furo is the theme used by the pipx site
 inspected for this prototype: <https://pipx.pypa.io/stable/index.html>.
-The five-section horizontal navigation is a small addition to Furo.
+The five-section horizontal navigation is a small addition to Furo. Selecting a
+section opens its overview and shows only that section's pages in the left sidebar.
+Nested pages keep the same section active, with expandable groups and the current
+page highlighted. Home and search pages show a short site menu instead. The
+sidebar is generated from the existing Sphinx toctrees by `section_navigation.py`;
+adding a page to a section's toctree also adds it to that section's sidebar.
 Light/dark mode, mobile navigation, search and copy buttons use the theme and
 Sphinx extensions. No application import or notebook execution is needed.
 

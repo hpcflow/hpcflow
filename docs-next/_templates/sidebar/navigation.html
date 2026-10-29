@@ -1,0 +1,8 @@
+{% if active_section %}
+<div class="sidebar-section-title">
+  <a href="{{ pathto(active_section[0]) }}"{% if section_overview_current %} aria-current="page"{% endif %}>{{ active_section[1] }}</a>
+</div>
+{% endif %}
+<nav class="sidebar-tree" aria-label="{{ active_section[1] if active_section else 'Site' }} navigation">
+  {{ section_navigation_tree if section_navigation_tree is defined else furo_navigation_tree }}
+</nav>
