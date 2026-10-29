@@ -6,6 +6,8 @@ import pytest
 
 import hpcflow.app as hf
 from hpcflow.sdk.submission.shells import ALL_SHELLS
+from hpcflow.sdk.submission.shells.bash import Bash
+from hpcflow.sdk.submission.shells.powershell import WindowsPowerShell
 
 
 def test_process_JS_header_args_app_invoc_windows_powershell() -> None:
@@ -135,3 +137,15 @@ def test_executable_args_bash_login(tmp_path: Path):
     )
     wk.submit(wait=True, status=False, add_to_known=False)
     assert wk.submissions[0].jobscripts[0].get_stdout().strip() == "Login shell"
+
+
+def test_bash_format_config_overrides():
+    shell = Bash()
+    out = shell.format_config_overrides({"foo": "bar bar"})
+    assert out == "        --with-config foo 'bar bar'\\\n"
+
+
+def test_powershell_format_config_overrides():
+    shell = WindowsPowerShell()
+    out = shell.format_config_overrides({"foo": "bar bar"})
+    assert out == "            --with-config 'foo' 'bar bar'`\n"

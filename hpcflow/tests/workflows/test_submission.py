@@ -2,6 +2,15 @@ import os
 from pathlib import Path
 import pytest
 from hpcflow.app import app as hf
+from hpcflow.tests.workflows.conftest import (
+    assert_wk_1_repeats_success,
+)
+from hpcflow.sdk.core.test_utils import (
+    almost_submit,
+    launch_forced_array_item,
+    wait_for_array_item_completion,
+    wait_for_jobscript_completion,
+)
 
 
 @pytest.mark.integration
@@ -138,3 +147,39 @@ def test_multiple_jobscript_functions_files(tmp_path):
     assert funcs_0.is_file()
     assert funcs_1.is_file()
     assert funcs_0 != funcs_1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_forced_array_execution(wk_1_repeats_2):
+    """Test completion tracking for a forced direct job array.
+
+    Execute the array items out of order and verify that completing individual items does
+    not prematurely mark the whole jobscript as complete. Once the final item completes,
+    verify that the array completion state is consolidated to the jobscript-level
+    completion marker and the intermediate array state is removed.
+
+    """
+    prepared = almost_submit(wk_1_repeats_2, force_array=True, status=False)
+    sub = wk_1_repeats_2.submissions[-1]
+    js = sub.jobscripts[0]
+
+    assert js.array_indices is not None
+
+    completion = js.completion_obj
+
+    # deliberately don't execute in array-index order.
+    array_indices = tuple(reversed(js.array_indices))
+
+    for array_idx in array_indices[:-1]:
+        launch_forced_array_item(js, prepared, array_idx)
+        await wait_for_array_item_completion(completion, array_idx)
+        assert not completion.is_complete()
+
+    final_idx = array_indices[-1]
+    launch_forced_array_item(js, prepared, final_idx)
+    await wait_for_jobscript_completion(completion)
+
+    assert completion.is_complete()
+    assert not completion.array_path.exists()
+    assert_wk_1_repeats_success(wk_1_repeats_2)

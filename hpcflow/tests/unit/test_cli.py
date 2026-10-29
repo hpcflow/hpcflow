@@ -9,6 +9,7 @@ from hpcflow import __version__
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
+    _make_internal_CLI,
     _make_API_CLI,
     _make_workflow_CLI,
     _make_zip_CLI,
@@ -25,6 +26,33 @@ def test_cli_submit_follow(option: list[str]) -> None:
     result = CliRunner().invoke(command, option, obj=workflow)
     assert result.exit_code == 0, result.output
     assert workflow.submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize(
+    ("option", "expected"),
+    [
+        (["--follow=all"], "all"),
+        (["--follow=0"], 0),
+        (["--follow", "3"], 3),
+        (["-f", "all"], "all"),
+    ],
+)
+def test_cli_submit_follow_array_spec(option: list[str], expected: object) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["follow"] == expected
+    assert type(workflow.submit.call_args.kwargs["follow"]) is type(expected)
+
+
+@pytest.mark.parametrize("value", ["foo", "-1"])
+def test_cli_submit_follow_invalid(value: str) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, [f"--follow={value}"], obj=workflow)
+    assert result.exit_code != 0
+    workflow.submit.assert_not_called()
 
 
 @pytest.mark.parametrize("option", [[], ["--delete"]])
@@ -77,6 +105,13 @@ def test_cli_go_delete(demo: bool, option: list[str]) -> None:
     result = CliRunner().invoke(command, ["workflow.yaml", *option])
     assert result.exit_code == 0, result.output
     assert submit.call_args.kwargs["delete"] == bool(option)
+
+
+def test_cli_retired_combined_execution_command_removed():
+    workflow_cli = _make_internal_CLI(hf).commands["workflow"]
+    assert isinstance(workflow_cli, click.Group)
+    assert "execute-combined-runs" not in workflow_cli.commands
+    assert "execute-jobscript" in workflow_cli.commands
 
 
 @pytest.mark.parametrize(

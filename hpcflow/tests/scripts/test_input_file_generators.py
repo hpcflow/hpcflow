@@ -7,6 +7,9 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize(
     ("schema_save_files", "task_save_files", "saved"),
@@ -18,7 +21,7 @@ from hpcflow.app import app as hf
     ],
 )
 def test_input_file_generator_creates_file(
-    tmp_path, store, schema_save_files, task_save_files, saved
+    tmp_path, store, schema_save_files, task_save_files, saved, enable_script_workers
 ):
 
     hf.config._show(metadata=True)
@@ -57,7 +60,9 @@ def test_input_file_generator_creates_file(
         path=tmp_path,
         store=store,
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
+    assert all(run.success and run.end_time for run in wk.get_all_EARs())
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
 
     run_0 = wk.get_all_EARs()[0]
     param_id = run_0.data_idx["input_files.my_input_file"]

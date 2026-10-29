@@ -440,8 +440,16 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_
     assert len(sub.jobscripts[2].blocks) == 2
 
 
-def test_combine_scripts_unset_False_jobscript_hash_equivalence(tmp_path):
+def test_combine_scripts_unset_False_jobscript_hash_equivalence(tmp_path, monkeypatch):
+    def unexpected_worker_generation(*args, **kwargs):
+        pytest.fail("Production submissions must not generate script workers yet.")
 
+    monkeypatch.setattr(
+        "hpcflow.sdk.submission.submission.ScriptWriter.create",
+        unexpected_worker_generation,
+    )
+
+    # TODO: why if we have two python envs defined does the test see them?
     s1 = hf.TaskSchema(
         objective="t1",
         actions=[
@@ -467,6 +475,7 @@ def test_combine_scripts_unset_False_jobscript_hash_equivalence(tmp_path):
         path=tmp_path,
     )
     sub = wk.add_submission()
+    assert all(not run.use_script_worker for run in wk.get_all_EARs())
 
     # test that even though `combine_scripts` is not set on second action (because it is
     # not a Python script action), the resources have an equivalent hash and thus only one

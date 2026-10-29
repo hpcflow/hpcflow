@@ -2894,7 +2894,8 @@ class ResourceSpec(JSONLike):
     combine_jobscript_std: bool
         Whether jobscript standard output and error streams should be combined.
     combine_scripts: bool
-        Whether Python scripts should be combined.
+        Retired execution option retained for stored-data compatibility. Must be False
+        or unset for execution; opt in to script workers for interpreter reuse instead.
     time_limit: str
         How long to run for.
     scheduler_args: dict[str, Any]

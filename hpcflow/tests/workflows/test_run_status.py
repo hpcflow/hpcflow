@@ -8,8 +8,12 @@ from hpcflow.sdk.core.actions import EARStatus
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
-def test_run_status_fail_when_missing_script_output_data_file(tmp_path, combine_scripts):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_run_status_fail_when_missing_script_output_data_file(
+    tmp_path, enable_script_workers
+):
 
     s1 = hf.TaskSchema(
         objective="t1",
@@ -37,19 +41,25 @@ def test_run_status_fail_when_missing_script_output_data_file(tmp_path, combine_
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
-    tmp_path, combine_scripts
+    tmp_path, enable_script_workers
 ):
 
     out_file_name = "my_output_file.txt"
@@ -93,19 +103,25 @@ def test_run_status_fail_when_missing_script_output_data_file_OFP_fail(
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.success
     assert runs[1].status is EARStatus.error
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
-def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_run_status_fail_when_missing_IFG_input_file(tmp_path, enable_script_workers):
 
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
@@ -148,19 +164,25 @@ def test_run_status_fail_when_missing_IFG_input_file(tmp_path, combine_scripts):
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error  # no input file to save
     assert runs[1].status is EARStatus.error  # no input file to consume
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
-def test_run_status_fail_when_action_save_file(tmp_path, combine_scripts):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_run_status_fail_when_action_save_file(tmp_path, enable_script_workers):
 
     my_file = hf.FileSpec(label="my_file", name="my_file.txt")
 
@@ -187,10 +209,14 @@ def test_run_status_fail_when_action_save_file(tmp_path, combine_scripts):
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error  # no file to save

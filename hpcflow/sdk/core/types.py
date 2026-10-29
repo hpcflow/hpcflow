@@ -3,6 +3,7 @@ Types to support the core SDK.
 """
 
 from __future__ import annotations
+from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 
@@ -58,7 +59,7 @@ class JobscriptSubmissionFailureArgs(TypedDict):
     #: The jobscript index.
     js_idx: int
     #: The jobscript path.
-    js_path: str
+    js_path: Path
     #: Where to write stdout.
     stdout: NotRequired[str]
     #: Where to write stderr.
@@ -471,6 +472,14 @@ class ResourcePersistingWorkflow(Protocol):
         Check if all the parameters exist.
         """
 
+
+FollowSpec: TypeAlias = "bool | int | Literal['all']"
+"""
+Which jobscript output to follow. `False` disables following; `True` follows all
+non-array jobscripts, and is an error if any selected jobscript is a job array; an
+integer follows that array item of each selected job array (and all non-array
+jobscripts); "all" follows every array item.
+"""
 
 BlockActionKey: TypeAlias = "tuple[int | str, int | str, int | str]"
 """

@@ -12,13 +12,13 @@ from hpcflow.sdk.core.test_utils import (
     make_test_data_YAML_workflow,
     make_workflow_to_run_command,
 )
+from hpcflow.sdk.wait.run_wait import RunWaitEvent
 
 
 @pytest.mark.integration
-def test_workflow_1(tmp_path: Path):
-    wk = make_test_data_YAML_workflow("workflow_1.yaml", path=tmp_path)
-    wk.submit(wait=True, add_to_known=False)
-    p2 = wk.tasks[0].elements[0].outputs.p2
+def test_workflow_1(workflow_1):
+    workflow_1.submit(wait=True, add_to_known=False)
+    p2 = workflow_1.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
     assert p2.value == "201"
 
@@ -35,30 +35,24 @@ def test_workflow_1_with_working_dir_with_spaces(tmp_path: Path):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(
-    sys.platform == "darwin", reason="fails/too slow; need to investigate"
-)
 def test_run_abort(tmp_path: Path):
     wk = make_test_data_YAML_workflow("workflow_test_run_abort.yaml", path=tmp_path)
     wk.submit(add_to_known=False)
 
-    # wait for the run to start;
-    # TODO: instead of this: we should add a `wait_to_start=RUN_ID` method to submit()
-    max_wait_iter = 15
-    aborted = False
-    for _ in range(max_wait_iter):
-        time.sleep(4)
-        try:
-            wk.abort_run()  # single task and element so no need to disambiguate
-        except ValueError:
-            continue
-        else:
-            aborted = True
-            break
-    if not aborted:
-        raise RuntimeError("Could not abort the run")
+    try:
+        # wait for the run to start, so we can abort it:
+        wk.wait_for_runs([0], event=RunWaitEvent.START)
 
-    wk.wait()
+        # single task and element so no need to disambiguate:
+        wk.abort_run()
+
+        # wait for the second action to run:
+        wk.wait()
+
+    except BaseException:
+        wk.cancel()
+        raise
+
     assert wk.tasks[0].outputs.is_finished[0].value == "true"
 
 

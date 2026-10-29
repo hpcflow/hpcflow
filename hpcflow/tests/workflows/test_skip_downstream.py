@@ -7,7 +7,7 @@ from hpcflow.sdk.core.actions import EARStatus
 
 
 @pytest.mark.integration
-def test_skip_downstream_on_failure_true_combine_scripts(tmp_path):
+def test_skip_downstream_on_failure_true_grouped_workers(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -72,11 +72,10 @@ def test_skip_downstream_on_failure_true_combine_scripts(tmp_path):
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": True,
-                "combine_scripts": True,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(wait=True, add_to_known=False, status=False, enable_script_workers=True)
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -87,7 +86,7 @@ def test_skip_downstream_on_failure_true_combine_scripts(tmp_path):
 
 
 @pytest.mark.integration
-def test_skip_downstream_on_failure_false_combine_scripts(tmp_path):
+def test_skip_downstream_on_failure_false_grouped_workers(tmp_path):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -152,11 +151,10 @@ def test_skip_downstream_on_failure_false_combine_scripts(tmp_path):
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": True,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(wait=True, add_to_known=False, status=False, enable_script_workers=True)
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -167,7 +165,10 @@ def test_skip_downstream_on_failure_false_combine_scripts(tmp_path):
 
 
 @pytest.mark.integration
-def test_skip_downstream_on_failure_true(tmp_path):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_skip_downstream_on_failure_true(tmp_path, enable_script_workers):
     s1, s2 = make_schemas(
         ({"p1": None}, ("p2",), "t1"),
         ({"p2": None}, ("p3",), "t2"),
@@ -205,7 +206,12 @@ def test_skip_downstream_on_failure_true(tmp_path):
         tasks=tasks,
         resources={"any": {"write_app_logs": True, "skip_downstream_on_failure": True}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -216,7 +222,10 @@ def test_skip_downstream_on_failure_true(tmp_path):
 
 
 @pytest.mark.integration
-def test_skip_downstream_on_failure_false(tmp_path):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_skip_downstream_on_failure_false(tmp_path, enable_script_workers):
     s1, s2 = make_schemas(
         ({"p1": None}, ("p2",), "t1"),
         ({"p2": None}, ("p3",), "t2"),
@@ -254,7 +263,12 @@ def test_skip_downstream_on_failure_false(tmp_path):
         tasks=tasks,
         resources={"any": {"write_app_logs": True, "skip_downstream_on_failure": False}},
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -266,9 +280,11 @@ def test_skip_downstream_on_failure_false(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", ["UNSET", None, False, 0.0, 0])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_skip_downstream_on_failure_false_expected_failure(
-    tmp_path, allow_failed_dependencies, combine_scripts
+    tmp_path, allow_failed_dependencies, enable_script_workers
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -317,11 +333,15 @@ def test_skip_downstream_on_failure_false_expected_failure(
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.error
@@ -330,9 +350,11 @@ def test_skip_downstream_on_failure_false_expected_failure(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", [True, 1.0, 1])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependencies(
-    tmp_path, allow_failed_dependencies, combine_scripts
+    tmp_path, allow_failed_dependencies, enable_script_workers
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -382,11 +404,15 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.error
@@ -404,9 +430,11 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
         1,
     ],
 )
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_skip_downstream_on_failure_false_expected_failure_group(
-    tmp_path, allow_failed_dependencies, combine_scripts
+    tmp_path, allow_failed_dependencies, enable_script_workers
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -463,11 +491,15 @@ def test_skip_downstream_on_failure_false_expected_failure_group(
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -478,9 +510,11 @@ def test_skip_downstream_on_failure_false_expected_failure_group(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("allow_failed_dependencies", [True, 0.4, 1])
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependencies_group(
-    tmp_path, allow_failed_dependencies, combine_scripts
+    tmp_path, allow_failed_dependencies, enable_script_workers
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -537,11 +571,15 @@ def test_skip_downstream_on_failure_false_handled_failure_allow_failed_dependenc
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
 
     assert runs[0].status is EARStatus.success
@@ -641,9 +679,11 @@ def test_unset_parameters_found_when_writing_script_input_file(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [True, False])
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 def test_unset_parameters_found_when_py_script_gets_direct_inputs(
-    tmp_path, combine_scripts
+    tmp_path, enable_script_workers
 ):
     cmd_ps = "echo <<parameter:p0>>; exit 1"
     cmd_bash = "exit; echo <<parameter:p0>>"
@@ -686,11 +726,15 @@ def test_unset_parameters_found_when_py_script_gets_direct_inputs(
             "any": {
                 "write_app_logs": True,
                 "skip_downstream_on_failure": False,
-                "combine_scripts": combine_scripts,
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error
     assert runs[1].status is EARStatus.error

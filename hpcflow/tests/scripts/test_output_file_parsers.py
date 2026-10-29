@@ -8,13 +8,18 @@ from hpcflow.app import app as hf
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+@pytest.mark.parametrize(
     ("schema_save_files", "saved"),
     [
         (None, False),
         (["my_output_file"], True),
     ],
 )
-def test_output_file_parser_parses_file(tmp_path, schema_save_files, saved):
+def test_output_file_parser_parses_file(
+    tmp_path, schema_save_files, saved, enable_script_workers
+):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -51,7 +56,9 @@ def test_output_file_parser_parses_file(tmp_path, schema_save_files, saved):
         path=tmp_path,
     )
 
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
+    assert all(run.success and run.end_time for run in wk.get_all_EARs())
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
 
     # Check the parser produced its output and retained its source only as configured.
     run_0 = wk.get_all_EARs()[0]

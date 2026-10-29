@@ -3,9 +3,10 @@ Base model of a shell.
 """
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractstaticmethod
+from textwrap import indent
 from typing import TYPE_CHECKING
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.typing import hydrate
 
 if TYPE_CHECKING:
@@ -58,7 +59,6 @@ class Shell(ABC):
     #: Template for the run execution command.
     JS_RUN_CMD: ClassVar[str]
     #: Template for the execution command for multiple combined runs.
-    JS_RUN_CMD_COMBINED: ClassVar[str]
     #: Template for setting up run environment variables and executing the run.
     JS_RUN: ClassVar[str]
     #: Template for the action-run processing loop in a jobscript.
@@ -180,6 +180,29 @@ class Shell(ABC):
         Prepare the element run directory names for use.
         """
         return [[str(path) for path in i] for i in run_dirs]
+
+    @staticmethod
+    @abstractmethod
+    def quote_arg(value: Any) -> str:
+        """Quote an argument for inclusion in a shell command."""
+
+    @property
+    def line_continuation(self) -> str:
+        raise NotImplementedError
+
+    def format_config_overrides(
+        self, overrides: dict[str, Any], indent_str: str = ""
+    ) -> str:
+        """Format a dictionary of configuration overrides for inclusion in a shell script
+        app invocation command."""
+        return indent(
+            "".join(
+                f"--with-config {self.quote_arg(key)} {self.quote_arg(value)}"
+                f"{self.line_continuation}\n"
+                for key, value in overrides.items()
+            ),
+            indent_str,
+        )
 
     @abstractmethod
     def format_save_parameter(

@@ -20,10 +20,8 @@ import random
 import shutil
 import string
 import sys
-from threading import Thread
 import time
-from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
-from typing_extensions import Concatenate
+from typing import overload, cast, TYPE_CHECKING
 
 from uuid import uuid4
 from warnings import warn
@@ -43,6 +41,8 @@ import rich.box
 
 
 from hpcflow.sdk import app
+from hpcflow.sdk.execution.client import JobscriptClient
+from hpcflow.sdk.execution.jobscript_executor import JobscriptExecutor
 from hpcflow.sdk.typing import WorkflowTemplateFromFileCommonArgs, hydrate
 from hpcflow.sdk.config.errors import (
     ConfigNonConfigurableError,
@@ -64,7 +64,7 @@ from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
 from hpcflow.sdk.core.task_schema import split_save_files_policy
 from hpcflow.sdk.core.template_expressions import resolve_workflow_input_references
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -86,10 +86,10 @@ from hpcflow.sdk.submission.jobscript import (
     resolve_jobscript_dependencies,
 )
 from hpcflow.sdk.submission.enums import JobscriptElementState
-from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.submission import Submission
 from hpcflow.sdk.submission.run_file_resolver import get_run_multi_chunk_path
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
+from hpcflow.sdk.utils.async_utils import run_coroutine_sync
 from hpcflow.sdk.utils.strings import shorten_list_str
 from hpcflow.sdk.core.utils import (
     read_JSON_file,
@@ -115,6 +115,10 @@ from hpcflow.sdk.core.errors import (
     UnsetParameterDataErrorBase,
     WorkflowSubmissionFailure,
 )
+from hpcflow.sdk.config.config import load_workflow_config
+from hpcflow.sdk.wait.completion import JobscriptCompletion
+from hpcflow.sdk.wait.run_wait import RunWaitEvent, RunWaitState
+from hpcflow.sdk.wait.wait_server import WaitServer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -142,6 +146,7 @@ if TYPE_CHECKING:
         WorkflowTemplateTaskData,
         WorkflowTemplateElementSetData,
         BlockActionKey,
+        FollowSpec,
     )
     from ..submission.submission import Submission
     from ..submission.jobscript import (
@@ -162,9 +167,11 @@ if TYPE_CHECKING:
     #: Convenience alias
     _TemplateComponents: TypeAlias = "dict[str, ObjectList[JSONLike]]"
 
-P = ParamSpec("P")
-T = TypeVar("T")
-S = TypeVar("S", bound="Workflow")
+
+def _follow_enabled(follow: FollowSpec | None) -> bool:
+    """Whether following is requested; array item 0 is enabled, unlike a plain truth
+    test."""
+    return follow is not None and follow is not False
 
 
 @dataclass
@@ -1193,25 +1200,6 @@ class _IterationData:
     idx: int
 
 
-def load_workflow_config(
-    func: Callable[Concatenate[S, P], T],
-) -> Callable[Concatenate[S, P], T]:
-    """Decorator to apply workflow-level config items during execution of a Workflow
-    method."""
-
-    @wraps(func)
-    def wrapped(self: S, *args: P.args, **kwargs: P.kwargs) -> T:
-
-        updates = self.template.config
-        if updates:
-            with self._app.config._with_updates(updates):
-                return func(self, *args, **kwargs)
-        else:
-            return func(self, *args, **kwargs)
-
-    return wrapped
-
-
 class Workflow(AppAware):
     """
     A concrete workflow.
@@ -1226,6 +1214,8 @@ class Workflow(AppAware):
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:
         Additional arguments to pass when resolving a virtual workflow reference.
+    load_config:
+        Load any configuration items defined in the workflow template.
     kwargs:
         For compatibility during pre-stable development phase.
     """
@@ -1240,6 +1230,7 @@ class Workflow(AppAware):
         workflow_ref: str | Path | int,
         store_fmt: str | None = None,
         fs_kwargs: dict[str, Any] | None = None,
+        load_config: bool = False,
         **kwargs,
     ):
         if isinstance(workflow_ref, int):
@@ -1282,6 +1273,10 @@ class Workflow(AppAware):
         # reassigned within `ElementActionRun.raise_on_failure_threshold` context manager:
         self._is_tracking_unset: bool = False
         self._tracked_unset: dict[str, UnsetParamTracker] | None = None
+
+        if load_config and (to_load := self.template.config):
+            for k, v in to_load.items():
+                self._app.config.set(k, v)
 
     def reload(self) -> Self:
         """Reload the workflow from disk."""
@@ -2484,10 +2479,19 @@ class Workflow(AppAware):
         task: int
 
     @overload
-    def get_EARs_from_IDs(self, ids: Iterable[int]) -> list[ElementActionRun]: ...
+    def get_EARs_from_IDs(
+        self, ids: Iterable[int], as_dict: Literal[False] = False
+    ) -> list[ElementActionRun]: ...
 
     @overload
-    def get_EARs_from_IDs(self, ids: int) -> ElementActionRun: ...
+    def get_EARs_from_IDs(
+        self, ids: Iterable[int], as_dict: Literal[True]
+    ) -> dict[int, ElementActionRun]: ...
+
+    @overload
+    def get_EARs_from_IDs(
+        self, ids: int, as_dict: Literal[False] = False
+    ) -> ElementActionRun: ...
 
     @TimeIt.decorator
     def get_EARs_from_IDs(
@@ -4101,7 +4105,8 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        enable_script_workers: bool = False,
+        follow: FollowSpec = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -4123,7 +4128,8 @@ class Workflow(AppAware):
             path and await confirmation before continuing submission. This allows ad hoc
             modifications to the jobscript to be made.
         follow
-            Require direct schedulers for all outstanding jobscripts before submission.
+            The jobscript output to follow (see `submit`). Job arrays are rejected before
+            submission unless an array item or "all" is specified.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -4141,6 +4147,7 @@ class Workflow(AppAware):
                     min_jobscripts=min_jobscripts,
                     status=status,
                     timeit=timeit,
+                    enable_script_workers=enable_script_workers,
                 )
             ):
                 if status:
@@ -4157,11 +4164,14 @@ class Workflow(AppAware):
             status.update("Committing to the store...")
         self._store._pending.commit_all()
 
-        if follow:
+        if _follow_enabled(follow):
             self._validate_follow_jobscripts(
-                sub.jobscripts[js_idx]
-                for sub in pending
-                for js_idx in sub.outstanding_jobscripts
+                (
+                    sub.jobscripts[js_idx]
+                    for sub in pending
+                    for js_idx in sub.outstanding_jobscripts
+                ),
+                follow,
             )
 
         # submit all pending submissions:
@@ -4202,7 +4212,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        enable_script_workers: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
@@ -4223,7 +4234,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        enable_script_workers: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> None: ...
 
@@ -4243,7 +4255,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        enable_script_workers: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
@@ -4274,9 +4287,10 @@ class Workflow(AppAware):
             If True, this command will block until the workflow execution is complete.
         follow
             If True, follow jobscript stdout and stderr until execution completes.
-            Implies `wait`. Ctrl+C stops following without cancelling execution.
-            Only direct schedulers are supported; other schedulers are rejected
-            before any jobscripts are submitted.
+            Implies `wait`. Ctrl+C stops following without cancelling execution. For
+            job arrays, an explicit array item index or "all" must be given instead of
+            True; jobscripts that would be rejected are rejected before any are
+            submitted. Non-array jobscripts are followed in all cases.
         delete
             If True, permanently delete the workflow, without confirmation, after
             execution completes, whether or not it succeeded. Implies `wait`. If waiting
@@ -4331,6 +4345,7 @@ class Workflow(AppAware):
                     tasks=tasks,
                     quiet=quiet,
                     timeit=timeit,
+                    enable_script_workers=enable_script_workers,
                     follow=follow,
                 )
 
@@ -4343,7 +4358,7 @@ class Workflow(AppAware):
             if delete:
                 finished = self.wait(submitted_js, quiet=quiet)
 
-        elif wait or follow or delete:
+        elif wait or _follow_enabled(follow) or delete:
             finished = self.wait(submitted_js, quiet=quiet, follow=follow)
 
         if delete and finished:
@@ -4355,82 +4370,72 @@ class Workflow(AppAware):
             return submitted_js
         return None
 
-    @staticmethod
-    def __wait_for_direct_jobscripts(jobscripts: list[Jobscript], quiet: bool = False):
-        """Wait for the passed direct (i.e. non-scheduled) jobscripts to finish."""
-
-        def callback(proc: psutil.Process) -> None:
-            js = js_pids[proc.pid]
-            assert hasattr(proc, "returncode")
-            # TODO sometimes proc.returncode is None; maybe because multiple wait
-            # calls?
-            if not quiet:
-                print(
-                    f"Jobscript {js.index} from submission {js.submission.index} "
-                    f"finished with exit code {proc.returncode}."
-                )
-
-        js_pids = {js.process_ID: js for js in jobscripts}
-        process_refs = [
-            (js.process_ID, js.submit_cmdline)
-            for js in jobscripts
-            if js.process_ID and js.submit_cmdline
-        ]
-        DirectScheduler.wait_for_jobscripts(process_refs, callback=callback)
-
-    def __wait_for_scheduled_jobscripts(self, jobscripts: list[Jobscript]):
-        """Wait for the passed scheduled jobscripts to finish."""
-        schedulers = self._app.Submission.get_unique_schedulers_of_jobscripts(jobscripts)
-        threads: list[Thread] = []
-        for js_indices, sched in schedulers:
-            jobscripts_gen = (
-                self.submissions[sub_idx].jobscripts[js_idx]
-                for sub_idx, js_idx in js_indices
-            )
-            job_IDs = [
-                js.scheduler_job_ID
-                for js in jobscripts_gen
-                if js.scheduler_job_ID is not None
-            ]
-            threads.append(Thread(target=sched.wait_for_jobscripts, args=(job_IDs,)))
-
-        for thr in threads:
-            thr.start()
-
-        for thr in threads:
-            thr.join()
+    def _is_jobscript_complete(
+        self,
+        submission_idx: int,
+        jobscript_idx: int,
+    ) -> bool:
+        return (
+            self.submissions[submission_idx]
+            .jobscripts[jobscript_idx]
+            .completion_obj.is_complete()
+        )
 
     @staticmethod
-    def _validate_follow_jobscripts(jobscripts: Iterable[Jobscript]) -> None:
+    def _validate_follow_jobscripts(
+        jobscripts: Iterable[Jobscript], follow: FollowSpec
+    ) -> None:
+        """Check that the requested `follow` selection is valid for the jobscripts.
+
+        Raises
+        ------
+        ValueError
+            If any jobscript is a job array, and `follow` is True (no array item
+            specified), or is an array index that does not exist for that jobscript.
+        """
         for js in jobscripts:
-            if not isinstance(js.scheduler, DirectScheduler):
-                raise NotImplementedError(
-                    "Following jobscript output is currently supported only for direct "
-                    f"schedulers (submission {js.submission.index}, "
-                    f"jobscript {js.index} uses a non-direct scheduler)."
+            if not js.is_array:
+                continue
+            where = f"submission {js.submission.index}, jobscript {js.index}"
+            if follow is True:
+                raise ValueError(
+                    f"Cannot follow job array ({where}) without specifying the array "
+                    f"item(s). Specify an array index, or 'all' to follow all items."
+                )
+            if follow != "all" and follow not in (js.array_indices or ()):
+                raise ValueError(
+                    f"Array index {follow!r} does not exist for job array ({where})."
                 )
 
-    def _follow_jobscripts(self, jobscripts: Sequence[Jobscript], quiet: bool) -> None:
+    def _follow_jobscripts(
+        self,
+        jobscripts: Sequence[Jobscript],
+        quiet: bool,
+        follow: FollowSpec = True,
+    ) -> None:
         """Print jobscript stdout/stderr files as they are written, like ``tail -f``.
 
-        Each jobscript's output files are polled every 0.5 s and any new bytes are
-        printed. Following stops once all jobscripts have exited and their output has
-        been fully read.
+        Each output file is polled every 0.5 s (less often for very many files) and any
+        new bytes are printed. Following stops once all followed jobscripts (or array
+        items) have completed and their output has been fully read.
 
         Parameters
         ----------
         jobscripts
-            The jobscripts to follow. These must all use a direct scheduler, since
-            checking whether a job is running is done once per poll per jobscript, and
-            is not yet efficient for queued schedulers.
+            The jobscripts to follow.
         quiet
             If True, do not print a ``==> label <==`` header when the output source
             changes; only the raw job output is printed.
+        follow
+            For job array jobscripts, the array index to follow, or "all" to follow all
+            array items. Must not be True if any jobscript is a job array. Non-array
+            jobscripts are always followed.
 
         Raises
         ------
-        NotImplementedError
-            If any jobscript does not use a direct scheduler.
+        ValueError
+            If `follow` is not valid for the jobscripts; see
+            `_validate_follow_jobscripts`.
 
         Notes
         -----
@@ -4439,32 +4444,52 @@ class Workflow(AppAware):
         - Separate stderr files are printed to `sys.stderr`. If
           `resources.combine_jobscript_std` is True, the stdout and stderr paths are the
           same, so the combined file is read once and printed to `sys.stdout`.
-        - Output files that do not exist yet are skipped until they are created.
+        - Output files that do not exist yet (e.g. while a scheduled job is queued) are
+          skipped until they are created.
         - Bytes are decoded as UTF-8 incrementally, so a multi-byte character split
           across reads is not corrupted. Invalid bytes are replaced.
         - If a file shrinks (e.g. it was truncated or replaced), it is read again from
           the start.
-        - The running state of each jobscript is checked *before* reading its files.
-          If it was not running, the subsequent read is guaranteed to include all of
-          its output, which is then flushed and the jobscript is no longer followed.
+        - Completion is determined from the jobscript's completion marker on the
+          filesystem, not by querying the scheduler. The marker is checked *before*
+          reading the files; if it was already present, the subsequent read is
+          guaranteed to include all of the output, which is then flushed and the
+          jobscript (item) is no longer followed. A job that is killed without writing
+          its marker (e.g. exceeding a scheduler time limit) is followed until
+          interrupted.
         - Output is only visible once the job's program has flushed it to disk.
         """
-        self._validate_follow_jobscripts(jobscripts)
+        self._validate_follow_jobscripts(jobscripts, follow)
         # map each unique output file to the stream to print to, and its header label:
         streams: dict[Path, tuple[TextIO, str]] = {}
-        paths_by_jobscript: list[tuple[Jobscript, list[Path]]] = []
+        targets: list[tuple[JobscriptCompletion, int | None, list[Path]]] = []
         for js in jobscripts:
-            paths = []
-            label = f"submission {js.submission.index}, jobscript {js.index}"
-            for path, stream, name in (
-                (js.get_stdout_path(), sys.stdout, "stdout"),
-                (js.get_stderr_path(), sys.stderr, "stderr"),
-            ):
-                if path not in streams:
-                    name = "stdout/stderr" if js.resources.combine_jobscript_std else name
-                    streams[path] = stream, f"{label}, {name}"
-                    paths.append(path)
-            paths_by_jobscript.append((js, paths))
+            if not js.is_array:
+                array_indices: Sequence[int | None] = (None,)
+            elif follow == "all":
+                array_indices = js.array_indices or ()
+            else:
+                array_indices = (int(follow),)
+
+            completion = js.completion_obj
+            for array_idx in array_indices:
+                paths = []
+                label = f"submission {js.submission.index}, jobscript {js.index}"
+                if array_idx is not None:
+                    label += f", array {array_idx}"
+                for path, stream, name in (
+                    (js.get_stdout_path(array_idx=array_idx), sys.stdout, "stdout"),
+                    (js.get_stderr_path(array_idx=array_idx), sys.stderr, "stderr"),
+                ):
+                    if path not in streams:
+                        name = (
+                            "stdout/stderr"
+                            if js.resources.combine_jobscript_std
+                            else name
+                        )
+                        streams[path] = stream, f"{label}, {name}"
+                        paths.append(path)
+                targets.append((completion, array_idx, paths))
 
         # number of bytes already read from each file:
         offsets = dict.fromkeys(streams, 0)
@@ -4484,13 +4509,18 @@ class Workflow(AppAware):
                 print(text, end="", file=stream, flush=True)
                 last_path = path
 
-        while paths_by_jobscript:
+        # poll less often if there are very many files to check:
+        interval = max(0.5, 0.01 * len(streams))
+
+        while targets:
             active = []
-            for js, paths in paths_by_jobscript:
-                # Query the process, not EAR completion: scripts can still
+            for completion, array_idx, paths in targets:
+                # Check the completion marker, not EAR statuses: scripts can still
                 # write output after their last EAR finishes.
-                running = bool(
-                    js.scheduler.get_job_state_info(js_refs=[js.scheduler_js_ref])
+                complete = (
+                    completion.is_complete()
+                    if array_idx is None
+                    else completion.is_array_item_complete(array_idx)
                 )
                 for path in paths:
                     try:
@@ -4508,30 +4538,37 @@ class Workflow(AppAware):
                         while data := handle.read(65536):
                             emit(path, decoders[path].decode(data))
                         offsets[path] = handle.tell()
-                    if not running:
+                    if complete:
                         # flush any incomplete multi-byte sequence:
                         emit(path, decoders[path].decode(b"", final=True))
-                if running:
-                    active.append((js, paths))
-            paths_by_jobscript = active
+                if not complete:
+                    active.append((completion, array_idx, paths))
+            targets = active
             if active:
-                time.sleep(0.5)
+                time.sleep(interval)
 
     def wait(
         self,
         sub_js: Mapping[int, Sequence[int]] | None = None,
         quiet: bool = False,
         *,
-        follow: bool = False,
+        follow: FollowSpec = False,
     ) -> bool:
         """Wait for specified/all active jobscripts, optionally following their output.
 
-        With `follow=True`, print existing output from the beginning, then stream new
+        With `follow` set, print existing output from the beginning, then stream new
         output until all selected jobscripts finish. Separate error streams are written
         to stderr; combined streams are written once to stdout. `quiet` hides status
         messages and stream headers, but not job output.
-        Following is supported only for direct schedulers. Selecting a non-direct
-        jobscript raises `NotImplementedError` without polling its scheduler.
+
+        Parameters
+        ----------
+        follow
+            False to not follow output. True to follow all non-array jobscripts;
+            selecting a job array jobscript with True raises a `ValueError`, since the
+            array item(s) must be explicit. Specify an integer to follow that array item
+            of each selected job array, or "all" to follow all array items. Non-array
+            jobscripts are followed regardless.
 
         Returns
         -------
@@ -4539,95 +4576,272 @@ class Workflow(AppAware):
             True if all specified jobscripts finished (or none were running), or False
             if waiting was interrupted by Ctrl+C.
         """
-
-        # TODO: think about how this might work with remote workflow submission (via SSH)
-
-        # TODO: add a log file to the submission dir where we can log stuff (e.g starting
-        # a thread...)
-
-        if sub_js is None:
-            # find any active jobscripts first:
-            sub_js_: dict[int, list[int]] = defaultdict(list)
-            if follow:
-                finished_states = EARStatus.get_non_running_submitted_states()
-                candidates = [
-                    js
-                    for sub in self.submissions
-                    for js in sub.jobscripts
-                    if js.is_submitted
-                    and any(ear.status not in finished_states for ear in js.all_EARs)
-                ]
-                self._validate_follow_jobscripts(candidates)
-                for js in candidates:
-                    if js.get_active_states():
-                        sub_js_[js.submission.index].append(js.index)
-            else:
-                for sub in self.submissions:
-                    sub_js_[sub.index].extend(sub.get_active_jobscripts())
-            sub_js = sub_js_
-
-        js_direct: list[Jobscript] = []
-        js_sched: list[Jobscript] = []
-        for sub_idx, all_js_idx in sub_js.items():
-            for js_idx in all_js_idx:
-                try:
-                    js = self.submissions[sub_idx].jobscripts[js_idx]
-                except IndexError:
-                    raise ValueError(
-                        f"No jobscript with submission index {sub_idx!r} and/or "
-                        f"jobscript index {js_idx!r}."
-                    )
-                if js.process_ID is not None:
-                    js_direct.append(js)
-                elif js.scheduler_job_ID is not None:
-                    js_sched.append(js)
-                else:
-                    raise RuntimeError(
-                        f"Process ID nor scheduler job ID is set for {js!r}."
-                    )
-
-        if follow:
-            self._validate_follow_jobscripts(js_direct + js_sched)
-
-        if js_direct or js_sched:
-            # TODO: use a rich console status? how would that appear in stdout though?
-            if not quiet:
-                print("Waiting for workflow submissions to finish...")
-        else:
-            if not quiet:
-                print("No running jobscripts.")
-            return True
-
         try:
-            if follow:
-                self._follow_jobscripts(js_direct + js_sched, quiet=quiet)
-                if not quiet:
-                    print("Specified submissions have finished.")
-                return True
-            t_direct = Thread(
-                target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
-            )
-            t_sched = Thread(
-                target=self.__wait_for_scheduled_jobscripts, args=(js_sched,)
-            )
-            t_direct.start()
-            t_sched.start()
-
-            # without these, KeyboardInterrupt seems to not be caught:
-            while t_direct.is_alive():
-                t_direct.join(timeout=1)
-
-            while t_sched.is_alive():
-                t_sched.join(timeout=1)
-
+            if _follow_enabled(follow):
+                sub_js = Workflow._get_wait_jobscripts(self, sub_js, follow=True)
+                jobscripts = [
+                    self.submissions[sub_idx].jobscripts[js_idx]
+                    for sub_idx, js_indices in sub_js.items()
+                    for js_idx in js_indices
+                ]
+                self._validate_follow_jobscripts(jobscripts, follow)
+                if jobscripts:
+                    if not quiet:
+                        print("Waiting for workflow submissions to finish...")
+                    self._follow_jobscripts(jobscripts, quiet=quiet, follow=follow)
+                    if not quiet:
+                        print("Specified submissions have finished.")
+                elif not quiet:
+                    print("No running jobscripts.")
+            else:
+                run_coroutine_sync(self._wait(sub_js=sub_js, quiet=quiet))
         except KeyboardInterrupt:
             if not quiet:
                 print("No longer waiting (workflow execution will continue).")
             return False
+        return True
+
+    #: Interval between checking the filesystem for jobscript completion, in the event
+    #: we are not notified/woken up by ZeroMQ:
+    WAIT_STATE_CHECK_INTERVAL = 5 * 60
+
+    def _get_wait_jobscripts(
+        self, sub_js: Mapping[int, Sequence[int]] | None, follow: bool = False
+    ) -> Mapping[int, Sequence[int]]:
+        """Get the jobscripts to wait for, defaulting to all active jobscripts."""
+        if sub_js is not None:
+            return sub_js
+        sub_js_: dict[int, list[int]] = defaultdict(list)
+        if follow:
+            # skip jobscripts with no unfinished runs to avoid querying their schedulers:
+            finished_states = EARStatus.get_terminal_states()
+            candidates = [
+                js
+                for sub in self.submissions
+                for js in sub.jobscripts
+                if js.is_submitted
+                and any(ear.status not in finished_states for ear in js.all_EARs)
+            ]
+            for js in candidates:
+                if js.get_active_states():
+                    sub_js_[js.submission.index].append(js.index)
         else:
+            for sub in self.submissions:
+                sub_js_[sub.index].extend(sub.get_active_jobscripts())
+        return sub_js_
+
+    async def _wait(
+        self,
+        sub_js: Mapping[int, Sequence[int]] | None = None,
+        quiet: bool = False,
+    ) -> None:
+        """Asynchronously wait for specified/all submitted jobscripts."""
+
+        sub_js = self._get_wait_jobscripts(sub_js)
+
+        # validate and flatten the requested jobscripts:
+        pending: set[tuple[int, int]] = set()
+
+        for sub_idx, js_indices in sub_js.items():
+            for js_idx in js_indices:
+                try:
+                    js = self.submissions[sub_idx].jobscripts[js_idx]
+                except IndexError:
+                    raise ValueError(
+                        f"Jobscript index {js_idx!r} does not exist for submission "
+                        f"{sub_idx!r}."
+                    )
+                if js.process_ID is None and js.scheduler_job_ID is None:
+                    raise RuntimeError(
+                        f"Jobscript {js_idx!r} of submission {sub_idx!r} has not been "
+                        f"submitted (it has no process or scheduler job ID)."
+                    )
+                pending.add((sub_idx, js_idx))
+
+        if not pending:
             if not quiet:
-                print("Specified submissions have finished.")
-            return True
+                print("No running jobscripts.")
+            return
+
+        if not quiet:
+            print("Waiting for workflow submissions to finish...")
+
+        server = WaitServer(advertise_host=self._app.config.server_advertise_host)
+        waiter_id = WaitServer.get_new_waiter_id()
+        registered_paths: list[Path] = []
+
+        try:
+            endpoint = await server.start()
+
+            # register this waiter with every jobscript before checking whether any of
+            # them have completed:
+            for sub_idx, js_idx in pending:
+                endpoint_path = self._register_wait_endpoint(
+                    submission_idx=sub_idx,
+                    jobscript_idx=js_idx,
+                    waiter_id=waiter_id,
+                    endpoint=endpoint,
+                )
+                registered_paths.append(endpoint_path)
+
+            # registration and completion can race, so check completion only after all
+            # registrations are visible:
+            pending = {key for key in pending if not self._is_jobscript_complete(*key)}
+
+            while pending:
+                # ZMQ is only a wake-up mechanism; the completion marker on the shared
+                # filesystem is authoritative, so we update pending whenever server wait
+                # times out, or when we receive any message from the server:
+                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+                pending = {
+                    key for key in pending if not self._is_jobscript_complete(*key)
+                }
+
+        finally:
+            # stop advertising the endpoint before shutting down the server:
+            for path in registered_paths:
+                path.unlink(missing_ok=True)
+            await server.stop()
+
+        if not quiet:
+            print("Specified submissions have finished.")
+
+    def _register_wait_endpoint(
+        self,
+        submission_idx: int,
+        jobscript_idx: int,
+        waiter_id: str,
+        endpoint: str,
+    ) -> Path:
+        endpoints_path = JobscriptExecutor.get_wait_endpoints_path(
+            self.submissions_path,
+            submission_idx,
+            jobscript_idx,
+        )
+        endpoints_path.mkdir(parents=True, exist_ok=True)
+        endpoint_path = endpoints_path / waiter_id
+        atomic_write(endpoint_path, endpoint.encode("utf-8"))
+        return endpoint_path
+
+    def _get_run_wait_state(self, run: ElementActionRun) -> RunWaitState:
+        assert run.submission_idx is not None
+        assert run.jobscript_idx is not None
+        return RunWaitState(
+            submissions_path=self.submissions_path,
+            submission_idx=run.submission_idx,
+            jobscript_idx=run.jobscript_idx,
+        )
+
+    def _is_run_wait_event_complete(
+        self, run: ElementActionRun, event: RunWaitEvent
+    ) -> bool:
+        if event is RunWaitEvent.START:
+            return (
+                run.status == EARStatus.running
+                or run.status in EARStatus.get_terminal_states()
+            )
+        elif event is RunWaitEvent.END:
+            return run.status in EARStatus.get_terminal_states()
+        else:
+            raise ValueError(f"Unknown run wait event: {event!r}")
+
+    async def _wait_for_runs(
+        self,
+        run_ids: Sequence[int],
+        *,
+        event: RunWaitEvent = RunWaitEvent.END,
+        quiet: bool = False,
+    ) -> None:
+        """Wait for the specified runs to reach a given event."""
+
+        run_ids = tuple(dict.fromkeys(run_ids))
+        if not run_ids:
+            return
+
+        runs = self.get_EARs_from_IDs(run_ids, as_dict=True)
+
+        server = WaitServer(advertise_host=self._app.config.server_advertise_host)
+        waiter_id = WaitServer.get_new_waiter_id()
+
+        endpoint_paths: list[Path] = []
+        registrations: list[tuple[RunWaitState, int]] = []
+
+        try:
+            endpoint = await server.start()
+
+            # register this waiter's endpoint once for each jobscript containing one or
+            # more of the requested runs:
+            jobscripts = {
+                (run.submission_idx, run.jobscript_idx) for run in runs.values()
+            }
+
+            for submission_idx, jobscript_idx in jobscripts:
+                assert submission_idx is not None
+                assert jobscript_idx is not None
+                endpoint_path = self._register_wait_endpoint(
+                    submission_idx=submission_idx,
+                    jobscript_idx=jobscript_idx,
+                    waiter_id=waiter_id,
+                    endpoint=endpoint,
+                )
+                endpoint_paths.append(endpoint_path)
+
+            # register interest in each run event:
+            pending: dict[int, RunWaitState] = {}
+            for run_id, run in runs.items():
+                state = self._get_run_wait_state(run)
+                registrations.append((state, run_id))
+                if not state.register(run_id=run_id, event=event, waiter_id=waiter_id):
+                    pending[run_id] = state
+
+            # registration above closes the "completion after registration" side of the
+            # race; now consult durable run state once to handle runs that reached the
+            # requested event before registration:
+            for run_id in tuple(pending):
+                run = runs[run_id]
+
+                if self._is_run_wait_event_complete(run, event):
+                    state = pending.pop(run_id)
+                    state.complete(run_id, event)
+
+            # from this point onward the lightweight run-wait state is enough. ZMQ is only
+            # a fast wake-up; the filesystem markers are authoritative:
+            while pending:
+                pending = {
+                    run_id: state
+                    for run_id, state in pending.items()
+                    if not state.is_complete(run_id, event)
+                }
+
+                if not pending:
+                    break
+
+                await server.wait(timeout=self.WAIT_STATE_CHECK_INTERVAL)
+
+        finally:
+            for state, run_id in registrations:
+                state.unregister(run_id=run_id, event=event, waiter_id=waiter_id)
+
+            for endpoint_path in endpoint_paths:
+                endpoint_path.unlink(missing_ok=True)
+
+            await server.stop()
+
+    def wait_for_runs(
+        self,
+        run_ids: Sequence[int],
+        *,
+        event: RunWaitEvent = RunWaitEvent.END,
+        quiet: bool = False,
+    ) -> None:
+        """Wait for the specified runs to start or end."""
+        try:
+            run_coroutine_sync(
+                self._wait_for_runs(run_ids=run_ids, event=event, quiet=quiet)
+            )
+        except KeyboardInterrupt:
+            if not quiet:
+                print("No longer waiting (workflow execution will continue).")
 
     def get_running_elements(
         self,
@@ -4694,10 +4908,16 @@ class Workflow(AppAware):
         return out
 
     def _abort_run(self, run: ElementActionRun):
-        # connect to the ZeroMQ server on the worker node:
-        self._app.logger.info(f"abort run: {run!r}")
-        self._app.Executor.send_abort(
-            hostname=run.run_hostname, port_number=run.port_number
+        self._app.logger.info(f"aborting run: {run!r}")
+        if run.run_hostname is None or run.port_number is None:
+            raise RuntimeError(
+                f"Cannot abort run {run.id_}: no jobscript server connection "
+                "information is available."
+            )
+        JobscriptClient.send_abort(
+            hostname=run.run_hostname,
+            port_number=run.port_number,
+            run_id=run.id_,
         )
 
     def abort_run(
@@ -4763,6 +4983,7 @@ class Workflow(AppAware):
         min_jobscripts: bool = True,
         status: bool = True,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Submission | None:
         """Add a new submission.
 
@@ -4787,7 +5008,13 @@ class Workflow(AppAware):
         )
         with status_context as status_, self._store.cached_load(), self.batch_update():
             return self._add_submission(
-                tasks, JS_parallelism, force_array, min_jobscripts, status_, timeit
+                tasks,
+                JS_parallelism,
+                force_array,
+                min_jobscripts,
+                status_,
+                timeit,
+                enable_script_workers,
             )
 
     @TimeIt.decorator
@@ -4800,6 +5027,7 @@ class Workflow(AppAware):
         min_jobscripts: bool = True,
         status: Status | None = None,
         timeit: bool = False,
+        enable_script_workers: bool = False,
     ) -> Submission | None:
         """Add a new submission.
 
@@ -4835,13 +5063,20 @@ class Workflow(AppAware):
                 ),
                 JS_parallelism=JS_parallelism,
                 timeit=timeit,
+                enable_script_workers=enable_script_workers,
             )
+            sub_obj.validate_execution_mode()
             if status:
                 status.update("Adding new submission: setting environments...")
             sub_obj._set_environments()
             run_multi_file_lookup = sub_obj.get_run_multi_file_lookup()
 
         all_EAR_ID = list(sub_obj.all_EAR_IDs)
+
+        runs_by_js: dict[int, int] = {}
+        for js in sub_obj.jobscripts:
+            for run_id in js.all_EAR_IDs:
+                runs_by_js[run_id] = js.index
 
         if not all_EAR_ID:
             print(
@@ -4863,7 +5098,6 @@ class Workflow(AppAware):
         sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
         sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
         sub_obj.js_funcs_path.mkdir(exist_ok=True)
-        sub_obj.js_run_ids_path.mkdir(exist_ok=True)
         sub_obj.scripts_path.mkdir(exist_ok=True)
         sub_obj.commands_path.mkdir(exist_ok=True)
 
@@ -4872,9 +5106,6 @@ class Workflow(AppAware):
 
         if sub_obj.needs_win_pids_dir:
             sub_obj.js_win_pids_path.mkdir(exist_ok=True)
-
-        if sub_obj.needs_script_indices_dir:
-            sub_obj.js_script_indices_path.mkdir(exist_ok=True)
 
         if status:
             status.update("Adding new submission: writing scripts and command files...")
@@ -4894,6 +5125,7 @@ class Workflow(AppAware):
                     EAR_ID=id_,
                     cmds_ID=cmd_file_IDs[id_],
                     sub_idx=new_idx,
+                    js_idx=runs_by_js[id_],
                     run_file_ID=file_lookup[0],
                     run_file_idx=file_lookup[1],
                 )
@@ -5101,453 +5333,6 @@ class Workflow(AppAware):
                 submission_jobscripts[new_js_idx] = js_i
 
         return submission_jobscripts, all_element_deps
-
-    @staticmethod
-    def _timeit_run_end(
-        run_ID: int, run_wall_start: float, jobscript_std=None, status: str = "completed"
-    ) -> None:
-        if not TimeIt.active:
-            return
-
-        elapsed = time.perf_counter() - run_wall_start
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        print(
-            f"[TIMEIT] run-end {timestamp} "
-            f"run_id={run_ID} "
-            f"status={status} "
-            f"elapsed={elapsed:.3f}s",
-            file=jobscript_std,
-            flush=True,
-        )
-
-    @TimeIt.decorator
-    @load_workflow_config
-    def execute_run(
-        self,
-        submission_idx: int,
-        block_act_key: BlockActionKey,
-        run_ID: int,
-    ) -> None:
-        """Execute commands of a run via a subprocess, using the parameter metadata
-        cache."""
-        # parameter sources do not change during execution:
-        with self._store.parameters_metadata_cache():
-            return self._execute_run(submission_idx, block_act_key, run_ID)
-
-    @TimeIt.decorator
-    @load_workflow_config
-    def _execute_run(
-        self,
-        submission_idx: int,
-        block_act_key: BlockActionKey,
-        run_ID: int,
-    ) -> None:
-        """Execute commands of a run via a subprocess."""
-
-        if TimeIt.active:
-            # write out to stdout:
-            run_wall_start = time.perf_counter()
-            timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-        # CD to submission tmp dir to ensure std streams and exceptions have somewhere
-        # sensible to go:
-        os.chdir(Submission.get_tmp_path(self.submissions_path, submission_idx))
-
-        sub_str_path = Submission.get_app_std_path(self.submissions_path, submission_idx)
-        run_std_path = ElementActionRun.get_run_app_std_path(sub_str_path, run_ID)
-        has_commands = False
-        command_time = None
-        exe = None
-
-        if TimeIt.active and not TimeIt.file_path:
-            TimeIt.file_path = run_std_path
-            TimeIt.file_mode = "a"
-
-        jobscript_std = sys.stdout
-        run_std_preamble = None
-
-        # redirect (as much as possible) app-generated stdout/err to a dedicated file:
-        with (
-            redirect_std_to_file(run_std_path) as run_std,
-            TimeIt("execute_run.prepare"),
-            self._store.cached_load(),
-        ):
-            with TimeIt("execute_run.load_run"):
-                js_idx = cast("int", block_act_key[0])
-                run = self.get_EARs_from_IDs([run_ID])[0]
-                run_std_preamble = run.get_run_std_preamble()
-                run_std.preamble = run_std_preamble
-                if TimeIt.active:
-                    TimeIt.file_preamble = run_std_preamble
-                    # write out to stdout:
-                    run_pars = run.parents()
-                    print(
-                        (
-                            f"[TIMEIT] run-start {timestamp} run_id={run_ID} "
-                            f"task={run_pars['task']} "
-                            f"element={run_pars['element']} "
-                            f"iteration={run_pars['iteration']} "
-                            f"loop={run_pars['loop']} "
-                            f"action={run_pars['action']}"
-                        ),
-                        file=jobscript_std,
-                        flush=True,
-                    )
-
-                run_dir = None
-                self._app.submission_logger.debug(f"{run.skip=}; {run.skip_reason=}")
-
-            if not self.__apply_group_task_conditions(run):
-                # run was set to skip due to task condition not being met:
-                run._skip = SkipReason.TASK_CONDITION_NOT_MET.value
-
-            # check if we should skip:
-            if not run.skip:
-                run_dir = run.prepare_directory()
-                if run_dir is not None:
-                    self._app.submission_logger.debug(
-                        f"changing directory to run execution directory: {run_dir}."
-                    )
-                    os.chdir(run_dir)
-                with TimeIt("execute_run.write_data_in_files"):
-                    try:
-                        with run.raise_on_failure_threshold() as unset_params:
-                            if run.action.script:
-                                run.write_script_data_in_files(block_act_key)
-                            if run.action.has_program:
-                                run.write_program_data_in_files(block_act_key)
-
-                            # write the command file that will be executed:
-                            cmd_file_path = self.ensure_commands_file(
-                                submission_idx, js_idx, run
-                            )
-
-                    except UnsetParameterDataErrorBase:
-                        # not all required parameter data is set, so fail this run:
-                        self._app.submission_logger.debug(
-                            f"unset parameter threshold satisfied (or any unset "
-                            f"parameters found when trying to write commands file), so "
-                            f"not attempting run. unset_params={unset_params!r}."
-                        )
-                        self.set_EAR_start(run_ID, run_dir, port_number=None)
-                        self._check_loop_termination(run)  # not sure if this is required
-                        self.set_EAR_end(
-                            block_act_key=block_act_key,
-                            run=run,
-                            exit_code=1,
-                        )
-                        if TimeIt.active:
-                            self._timeit_run_end(
-                                run_ID=run.id_,
-                                run_wall_start=run_wall_start,
-                                status="unset-parameters",
-                                jobscript_std=jobscript_std,
-                            )
-                        return
-
-                    # sufficient parameter data is set so far, but need to pass `unset_params`
-                    # on as an environment variable so it can be appended to and failure
-                    # thresholds can be rechecked if necessary (i.e. in a Python script
-                    # where we also load input parameters "directly")
-                    if unset_params:
-                        self._app.submission_logger.debug(
-                            f"some unset parameters found, but no unset-thresholds met: "
-                            f"unset_params={unset_params!r}."
-                        )
-
-                    # TODO: pass on unset_params to script as environment variable
-
-                    if not cmd_file_path:
-                        self.set_EAR_start(run_ID, run_dir, port_number=None)
-
-                    if run.action.jinja_template_or_template_path:
-                        # TODO: write Jinja templates in shared submissions directory
-                        run.write_jinja_template()
-
-                if has_commands := bool(cmd_file_path):
-
-                    with TimeIt("execute_run.prepare_execution"):
-
-                        assert isinstance(cmd_file_path, Path)
-                        if not cmd_file_path.is_file():
-                            raise RuntimeError(
-                                f"Command file {cmd_file_path!r} does not exist."
-                            )
-                        # prepare subprocess command:
-                        jobscript = self.submissions[submission_idx].jobscripts[js_idx]
-                        cmd = jobscript.shell.get_command_file_launch_command(
-                            str(cmd_file_path)
-                        )
-                        loop_idx_str = ";".join(
-                            f"{k}={v}" for k, v in run.element_iteration.loop_idx.items()
-                        )
-                        rng_spawn_key_str = ",".join(
-                            str(key_i) for key_i in run.resources.rng_spawn_key or []
-                        )
-                        app_caps = self._app.package_name.upper()
-
-                        # TODO: make these optionally set (more difficult to set in combine_script,
-                        # so have the option to turn off) [default ON]
-                        add_env = {
-                            f"{app_caps}_RUN_STD_PATH": str(run_std_path),
-                            f"{app_caps}_TASK_IDX": str(run.task.index),
-                            f"{app_caps}_TASK_INSERT_ID": str(run.task.insert_ID),
-                            f"{app_caps}_RUN_ID": str(run_ID),
-                            f"{app_caps}_RUN_IDX": str(run.index),
-                            f"{app_caps}_ELEMENT_IDX": str(run.element.index),
-                            f"{app_caps}_ELEMENT_ID": str(run.element.id_),
-                            f"{app_caps}_ELEMENT_ITER_IDX": str(
-                                run.element_iteration.index
-                            ),
-                            f"{app_caps}_ELEMENT_ITER_ID": str(run.element_iteration.id_),
-                            f"{app_caps}_ELEMENT_ITER_LOOP_IDX": loop_idx_str,
-                            f"{app_caps}_RUN_RANDOM_SEED": str(run.resources.random_seed),
-                            f"{app_caps}_RUN_RNG_SPAWN_KEY": rng_spawn_key_str,
-                            f"{app_caps}_TIMEIT": str(TimeIt.active),
-                        }
-
-                        if (num_threads := run.resources.num_threads) is not None:
-                            add_env[f"{app_caps}_RUN_NUM_THREADS"] = str(num_threads)
-
-                        if (num_cores := run.resources.num_cores) is not None:
-                            add_env[f"{app_caps}_RUN_NUM_CORES"] = str(num_cores)
-
-                        if (num_MPI_ranks := run.resources.num_MPI_ranks) is not None:
-                            add_env[f"{app_caps}_RUN_NUM_MPI_RANKS"] = str(num_MPI_ranks)
-
-                        if run.action.script:
-                            if run.is_snippet_script:
-                                script_artifact_name = run.get_script_artifact_name()
-                                script_dir = Path(
-                                    os.environ[f"{app_caps}_SUB_SCRIPTS_DIR"]
-                                )
-                                script_name = script_artifact_name
-                            else:
-                                # not a snippet script; expect the script in the run execute
-                                # directory (i.e. created by a previous action)
-                                script_dir = Path.cwd()
-                                script_name = run.action.script
-                            script_name_no_ext = Path(script_name).stem
-                            add_env.update(
-                                {
-                                    f"{app_caps}_RUN_SCRIPT_NAME": script_name,
-                                    f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT": script_name_no_ext,
-                                    f"{app_caps}_RUN_SCRIPT_DIR": str(script_dir),
-                                    f"{app_caps}_RUN_SCRIPT_PATH": str(
-                                        script_dir / script_name
-                                    ),
-                                }
-                            )
-                        try:
-                            if program_path := run.program_path_actual:
-                                program_dir = program_path.parent
-                                program_name = program_path.name
-                                program_name_no_ext = program_path.stem
-                                add_env.update(
-                                    {
-                                        f"{app_caps}_RUN_PROGRAM_NAME": program_name,
-                                        f"{app_caps}_RUN_PROGRAM_NAME_NO_EXT": program_name_no_ext,
-                                        f"{app_caps}_RUN_PROGRAM_DIR": str(program_dir),
-                                        f"{app_caps}_RUN_PROGRAM_PATH": str(program_path),
-                                    }
-                                )
-                        except ValueError:
-                            # set run end:
-                            self.set_EAR_end(
-                                block_act_key=block_act_key,
-                                run=run,
-                                exit_code=NO_PROGRAM_EXIT_CODE,
-                            )
-                            raise
-
-                        env = {**dict(os.environ), **add_env}
-
-                        self._app.submission_logger.debug(
-                            f"Executing run commands via subprocess with command {cmd!r}, and "
-                            f"environment variables as below."
-                        )
-                        for k, v in env.items():
-                            if k.startswith(app_caps):
-                                self._app.submission_logger.debug(f"{k} = {v!r}")
-
-                        self._app.submission_logger.debug(
-                            "The following secrets are available:"
-                        )
-                        secrets_env = {}
-                        for secret_key in run.get_environment().secrets:
-                            self._app.submission_logger.debug(secret_key)
-                            secrets_env[secret_key] = self._app.get_secret(secret_key)
-                        env.update(secrets_env)
-
-                        exe = self._app.Executor(cmd, env, self._app.package_name)
-                        port = (
-                            exe.start_zmq_server()
-                        )  # start the server so we know the port
-
-                        try:
-                            self.set_EAR_start(run_ID, run_dir, port)
-                        except:
-                            self._app.submission_logger.error(f"Failed to set run start.")
-                            exe.stop_zmq_server()
-                            raise
-
-        # this subprocess may include commands that redirect to the std_stream file (e.g.
-        # calling the app to save a parameter from a shell command output):
-        if not run.skip and has_commands:
-            assert exe is not None
-            if TimeIt.active:
-                t_cmd_start = time.perf_counter()
-            ret_code = exe.run()  # this also shuts down the server
-            if TimeIt.active:
-                command_time = time.perf_counter() - t_cmd_start
-
-        # redirect (as much as possible) app-generated stdout/err to a dedicated file:
-        with redirect_std_to_file(run_std_path, preamble=run_std_preamble):
-            with TimeIt("execute_run.finalise"):
-                if run.skip:
-                    ret_code = SKIPPED_EXIT_CODE
-                elif not (has_commands or run.action.jinja_template):
-                    # an action with no commands is valid if it exists only to declare
-                    # output files (e.g. an output file parser without a script):
-                    declares_files = bool(run.action.output_files)
-                    ret_code = 0 if declares_files else NO_COMMANDS_EXIT_CODE
-                elif run.action.jinja_template:
-                    ret_code = 0
-                else:
-                    self._check_loop_termination(run)
-
-                # set run end:
-                self.set_EAR_end(
-                    block_act_key=block_act_key,
-                    run=run,
-                    exit_code=ret_code,
-                )
-
-        if TimeIt.active:
-            self._timeit_run_end(run_ID=run.id_, run_wall_start=run_wall_start)
-            TimeIt.run_command_time = command_time
-            TimeIt.child_orchestration_time = (
-                sum(exe.child_orchestration_times) if exe is not None else 0.0
-            )
-            TimeIt.child_work_time = sum(exe.child_work_times) if exe is not None else 0.0
-
-    @TimeIt.decorator
-    def _check_loop_termination(self, run: ElementActionRun) -> set[int]:
-        """Check if we need to terminate a loop if this is the last action of the loop
-        iteration for this element, and set downstream iteration runs to skip."""
-
-        elem_iter = run.element_iteration
-        task = elem_iter.task
-        check_loops = []
-        to_skip = set()
-        for loop_name in elem_iter.loop_idx:
-            self._app.logger.info(f"checking loop termination of loop {loop_name!r}.")
-            loop = self.loops.get(loop_name)
-            if (
-                loop.template.termination
-                and task.insert_ID == loop.template.termination_task_insert_ID
-                and run.element_action.action_idx == max(elem_iter.actions)
-            ):
-                check_loops.append(loop_name)
-                # TODO: test with condition actions
-                if loop.test_termination(elem_iter):
-                    self._app.logger.info(
-                        f"loop {loop_name!r} termination condition met for run "
-                        f"ID {run.id_!r}."
-                    )
-                    to_skip.update(loop.skip_downstream_iterations(elem_iter))
-        return to_skip
-
-    @load_workflow_config
-    def execute_combined_runs(self, submission_idx: int, jobscript_idx: int) -> None:
-        """Execute a combined script (multiple runs) via a subprocess."""
-
-        # CD to submission tmp dir to ensure std streams and exceptions have somewhere
-        # sensible to go:
-        os.chdir(Submission.get_tmp_path(self.submissions_path, submission_idx))
-
-        sub = self.submissions[submission_idx]
-        js = sub.jobscripts[jobscript_idx]
-
-        app_caps = self._app.package_name.upper()
-        script_dir = Path(os.environ[f"{app_caps}_SUB_SCRIPTS_DIR"])
-        script_name = f"js_{jobscript_idx}.py"  # TODO: refactor script name
-        script_path = script_dir / script_name
-
-        add_env = {
-            f"{app_caps}_RUN_SCRIPT_NAME": script_name,
-            f"{app_caps}_RUN_SCRIPT_NAME_NO_EXT": script_path.stem,
-            f"{app_caps}_RUN_SCRIPT_DIR": str(script_dir),
-            f"{app_caps}_RUN_SCRIPT_PATH": str(script_path),
-            f"{app_caps}_SCRIPT_INDICES_FILE": str(js.combined_script_indices_file_path),
-        }
-        env = {**dict(os.environ), **add_env}
-
-        # note: unlike in `Workflow.execute_run`, here we can be reasonably sure the
-        # commands file already exists, because we call `Action.try_write_commands` with
-        # `raise_on_unset=True` in `Workflow._add_submission` during submission.
-
-        # TODO: refactor cmd file name:
-        cmd_file_path = sub.commands_path / f"js_{jobscript_idx}{js.shell.JS_EXT}"
-        cmd = js.shell.get_command_file_launch_command(str(cmd_file_path))
-
-        self._app.submission_logger.debug(
-            f"Executing combined runs via subprocess with command {cmd!r}, and "
-            f"environment variables as below."
-        )
-        for k, v in env.items():
-            if k.startswith(app_caps):
-                self._app.submission_logger.debug(f"{k} = {v}")
-
-        exe = self._app.Executor(cmd, env, self._app.package_name)
-        exe.start_zmq_server()  # start the server
-        exe.run()  # this also shuts down the server
-
-    @TimeIt.decorator
-    def ensure_commands_file(
-        self,
-        submission_idx: int,
-        js_idx: int,
-        run: ElementActionRun,
-    ) -> Path | bool:
-        """Ensure a commands file exists for the specified run."""
-        self._app.persistence_logger.debug("Workflow.ensure_commands_file")
-
-        if run.commands_file_ID is None:
-            # no commands to write
-            return False
-
-        with self._store.cached_load():
-            sub = self.submissions[submission_idx]
-            jobscript = sub.jobscripts[js_idx]
-
-            # check if a commands file already exists, first checking using the run ID:
-            cmd_file_name = f"{run.id_}{jobscript.shell.JS_EXT}"  # TODO: refactor
-            cmd_file_path = jobscript.submission.commands_path / cmd_file_name
-
-            if not cmd_file_path.is_file():
-                # then check for a file from the "root" run ID (the run ID of a run that
-                # shares the same commands file):
-
-                cmd_file_name = (
-                    f"{run.commands_file_ID}{jobscript.shell.JS_EXT}"  # TODO: refactor
-                )
-                cmd_file_path = jobscript.submission.commands_path / cmd_file_name
-
-            if not cmd_file_path.is_file():
-                # no file available, so write (using the run ID):
-                try:
-                    cmd_file_path = run.try_write_commands(
-                        jobscript=jobscript,
-                        environments=sub.environments,
-                        raise_on_unset=True,
-                        timeit=sub.timeit,
-                    )
-                except OutputFileParserNoOutputError:
-                    # no commands to write, might be used just for saving files
-                    return False
-
-        return cmd_file_path
 
     @TimeIt.decorator
     def process_shell_parameter_output(

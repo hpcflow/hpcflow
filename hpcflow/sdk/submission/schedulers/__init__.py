@@ -120,12 +120,6 @@ class Scheduler(ABC, Generic[JSRefType], AppAware):
         """
 
     @abstractmethod
-    def wait_for_jobscripts(self, js_refs: list[JSRefType]) -> None:
-        """
-        Wait for one or more jobscripts to complete.
-        """
-
-    @abstractmethod
     def cancel_jobs(
         self,
         js_refs: list[JSRefType],
@@ -239,18 +233,6 @@ class QueuedScheduler(Scheduler[str]):
     def is_jobscript_active(self, job_ID: str) -> bool:
         """Query if a jobscript is running/pending."""
         return bool(self.get_job_state_info(js_refs=[job_ID]))
-
-    @override
-    def wait_for_jobscripts(self, js_refs: list[str]) -> None:
-        """
-        Wait for jobscripts to update their state.
-        """
-        while js_refs:
-            info: Mapping[str, Any] = self.get_job_state_info(js_refs=js_refs)
-            if not info:
-                break
-            js_refs = list(info)
-            time.sleep(2)
 
     @abstractmethod
     def format_directives(

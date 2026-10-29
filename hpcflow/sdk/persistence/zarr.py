@@ -68,7 +68,7 @@ from hpcflow.sdk.persistence.utils import (
 )
 from hpcflow.sdk.persistence.pending import CommitResourceMap
 from hpcflow.sdk.persistence.base import update_param_source_dict
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.submission import (
     JOBSCRIPT_SUBMIT_TIME_KEYS,
     SUBMISSION_SUBMIT_TIME_KEYS,
@@ -609,6 +609,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
         """Run metadata that is generated at sumbit-time."""
         return [
             self.submission_idx,
+            self.jobscript_idx,
             self.commands_file_ID,
             self.run_file_ID,
             self.run_file_idx,
@@ -662,9 +663,10 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             "data_idx": {attrs["parameter_paths"][i[0]]: i[1] for i in EAR_dat[3]},
             "commands_idx": EAR_dat[4],
             "submission_idx": sub_dat[0],
-            "commands_file_ID": sub_dat[1],
-            "run_file_ID": sub_dat[2],
-            "run_file_idx": sub_dat[3],
+            "jobscript_idx": sub_dat[1],
+            "commands_file_ID": sub_dat[2],
+            "run_file_ID": sub_dat[3],
+            "run_file_idx": sub_dat[4],
             "skip": run_time_dat[0],
             "success": run_time_dat[1],
             "start_time": cls._decode_datetime(run_time_dat[2], ts_fmt),
@@ -766,12 +768,14 @@ class ZarrPersistentStore(
 
     _RUN_SUB_DAT_DTYPE: ClassVar = [
         ("submission_idx", np.uint8),
+        ("jobscript_idx", np.uint16),
         ("commands_file_ID", np.uint32),
         ("run_file_ID", np.uint16),
         ("run_file_idx", np.uint32),
     ]
     _RUN_SUB_DAT_FILL: ClassVar = {
         "submission_idx": np.iinfo(np.uint8).max,
+        "jobscript_idx": np.iinfo(np.uint16).max,
         "commands_file_ID": np.iinfo(np.uint32).max,
         "run_file_ID": np.iinfo(np.uint16).max,
         "run_file_idx": np.iinfo(np.uint32).max,
@@ -1157,6 +1161,7 @@ class ZarrPersistentStore(
                 cls._RUN_SUB_DAT_FILL[key]
                 for key in (
                     "submission_idx",
+                    "jobscript_idx",
                     "commands_file_ID",
                     "run_file_ID",
                     "run_file_idx",
@@ -1718,11 +1723,12 @@ class ZarrPersistentStore(
     @TimeIt.decorator
     def _update_EAR_submission_data(
         self,
-        sub_data: Mapping[int, tuple[int, int | None, int, int]],
+        sub_data: Mapping[int, tuple[int, int, int | None, int, int]],
     ):
         encoded_sub_data = {
             run_ID: (
                 sub_idx,
+                js_idx,
                 (
                     cmd_ID
                     if cmd_ID is not None
@@ -1731,7 +1737,13 @@ class ZarrPersistentStore(
                 run_file_ID,
                 run_file_idx,
             )
-            for run_ID, (sub_idx, cmd_ID, run_file_ID, run_file_idx) in sub_data.items()
+            for run_ID, (
+                sub_idx,
+                js_idx,
+                cmd_ID,
+                run_file_ID,
+                run_file_idx,
+            ) in sub_data.items()
         }
 
         arr = self._get_EARs_sub_dat_arr(mode="r+")
@@ -2465,15 +2477,16 @@ class ZarrPersistentStore(
     @TimeIt.decorator
     def _get_run_submission_metadata(
         self, id_lst: Iterable[int]
-    ) -> dict[int, tuple[int | None, int | None, int | None, int | None]]:
+    ) -> dict[int, tuple[int | None, int | None, int | None, int | None, int | None]]:
         """Get the run file IDs for the provided runs."""
         runs, id_lst = self._get_cached_persistent_EARs(id_lst)
         sub_dat: dict[
             int,
-            tuple[int | None, int | None, int | None, int | None],
+            tuple[int | None, int | None, int | None, int | None, int | None],
         ] = {
             id_i: (
                 run_i.submission_idx,
+                run_i.jobscript_idx,
                 run_i.commands_file_ID,
                 run_i.run_file_ID,
                 run_i.run_file_idx,
@@ -2493,8 +2506,10 @@ class ZarrPersistentStore(
                 raise MissingStoreEARError(id_lst) from None
 
             for id_i, sub_dat_i in zip(id_lst, run_sub_dat):
-                sub_idx, cmd_ID, run_file_ID, run_file_idx = sub_dat_i
+                sub_idx, js_idx, cmd_ID, run_file_ID, run_file_idx = sub_dat_i
                 if sub_idx == self._RUN_SUB_DAT_FILL["submission_idx"]:
+                    sub_idx = None
+                if js_idx == self._RUN_SUB_DAT_FILL["jobscript_idx"]:
                     sub_idx = None
                 if cmd_ID == self._RUN_SUB_DAT_FILL["commands_file_ID"]:
                     cmd_ID = None
@@ -2502,7 +2517,7 @@ class ZarrPersistentStore(
                     run_file_ID = None
                 if run_file_idx == self._RUN_SUB_DAT_FILL["run_file_idx"]:
                     run_file_idx = None
-                sub_dat[id_i] = (sub_idx, cmd_ID, run_file_ID, run_file_idx)
+                sub_dat[id_i] = (sub_idx, js_idx, cmd_ID, run_file_ID, run_file_idx)
 
         return sub_dat
 
@@ -2750,8 +2765,8 @@ class ZarrPersistentStore(
         ] = defaultdict(lambda: defaultdict(dict))
         for run_id, sub_dat_i in sub_dat.items():
             submission_idx = sub_dat_i[0]
-            file_ID = sub_dat_i[2]
-            file_idx = sub_dat_i[3]
+            file_ID = sub_dat_i[3]
+            file_idx = sub_dat_i[4]
 
             if file_ID is None:
                 continue
@@ -2851,8 +2866,8 @@ class ZarrPersistentStore(
             sub_dat_i = submission_metadata[src_run_id]
 
             submission_idx = sub_dat_i[0]
-            file_ID = sub_dat_i[2]
-            file_idx = sub_dat_i[3]
+            file_ID = sub_dat_i[3]
+            file_idx = sub_dat_i[4]
 
             if file_ID is None:
                 continue
