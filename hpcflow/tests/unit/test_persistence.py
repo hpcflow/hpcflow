@@ -1260,7 +1260,15 @@ def test_zarr_get_all_parameters_with_unassigned_outputs(tmp_path: Path):
         store="zarr",
     )
     elements = workflow.tasks[0].elements
-    output_IDs = [element.iterations[0].data_idx["outputs.p2"] for element in elements]
+    output_IDs: list[int] = []
+    input_IDs: list[int] = []
+    for element in elements:
+        output_ID = element.iterations[0].data_idx["outputs.p2"]
+        input_ID = element.iterations[0].data_idx["inputs.p1"]
+        assert isinstance(output_ID, int)
+        assert isinstance(input_ID, int)
+        output_IDs.append(output_ID)
+        input_IDs.append(input_ID)
     run = elements[0].iterations[0].action_runs[0]
     assert "EAR_ID" in workflow.get_parameter_source(output_IDs[0])
     assert "EAR_ID" not in workflow.get_parameter_source(output_IDs[1])
@@ -1276,7 +1284,6 @@ def test_zarr_get_all_parameters_with_unassigned_outputs(tmp_path: Path):
     data = reloaded.get_all_parameter_data()
     assert [data[ID] for ID in output_IDs] == [101, None]
     assert reloaded.get_parameter_set_statuses(output_IDs) == [True, False]
-    input_IDs = [element.iterations[0].data_idx["inputs.p1"] for element in elements]
     assert [data[ID] for ID in input_IDs] == [1, 2]
 
 
