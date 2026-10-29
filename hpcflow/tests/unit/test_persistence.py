@@ -1241,6 +1241,52 @@ def test_zarr_rechunk_data_no_backup_load_parameter_base(tmp_path: Path):
         param_IDs.append(i.id_)
 
 
+def test_zarr_get_all_parameters_with_unassigned_outputs(tmp_path: Path):
+    schema = hf.TaskSchema(
+        objective="conditional_output",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo <<parameter:p1>>", stdout="<<parameter:p2>>")],
+                rules=[hf.ActionRule(path="inputs.p1", condition={"value.less_than": 2})],
+            )
+        ],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="unassigned_outputs",
+        tasks=[hf.Task(schema, sequences=[hf.ValueSequence("inputs.p1", [1, 2])])],
+        path=tmp_path,
+        store="zarr",
+    )
+    elements = workflow.tasks[0].elements
+    output_IDs: list[int] = []
+    input_IDs: list[int] = []
+    for element in elements:
+        output_ID = element.iterations[0].data_idx["outputs.p2"]
+        input_ID = element.iterations[0].data_idx["inputs.p1"]
+        assert isinstance(output_ID, int)
+        assert isinstance(input_ID, int)
+        output_IDs.append(output_ID)
+        input_IDs.append(input_ID)
+    run = elements[0].iterations[0].action_runs[0]
+    assert "EAR_ID" in workflow.get_parameter_source(output_IDs[0])
+    assert "EAR_ID" not in workflow.get_parameter_source(output_IDs[1])
+
+    reloaded = hf.Workflow(workflow.path)
+    data = reloaded.get_all_parameter_data()
+    assert [data[ID] for ID in output_IDs] == [None, None]
+    assert reloaded.get_parameter_set_statuses(output_IDs) == [False, False]
+
+    workflow.add_submission()
+    workflow.save_parameter("outputs.p2", 101, EAR_ID=run.id_)
+    reloaded = hf.Workflow(workflow.path)
+    data = reloaded.get_all_parameter_data()
+    assert [data[ID] for ID in output_IDs] == [101, None]
+    assert reloaded.get_parameter_set_statuses(output_IDs) == [True, False]
+    assert [data[ID] for ID in input_IDs] == [1, 2]
+
+
 def test_get_parameter_sources_duplicate_ids(tmp_path):
     wk = make_workflow(
         schemas_spec=[[{"p1": None}, ("p1",), "t1"]],

@@ -2823,6 +2823,11 @@ class ZarrPersistentStore(
         output_indices = {}
         for param_id, param_src in src_dat.items():
             if param_src["type"] == "EAR_output":
+                # Schema outputs are allocated before their source runs are known.
+                # Conditional or deferred actions can leave these slots unassigned;
+                # let them be filled with None below, like other unset outputs.
+                if "EAR_ID" not in param_src:
+                    continue
                 param_id_to_run_id[param_id] = param_src["EAR_ID"]
                 output_indices[param_id] = param_src["output_idx"]
             else:
