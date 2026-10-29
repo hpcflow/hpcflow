@@ -1,4 +1,17 @@
 
+<a name="v0.4.0a9"></a>
+## [v0.4.0a9](https://github.com/hpcflow/hpcflow/compare/v0.4.0a8...v0.4.0a9) - 2026.10.29
+
+### 🐛 Bug Fixes
+
+* type checking
+* reading output parameters before they have a source run ID
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a8"></a>
 ## [v0.4.0a8](https://github.com/hpcflow/hpcflow/compare/v0.4.0a7...v0.4.0a8) - 2026.10.28
 
