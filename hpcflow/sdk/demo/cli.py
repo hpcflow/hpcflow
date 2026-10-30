@@ -27,6 +27,8 @@ from hpcflow.sdk.cli_common import (
     delete_option,
     add_to_known_opt,
     print_idx_opt,
+    ret_id_opt,
+    print_local_workflow_ids,
     tasks_opt,
     cancel_opt,
     submit_status_opt,
@@ -209,6 +211,7 @@ def get_demo_workflow_CLI(app: BaseApp):
     @delete_option
     @add_to_known_opt
     @print_idx_opt
+    @ret_id_opt
     @tasks_opt
     @cancel_opt
     @submit_status_opt
@@ -236,6 +239,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
+        ret_id: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
@@ -244,6 +248,8 @@ def get_demo_workflow_CLI(app: BaseApp):
         follow: bool = False,
         delete: bool = False,
     ):
+        if ret_id and not add_to_known:
+            raise click.UsageError("--ret-id requires --add-to-known.")
         out = app.make_and_submit_demo_workflow(
             workflow_name=workflow_name,
             template_format=format,
@@ -266,7 +272,7 @@ def get_demo_workflow_CLI(app: BaseApp):
             follow=follow,
             delete=delete,
             add_to_known=add_to_known,
-            return_idx=print_idx,
+            return_idx=print_idx or ret_id,
             tasks=tasks,
             cancel=cancel,
             status=status,
@@ -276,6 +282,9 @@ def get_demo_workflow_CLI(app: BaseApp):
         if print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
+        if ret_id:
+            assert isinstance(out, tuple)
+            print_local_workflow_ids(app, out[0], out[1])
 
     @demo_workflow.command("copy")
     @click.argument("workflow_name")

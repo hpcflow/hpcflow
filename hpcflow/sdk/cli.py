@@ -38,6 +38,8 @@ from hpcflow.sdk.cli_common import (
     delete_option,
     add_to_known_opt,
     print_idx_opt,
+    ret_id_opt,
+    print_local_workflow_ids,
     tasks_opt,
     cancel_opt,
     submit_status_opt,
@@ -279,6 +281,7 @@ def _make_API_CLI(app: BaseApp):
     @delete_option
     @add_to_known_opt
     @print_idx_opt
+    @ret_id_opt
     @tasks_opt
     @cancel_opt
     @submit_status_opt
@@ -307,6 +310,7 @@ def _make_API_CLI(app: BaseApp):
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
+        ret_id: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
@@ -322,6 +326,8 @@ def _make_API_CLI(app: BaseApp):
 
         """
         # TODO: allow submitting a persistent workflow via this command?
+        if ret_id and not add_to_known:
+            raise click.UsageError("--ret-id requires --add-to-known.")
         out = app.make_and_submit_workflow(
             template_file_or_str=template_file_or_str,
             is_string=string,
@@ -345,7 +351,7 @@ def _make_API_CLI(app: BaseApp):
             follow=follow,
             delete=delete,
             add_to_known=add_to_known,
-            return_idx=print_idx,
+            return_idx=print_idx or ret_id,
             tasks=tasks,
             cancel=cancel,
             status=status,
@@ -355,6 +361,9 @@ def _make_API_CLI(app: BaseApp):
         if print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
+        if ret_id:
+            assert isinstance(out, tuple)
+            print_local_workflow_ids(app, out[0], out[1])
 
     @click.command(context_settings={"ignore_unknown_options": True})
     @pytest_file_or_dir_opt
@@ -570,6 +579,7 @@ def _make_workflow_CLI(app: BaseApp):
     @delete_option
     @add_to_known_opt
     @print_idx_opt
+    @ret_id_opt
     @tasks_opt
     @cancel_opt
     @submit_status_opt
@@ -584,6 +594,7 @@ def _make_workflow_CLI(app: BaseApp):
         add_to_known: bool = True,
         modify_js: bool = False,
         print_idx: bool = False,
+        ret_id: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
@@ -593,6 +604,8 @@ def _make_workflow_CLI(app: BaseApp):
         delete: bool = False,
     ):
         """Submit the workflow."""
+        if ret_id and not add_to_known:
+            raise click.UsageError("--ret-id requires --add-to-known.")
         out = wf.submit(
             JS_parallelism=js_parallelism,
             wait=wait,
@@ -609,6 +622,8 @@ def _make_workflow_CLI(app: BaseApp):
         )
         if print_idx:
             click.echo(out)
+        if ret_id:
+            print_local_workflow_ids(app, wf, out)
 
     @workflow.command(name="add-submission")
     @js_parallelism_option
