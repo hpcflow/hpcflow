@@ -1,12 +1,35 @@
 """Click CLI options that are used as decorators in multiple modules."""
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
 import click
 
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
 from hpcflow.sdk.core.environment import Environment
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.discovery import ALL_STORE_FORMATS
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from hpcflow.sdk.app import BaseApp
+    from hpcflow.sdk.core.workflow import Workflow
+
+
+def print_local_workflow_ids(
+    app: BaseApp, workflow: Workflow, submitted_js: Mapping[int, Sequence[int]]
+) -> None:
+    """Print the latest local ID for each submission that submitted jobscripts."""
+    if not any(submitted_js.values()):
+        return
+    known = app.read_known_submissions_file()
+    latest_ids = {
+        item["sub_idx"]: item["local_id"]
+        for item in known
+        if item["path"] == str(workflow.path) and submitted_js.get(item["sub_idx"])
+    }
+    for sub_idx in submitted_js:
+        if sub_idx in latest_ids:
+            click.echo(latest_ids[sub_idx])
 
 
 class BoolOrString(click.ParamType):
@@ -212,6 +235,16 @@ add_to_known_opt = click.option(
 print_idx_opt = click.option(
     "--print-idx",
     help="If True, print the submitted jobscript indices for each submission index.",
+    is_flag=True,
+    default=False,
+)
+#: Standard option
+ret_id_opt = click.option(
+    "--ret-id",
+    help=(
+        "Print the local workflow ID after submission (one per submitted submission). "
+        "Requires --add-to-known."
+    ),
     is_flag=True,
     default=False,
 )
@@ -527,6 +560,7 @@ _add_doc_from_help(
     delete_option,
     add_to_known_opt,
     print_idx_opt,
+    ret_id_opt,
     tasks_opt,
     cancel_opt,
     submit_status_opt,
