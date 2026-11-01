@@ -6265,6 +6265,27 @@ class Workflow(AppAware):
                 )
             return _ArrayOutputArchive(**arrays, shape=shapes, member_idx=members)
 
+    def show_runs(self, state: EARStatus | str | None = None) -> None:
+        """Print individual action runs, optionally filtered by engine state.
+
+        Parameters
+        ----------
+        state : EARStatus or str, optional
+            An engine state or its case-insensitive name, such as ``error``.
+            Omit to show all runs. Invalid names raise ValueError.
+
+        Notes
+        -----
+        Include all attempts across iterations and submissions, so failed runs
+        remain inspectable after successful retries. Display run IDs, task and
+        element coordinates, action short names, attempt/submission/jobscript indices,
+        states, and exit codes.
+        Read workflow data without querying schedulers or updating monitoring files.
+        """
+        from ..monitoring.runs import show_runs
+
+        show_runs(self, state)
+
     def show_all_EAR_statuses(self) -> None:
         """
         Print a description of the status of every element action run in

@@ -219,3 +219,37 @@ Monitor submissions
     The Python API's ``get_known_submissions()`` returns JSON-compatible monitoring
     snapshots, including activity, accessibility, saved job references, and the last
     action summary. It no longer returns live submission objects.
+
+
+Inspect individual action runs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. jinja:: first_ctx
+
+    Use ``show-runs`` to inspect individual action attempts in a workflow:
+
+    .. code-block:: console
+
+        {{ app_package_name }} workflow WORKFLOW_REF show-runs --state error
+        {{ app_package_name }} workflow WORKFLOW_REF show-runs --state running
+        {{ app_package_name }} workflow WORKFLOW_REF show-runs
+
+    ``WORKFLOW_REF`` accepts a registered local ID, an exact registered workflow
+    name, or a path. Omit ``--state`` to list all runs. State names are
+    case-insensitive: ``pending``, ``prepared``, ``submitted``, ``running``,
+    ``skipped``, ``aborted``, ``success``, and ``error``.
+
+    The table shows run IDs, task names and insertion IDs, element/iteration/action
+    indices, attempt/submission/jobscript indices, coloured states, and exit codes.
+    The Action column includes the action index and its ``short_name()``. Jobscript
+    indices are local to the indicated submission; unassigned runs show an em dash.
+    Indices are zero-based. Every attempt is included, so an earlier error remains
+    visible after a successful retry. Missing values show an em dash, and an empty
+    selection prints a message. This command reads current workflow data without
+    querying schedulers or changing the monitoring registry or caches.
+
+    The same inspection is available in Python:
+
+    .. code-block:: python
+
+        workflow.show_runs(state="error")

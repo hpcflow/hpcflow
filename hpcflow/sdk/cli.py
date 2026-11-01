@@ -19,6 +19,7 @@ from hpcflow import __version__, _app_name
 from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.execute import Executor
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
 from hpcflow.sdk.cli_common import (
@@ -781,6 +782,17 @@ def _make_workflow_CLI(app: BaseApp):
     def is_parameter_set(wf: Workflow, index: int):
         """Check if a parameter specified by data index is set."""
         click.echo(wf.is_parameter_set(index))
+
+    @workflow.command(name="show-runs")
+    @click.option(
+        "--state",
+        type=click.Choice(list(EARStatus.__members__), case_sensitive=False),
+        help="Show only action runs in this state; omit to show all runs.",
+    )
+    @_pass_workflow
+    def show_runs(wf: Workflow, state: str | None):
+        """List individual action attempts, their locations, states, and exit codes."""
+        wf.show_runs(state=state)
 
     @workflow.command(name="show-all-status")
     @_pass_workflow
