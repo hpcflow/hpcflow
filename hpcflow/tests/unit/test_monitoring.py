@@ -870,7 +870,12 @@ def test_large_full_display_is_grouped(app, tmp_path):
     r.last_action_summary = snapshot_from_json(entries, list(range(100)))
     r.accessibility = "readable"
     output = StringIO()
-    render([r], full=True, console=Console(file=output, width=160))
+    render(
+        [r],
+        full=True,
+        console=Console(file=output, width=160),
+        columns=("id", "name", "status", "actions"),
+    )
     assert "[0–99]" in output.getvalue()
     assert len(output.getvalue().splitlines()) < 12
 
@@ -945,7 +950,12 @@ def test_full_icons_align_across_tasks_and_submissions(tmp_path, width):
     for r in records:
         r.accessibility = "readable"
     output = StringIO()
-    render(records, full=True, console=Console(file=output, width=width))
+    render(
+        records,
+        full=True,
+        console=Console(file=output, width=width),
+        columns=("id", "name", "status", "actions"),
+    )
     lines = output.getvalue().splitlines()
     icon_columns = [
         match.start() for line in lines if (match := re.search("[■●E]", line))

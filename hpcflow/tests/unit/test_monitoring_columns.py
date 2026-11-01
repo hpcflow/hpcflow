@@ -25,6 +25,7 @@ from hpcflow.sdk.monitoring.columns import (
     RenderContext,
     configured_columns,
     format_datetime,
+    status_cell,
     times_cell,
     validate_columns,
 )
@@ -83,6 +84,35 @@ def registry_app(tmp_path):
         submission_logger=logging.getLogger(__name__),
         Workflow=Mock(side_effect=AssertionError("Unexpected workflow load")),
         get_scheduler=Mock(return_value=Mock(get_job_state_info=Mock(return_value={}))),
+    )
+
+
+def test_scheduler_status_icons_keep_colours_order_and_unique_states():
+    r = submission()
+    r.activity = "active"
+    r.scheduler_states = ["running", "pending", "running", "errored"]
+    cell = status_cell(r, RenderContext())
+    assert cell.plain == "active / ○ pending, ● running, E errored"
+    for state in (
+        JobscriptElementState.pending,
+        JobscriptElementState.running,
+        JobscriptElementState.errored,
+    ):
+        assert any(
+            cell.plain[span.start : span.end] == state.symbol
+            and span.style == state.colour
+            for span in cell.spans
+        )
+
+
+def test_scheduler_icons_remain_visible_for_inaccessible_workflows():
+    r = submission()
+    r.activity = "active"
+    r.accessibility = "missing"
+    r.scheduler_states = ["running", "unrecognised"]
+    r.scheduler_error = "Another scheduler failed"
+    assert status_cell(r, RenderContext()).plain == (
+        "active / missing / ● running, unrecognised\nscheduler unavailable"
     )
 
 

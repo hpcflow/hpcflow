@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from rich.console import Group, RenderableType
 from rich.text import Text
 
+from ..submission.enums import JobscriptElementState
 from .action_render import (
     ActionColumnWidths,
     action_column_widths,
@@ -159,14 +160,31 @@ def format_datetime(
 
 
 def status_cell(record: SubmissionRecord, context: RenderContext) -> Text:
-    """Render activity and accessibility, adding scheduler or cache failure notes."""
+    """Render activity, accessibility, and coloured scheduler-state icons.
+
+    Keep scheduler observations visible even when workflow data is inaccessible.
+    Distinct states follow the scheduler legend order, with text labels retained
+    for clarity. Registry-only listings continue to show last recorded activity.
+    """
     text = Text(record.activity)
     if context.list_only:
         return text
     if record.accessibility != "readable":
         text.append(f" / {record.accessibility}")
-    elif record.scheduler_states:
-        text.append(" / " + ", ".join(sorted(set(record.scheduler_states))))
+    if record.scheduler_states:
+        states = JobscriptElementState.__members__
+        names = sorted(
+            set(record.scheduler_states),
+            key=lambda name: (states[name].id if name in states else len(states), name),
+        )
+        text.append(" / ")
+        for index, name in enumerate(names):
+            if index:
+                text.append(", ")
+            if state := states.get(name):
+                text.append(state.symbol, style=state.colour)
+                text.append(" ")
+            text.append(name)
     if record.scheduler_error:
         text.append("\nscheduler unavailable")
     if record.last_action_summary and record.last_action_summary.cache_error:
