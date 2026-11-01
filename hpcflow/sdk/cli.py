@@ -104,9 +104,9 @@ string_option = click.option(
 workflow_ref_type_opt = click.option(
     "--ref-type",
     "-r",
-    type=click.Choice(("assume-id", "id", "path")),
+    type=click.Choice(("assume-id", "id", "name", "path")),
     default="assume-id",
-    help="How to interpret a reference, as an ID, a path, or to guess.",
+    help="Interpret a reference as a registered ID, workflow name, path, or guess.",
 )
 
 #: Get the current workflow from the context.
@@ -566,7 +566,7 @@ def _make_workflow_CLI(app: BaseApp):
     def workflow(ctx: click.Context, workflow_ref: str, ref_type: str | None):
         """Interact with existing {app_name} workflows.
 
-        WORKFLOW_REF is the path to, or local ID of, an existing workflow.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -1126,6 +1126,24 @@ def _make_template_components_CLI(app: BaseApp):
 
 
 def _make_show_CLI(app: BaseApp):
+    def columns_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.columns import validate_columns
+
+        try:
+            return validate_columns([name.strip() for name in value.split(",")])
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
+    def template_names_callback(ctx, param, value):
+        from hpcflow.sdk.monitoring.filtering import template_names
+
+        try:
+            return template_names(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
     def show_legend_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
@@ -1133,27 +1151,56 @@ def _make_show_CLI(app: BaseApp):
         ctx.exit()
 
     @click.command()
+    @click.argument("workflow_ref", required=False)
+    @click.option(
+        "--tname",
+        "template_names",
+        callback=template_names_callback,
+        help="Filter by exact template name(s), separated by commas.",
+    )
+    @click.option(
+        "--columns",
+        callback=columns_callback,
+        help="Comma-separated columns in display order; overrides show_columns or show_list_columns.",
+    )
+    @click.option(
+        "--list",
+        "list_only",
+        is_flag=True,
+        default=False,
+        help="List all registered submissions without loading workflows or querying schedulers.",
+    )
+    @click.option(
+        "--ref-type",
+        type=click.Choice(["assume-id", "id", "name", "path"]),
+        default="assume-id",
+        help="Interpret WORKFLOW_REF as a local ID, registered workflow name, or path.",
+    )
     @click.option(
         "-r",
         "--max-recent",
-        default=3,
-        help="The maximum number of inactive submissions to show.",
+        type=click.IntRange(min=0),
+        default=None,
+        help="Maximum inactive submissions to show (default: show_max_recent config; --list: all).",
     )
     @click.option(
         "--no-update",
         is_flag=True,
         default=False,
-        help=(
-            "If True, do not update the known-submissions file to remove workflows that "
-            "are no longer running."
-        ),
+        help=("Query current states without writing submission history or caches."),
     )
     @click.option(
         "-f",
         "--full",
         is_flag=True,
         default=False,
-        help="Allow multiple lines per workflow submission.",
+        help="Show action patterns grouped by elements with identical states.",
+    )
+    @click.option(
+        "--include-loop-skipped",
+        is_flag=True,
+        default=False,
+        help="Include runs skipped because a loop terminated (hidden by default).",
     )
     @click.option(
         "--legend",
@@ -1163,9 +1210,29 @@ def _make_show_CLI(app: BaseApp):
         expose_value=False,
         callback=show_legend_callback,
     )
-    def show(max_recent: int, full: bool, no_update: bool):
-        """Show information about running and recently active workflows."""
-        app.show(max_recent=max_recent, full=full, no_update=no_update)
+    def show(
+        workflow_ref,
+        ref_type,
+        max_recent: int | None,
+        full: bool,
+        no_update: bool,
+        include_loop_skipped: bool,
+        list_only: bool,
+        columns: tuple[str, ...] | None,
+        template_names: tuple[str, ...] | None,
+    ):
+        """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
+        app.show(
+            max_recent=max_recent,
+            full=full,
+            no_update=no_update,
+            workflow_ref=workflow_ref,
+            ref_type=ref_type,
+            include_loop_skipped=include_loop_skipped,
+            list_only=list_only,
+            columns=columns,
+            template_names=template_names,
+        )
 
     return show
 
@@ -1193,8 +1260,7 @@ def _make_zip_CLI(app: BaseApp):
         """Generate a copy of the specified workflow in the zip file format in the
         current working directory.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
         wk = app.Workflow(workflow_path)
@@ -1239,8 +1305,7 @@ def _make_cancel_CLI(app: BaseApp):
     def cancel(workflow_ref: str, ref_type: str | None, status: bool, quiet: bool):
         """Stop all running jobscripts of the specified workflow.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         app.cancel(
@@ -1266,8 +1331,7 @@ def _make_rechunk_CLI(app: BaseApp):
     ):
         """Rechunk metadata/runs and parameters/base arrays.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -1330,8 +1394,10 @@ def _make_open_CLI(app: BaseApp):
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)
     def known_subs(path: bool = False):
-        """Open the known-submissions text file."""
-        file_path = app.known_subs_file_path
+        """Open the v2 known-submissions registry."""
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+        file_path = SubmissionRegistry(app).path
         if path:
             click.echo(file_path)
         else:

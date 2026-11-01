@@ -103,6 +103,16 @@ class ConfigDescriptor(TypedDict):
     use_rich_tracebacks: NotRequired[bool]
     #: Delete execution directories after successful task iterations.
     delete_execute_dir: NotRequired[bool]
+    #: Maximum retained inactive submission records; active/unknown records are retained.
+    known_submissions_max_inactive: NotRequired[int]
+    #: Default number of inactive submission records displayed by show.
+    show_max_recent: NotRequired[int]
+    #: Display timezone for show: local, UTC, or an IANA timezone name.
+    show_timezone: NotRequired[str]
+    #: Ordered columns included in the show table.
+    show_columns: NotRequired[list[str]]
+    #: Ordered columns included in the show --list table.
+    show_list_columns: NotRequired[list[str]]
 
 
 class InvocationDescriptor(TypedDict):

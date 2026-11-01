@@ -1251,65 +1251,63 @@ class Submission(JSONLike):
         scheduler_refs: dict[int, tuple[str, bool]] = {}
         submitted_js_idx: list[int] = []
         errs: list[JobscriptSubmissionFailure] = []
-        for js in self.jobscripts:
-            # check not previously submitted:
-            if js.index not in outstanding:
-                continue
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry, job_record
 
-            # check all dependencies were submitted now or previously:
-            if not all(
-                js_idx in submitted_js_idx or js_idx in self.submitted_jobscripts
-                for js_idx, _ in js.dependencies
-            ):
-                warnings.warn(
-                    f"Cannot submit jobscript index {js.index} since not all of its "
-                    f"dependencies have been submitted: {js.dependencies!r}"
-                )
-                continue
+        dt_str = current_timestamp().strftime(self._app._submission_ts_fmt)
+        registry = SubmissionRegistry(self._app)
+        local_id = registry.begin(self, dt_str) if add_to_known else None
+        try:
+            for js in self.jobscripts:
+                # check not previously submitted:
+                if js.index not in outstanding:
+                    continue
 
+                # check all dependencies were submitted now or previously:
+                if not all(
+                    js_idx in submitted_js_idx or js_idx in self.submitted_jobscripts
+                    for js_idx, _ in js.dependencies
+                ):
+                    warnings.warn(
+                        f"Cannot submit jobscript index {js.index} since not all of its "
+                        f"dependencies have been submitted: {js.dependencies!r}"
+                    )
+                    continue
+
+                try:
+                    if status:
+                        if modify_js:
+                            status.stop()
+                        else:
+                            status.update(
+                                f"Submitting jobscript {js.index + 1}/"
+                                f"{len(self.jobscripts)}..."
+                            )
+                    js_ref_i = js.submit(
+                        scheduler_refs, modify_js=modify_js, print_stdout=print_stdout
+                    )
+                    if status and modify_js:
+                        status.start()
+                        status.update("Continuing submission...")
+
+                    scheduler_refs[js.index] = (js_ref_i, js.is_array)
+                    submitted_js_idx.append(js.index)
+                    if local_id is not None:
+                        registry.add_job(local_id, job_record(js))
+
+                except JobscriptSubmissionFailure as err:
+                    errs.append(err)
+                    continue
+
+        finally:
             try:
-                if status:
-                    if modify_js:
-                        status.stop()
-                    else:
-                        status.update(
-                            f"Submitting jobscript {js.index + 1}/"
-                            f"{len(self.jobscripts)}..."
-                        )
-                js_ref_i = js.submit(
-                    scheduler_refs, modify_js=modify_js, print_stdout=print_stdout
-                )
-                if status and modify_js:
-                    status.start()
-                    status.update("Continuing submission...")
-
-                scheduler_refs[js.index] = (js_ref_i, js.is_array)
-                submitted_js_idx.append(js.index)
-
-            except JobscriptSubmissionFailure as err:
-                errs.append(err)
-                continue
-
-            # TODO: some way to handle KeyboardInterrupt during submission?
-            #   - stop, and cancel already submitted?
-
-        if submitted_js_idx:
-            dt_str = current_timestamp().strftime(self._app._submission_ts_fmt)
-            self._append_submission_part(
-                submit_time=dt_str,
-                submitted_js_idx=submitted_js_idx,
-            )
-            # ensure `_submission_parts` is committed
-            self.workflow._store._pending.commit_all()
-
-            # add a record of the submission part to the known-submissions file
-            if add_to_known:
-                self._app._add_to_known_submissions(
-                    wk_path=self.workflow.path,
-                    wk_id=self.workflow.id_,
-                    sub_idx=self.index,
-                    sub_time=dt_str,
-                )
+                if submitted_js_idx:
+                    self._append_submission_part(
+                        submit_time=dt_str, submitted_js_idx=submitted_js_idx
+                    )
+                    self.workflow._store._pending.commit_all()
+            finally:
+                if local_id is not None:
+                    registry.finish(local_id)
 
         if errs and not ignore_errors:
             if status:
