@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import json
 from pathlib import Path
 import socket
@@ -14,11 +14,11 @@ from .cache import read_cache, refresh_actions, run_ids, snapshot
 from .references import resolve_records
 from .filtering import filter_templates, metadata_template_name
 from .settings import get_limit
+from .headers import read_header, is_archive
 from .models import (
     JobRecord,
     ProcessReference,
     SubmissionRecord,
-    WorkflowHeaderToken,
     WorkflowKey,
     to_json,
 )
@@ -61,40 +61,25 @@ def check_identity(record: SubmissionRecord) -> None:
     saved workflow/template names and token on the supplied record. This check does
     not construct a workflow object.
     """
-    path = Path(record.workflow_path)
-    if not path.exists():
-        raise FileNotFoundError(path)
-    for filename in (".zattrs", "metadata.json"):
-        header = path / filename
-        if header.exists():
-            stat = header.stat()
-            token = WorkflowHeaderToken(
-                filename,
-                stat.st_dev,
-                stat.st_ino,
-                stat.st_size,
-                stat.st_mtime_ns,
-                stat.st_ctime_ns,
-            )
-            if (
-                record.workflow_header_token == token
-                and record.workflow_name_from_metadata
-            ):
-                return
-            metadata = json.loads(header.read_text(encoding="utf-8"))
-            if metadata["creation_info"]["id"] != record.workflow_id:
-                raise ValueError("Workflow at this path has been replaced")
-            if isinstance(metadata.get("name"), str) and metadata["name"]:
-                record.workflow_name = metadata["name"]
-                record.workflow_name_from_metadata = True
-            record.template_name = metadata_template_name(metadata)
-            record.workflow_header_token = token
-            return
-    raise ValueError("Unsupported workflow format or missing workflow metadata")
+    metadata, token = read_header(
+        record.workflow_path,
+        record.workflow_header_token if record.workflow_name_from_metadata else None,
+    )
+    if metadata is not None:
+        if metadata["creation_info"]["id"] != record.workflow_id:
+            raise ValueError("Workflow at this path has been replaced")
+        if isinstance(metadata.get("name"), str) and metadata["name"]:
+            record.workflow_name = metadata["name"]
+            record.workflow_name_from_metadata = True
+        record.template_name = metadata_template_name(metadata)
+    record.workflow_header_token = token
 
 
 def load_workflow(
-    app: BaseApp, record: SubmissionRecord, loaded: dict[WorkflowKey, Workflow]
+    app: BaseApp,
+    record: SubmissionRecord,
+    loaded: dict[WorkflowKey, Workflow],
+    progress: Callable[[str], None] | None = None,
 ) -> Workflow:
     """Load and verify a workflow once per path/ID pair within one collection.
 
@@ -105,6 +90,8 @@ def load_workflow(
     key = WorkflowKey(record.workflow_path, record.workflow_id)
     if key not in loaded:
         check_identity(record)
+        if progress:
+            progress(f"Loading workflow: {record.workflow_name}")
         workflow = app.Workflow(record.workflow_path)
         if workflow.id_ != record.workflow_id:
             raise ValueError("Workflow identity does not match submission record")
@@ -117,7 +104,10 @@ def load_workflow(
 
 
 def hydrate(
-    app: BaseApp, record: SubmissionRecord, loaded: dict[WorkflowKey, Workflow]
+    app: BaseApp,
+    record: SubmissionRecord,
+    loaded: dict[WorkflowKey, Workflow],
+    progress: Callable[[str], None] | None = None,
 ) -> None:
     """Backfill saved job references for one legacy submission part.
 
@@ -125,10 +115,15 @@ def hydrate(
     and clear the legacy marker only after successful recovery. Errors propagate
     without inventing scheduler references for unreadable workflows.
     """
-    workflow = load_workflow(app, record, loaded)
+    workflow = load_workflow(app, record, loaded, progress)
     sub = workflow.submissions[record.submission_index]
     indices = sub._submission_parts[record.submission_part_id]
-    record.jobs = [job_record(sub.jobscripts[i]) for i in indices]
+    record.jobs = [
+        job_record(
+            sub.jobscripts[i], inspect_scheduler=not is_archive(record.workflow_path)
+        )
+        for i in indices
+    ]
     record.legacy = False
     record.accessibility = "readable"
 
@@ -159,6 +154,19 @@ def context_key(job: JobRecord) -> str:
             "hostname": job.hostname,
         },
         sort_keys=True,
+    )
+
+
+def scheduler_is_local(app: BaseApp, job: JobRecord) -> bool:
+    """Allow local jobs or queued jobs on an explicitly shared configured machine.
+
+    A foreign direct PID never denotes a local process, even if its numeric value
+    happens to exist here. This predicate does not construct a scheduler adapter.
+    """
+    return job.hostname == socket.gethostname() or bool(
+        isinstance(job.scheduler_reference, str)
+        and job.machine
+        and job.machine == app.config.get("machine")
     )
 
 
@@ -206,20 +214,41 @@ def scheduler_ref(job: JobRecord) -> str | tuple[int, list[str]] | None:
     return reference
 
 
-def observe_activity(app: BaseApp, records: list[SubmissionRecord]) -> None:
+def observe_activity(
+    app: BaseApp,
+    records: list[SubmissionRecord],
+    progress: Callable[[str], None] | None = None,
+) -> None:
     """Update records in place using at most one status call per scheduler context.
 
     Batch saved references across submission parts; known inactive records do not
     need queries. A live submitting process also keeps a record active. Scheduler
     failures produce unknown activity unless activity is independently known to be
     active, and are recorded without aborting observations of other contexts.
+    Foreign jobs without a shared configured machine remain remotely unavailable;
+    archives use saved observations only. Neither case inspects local PIDs or
+    makes the workflow unreadable. ``progress`` receives transient query messages.
     This function updates observations in memory; its caller controls persistence.
     """
     contexts: defaultdict[str, list[RegisteredJob]] = defaultdict(list)
     failed = set()
     for record in records:
-        if record.activity == "inactive":
+        if is_archive(record.workflow_path):
+            record.submitting = False
+            record.activity = "unknown"
+            record.scheduler_states = []
+            record.scheduler_error = None
+            record.scheduler_availability = "archived"
             continue
+        if record.activity == "inactive":
+            if any(not scheduler_is_local(app, job) for job in record.jobs):
+                record.scheduler_availability = "remote"
+            continue
+        local_jobs = not record.jobs or any(
+            scheduler_is_local(app, job) for job in record.jobs
+        )
+        if not local_jobs:
+            record.submitting = False
         if record.submitting and record.submitting_owner:
             import psutil
 
@@ -232,6 +261,7 @@ def observe_activity(app: BaseApp, records: list[SubmissionRecord]) -> None:
                 record.submitting = False
         record.scheduler_states = []
         record.scheduler_error = None
+        record.scheduler_availability = "available"
         if not record.jobs:
             record.activity = (
                 "active"
@@ -241,6 +271,10 @@ def observe_activity(app: BaseApp, records: list[SubmissionRecord]) -> None:
             continue
         record.activity = "active" if record.submitting else "inactive"
         for job in record.jobs:
+            if not scheduler_is_local(app, job):
+                failed.add(record.local_id)
+                record.scheduler_availability = "remote"
+                continue
             try:
                 contexts[context_key(job)].append(RegisteredJob(record, job))
             except (KeyError, TypeError, ValueError) as error:
@@ -251,6 +285,10 @@ def observe_activity(app: BaseApp, records: list[SubmissionRecord]) -> None:
             scheduler = scheduler_for(app, items[0].job)
             refs = [ResolvedJob(item, scheduler_ref(item.job)) for item in items]
             valid = [item.reference for item in refs if item.reference is not None]
+            if progress and valid:
+                progress(
+                    f"Querying {items[0].job.scheduler_type} scheduler ({len(valid)} jobs)"
+                )
             states = scheduler.get_job_state_info(js_refs=valid) if valid else {}
             for resolved in refs:
                 record, job = resolved.registration.submission, resolved.registration.job
@@ -271,6 +309,7 @@ def observe_activity(app: BaseApp, records: list[SubmissionRecord]) -> None:
                 record = item.submission
                 failed.add(record.local_id)
                 record.scheduler_error = str(error)
+                record.scheduler_availability = "unavailable"
             app.submission_logger.info("Scheduler monitoring failed: %s", error)
     for record in records:
         if record.local_id in failed and record.activity != "active":
@@ -288,6 +327,7 @@ def collect(
     no_update=False,
     include_summary: bool = True,
     template_names: Sequence[str] | str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> list[SubmissionRecord]:
     """Collect active submissions and a limited recent inactive history.
 
@@ -313,11 +353,14 @@ def collect(
     loaded: dict[WorkflowKey, Workflow] = {}
     if workflow_ref is not None and not records:
         # An explicit path may refer to history that has already been pruned.
-        workflow = app.Workflow(Path(workflow_ref).resolve())
+        path = str(Path(workflow_ref).resolve())
+        if progress:
+            progress(f"Loading workflow: {path}")
+        workflow = app.Workflow(path)
         for sub in workflow.submissions:
             for part in sub._submission_parts:
                 record = new_record(
-                    str(workflow.path),
+                    path,
                     workflow.id_,
                     sub.index,
                     part,
@@ -327,15 +370,18 @@ def collect(
                 record.local_id = -(len(records) + 1)
                 record.legacy = True
                 records.append(record)
-        loaded[WorkflowKey(str(workflow.path), workflow.id_)] = workflow
+        loaded[WorkflowKey(path, workflow.id_)] = workflow
     records = filter_templates(records, template_names)
     for record in records:
         if record.legacy and record.activity != "inactive":
             try:
-                hydrate(app, record, loaded)
+                hydrate(app, record, loaded, progress)
             except Exception as error:
                 note_failure(app, record, error)
-    observe_activity(app, records)
+    if progress is None:
+        observe_activity(app, records)
+    else:
+        observe_activity(app, records, progress)
     active = sorted(
         (r for r in records if r.activity != "inactive"),
         key=lambda r: (r.activity == "active", sort_timestamp(r.submitted_at)),
@@ -351,7 +397,7 @@ def collect(
             record.accessibility = "readable"
             record.detail_error = None
             if record.legacy:
-                hydrate(app, record, loaded)
+                hydrate(app, record, loaded, progress)
             if not include_summary:
                 continue
             ids = run_ids(record)
@@ -361,15 +407,39 @@ def collect(
                 summary.complete = True
                 summary.observed_at = cache.observed_at or "unknown"
             else:
-                workflow = load_workflow(app, record, loaded)
+                workflow = load_workflow(app, record, loaded, progress)
                 with workflow._store.cache_ctx():
-                    summary = refresh_actions(record, workflow, no_update)
+                    if progress:
+                        progress(f"Reading action states: {record.workflow_name}")
+                    summary = refresh_actions(
+                        record, workflow, no_update or is_archive(record.workflow_path)
+                    )
             record.last_action_summary = summary
+            if (
+                record.scheduler_availability in ("remote", "archived")
+                and summary.complete
+                and record.activity != "active"
+            ):
+                record.activity = "inactive"
+                record.inactive_at = record.inactive_at or timestamp()
             for field in ("started_at", "finished_at"):
                 if getattr(summary, field):
                     setattr(record, field, getattr(summary, field))
         except Exception as error:
             note_failure(app, record, error)
+    # Remote/archive completion may have changed activity while reading states.
+    selected = (
+        sorted(
+            (r for r in selected if r.activity != "inactive"),
+            key=lambda r: (r.activity == "active", sort_timestamp(r.submitted_at)),
+            reverse=True,
+        )
+        + sorted(
+            (r for r in selected if r.activity == "inactive"),
+            key=recent_key,
+            reverse=True,
+        )[:max_recent]
+    )
     if not no_update:
         retained = registry.update([r for r in records if r.local_id >= 0])
         selected = [r for r in selected if r.local_id < 0 or r.local_id in retained]

@@ -57,6 +57,33 @@ Monitor submissions
         {{ app_package_name }} show 42 --full
         {{ app_package_name }} show ./my-workflow --ref-type path
 
+    The Status column combines activity with compact coloured scheduler icons.
+    Add ``availability`` when you need store readability and scheduler/cache
+    diagnostics; it is hidden by default:
+
+    .. code-block:: console
+
+        {{ app_package_name }} show --columns id,name,status,availability,actions
+
+    Workflows copied from other machines remain inspectable. Foreign schedulers
+    are marked remote in Availability rather than making workflow data incompatible.
+    Live queries are made only for local jobs or queued jobs whose saved machine
+    matches the configured machine. Foreign process IDs are never checked locally.
+    Completed action snapshots can establish inactivity; otherwise inaccessible
+    schedulers leave activity unknown.
+
+    Local ZIP workflows can be inspected by path or registry reference without
+    extraction or changing the archive. Embedded terminal caches are reused when
+    present; missing states are read from the archived workflow. Archive status
+    reflects saved action data, and archive scheduler references are not queried.
+
+    .. code-block:: console
+
+        {{ app_package_name }} show ./workflow.zip
+
+    Rich progress displays workflow loading and scheduler queries. Suppress it
+    with ``--no-status`` (or ``app.show(status=False)`` in Python).
+
     Use ``{{ app_package_name }} show --list`` to list all registered submission
     parts, including their local ID, workflow name, submission index, submission
     time, last recorded activity, and path. This reads only the registry: it does
@@ -100,9 +127,9 @@ Monitor submissions
         show_list_columns: [id, name, submission, submit, status, path]
 
     Omitted columns are hidden. The available identifiers are ``id``, ``name``,
-    ``status``, ``actions``, ``elements``, ``submit``, ``start``, ``end``, ``times``,
+    ``status``, ``availability``, ``actions``, ``elements``, ``submit``, ``start``, ``end``, ``times``,
     ``submission``, and ``path``. Lists must be nonempty and contain no duplicates.
-    The default columns are ``id,name,status,elements``. An explicit
+    The default columns are ``id,name,status,actions``. An explicit
     ``show_columns`` setting takes precedence. Override the configuration for one
     invocation with ``--columns``, for example:
 
@@ -186,6 +213,19 @@ Monitor submissions
     using square brackets for elements (``[0–9, 20–29]``) and curly braces for
     iterations (``{0–9, 20–29}``). Different action orders and retry attempts remain separate.
     Element and iteration numbering are unchanged.
+
+    Disable grouping independently with ``--no-group-elements`` or
+    ``--no-group-iterations``, or use ``--no-group`` to disable both. These options
+    imply ``--full``, preserve icon alignment, and work with ``show --list`` when
+    cached state data is available:
+
+    .. code-block:: console
+
+        {{ app_package_name }} show 42 --no-group
+        {{ app_package_name }} show 42 --no-group-iterations
+
+    The SDK equivalents are ``group_elements=False`` and ``group_iterations=False``.
+
 
     Runs skipped because a loop terminated are hidden by default in both compact and
     full output. Skips due to upstream failures or unmet task conditions remain visible.

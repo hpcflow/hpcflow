@@ -342,7 +342,7 @@ rules:
 
   - path: [show_columns, { type: list_value }]
     condition:
-      value.in: [id, name, status, actions, elements, submit, start, end, times, submission, path]
+      value.in: [id, name, status, availability, actions, elements, submit, start, end, times, submission, path]
 
   - path: [show_list_columns]
     doc: Ordered columns for show --list. Action and element states use cached data only.
@@ -353,7 +353,7 @@ rules:
 
   - path: [show_list_columns, { type: list_value }]
     condition:
-      value.in: [id, name, status, actions, elements, submit, start, end, times, submission, path]
+      value.in: [id, name, status, availability, actions, elements, submit, start, end, times, submission, path]
 
   - path: [show_timezone]
     doc: Timezone for show datetime display. Use local, UTC, or an IANA timezone name.

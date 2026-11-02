@@ -311,6 +311,7 @@ class SubmissionRecord:
     last_checked_at: str = ""
     scheduler_states: list[str] = field(default_factory=list)
     scheduler_error: str | None = None
+    scheduler_availability: str = ""
     detail_error: str | None = None
     inactive_at: str = ""
     cancel_requested_at: str = ""

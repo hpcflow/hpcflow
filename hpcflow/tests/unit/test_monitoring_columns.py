@@ -26,6 +26,7 @@ from hpcflow.sdk.monitoring.columns import (
     configured_columns,
     format_datetime,
     status_cell,
+    availability_cell,
     times_cell,
     validate_columns,
 )
@@ -92,7 +93,7 @@ def test_scheduler_status_icons_keep_colours_order_and_unique_states():
     r.activity = "active"
     r.scheduler_states = ["running", "pending", "running", "errored"]
     cell = status_cell(r, RenderContext())
-    assert cell.plain == "active / ○ pending, ● running, E errored"
+    assert cell.plain == "active ○ ● E"
     for state in (
         JobscriptElementState.pending,
         JobscriptElementState.running,
@@ -111,8 +112,9 @@ def test_scheduler_icons_remain_visible_for_inaccessible_workflows():
     r.accessibility = "missing"
     r.scheduler_states = ["running", "unrecognised"]
     r.scheduler_error = "Another scheduler failed"
-    assert status_cell(r, RenderContext()).plain == (
-        "active / missing / ● running, unrecognised\nscheduler unavailable"
+    assert status_cell(r, RenderContext()).plain == "active ● unrecognised"
+    assert (
+        availability_cell(r, RenderContext()).plain == "missing / scheduler unavailable"
     )
 
 

@@ -38,6 +38,8 @@ def _render_table(
     include_loop_skipped: bool,
     list_only: bool,
     display_timezone: tzinfo | None,
+    group_elements: bool,
+    group_iterations: bool,
 ) -> None:
     """Compose selected column renderers using a single shared formatting context."""
     names = validate_columns(columns)
@@ -48,7 +50,14 @@ def _render_table(
         )
         return
     context = prepare_context(
-        records, names, full, include_loop_skipped, list_only, display_timezone
+        records,
+        names,
+        full,
+        include_loop_skipped,
+        list_only,
+        display_timezone,
+        group_elements,
+        group_iterations,
     )
     selected = [SHOW_COLUMNS[name] for name in names]
     table = Table(box=box.SQUARE)
@@ -68,6 +77,8 @@ def render(
     include_loop_skipped: bool = False,
     columns: Sequence[str] | None = None,
     display_timezone: tzinfo | None = None,
+    group_elements: bool = True,
+    group_iterations: bool = True,
 ) -> None:
     """Print a table of collected submission snapshots to a Rich console.
 
@@ -79,11 +90,13 @@ def render(
     _render_table(
         records,
         DEFAULT_SHOW_COLUMNS if columns is None else columns,
-        full,
+        full or not group_elements or not group_iterations,
         console,
         include_loop_skipped,
         False,
         display_timezone,
+        group_elements,
+        group_iterations,
     )
 
 
@@ -94,6 +107,8 @@ def render_registered(
     full: bool = False,
     include_loop_skipped: bool = False,
     display_timezone: tzinfo | None = None,
+    group_elements: bool = True,
+    group_iterations: bool = True,
 ) -> None:
     """Print registered history using cached observations and listing headings.
 
@@ -103,9 +118,11 @@ def render_registered(
     _render_table(
         records,
         DEFAULT_LIST_COLUMNS if columns is None else columns,
-        full,
+        full or not group_elements or not group_iterations,
         console,
         include_loop_skipped,
         True,
         display_timezone,
+        group_elements,
+        group_iterations,
     )

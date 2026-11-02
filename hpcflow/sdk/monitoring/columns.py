@@ -25,7 +25,7 @@ from .timezones import local_now, resolve_timezone
 if TYPE_CHECKING:
     from ..config.config import Config
 
-DEFAULT_SHOW_COLUMNS = ("id", "name", "status", "elements")
+DEFAULT_SHOW_COLUMNS = ("id", "name", "status", "actions")
 DEFAULT_LIST_COLUMNS = ("id", "name", "submission", "submit", "status", "path")
 
 
@@ -40,6 +40,8 @@ class RenderContext:
 
     full: bool = False
     include_loop_skipped: bool = False
+    group_elements: bool = True
+    group_iterations: bool = True
     list_only: bool = False
     action_widths: ActionColumnWidths | None = None
     element_widths: ActionColumnWidths | None = None
@@ -160,35 +162,43 @@ def format_datetime(
 
 
 def status_cell(record: SubmissionRecord, context: RenderContext) -> Text:
-    """Render activity, accessibility, and coloured scheduler-state icons.
+    """Render compact activity text and coloured scheduler-state icons.
 
     Keep scheduler observations visible even when workflow data is inaccessible.
-    Distinct states follow the scheduler legend order, with text labels retained
-    for clarity. Registry-only listings continue to show last recorded activity.
+    Distinct icons follow the scheduler legend order; availability diagnostics
+    have their own optional column. Registry-only listings show recorded activity.
     """
     text = Text(record.activity)
     if context.list_only:
         return text
-    if record.accessibility != "readable":
-        text.append(f" / {record.accessibility}")
     if record.scheduler_states:
         states = JobscriptElementState.__members__
         names = sorted(
             set(record.scheduler_states),
             key=lambda name: (states[name].id if name in states else len(states), name),
         )
-        text.append(" / ")
+        text.append(" ")
         for index, name in enumerate(names):
             if index:
-                text.append(", ")
+                text.append(" ")
             if state := states.get(name):
                 text.append(state.symbol, style=state.colour)
-                text.append(" ")
-            text.append(name)
-    if record.scheduler_error:
-        text.append("\nscheduler unavailable")
+            else:
+                text.append(name)
+    return text
+
+
+def availability_cell(record: SubmissionRecord, context: RenderContext) -> Text:
+    """Show store readability and scheduler/cache availability independently of activity."""
+    text = Text(record.accessibility)
+    if record.scheduler_availability == "remote":
+        text.append(" / scheduler remote", style="dim")
+    elif record.scheduler_availability == "archived":
+        text.append(" / archived", style="dim")
+    elif record.scheduler_error:
+        text.append(" / scheduler unavailable")
     if record.last_action_summary and record.last_action_summary.cache_error:
-        text.append("\ncache unavailable")
+        text.append(" / cache unavailable")
     return text
 
 
@@ -217,6 +227,8 @@ def actions_cell(record: SubmissionRecord, context: RenderContext) -> Renderable
         context.full,
         context.action_widths,
         include_loop_skipped=context.include_loop_skipped,
+        group_elements=context.group_elements,
+        group_iterations=context.group_iterations,
     )
     return _cached_note(cell, record, context)
 
@@ -224,7 +236,13 @@ def actions_cell(record: SubmissionRecord, context: RenderContext) -> Renderable
 def elements_cell(record: SubmissionRecord, context: RenderContext) -> RenderableType:
     """Render one overall state per element, with a cached-observation note if needed."""
     return _cached_note(
-        action_text(context.elements(record), context.full, context.element_widths),
+        action_text(
+            context.elements(record),
+            context.full,
+            context.element_widths,
+            group_elements=context.group_elements,
+            group_iterations=context.group_iterations,
+        ),
         record,
         context,
     )
@@ -265,6 +283,7 @@ SHOW_COLUMNS = {
             list_title="Workflow",
         ),
         ShowColumn("status", "Status", status_cell, list_title="Last activity"),
+        ShowColumn("availability", "Availability", availability_cell),
         ShowColumn("actions", "Actions", actions_cell, requires_summary=True),
         ShowColumn("elements", "Elements", elements_cell, requires_summary=True),
         ShowColumn(
@@ -334,6 +353,8 @@ def prepare_context(
     include_loop_skipped: bool,
     list_only: bool,
     display_timezone: tzinfo | None = None,
+    group_elements: bool = True,
+    group_iterations: bool = True,
 ) -> RenderContext:
     """Prepare one table's time reference and widths for selected full-detail columns.
 
@@ -344,6 +365,8 @@ def prepare_context(
         full=full,
         include_loop_skipped=include_loop_skipped,
         list_only=list_only,
+        group_elements=group_elements,
+        group_iterations=group_iterations,
         display_timezone=(
             display_timezone if display_timezone is not None else resolve_timezone()
         ),
@@ -354,7 +377,9 @@ def prepare_context(
                 row
                 for record in records
                 for row in full_action_rows(
-                    display_summary(record.last_action_summary, include_loop_skipped)
+                    display_summary(record.last_action_summary, include_loop_skipped),
+                    group_elements,
+                    group_iterations,
                 )
             ]
         )
@@ -363,7 +388,9 @@ def prepare_context(
             [
                 row
                 for record in records
-                for row in full_action_rows(context.elements(record))
+                for row in full_action_rows(
+                    context.elements(record), group_elements, group_iterations
+                )
             ]
         )
     return context

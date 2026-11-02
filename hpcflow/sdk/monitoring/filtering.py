@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-import json
-from pathlib import Path
 
 from .models import SubmissionRecord, WorkflowKey
+from .headers import read_header
 
 
 def template_names(value: Sequence[str] | str | None) -> tuple[str, ...] | None:
@@ -38,17 +37,12 @@ def _read_template_name(record: SubmissionRecord) -> str | None:
     malformed, or unreadable workflows return None rather than failing the listing.
     No workflow object is created and no files are written.
     """
-    for filename in (".zattrs", "metadata.json"):
-        path = Path(record.workflow_path) / filename
-        try:
-            metadata = json.loads(path.read_text(encoding="utf-8"))
-            if metadata["creation_info"]["id"] != record.workflow_id:
-                return None
+    try:
+        metadata, _ = read_header(record.workflow_path)
+        if metadata is not None and metadata["creation_info"]["id"] == record.workflow_id:
             return metadata_template_name(metadata)
-        except FileNotFoundError:
-            continue
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
-            return None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
     return None
 
 

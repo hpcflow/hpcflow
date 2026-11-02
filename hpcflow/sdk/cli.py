@@ -1209,6 +1209,26 @@ def _make_show_CLI(app: BaseApp):
         help="Show action patterns grouped by elements with identical states.",
     )
     @click.option(
+        "--group-elements/--no-group-elements",
+        default=True,
+        help="Group identical elements, or show each element separately (implies --full).",
+    )
+    @click.option(
+        "--group-iterations/--no-group-iterations",
+        default=True,
+        help="Group identical iterations, or show each iteration separately (implies --full).",
+    )
+    @click.option(
+        "--no-group",
+        is_flag=True,
+        help="Show each element and iteration separately (implies --full).",
+    )
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="Show loading and scheduler-query progress.",
+    )
+    @click.option(
         "--include-loop-skipped",
         is_flag=True,
         default=False,
@@ -1232,6 +1252,10 @@ def _make_show_CLI(app: BaseApp):
         list_only: bool,
         columns: tuple[str, ...] | None,
         template_names: tuple[str, ...] | None,
+        group_elements: bool,
+        group_iterations: bool,
+        no_group: bool,
+        status: bool,
     ):
         """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
         app.show(
@@ -1244,6 +1268,9 @@ def _make_show_CLI(app: BaseApp):
             list_only=list_only,
             columns=columns,
             template_names=template_names,
+            group_elements=group_elements and not no_group,
+            group_iterations=group_iterations and not no_group,
+            status=status,
         )
 
     return show

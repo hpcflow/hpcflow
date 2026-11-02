@@ -7,10 +7,11 @@ through the host application's existing binding and function-cache machinery.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, cast
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table, box
 from rich.text import Text
@@ -54,6 +55,9 @@ if TYPE_CHECKING:
             list_only: bool = False,
             columns: Sequence[str] | None = None,
             template_names: Sequence[str] | str | None = None,
+            group_elements: bool = True,
+            group_iterations: bool = True,
+            status: bool = True,
         ) -> None: ...
 
 
@@ -123,6 +127,16 @@ class MonitoringMixin:
             Override the ordered ``show_columns`` or ``show_list_columns`` setting
             for this call. See ``monitoring.columns.SHOW_COLUMNS`` for identifiers.
 
+        group_elements : bool, default True
+            Group elements with identical action patterns. False shows each element
+            separately and implies full detail without changing cached snapshots.
+        group_iterations : bool, default True
+            Group iterations with identical action patterns. False shows each
+            iteration separately and implies full detail.
+        status : bool, default True
+            Show transient Rich progress while loading workflows, reading action
+            states, and querying schedulers. False suppresses the progress display.
+
         Notes
         -----
         Datetime columns use ``show_timezone`` (local by default). Suffixes are
@@ -175,7 +189,8 @@ class MonitoringMixin:
         """
         js_notes = Panel(
             "The [i]Status[/i] column shows scheduler activity (active, inactive, or "
-            "unknown), workflow accessibility, and observed jobscript states. "
+            "unknown) and compact coloured jobscript-state icons. The optional "
+            "Availability column shows workflow readability and scheduler/cache access. "
             "Workflow readability and scheduler activity are independent. Jobscript element "
             "state meanings are shown below.",
             width=80,
@@ -238,6 +253,9 @@ class MonitoringMixin:
         list_only: bool = False,
         columns: Sequence[str] | None = None,
         template_names: Sequence[str] | str | None = None,
+        group_elements: bool = True,
+        group_iterations: bool = True,
+        status: bool = True,
     ) -> None:
         """Resolve display settings, collect selected submissions, and render the table.
 
@@ -248,6 +266,8 @@ class MonitoringMixin:
         from hpcflow.sdk.monitoring.columns import SHOW_COLUMNS, configured_columns
         from hpcflow.sdk.monitoring.timezones import configured_timezone
 
+        full = full or not group_elements or not group_iterations
+        console = Console()
         selected_columns = configured_columns(
             self._monitoring_app.config, list_only, columns
         )
@@ -268,25 +288,38 @@ class MonitoringMixin:
                 display_timezone=display_timezone,
                 full=full,
                 include_loop_skipped=include_loop_skipped,
+                group_elements=group_elements,
+                group_iterations=group_iterations,
+                console=console,
             )
             return
         from hpcflow.sdk.monitoring.render import render
         from hpcflow.sdk.monitoring.status import collect
 
-        render(
-            collect(
+        with (
+            console.status("Reading registered submissions...")
+            if status
+            else nullcontext()
+        ) as live_status:
+            records = collect(
                 self._monitoring_app,
                 workflow_ref,
                 ref_type,
                 max_recent,
                 no_update,
                 template_names=template_names,
+                progress=live_status.update if live_status is not None else None,
                 include_summary=any(
                     SHOW_COLUMNS[name].requires_summary for name in selected_columns
                 ),
-            ),
+            )
+        render(
+            records,
             full=full,
             include_loop_skipped=include_loop_skipped,
             columns=selected_columns,
             display_timezone=display_timezone,
+            group_elements=group_elements,
+            group_iterations=group_iterations,
+            console=console,
         )

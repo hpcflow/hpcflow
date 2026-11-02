@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .states import ACTION_STATES
-from .models import ActionStatus, ActionSummary, IterationActionState
+from .models import ActionStatus, ActionSummary, ElementGroup, IterationActionState
 
 
 def element_ranges(elements: list[int]) -> str:
@@ -111,16 +111,29 @@ def iteration_text(pattern: Sequence[IterationActionState]) -> Text:
     return text
 
 
-def full_action_rows(summary: ActionSummary) -> list[FullActionRow]:
+def full_action_rows(
+    summary: ActionSummary, group_elements: bool = True, group_iterations: bool = True
+) -> list[FullActionRow]:
     """Group matching iteration patterns into detail rows for each element group.
 
     Combine nonconsecutive equal patterns into comma-separated iteration ranges.
     Show the task and element labels only on the first row of each relevant group;
-    keep icons separate so all tasks can share alignment widths.
+    keep icons separate so all tasks can share alignment widths. Disable element
+    and iteration grouping independently to render individual indices without
+    changing the collected summary.
     """
     rows = []
     previous_task = None
-    for group in summary.groups:
+    groups = (
+        summary.groups
+        if group_elements
+        else [
+            ElementGroup(group.task, group.pattern, [element])
+            for group in summary.groups
+            for element in sorted(group.elements)
+        ]
+    )
+    for group in groups:
         pattern = group.pattern
         labelled = bool(pattern) and (
             pattern[0].iteration != pattern[-1].iteration or pattern[0].iteration != 0
@@ -128,11 +141,18 @@ def full_action_rows(summary: ActionSummary) -> list[FullActionRow]:
         task = group.task if group.task != previous_task else ""
         elements = element_ranges(group.elements)
         ranges_by_actions: dict[tuple[ActionStatus, ...], list[str]] = {}
-        for iteration_range in iteration_runs(pattern):
-            ranges_by_actions.setdefault(iteration_range.actions, []).append(
-                iteration_range.label
-            )
-        for index, (actions, ranges) in enumerate(ranges_by_actions.items()):
+        if group_iterations:
+            for iteration_range in iteration_runs(pattern):
+                ranges_by_actions.setdefault(iteration_range.actions, []).append(
+                    iteration_range.label
+                )
+            patterns = list(ranges_by_actions.items())
+        else:
+            patterns = [
+                (tuple(step.status for step in steps), [str(iteration)])
+                for iteration, steps in groupby(pattern, key=lambda step: step.iteration)
+            ]
+        for index, (actions, ranges) in enumerate(patterns):
             iterations = Text()
             if labelled:
                 iterations.append("iters", style="italic")
@@ -176,6 +196,8 @@ def action_text(
     full: bool,
     column_widths: ActionColumnWidths | None = None,
     include_loop_skipped: bool = False,
+    group_elements: bool = True,
+    group_iterations: bool = True,
 ) -> Text | Table:
     """Render compact state counts or full grouped action/element patterns.
 
@@ -184,7 +206,7 @@ def action_text(
     """
     summary = display_summary(summary, include_loop_skipped)
     if full:
-        rows = full_action_rows(summary)
+        rows = full_action_rows(summary, group_elements, group_iterations)
         widths = column_widths or action_column_widths(rows)
         table = Table.grid(padding=(0, 1))
         table.add_column(width=widths.task)

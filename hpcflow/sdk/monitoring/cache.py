@@ -17,6 +17,7 @@ from .models import (
     to_json,
 )
 from .registry import atomic_json, file_lock, timestamp
+from .headers import read_text, is_archive
 from .states import display_state_name
 
 if TYPE_CHECKING:
@@ -43,7 +44,12 @@ def read_cache(record: SubmissionRecord) -> TerminalStateCache | None:
     from workflow data instead of relying on stale state.
     """
     try:
-        data = json.loads(cache_path(record).read_text(encoding="utf-8"))
+        data = json.loads(
+            read_text(
+                record.workflow_path,
+                f"artifacts/submissions/{record.submission_index}/tmp/terminal_states.json",
+            )
+        )
         if (
             data["schema_version"] != 1
             or data["workflow_id"] != record.workflow_id
@@ -177,7 +183,7 @@ def refresh_actions(
                 skip_reason=run.skip_reason if run.status is EARStatus.skipped else None,
             )
     result = snapshot(entries, ids)
-    if not no_update:
+    if not no_update and not is_archive(record.workflow_path):
         try:
             path = cache_path(record)
             with file_lock(path.with_suffix(".lock")):

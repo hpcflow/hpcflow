@@ -120,18 +120,31 @@ def new_record(
     )
 
 
-def job_record(job: Jobscript) -> JobRecord:
+def job_record(job: Jobscript, inspect_scheduler: bool = True) -> JobRecord:
     """Snapshot scheduler settings and references without retaining a live jobscript.
 
     Include query/cancel command overrides, action-run IDs, and the submission host.
-    For direct jobs, capture process creation time when available to detect PID reuse.
+    For local direct jobs, capture process creation time to detect PID reuse.
+    Foreign jobs and calls with ``inspect_scheduler=False`` read saved reference
+    fields directly, without constructing an adapter or inspecting local PIDs.
     """
-    scheduler = job.scheduler
+    inspect_scheduler = inspect_scheduler and (
+        not job.submit_hostname or job.submit_hostname == socket.gethostname()
+    )
+    scheduler = job.scheduler if inspect_scheduler else None
     args = deepcopy(job._get_submission_scheduler_args())
     for name in ("show_cmd", "del_cmd"):
         if hasattr(scheduler, name):
             args[name] = getattr(scheduler, name)
-    reference = job.scheduler_js_ref
+    reference = (
+        job.scheduler_js_ref
+        if inspect_scheduler
+        else (
+            job.scheduler_job_ID
+            if job.scheduler_job_ID is not None
+            else (job.process_ID, job.submit_cmdline)
+        )
+    )
     result = JobRecord(
         jobscript_index=job.index,
         scheduler_type=job.scheduler_name,
@@ -148,7 +161,9 @@ def job_record(job: Jobscript) -> JobRecord:
         run_ids=[int(i) for i in job.all_EAR_IDs],
     )
     if (
-        isinstance(result.scheduler_reference, ProcessReference)
+        inspect_scheduler
+        and result.hostname == socket.gethostname()
+        and isinstance(result.scheduler_reference, ProcessReference)
         and result.scheduler_reference.pid is not None
     ):
         import psutil
