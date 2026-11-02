@@ -19,6 +19,127 @@ from hpcflow.sdk.cli_common import BoolOrString
 from hpcflow.sdk.demo.cli import get_demo_workflow_CLI
 
 
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+@pytest.mark.parametrize("ret_id", [False, True])
+@pytest.mark.parametrize("print_idx", [False, True])
+def test_cli_submission_ret_id(command_name: str, ret_id: bool, print_idx: bool):
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    workflow.path = Path("workflow")
+    submitted_js = {0: [0], 1: [1], 2: []}
+    app.read_known_submissions_file = Mock(
+        return_value=[
+            {"path": "other", "sub_idx": 0, "local_id": 99},
+            {"path": str(workflow.path), "sub_idx": 0, "local_id": 4},
+            {"path": str(workflow.path), "sub_idx": 1, "local_id": 0},
+            {"path": str(workflow.path), "sub_idx": 0, "local_id": 7},
+            {"path": str(workflow.path), "sub_idx": 2, "local_id": 8},
+        ]
+    )
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        submit.return_value = submitted_js
+        args = []
+    else:
+        if command_name == "demo-go":
+            command = get_demo_workflow_CLI(app).commands["go"]
+            submit = app.make_and_submit_demo_workflow = Mock()
+        else:
+            command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+            submit = app.make_and_submit_workflow = Mock()
+        submit.return_value = (
+            (workflow, submitted_js) if ret_id or print_idx else workflow
+        )
+        args = ["workflow.yaml"]
+    args += ["--quiet"]
+    if ret_id:
+        args.append("--ret-id")
+    if print_idx:
+        args.append("--print-idx")
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    expected = f"{submitted_js}\n" if print_idx else ""
+    if ret_id:
+        expected += "7\n0\n"
+        app.read_known_submissions_file.assert_called_once_with()
+    else:
+        app.read_known_submissions_file.assert_not_called()
+    assert result.output == expected
+    assert "ret_id" not in submit.call_args.kwargs
+
+
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+def test_cli_ret_id_requires_known_submission(command_name: str):
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        args = []
+    elif command_name == "demo-go":
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+        args = ["workflow.yaml"]
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+        args = ["workflow.yaml"]
+    result = CliRunner().invoke(
+        command, [*args, "--ret-id", "--no-add-to-known"], obj=workflow
+    )
+    assert result.exit_code == 2
+    assert "--ret-id requires --add-to-known" in result.output
+    submit.assert_not_called()
+
+
+@pytest.mark.parametrize("submitted_js", [{}, {0: []}])
+def test_cli_ret_id_without_submitted_jobscripts(submitted_js):
+    app = Mock(wraps=hf)
+    app.read_known_submissions_file = Mock()
+    workflow = Mock(spec=Workflow)
+    workflow.submit.return_value = submitted_js
+    command = _make_workflow_CLI(app).commands["submit"]
+    result = CliRunner().invoke(command, ["--ret-id"], obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+    app.read_known_submissions_file.assert_not_called()
+
+
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+def test_cli_ret_id_with_follow_and_workers(command_name: str) -> None:
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    workflow.path = Path("workflow")
+    submitted_js = {0: [0]}
+    app.read_known_submissions_file = Mock(
+        return_value=[{"path": str(workflow.path), "sub_idx": 0, "local_id": 7}]
+    )
+    args = ["--quiet", "--ret-id", "--follow=all"]
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        submit.return_value = submitted_js
+        args.append("--enable-script-workers")
+    else:
+        if command_name == "demo-go":
+            command = get_demo_workflow_CLI(app).commands["go"]
+            submit = app.make_and_submit_demo_workflow = Mock()
+        else:
+            command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+            submit = app.make_and_submit_workflow = Mock()
+        submit.return_value = (workflow, submitted_js)
+        args.insert(0, "workflow.yaml")
+
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert result.output == "7\n"
+    assert submit.call_args.kwargs["follow"] == "all"
+    assert submit.call_args.kwargs["return_idx"] is True
+    if command_name == "submit":
+        assert submit.call_args.kwargs["enable_script_workers"] is True
+
+
 @pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
 def test_cli_submit_follow(option: list[str]) -> None:
     workflow = Mock(spec=Workflow)

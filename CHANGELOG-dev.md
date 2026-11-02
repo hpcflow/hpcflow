@@ -1,4 +1,16 @@
 
+<a name="v0.4.0a10"></a>
+## [v0.4.0a10](https://github.com/hpcflow/hpcflow/compare/v0.4.0a9...v0.4.0a10) - 2026.10.31
+
+### ✨ Features
+
+* add CLI option `--ret-id` to print the local workflow ID
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a9"></a>
 ## [v0.4.0a9](https://github.com/hpcflow/hpcflow/compare/v0.4.0a8...v0.4.0a9) - 2026.10.29
 
