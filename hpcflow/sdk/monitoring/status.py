@@ -335,7 +335,8 @@ def collect(
     template-name filtering before scheduler queries and the inactive-history limit.
     An explicit unregistered path can recover submission parts from its workflow.
     Active and unknown records precede inactive records and do not consume
-    ``max_recent`` slots; None uses the ``show_max_recent`` configuration.
+    ``max_recent`` slots. None uses ``show_max_recent`` for the general overview,
+    but includes all matching history when a workflow reference is supplied.
 
     Refresh action summaries only for selected records when ``include_summary`` is
     True, reusing terminal caches and loaded workflows. Inspection failures remain
@@ -344,9 +345,9 @@ def collect(
     Otherwise merge observations with concurrent registry changes and retention.
     Return invocation-owned snapshots, without live workflow or scheduler objects.
     """
-    if max_recent is None:
+    if max_recent is None and workflow_ref is None:
         max_recent = get_limit(app.config, "show_max_recent", 3)
-    if type(max_recent) is not int or max_recent < 0:
+    if max_recent is not None and (type(max_recent) is not int or max_recent < 0):
         raise ValueError("max_recent must be a non-negative integer")
     registry = SubmissionRegistry(app)
     records = resolve_records(registry.read().records, workflow_ref, ref_type)

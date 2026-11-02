@@ -98,7 +98,9 @@ Monitor submissions
 
     The optional reference selects one workflow by a displayed local ID, an exact
     registered workflow name, or a path, including
-    all retained submission parts for that workflow. An explicit path also supports
+    all retained submission parts for that workflow. Selecting a workflow disables
+    the default recent-submission limit; supply ``--max-recent N`` explicitly to
+    limit its inactive history. This applies to ZIP paths too. An explicit path also supports
     inspecting a workflow whose submission history is no longer retained. Local IDs are
     never reused within the monitoring registry.
 

@@ -109,8 +109,9 @@ class MonitoringMixin:
             Filter before scheduler queries and recent-history selection.
         max_recent : int, optional
             Maximum inactive submissions to display; active and unknown submissions
-            are always included. Defaults to ``show_max_recent`` for live monitoring
-            or all retained inactive history with ``list_only=True``.
+            are always included. Defaults to ``show_max_recent`` for the general
+            overview, or all matching inactive history when ``workflow_ref`` is
+            supplied or ``list_only=True``.
         full : bool, default False
             Show aligned task/element ranges and grouped iteration action patterns
             instead of compact counts. Elements share one state across iterations.

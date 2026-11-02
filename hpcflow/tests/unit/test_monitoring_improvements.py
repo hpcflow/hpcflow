@@ -24,14 +24,18 @@ from hpcflow.sdk.monitoring.columns import (
 )
 from hpcflow.sdk.monitoring.filtering import filter_templates
 from hpcflow.sdk.monitoring.models import (
+    ActionRunState,
     ActionSummary,
     ElementGroup,
     IterationActionState,
     JobRecord,
     ProcessReference,
     SubmissionRecord,
+    TerminalStateCache,
+    to_json,
 )
-from hpcflow.sdk.monitoring.registry import SubmissionRegistry, job_record
+from hpcflow.sdk.monitoring.registry import SubmissionRegistry, atomic_json, job_record
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.monitoring.render import render
 from hpcflow.sdk.monitoring.status import check_identity, collect, observe_activity
 from hpcflow.sdk.submission.enums import JobscriptElementState
@@ -59,6 +63,82 @@ def record(tmp_path):
         "2026-11-01T12:00:00Z",
         local_id=0,
     )
+
+
+@pytest.mark.parametrize("reference", [None, "id", "name", "path"])
+def test_explicit_workflow_defaults_to_all_registered_submissions(
+    app, tmp_path, reference
+):
+    records = []
+    for i in range(4):
+        r = record(tmp_path)
+        r.local_id = i
+        r.submission_index = i
+        r.activity = "inactive"
+        r.submitted_at = f"2026-11-01T12:0{i}:00Z"
+        records.append(r)
+    atomic_json(
+        Path(records[0].workflow_path) / ".zattrs",
+        {"creation_info": {"id": "id"}, "name": "workflow"},
+    )
+    with SubmissionRegistry(app).transaction() as data:
+        data.records = records
+    value = {None: None, "id": 0, "name": "workflow", "path": records[0].workflow_path}[
+        reference
+    ]
+    result = collect(
+        app, workflow_ref=value, ref_type=reference, no_update=True, include_summary=False
+    )
+    assert len(result) == (3 if reference is None else 4)
+    if reference is not None:
+        for limit in (0, 2):
+            assert (
+                len(
+                    collect(
+                        app,
+                        workflow_ref=value,
+                        ref_type=reference,
+                        max_recent=limit,
+                        no_update=True,
+                        include_summary=False,
+                    )
+                )
+                == limit
+            )
+
+
+def test_explicit_archive_keeps_all_submissions_after_completion_is_discovered(
+    app, tmp_path
+):
+    path = tmp_path / "four-submissions.zip"
+    records = []
+    with ZipFile(path, "w") as archive:
+        archive.writestr(
+            ".zattrs", json.dumps({"creation_info": {"id": "id"}, "name": "workflow"})
+        )
+        for i in range(4):
+            r = record(tmp_path)
+            r.workflow_path = str(path)
+            r.local_id = i
+            r.submission_index = i
+            r.jobs = [JobRecord(0, run_ids=[i])]
+            records.append(r)
+            cache = TerminalStateCache(
+                "id", i, {i: ActionRunState(0, "task", 0, 0, 0, 0, EARStatus.success)}
+            )
+            archive.writestr(
+                f"artifacts/submissions/{i}/tmp/terminal_states.json",
+                json.dumps(to_json(cache)),
+            )
+    with SubmissionRegistry(app).transaction() as data:
+        data.records = records
+    app.Workflow = Mock(side_effect=AssertionError("Embedded caches should suffice"))
+    result = collect(app, workflow_ref=str(path), no_update=True)
+    assert len(result) == 4
+    assert all(
+        r.activity == "inactive" and r.last_action_summary.complete for r in result
+    )
+    assert len(collect(app, workflow_ref=str(path), max_recent=2, no_update=True)) == 2
 
 
 @pytest.mark.parametrize("reference", ["123", ProcessReference(123, ("python",))])

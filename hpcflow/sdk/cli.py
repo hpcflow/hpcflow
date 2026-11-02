@@ -1193,7 +1193,7 @@ def _make_show_CLI(app: BaseApp):
         "--max-recent",
         type=click.IntRange(min=0),
         default=None,
-        help="Maximum inactive submissions to show (default: show_max_recent config; --list: all).",
+        help="Maximum inactive submissions to show (default: show_max_recent; WORKFLOW_REF or --list: all).",
     )
     @click.option(
         "--no-update",
