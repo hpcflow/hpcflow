@@ -25,6 +25,8 @@ from hpcflow.tests.workflows.conftest import (
 from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from hpcflow.sdk.submission.jobscript import Jobscript
 
 
@@ -106,6 +108,84 @@ async def wait_for_run_waiter(
             await wait_task
             raise AssertionError("Run wait completed before its waiter was registered.")
         await asyncio.sleep(0.001)
+
+
+def test_wait_endpoint_discovery_ignores_partial_files(workflow_1_add_sub):
+    workflow = workflow_1_add_sub
+    executor = hf.JobscriptExecutor(workflow, 0, 0)
+    assert executor._get_wait_endpoints() == []
+
+    endpoints_path = executor.wait_endpoints_path
+    endpoints_path.mkdir(parents=True)
+    waiter_id = WaitServer.get_new_waiter_id()
+    other_waiter_id = WaitServer.get_new_waiter_id()
+    endpoint = "tcp://127.0.0.1:5001"
+    other_endpoint = "tcp://127.0.0.1:5002"
+    atomic_write(endpoints_path / waiter_id, f" {endpoint}\n".encode())
+    atomic_write(endpoints_path / other_waiter_id, other_endpoint.encode())
+    partial_name = f"{WaitServer.get_new_waiter_id()}.{waiter_id}.partial"
+    (endpoints_path / partial_name).write_bytes(b"\xff")
+    (endpoints_path / "not-a-file").mkdir()
+
+    assert set(executor._get_wait_endpoints()) == {endpoint, other_endpoint}
+    assert executor._get_wait_endpoints((waiter_id, partial_name, "missing")) == [
+        endpoint
+    ]
+
+
+def test_wait_endpoint_discovery_during_atomic_publication(
+    workflow_1_add_sub, monkeypatch
+):
+    workflow = workflow_1_add_sub
+    executor = hf.JobscriptExecutor(workflow, 0, 0)
+    existing_id = WaitServer.get_new_waiter_id()
+    pending_id = WaitServer.get_new_waiter_id()
+    existing_endpoint = "tcp://127.0.0.1:5001"
+    pending_endpoint = "tcp://127.0.0.1:5002"
+    workflow._register_wait_endpoint(0, 0, existing_id, existing_endpoint)
+    original_replace = os.replace
+
+    def replace_after_scan(source: Path, destination: Path) -> None:
+        assert source.parent == executor.wait_endpoints_path
+        assert source.name.startswith(f"{pending_id}.")
+        assert source.name.endswith(".partial")
+        assert source.read_bytes() == pending_endpoint.encode()
+        assert destination == executor.wait_endpoints_path / pending_id
+        assert executor._get_wait_endpoints() == [existing_endpoint]
+        assert executor._get_wait_endpoints((pending_id,)) == []
+        original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", replace_after_scan)
+    endpoint_path = workflow._register_wait_endpoint(0, 0, pending_id, pending_endpoint)
+
+    assert endpoint_path == executor.wait_endpoints_path / pending_id
+    assert set(executor._get_wait_endpoints()) == {existing_endpoint, pending_endpoint}
+
+
+@pytest.mark.asyncio
+async def test_jobscript_notifies_only_published_wait_endpoints(workflow_1_add_sub):
+    workflow = workflow_1_add_sub
+    executor = hf.JobscriptExecutor(workflow, 0, 0)
+    server = WaitServer(advertise_host="127.0.0.1")
+    notify_task = None
+    try:
+        endpoint = await server.start()
+        waiter_id = WaitServer.get_new_waiter_id()
+        workflow._register_wait_endpoint(0, 0, waiter_id, endpoint)
+        partial_name = f"{WaitServer.get_new_waiter_id()}.{waiter_id}.partial"
+        (executor.wait_endpoints_path / partial_name).write_bytes(b"\xff")
+
+        notify_task = asyncio.create_task(executor._notify_waiters())
+        assert await server.wait(timeout=5) == WaitWakeup(
+            submission_idx=0, jobscript_idx=0
+        )
+        await asyncio.wait_for(notify_task, timeout=5)
+    finally:
+        if notify_task is not None:
+            if not notify_task.done():
+                notify_task.cancel()
+            await asyncio.gather(notify_task, return_exceptions=True)
+        await server.stop()
 
 
 @pytest.mark.asyncio

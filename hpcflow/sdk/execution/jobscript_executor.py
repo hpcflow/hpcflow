@@ -1091,9 +1091,11 @@ class JobscriptExecutor(AppAware):
         submission_idx: int,
         jobscript_idx: int,
     ) -> Path:
-        """Get the path to a directory containing files whose names are wait-endpoint IDs,
-        and whose contents are the registered endpoints that should be notified upon
-        jobscript completion."""
+        """Get the directory containing wait endpoints.
+
+        Published files are named after wait-endpoint IDs and contain the registered
+        endpoints that should be notified upon jobscript completion.
+        """
         return (
             submissions_path
             / str(submission_idx)
@@ -1109,6 +1111,7 @@ class JobscriptExecutor(AppAware):
         )
 
     def _get_wait_endpoints(self, waiter_ids: tuple[str, ...] | None = None) -> list[str]:
+        """Read published endpoints, excluding temporary files from atomic writes."""
         if not self.wait_endpoints_path.exists():
             return []
 
@@ -1121,7 +1124,7 @@ class JobscriptExecutor(AppAware):
         return [
             path.read_text(encoding="utf-8").strip()
             for path in endpoint_paths
-            if path.is_file()
+            if not path.name.endswith(".partial") and path.is_file()
         ]
 
     async def _notify_waiters(self, waiter_ids: tuple[str, ...] | None = None) -> None:
