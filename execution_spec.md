@@ -215,6 +215,8 @@ does not invent a persisted run-end result for the interrupted run.
 An abort observed during startup prevents dispatch even if readiness finishes
 concurrently with cancellation. If the invocation task and abort signal are both
 complete when inspected, the completed invocation's result takes precedence.
+A completed result equal to `ABORT_EXIT_CODE` does not itself terminate the worker;
+parent finalization still applies its existing abortable-action semantics.
 Unexpected worker exit remains an explicit transport error, not an aborted or
 successful result; cleanup closes the transport without retrying the invocation.
 The executor does not fabricate a run-end result for that transport failure.
@@ -254,8 +256,12 @@ Work time covers only callable invocation; orchestration time includes argument
 resolution, output persistence, and context setup/teardown. Script and serialization
 exceptions are logged, written to run stderr, and returned as exit one. Context
 setup/teardown failures are fatal service errors, so an unsafe interpreter is not
-reused. `SystemExit` and other BaseException exits propagate after cleanup rather
-than becoming successful replies.
+reused. A `SystemExit` raised by the user callable becomes that run's normalized
+exit status, with non-integer exit values printed to the run's stderr. It provides
+no direct output mapping, even for exit zero; promised-file validation still
+belongs to parent finalization. The worker remains reusable, so interpreter-exit
+hooks run only when the worker itself exits. `SystemExit` outside the callable,
+other `BaseException` exits, and abrupt worker death remain fatal.
 
 Wrapper-local definitions, including mutable function defaults, are rebuilt per
 invocation as before. Imported modules retain Python's normal process-wide cache.

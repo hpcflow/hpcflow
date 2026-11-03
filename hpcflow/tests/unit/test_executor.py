@@ -135,7 +135,7 @@ async def test_worker_run_abort_during_startup_never_executes(finish_start_on_ab
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("exit_code", [0, 1, ABORT_EXIT_CODE])
 async def test_worker_run_completed_result_wins_simultaneous_abort(exit_code):
     client = Mock()
     client.worker.is_running = True

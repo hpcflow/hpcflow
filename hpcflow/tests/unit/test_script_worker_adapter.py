@@ -16,12 +16,15 @@ from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.execution.client import JobscriptClient
 from hpcflow.sdk.execution.protocol import StatusRequest
+from hpcflow.sdk.execution.run_executor import RunExecutor
+from hpcflow.sdk.execution.script_worker import adapter as adapter_module
 from hpcflow.sdk.execution.script_worker.adapter import ScriptWorkerInvocation
 from hpcflow.sdk.execution.script_worker.client import ScriptWorkerClient
 from hpcflow.sdk.execution.script_worker.protocol import (
     ExecuteScriptRequest,
     ScriptExecutionResult,
 )
+from hpcflow.sdk.execution.script_worker.run import ScriptWorkerRun
 from hpcflow.sdk.execution.script_worker.service import (
     ScriptWorkerService,
     ScriptWorkerServiceError,
@@ -684,14 +687,54 @@ def test_output_persistence_error_is_nonzero_and_diagnostic(tmp_path, monkeypatc
     assert "save failed" in (tmp_path / "run.std").read_text()
 
 
-@pytest.mark.parametrize("code", [0, 7])
-def test_system_exit_restores_context_without_success_reply(tmp_path, code):
-    _, run = make_run(tmp_path)
+@pytest.mark.parametrize(
+    "code",
+    [
+        None,
+        0,
+        1,
+        7,
+        64,
+        98,
+        -1,
+        -123124,
+        256,
+        -256,
+        2**31,
+        2**32,
+        2**63,
+        -(2**63) - 1,
+        False,
+        True,
+        "exit message",
+        1.5,
+    ],
+)
+def test_system_exit_returns_process_status_and_restores_context(
+    tmp_path, monkeypatch, code
+):
+    if getattr(sys, "frozen", False):
+        pytest.skip("Comparing interpreter exit codes requires Python.")
+    process = subprocess.run(
+        [sys.executable, "-c", f"import sys; sys.exit({code!r})"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    expected_exit_code = RunExecutor._normalise_return_code(process.returncode)
+    workflow, run = make_run(tmp_path)
+    save_parameter = Mock()
+    monkeypatch.setattr(workflow, "save_parameter", save_parameter)
     cwd = Path.cwd()
     env = dict(os.environ)
+    streams = (sys.stdout, sys.stderr)
+    handler = hf.log.file_handler
+    variable = contextvars.ContextVar("worker_exit", default="outside")
 
     def function(p1):
+        variable.set("changed")
         os.environ["WORKER_BAD"] = "bad"
+        os.chdir(tmp_path)
         raise SystemExit(code)
 
     invocation = ScriptWorkerInvocation(
@@ -700,14 +743,99 @@ def test_system_exit_restores_context_without_success_reply(tmp_path, code):
         function,
         environment=dict(os.environ),
         std_path=tmp_path / "run.std",
+        log_path=tmp_path / "run.log",
     )
-    with pytest.raises(SystemExit) as error:
+    with TimeIt().activate() as outer:
+        result = invocation()
+        assert TimeIt.current() is outer
+    assert result.exit_code == expected_exit_code
+    assert result.work_time >= 0 and result.orchestration_time >= 0
+    save_parameter.assert_not_called()
+    if process.stderr:
+        assert (tmp_path / "run.std").read_text().endswith(process.stderr)
+    else:
+        assert not (tmp_path / "run.std").exists()
+    assert Path.cwd() == cwd and dict(os.environ) == env
+    assert (sys.stdout, sys.stderr) == streams
+    assert hf.log.file_handler is handler
+    assert variable.get() == "outside"
+
+
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, GeneratorExit])
+def test_other_base_exceptions_propagate_after_context_restoration(tmp_path, error_type):
+    _, run = make_run(tmp_path)
+    cwd = Path.cwd()
+    env = dict(os.environ)
+
+    def function(p1):
+        os.environ["WORKER_BAD"] = "bad"
+        raise error_type()
+
+    invocation = ScriptWorkerInvocation(
+        ExecuteScriptRequest(run.id_, 0, 0, 0),
+        run,
+        function,
+        environment=env,
+        std_path=tmp_path / "run.std",
+    )
+    with pytest.raises(error_type):
         invocation()
-    assert error.value.code == code
     assert Path.cwd() == cwd and dict(os.environ) == env
 
 
-def test_failed_context_restoration_is_fatal_to_service(tmp_path, monkeypatch):
+def test_system_exit_during_argument_setup_is_not_a_script_result(tmp_path, monkeypatch):
+    _, run = make_run(tmp_path)
+    monkeypatch.setattr(run, "get_py_script_func_kwargs", Mock(side_effect=SystemExit(7)))
+    invocation = ScriptWorkerInvocation(
+        ExecuteScriptRequest(run.id_, 0, 0, 0),
+        run,
+        Mock(),
+        environment=dict(os.environ),
+        std_path=tmp_path / "run.std",
+    )
+    with pytest.raises(SystemExit) as error:
+        invocation()
+    assert error.value.code == 7
+
+
+def test_system_exit_during_output_persistence_is_not_a_script_result(
+    tmp_path, monkeypatch
+):
+    workflow, run = make_run(tmp_path)
+    monkeypatch.setattr(workflow, "save_parameter", Mock(side_effect=SystemExit(7)))
+    invocation = ScriptWorkerInvocation(
+        ExecuteScriptRequest(run.id_, 0, 0, 0),
+        run,
+        lambda p1: {"p2": p1},
+        environment=dict(os.environ),
+        std_path=tmp_path / "run.std",
+    )
+    with pytest.raises(SystemExit) as error:
+        invocation()
+    assert error.value.code == 7
+
+
+def test_system_exit_during_timing_is_not_a_script_result(tmp_path, monkeypatch):
+    _, run = make_run(tmp_path)
+    clock = Mock()
+    clock.perf_counter.side_effect = [0.0, 1.0, SystemExit(7)]
+    monkeypatch.setattr(adapter_module, "time", clock)
+    invocation = ScriptWorkerInvocation(
+        ExecuteScriptRequest(run.id_, 0, 0, 0),
+        run,
+        lambda p1: {"p2": p1},
+        environment=dict(os.environ),
+        std_path=tmp_path / "run.std",
+    )
+    with pytest.raises(SystemExit) as error:
+        invocation()
+    assert error.value.code == 7
+
+
+@pytest.mark.parametrize("system_exit", [False, True])
+def test_failed_context_restoration_is_fatal_to_service(
+    tmp_path, monkeypatch, system_exit
+):
     _, run = make_run(tmp_path)
     cwd = Path.cwd()
     env = dict(os.environ)
@@ -720,10 +848,16 @@ def test_failed_context_restoration_is_fatal_to_service(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "chdir", fail_restore)
     request = ExecuteScriptRequest(run.id_, 0, 0, 0)
+
+    def function(p1):
+        if system_exit:
+            raise SystemExit(0)
+        return {"p2": p1}
+
     invocation = ScriptWorkerInvocation(
         request,
         run,
-        lambda p1: {"p2": p1},
+        function,
         environment={**env, "TEMP_WORKER": "yes"},
         std_path=tmp_path / "run.std",
     )
@@ -779,7 +913,8 @@ def test_adapter_keeps_run_specific_array_output_policy(tmp_path, disabled):
     assert bool(workflow.list_array_outputs()) is not disabled
 
 
-def test_output_file_parser_scalar_uses_declared_parameter(tmp_path):
+@pytest.mark.parametrize("system_exit", [False, True])
+def test_output_file_parser_scalar_uses_declared_parameter(tmp_path, system_exit):
     file = hf.FileSpec(label="result", name="result.txt")
     schema = hf.TaskSchema(
         objective="worker_parser",
@@ -807,15 +942,24 @@ def test_output_file_parser_scalar_uses_declared_parameter(tmp_path):
     run.prepare_directory()
     block = workflow.submissions[0].jobscripts[0].blocks[0]
     action_idx, element_idx = np.argwhere(block.EAR_ID == run.id_)[0]
+
+    def function(**kwargs):
+        if system_exit:
+            raise SystemExit(0)
+        return 321
+
     invocation = ScriptWorkerInvocation(
         ExecuteScriptRequest(run.id_, 0, int(action_idx), int(element_idx)),
         run,
-        lambda **kwargs: 321,
+        function,
         environment=dict(os.environ),
         std_path=tmp_path / "run.std",
     )
     assert invocation().exit_code == 0
-    assert workflow.tasks[0].elements[0].outputs.p2.value == 321
+    if system_exit:
+        assert run.get("outputs.p2") is None
+    else:
+        assert workflow.tasks[0].elements[0].outputs.p2.value == 321
 
 
 @pytest.mark.parametrize("index", ["block_idx", "action_idx", "element_idx"])
@@ -846,8 +990,9 @@ def test_adapter_rejects_another_elements_in_bounds_identity(tmp_path):
 
 
 @pytest.mark.parametrize("produces_file", [False, True])
+@pytest.mark.parametrize("system_exit", [False, True])
 def test_input_file_generator_leaves_promised_file_validation_to_parent(
-    tmp_path, produces_file
+    tmp_path, monkeypatch, produces_file, system_exit
 ):
     schema = hf.TaskSchema(
         objective="worker_ifg",
@@ -875,12 +1020,15 @@ def test_input_file_generator_leaves_promised_file_validation_to_parent(
     run = next(run for run in workflow.get_all_EARs() if run.action.is_IFG)
     run.action.script_pass_env_spec = True
     directory = run.prepare_directory()
+    assert directory is not None
 
     def function(path, p1, env_spec):
         assert type(env_spec) is dict
         assert env_spec == dict(run.env_spec)
         if produces_file:
             path.write_text(str(p1))
+        if system_exit:
+            raise SystemExit(0)
 
     invocation = ScriptWorkerInvocation(
         ExecuteScriptRequest(run.id_, 0, 0, 0),
@@ -892,24 +1040,41 @@ def test_input_file_generator_leaves_promised_file_validation_to_parent(
     result = invocation()
     assert result.exit_code == 0
     assert workflow.get_EARs_from_IDs([run.id_])[0].end_time is None
+    monkeypatch.chdir(directory)
     workflow.set_EAR_start(run.id_, directory, None)
     workflow.set_EAR_end((0, 0, 0), run, result.exit_code)
     assert workflow.get_EARs_from_IDs([run.id_])[0].success is produces_file
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("exit_codes", [(0, 0), (1, 1), (1, 0)])
+@pytest.mark.parametrize(
+    ("exit_codes", "system_exit", "exit_message"),
+    [
+        ((0, 0), False, None),
+        ((1, 1), False, None),
+        ((1, 0), False, None),
+        ((0, 0), True, None),
+        ((7, 0), True, None),
+        ((ABORT_EXIT_CODE, 0), True, None),
+        ((1, 0), True, "worker exit message"),
+    ],
+)
 async def test_generated_adapter_over_real_transport_persists_and_reuses_worker(
-    tmp_path, monkeypatch, exit_codes
+    tmp_path, monkeypatch, exit_codes, system_exit, exit_message
 ):
     if getattr(sys, "frozen", False):
         pytest.skip("This worker subprocess test requires Python.")
     workflow, run = make_run(tmp_path, repeats=2)
-    if any(exit_codes):
+    if any(exit_codes) or system_exit:
         snippet = tmp_path / "worker_action.py"
         snippet.write_text(
             "def worker_action(p1):\n"
             "    import os\n"
+            "    if os.environ['WORKER_EXIT_NOW'] == '1':\n"
+            "        message = os.environ['WORKER_EXIT_MESSAGE']\n"
+            "        raise SystemExit(\n"
+            "            message if message else int(os.environ['WORKER_FAIL'])\n"
+            "        )\n"
             "    if os.environ['WORKER_FAIL'] == '1':\n"
             "        raise RuntimeError('worker action failed')\n"
             "    return {'p2': p1 + 100}\n",
@@ -958,23 +1123,33 @@ async def test_generated_adapter_over_real_transport_persists_and_reuses_worker(
         await client.start()
         process = client.worker.process
         for element_idx, bound_run in enumerate(runs):
-            result = await client.execute(
+            invocation = ScriptWorkerRun(
+                client,
                 ExecuteScriptRequest(bound_run.id_, 0, 0, element_idx),
-                environment={
+                {
                     **os.environ,
                     "WORKER_FAIL": str(exit_codes[element_idx]),
+                    "WORKER_EXIT_NOW": str(int(system_exit and element_idx == 0)),
+                    "WORKER_EXIT_MESSAGE": exit_message or "",
                 },
             )
-            assert result.exit_code == exit_codes[element_idx]
-            assert result.work_time >= 0 and result.orchestration_time >= 0
+            assert await invocation.run() == exit_codes[element_idx]
+            assert invocation.child_work_times[0] >= 0
+            assert invocation.child_orchestration_times[0] >= 0
             assert client.worker.process is process
         await client.stop()
         assert process is not None and process.returncode == 0
     finally:
         await client.abort()
     fresh = hf.Workflow(workflow.path)
-    for bound_run, exit_code in zip(fresh.get_all_EARs(), exit_codes):
-        if exit_code:
+    for index, (bound_run, exit_code) in enumerate(zip(fresh.get_all_EARs(), exit_codes)):
+        if system_exit and index == 0:
+            assert bound_run.get("outputs.p2") is None
+            if exit_message is not None:
+                assert (
+                    bound_run.get_app_std_path().read_text().endswith(f"{exit_message}\n")
+                )
+        elif exit_code:
             assert "worker action failed" in bound_run.get_app_std_path().read_text()
         else:
             assert bound_run.element.outputs.p2.value == 201

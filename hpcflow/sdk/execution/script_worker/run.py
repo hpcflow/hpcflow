@@ -62,12 +62,14 @@ class ScriptWorkerRun:
 
         invocation = asyncio.create_task(execute())
         abort = asyncio.create_task(self._abort_event.wait())
+        completed = False
         try:
             done, _ = await asyncio.wait(
                 (invocation, abort), return_when=asyncio.FIRST_COMPLETED
             )
             if invocation in done:
                 self.return_code = invocation.result()
+                completed = True
             else:
                 invocation.cancel()
                 await await_cleanup(asyncio.gather(invocation, return_exceptions=True))
@@ -79,7 +81,7 @@ class ScriptWorkerRun:
                 if not invocation.done():
                     invocation.cancel()
                 results = await asyncio.gather(invocation, abort, return_exceptions=True)
-                if self.return_code is None or self.return_code == ABORT_EXIT_CODE:
+                if not completed:
                     await self.client.abort()
                 error = results[0]
                 if isinstance(error, BaseException) and not isinstance(

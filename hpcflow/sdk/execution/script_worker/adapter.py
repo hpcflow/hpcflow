@@ -7,6 +7,8 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import contextvars
 import os
 from pathlib import Path
+import struct
+import sys
 import time
 import traceback
 from typing import Any, TYPE_CHECKING
@@ -21,6 +23,36 @@ from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
 
 if TYPE_CHECKING:
     from hpcflow.sdk.core.actions import ElementActionRun
+
+
+def _system_exit_code(code: object) -> int:
+    """Return the subprocess-equivalent status for a script's SystemExit."""
+    if code is None:
+        return 0
+    if not isinstance(code, int):
+        print(code, file=sys.stderr)
+        return 1
+
+    value = int.__int__(code)
+    # CPython switched from C long to C long long in Python 3.13.1.
+    conversion_type = "q" if sys.version_info >= (3, 13, 1) else "l"
+    conversion_bits = struct.calcsize(conversion_type) * 8
+    if not -(1 << (conversion_bits - 1)) <= value < (1 << (conversion_bits - 1)):
+        if (
+            sys.implementation.name == "cpython"
+            and (3, 12) <= sys.version_info[:2]
+            and sys.version_info < (3, 13, 1)
+        ):
+            # These CPython releases report the C long overflow during shutdown.
+            print(
+                "OverflowError: Python int too large to convert to C long",
+                file=sys.stderr,
+            )
+        value = -1
+    if os.name == "nt":
+        int_bits = struct.calcsize("i") * 8
+        return (value + (1 << (int_bits - 1))) % (1 << int_bits) - (1 << (int_bits - 1))
+    return value % 256
 
 
 class ScriptWorkerInvocation:
@@ -137,28 +169,39 @@ class ScriptWorkerInvocation:
                             blk_act_key=block_key,
                         )
                     work_start = time.perf_counter()
+                    script_exit: SystemExit | None = None
+                    output: Any = None
                     try:
                         output = self.function(**kwargs)
+                    except SystemExit as exc:
+                        script_exit = exc
                     finally:
                         work_time = time.perf_counter() - work_start
 
-                    outputs: Mapping[str, Any]
-                    if run.action.is_OFP:
-                        parameter = run.action.output_file_parsers[0].output
-                        if parameter is None:
-                            raise RuntimeError("Output parser has no declared output.")
-                        outputs = {parameter.typ: output}
-                    elif run.action.script_data_out_has_direct:
-                        if not isinstance(output, Mapping):
-                            raise TypeError("Direct script outputs must be a mapping.")
-                        outputs = output
+                    if script_exit is not None:
+                        exit_code = _system_exit_code(script_exit.code)
                     else:
-                        outputs = {}
-                    with workflow._store.parameters_metadata_cache():
-                        for name, value in outputs.items():
-                            workflow.save_parameter(
-                                name=f"outputs.{name}", value=value, EAR_ID=run.id_
-                            )
+                        outputs: Mapping[str, Any]
+                        if run.action.is_OFP:
+                            parameter = run.action.output_file_parsers[0].output
+                            if parameter is None:
+                                raise RuntimeError(
+                                    "Output parser has no declared output."
+                                )
+                            outputs = {parameter.typ: output}
+                        elif run.action.script_data_out_has_direct:
+                            if not isinstance(output, Mapping):
+                                raise TypeError(
+                                    "Direct script outputs must be a mapping."
+                                )
+                            outputs = output
+                        else:
+                            outputs = {}
+                        with workflow._store.parameters_metadata_cache():
+                            for name, value in outputs.items():
+                                workflow.save_parameter(
+                                    name=f"outputs.{name}", value=value, EAR_ID=run.id_
+                                )
                 except Exception:
                     app.logger.exception(
                         "Script-worker invocation failed: %r", self.request
