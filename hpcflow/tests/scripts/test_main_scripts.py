@@ -709,10 +709,15 @@ def test_script_direct_in_pass_env_spec(
 
 @pytest.mark.integration
 def test_script_std_stream_redirect_on_exception(
-    tmp_path: Path, reload_template_components
+    tmp_path: Path, reload_template_components, pytestconfig
 ):
     """Test exceptions raised by the app during execution of a script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
+    if pytestconfig.getoption("--force-script-workers", default=False):
+        pytest.skip(
+            "This test corrupts the worker bootstrap environment; it only covers the "
+            "legacy child-process error path."
+        )
 
     # define a custom python environment which redefines the `WK_PATH` shell variable to
     # a nonsense value so the app cannot load the workflow and thus raises an exception
@@ -766,7 +771,7 @@ def test_script_std_stream_redirect_on_exception(
     "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
 def test_script_std_out_std_err_not_redirected(
-    tmp_path: Path, enable_script_workers: bool
+    tmp_path: Path, pytestconfig, enable_script_workers: bool
 ):
     """Check ordinary jobscript streams and workers' per-run combined logs."""
     s1 = hf.TaskSchema(
@@ -795,7 +800,12 @@ def test_script_std_out_std_err_not_redirected(
     )
     wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
 
-    if enable_script_workers:
+    workers_enabled = (
+        enable_script_workers
+        or wk.submissions[0].enable_script_workers
+        or pytestconfig.getoption("--force-script-workers", default=False)
+    )
+    if workers_enabled:
         run = wk.get_all_EARs()[0]
         stream = run.get_app_std_path().read_text()
         assert f"{stdout_msg}\n{stderr_msg}" in stream
@@ -813,7 +823,7 @@ def test_script_std_out_std_err_not_redirected(
 @pytest.mark.parametrize(
     "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
-def test_script_pass_env_spec(tmp_path: Path, enable_script_workers: bool):
+def test_script_pass_env_spec(tmp_path: Path, pytestconfig, enable_script_workers: bool):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
@@ -843,16 +853,21 @@ def test_script_pass_env_spec(tmp_path: Path, enable_script_workers: bool):
         enable_script_workers=enable_script_workers,
     )
 
+    workers_enabled = (
+        enable_script_workers
+        or wk.submissions[0].enable_script_workers
+        or pytestconfig.getoption("--force-script-workers", default=False)
+    )
     std_path = (
         wk.get_all_EARs()[0].get_app_std_path()
-        if enable_script_workers
+        if workers_enabled
         else wk.submissions[0].jobscripts[0].direct_stdout_path
     )
     std_out = std_path.read_text().strip()
     p2 = wk.tasks[0].elements[0].outputs.p2
     assert isinstance(p2, hf.ElementParameter)
     assert p2.value == p1_val + 100
-    if enable_script_workers:
+    if workers_enabled:
         assert "{'name': 'python_env'}" in std_out.splitlines()
     else:
         assert std_out == "{'name': 'python_env'}"
@@ -972,7 +987,7 @@ def test_env_specifier_in_main_script_path_multiple_scripts(
     "enable_script_workers", [False, True], ids=["legacy", "workers"]
 )
 def test_script_direct_in_direct_out_multi_element(
-    tmp_path: Path, enable_script_workers: bool
+    tmp_path: Path, pytestconfig, enable_script_workers: bool
 ):
     s1 = hf.TaskSchema(
         objective="t1",
@@ -1019,7 +1034,9 @@ def test_script_direct_in_direct_out_multi_element(
     script_name, _ = t1.schema.actions[0].get_script_artifact_name(env_spec={}, act_idx=0)
     submission = wk.submissions[0]
     expected_files = {script_name}
-    if enable_script_workers:
+    if submission.enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers", default=False
+    ):
         args = wk.get_all_EARs()[0].get_script_worker_args(0)
         expected_files.update(
             (

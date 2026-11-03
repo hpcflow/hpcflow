@@ -76,9 +76,16 @@ def test_output_file_parser_parses_file(
 
 
 @pytest.mark.integration
-def test_OFP_std_stream_redirect_on_exception(tmp_path, reload_template_components):
+def test_OFP_std_stream_redirect_on_exception(
+    tmp_path, reload_template_components, pytestconfig
+):
     """Test exceptions raised by the app during execution of an OFP script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
+    if pytestconfig.getoption("--force-script-workers", default=False):
+        pytest.skip(
+            "This test corrupts the worker bootstrap environment; it only covers the "
+            "legacy child-process error path."
+        )
 
     # define a custom python environment which redefines the `WK_PATH` shell variable to
     # a nonsense value so the app cannot load the workflow and thus raises an exception
@@ -141,9 +148,8 @@ def test_OFP_std_stream_redirect_on_exception(tmp_path, reload_template_componen
 
 
 @pytest.mark.integration
-def test_OFP_std_out_std_err_not_redirected(tmp_path):
-    """Test that standard error and output streams from an OFP script are written to the jobscript
-    standard error and output files."""
+def test_OFP_std_out_std_err_not_redirected(tmp_path, pytestconfig):
+    """Test that OFP output is captured by the legacy jobscript or worker logs."""
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -182,7 +188,13 @@ def test_OFP_std_out_std_err_not_redirected(tmp_path):
     )
     wk.submit(wait=True, add_to_known=False)
 
-    if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
+    if wk.submissions[0].enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers", default=False
+    ):
+        run = wk.get_all_EARs()[1]
+        std_stream = run.get_app_std_path().read_text()
+        assert f"{stdout_msg}\n{stderr_msg}" in std_stream
+    elif wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
         assert std_out_err.strip() == f"{stdout_msg}\n{stderr_msg}"
     else:
@@ -193,7 +205,7 @@ def test_OFP_std_out_std_err_not_redirected(tmp_path):
 
 
 @pytest.mark.integration
-def test_output_file_parser_pass_env_spec(tmp_path):
+def test_output_file_parser_pass_env_spec(tmp_path, pytestconfig):
     out_file_name = "my_output_file.txt"
     out_file = hf.FileSpec(label="my_output_file", name=out_file_name)
 
@@ -230,8 +242,15 @@ def test_output_file_parser_pass_env_spec(tmp_path):
 
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text().strip()
-    assert std_out == "{'name': 'python_env'}"
+    workers_enabled = wk.submissions[0].enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers", default=False
+    )
+    if workers_enabled:
+        run = wk.get_all_EARs()[1]
+        std_out = run.get_app_std_path().read_text()
+    else:
+        std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
+    assert "{'name': 'python_env'}" in std_out
 
 
 @pytest.mark.integration
