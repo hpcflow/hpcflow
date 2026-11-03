@@ -3163,6 +3163,7 @@ class Workflow(AppAware):
         contents=None,
         filename: str | None = None,
         clean_up: bool = False,
+        execution_path: Path | None = None,
     ) -> None:
         self._store.set_file(
             param_id=cast("int", param_id),
@@ -3172,6 +3173,7 @@ class Workflow(AppAware):
             contents=contents,
             filename=filename,
             clean_up=clean_up,
+            execution_path=execution_path,
         )
 
     @staticmethod
@@ -3239,6 +3241,7 @@ class Workflow(AppAware):
                     is_input=False,
                     path=full_path,
                     clean_up=selected and clean_up,
+                    execution_path=self._get_run_execution_path(run),
                 )
         return success, exit_code
 
@@ -3348,7 +3351,11 @@ class Workflow(AppAware):
             return
 
         directories = {
-            path for path in self.get_run_directories(run_ids=run_ids) if path is not None
+            path: self._get_run_execution_path(action_run)
+            for action_run, path in zip(
+                self.get_EARs_from_IDs(run_ids), self.get_run_directories(run_ids=run_ids)
+            )
+            if path is not None
         }
         for directory in sorted(directories):
             if not directory.is_dir():
@@ -3375,6 +3382,7 @@ class Workflow(AppAware):
                         store_contents=True,
                         is_input=False,
                         path=match,
+                        execution_path=directories[directory],
                     )
 
     def _has_file_dependents_outside_iteration(
@@ -3428,6 +3436,7 @@ class Workflow(AppAware):
         is_input: bool,
         path: Path,
         clean_up: bool = False,
+        execution_path: Path | None = None,
     ) -> None:
         if (
             isinstance(param_id, int)
@@ -3445,6 +3454,7 @@ class Workflow(AppAware):
             is_input=is_input,
             path=path,
             clean_up=clean_up,
+            execution_path=execution_path,
         )
 
     @overload
@@ -3607,9 +3617,20 @@ class Workflow(AppAware):
     @property
     def execution_path(self) -> Path:
         """
-        Path to working directory path for executing.
+        Default working-directory root, used when ``scratch`` is unspecified.
         """
         return Path(self.path) / self._exec_dir_name
+
+    def _get_run_execution_path(self, run: ElementActionRun) -> Path:
+        scratch = run.resources.scratch
+        if scratch is None:
+            return self.execution_path
+        if not scratch.strip():
+            raise ValueError("The `scratch` resource must be a non-empty directory path.")
+        scratch_path = Path(scratch).expanduser()
+        if not scratch_path.is_absolute():
+            scratch_path = Path(self.path) / scratch_path
+        return scratch_path / f"{self._app.name}_{self.id_}" / self._exec_dir_name
 
     @TimeIt.decorator
     def get_task_elements(
@@ -3804,12 +3825,19 @@ class Workflow(AppAware):
             path for path in self.get_run_directories(run_ids=run_ids) if path is not None
         }
         self._unset_deleted_execute_file_refs(run_ids, directories)
-        execution_path = self.execution_path.resolve()
+        execution_paths = {
+            self._get_run_execution_path(i).resolve()
+            for i in (*other_runs, run)
+            if i.action.requires_dir
+        }
         for directory in sorted(
             directories, key=lambda path: len(path.parts), reverse=True
         ):
             resolved = directory.resolve()
-            if not resolved.is_relative_to(execution_path) or directory.is_symlink():
+            if (
+                not any(resolved.is_relative_to(root) for root in execution_paths)
+                or directory.is_symlink()
+            ):
                 raise RuntimeError(f"Unsafe execution directory for cleanup: {directory}")
             if not directory.exists():
                 continue
@@ -6364,7 +6392,11 @@ class Workflow(AppAware):
         run_ids: list[int] | None = None,
         dir_indices_arr: np.ndarray | None = None,
     ) -> list[Path | None]:
-        """"""
+        """Resolve working directories using each run's ``scratch`` resource.
+
+        No directories are created. If ``dir_indices_arr`` is supplied, its rows must
+        correspond to ``run_ids`` (or the first runs, if ``run_ids`` is omitted).
+        """
 
         @TimeIt.decorator
         def _get_depth_dirs(
@@ -6400,7 +6432,11 @@ class Workflow(AppAware):
         MAX_ELEMS_PER_DIR = 1000  # TODO: configurable (add `workflow_defaults` to Config)
         MAX_ITERS_PER_DIR = 1000
 
-        exec_path = self.execution_path
+        runs = self.get_EARs_from_IDs(
+            run_ids if run_ids is not None else range(len(dir_indices_arr))
+        )
+        if len(runs) != len(dir_indices_arr):
+            raise ValueError("Directory indices must have one row per run ID.")
 
         # a fill value means no sub directory should be created
         T_FILL, E_FILL, I_FILL, A_FILL, R_FILL, _, _ = RUN_DIR_ARR_FILL
@@ -6411,7 +6447,7 @@ class Workflow(AppAware):
 
         # format run directories:
         dirs = []
-        for dir_data in dir_indices_arr:
+        for run, dir_data in zip(runs, dir_indices_arr):
 
             # TODO: retrieve task,element,iteration,action,run dir formats from
             # (t_iID, act_idx) combo (cached)?
@@ -6451,10 +6487,9 @@ class Workflow(AppAware):
             if r_idx != R_FILL:
                 path_args.append(f"r_{r_idx}")
 
-            if path_args:
+            if path_args or e_depth == 1:
+                exec_path = self._get_run_execution_path(run)
                 run_dir = exec_path.joinpath(*path_args)
-            elif e_depth == 1:
-                run_dir = exec_path
             else:
                 run_dir = None
 

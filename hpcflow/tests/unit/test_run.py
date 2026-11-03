@@ -11,7 +11,10 @@ from hpcflow.sdk.core.test_utils import make_workflow_to_run_command
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_execute_directory_is_prepared_on_demand(tmp_path: Path, store: str):
+@pytest.mark.parametrize("scratch", [False, True])
+def test_execute_directory_is_prepared_on_demand(
+    tmp_path: Path, store: str, scratch: bool
+):
     source = tmp_path / "input.txt"
     source.write_text("original", encoding="utf-8")
     file_spec = hf.FileSpec(label="input", name="input.txt")
@@ -31,6 +34,7 @@ def test_execute_directory_is_prepared_on_demand(tmp_path: Path, store: str):
         template_name="lazy_directory",
         path=tmp_path,
         store=store,
+        resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
         tasks=[
             hf.Task(
                 schema=schema,
@@ -43,6 +47,11 @@ def test_execute_directory_is_prepared_on_demand(tmp_path: Path, store: str):
     directory = run.get_directory()
     assert directory is not None
     assert not directory.exists()
+    if scratch:
+        assert directory.is_relative_to(tmp_path / "scratch")
+        assert not (tmp_path / "scratch").exists()
+    else:
+        assert directory == wk.execution_path
 
     assert run.prepare_directory() == directory
     staged = directory / source.name
@@ -52,15 +61,64 @@ def test_execute_directory_is_prepared_on_demand(tmp_path: Path, store: str):
     assert staged.read_text() == "modified"
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_scratch_temporary_file_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str
+) -> None:
+    file_spec = hf.FileSpec(label="input", name="input.txt")
+    schema = hf.TaskSchema(
+        objective="scratch_file_reference",
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo final")],
+                input_file_generators=[
+                    hf.InputFileGenerator(input_file=file_spec, inputs=[])
+                ],
+                requires_dir=True,
+            ),
+        ],
+    )
+    scratch = tmp_path / "scratch"
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_file_reference",
+        path=tmp_path,
+        store=store,
+        resources={"any": {"scratch": str(scratch)}},
+        tasks=[hf.Task(schema=schema)],
+    )
+    wk.add_submission()
+    first, final = wk.get_all_EARs()
+    directory = first.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(first.id_, directory, None)
+    (directory / "input.txt").write_text("generated", encoding="utf-8")
+    wk.set_EAR_end((0, 0, 0), first, 0)
+    wk = hf.Workflow(wk.path)
+    first, final = wk.get_all_EARs()
+    assert Path(final.get("input_files.input")) == directory / "input.txt"
+    assert final.prepare_directory() == directory
+    assert (directory / "input.txt").read_text() == "generated"
+    wk.set_EAR_start(final.id_, directory, None)
+    wk.set_EAR_end((0, 0, 1), final, 0)
+    assert not directory.exists()
+    assert scratch.exists()
+    assert not wk.task_artifacts_path.exists()
+    final = wk.get_EARs_from_IDs(final.id_)
+    assert final.get("input_files.input") is None
+
+
 @pytest.mark.parametrize("bulk", [False, True])
 @pytest.mark.parametrize("final_requires_dir", [False, True])
 @pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("scratch", [False, True])
 def test_final_action_execute_directory_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     bulk: bool,
     final_requires_dir: bool,
     exit_code: int,
+    scratch: bool,
 ):
     schema = hf.TaskSchema(
         objective="directory_cleanup",
@@ -75,6 +133,7 @@ def test_final_action_execute_directory_cleanup(
     wk = hf.Workflow.from_template_data(
         template_name="directory_cleanup",
         path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
         tasks=[hf.Task(schema=schema)],
     )
     wk.add_submission()
@@ -95,6 +154,8 @@ def test_final_action_execute_directory_cleanup(
         wk.set_EAR_start(runs[1].id_, final_dir, None)
         wk.set_EAR_end((0, 0, 1), runs[1], exit_code)
     assert directory.exists() is (exit_code != 0)
+    if scratch:
+        assert (tmp_path / "scratch").is_dir()
     first = wk.get_EARs_from_IDs([runs[0].id_])[0]
     assert first.dir_diff is not None
     assert "intermediate.txt" in first.dir_diff.files_created
@@ -142,8 +203,9 @@ def test_skipped_run_does_not_create_execute_directory(
     assert not directory.exists()
 
 
+@pytest.mark.parametrize("scratch", [False, True])
 def test_execute_directory_cleanup_is_per_element_iteration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scratch: bool
 ):
     schema = hf.TaskSchema(
         objective="separate_directories",
@@ -152,6 +214,7 @@ def test_execute_directory_cleanup_is_per_element_iteration(
     wk = hf.Workflow.from_template_data(
         template_name="separate_directories",
         path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
         tasks=[hf.Task(schema=schema, repeats=2)],
         loops=[hf.Loop(tasks=[0], num_iterations=2)],
     )

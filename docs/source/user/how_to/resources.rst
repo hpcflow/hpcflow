@@ -3,6 +3,39 @@
     Resources
     ---------
 
+    Scratch working directories
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Set the ``scratch`` resource to a parent directory for execution working directories.
+    For example, to run simulations on node-local storage:
+
+    .. code-block:: yaml
+
+      resources:
+        any:
+          scratch: /tmp
+
+    The default, ``null`` (Python ``None``), keeps working directories in the workflow's
+    ``execute`` directory. When specified, working directories are placed under
+    ``<scratch>/{{ app_name }}_<workflow-ID>/execute``, retaining the usual task, element,
+    iteration and run subdirectories. Relative scratch paths are resolved against the
+    workflow directory; ``~`` is expanded on the execution machine. The scratch path must
+    be non-empty. As with other resources, it can be specified at workflow or task level,
+    or for a particular action scope.
+
+    Scratch directories and staged input files are created when a run starts, not when
+    its submission is prepared. Saved files and parsed outputs still go into the workflow
+    store. The usual ``save_files`` and ``delete_execute_dir`` policies apply: successful
+    iterations are cleaned up by default, while failed iterations retain their working
+    directories. The scratch parent is never removed.
+
+    Node-local scratch is not shared between nodes. Actions that share intermediate
+    working files must use the same scratch path and execute on the same node, for example
+    within one job. No automatic transfer of intermediate working files between jobs or
+    nodes is performed. Files needed by downstream tasks should be saved into the workflow
+    store. Node-local directories may be removed by the cluster when a job finishes,
+    regardless of the workflow's cleanup policy.
+
     Shell and scheduler arguments
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

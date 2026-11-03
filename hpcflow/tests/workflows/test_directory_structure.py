@@ -14,8 +14,9 @@ from hpcflow.sdk.core.test_utils import (
 @pytest.mark.integration
 @pytest.mark.parametrize("exit_code", [0, 1])
 @pytest.mark.parametrize("delete_execute_dir", [True, False])
+@pytest.mark.parametrize("scratch", [False, True])
 def test_execute_directory_lifecycle(
-    tmp_path: Path, exit_code: int, delete_execute_dir: bool
+    tmp_path: Path, exit_code: int, delete_execute_dir: bool, scratch: bool
 ):
     result_file = hf.FileSpec(label="result", name="result.txt")
     schema = hf.TaskSchema(
@@ -48,12 +49,20 @@ def test_execute_directory_lifecycle(
     wk = hf.Workflow.from_template_data(
         template_name="directory_lifecycle",
         path=tmp_path,
+        resources={
+            "any": {"scratch": str(tmp_path / "scratch space") if scratch else None}
+        },
         tasks=[hf.Task(schema=schema)],
         config={"delete_execute_dir": delete_execute_dir},
     )
     wk.add_submission()
     directories = wk.get_run_directories()
     assert all(path is not None and not path.exists() for path in directories)
+    if scratch:
+        assert all(
+            path is not None and path.is_relative_to(tmp_path / "scratch space")
+            for path in directories
+        )
     wk.submit(wait=True, add_to_known=False, status=False)
     runs = wk.get_all_EARs()
     assert runs[0].success
@@ -64,6 +73,8 @@ def test_execute_directory_lifecycle(
     )
     saved = wk.task_artifacts_path / "result.txt"
     assert saved.read_text().strip() == "saved"
+    if scratch:
+        assert (tmp_path / "scratch space").is_dir()
     assert runs[0].dir_diff is not None
     assert "result.txt" in runs[0].dir_diff.files_created
     if not delete_execute_dir:
@@ -127,11 +138,13 @@ def test_task_save_files_policy(
         (["path:other.txt"], {"other.txt"}),
     ],
 )
+@pytest.mark.parametrize("scratch", [False, True])
 def test_save_files_path_entries(
     tmp_path: Path,
     exit_code: int,
     task_save_files: list[str] | None,
     expected_files: set[str],
+    scratch: bool,
 ):
     """Working-directory files selected by `path:` entries are saved once, when the
     iteration's final run completes, regardless of its exit code."""
@@ -167,6 +180,7 @@ def test_save_files_path_entries(
     wk = hf.Workflow.from_template_data(
         template_name="save_files_paths",
         path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
         tasks=[hf.Task(schema=schema, save_files=task_save_files)],
     )
     wk.submit(wait=True, add_to_known=False, status=False)
