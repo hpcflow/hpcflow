@@ -12,8 +12,9 @@ import psutil
 import pytest
 
 from hpcflow.app import app as hf
-from hpcflow.sdk.core import ABORT_EXIT_CODE
+from hpcflow.sdk.core import ABORT_EXIT_CODE, NO_COMMANDS_EXIT_CODE
 from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.errors import UnsetParameterDataError
 from hpcflow.sdk.execution.client import JobscriptClient
 from hpcflow.sdk.execution.protocol import StatusRequest
 from hpcflow.sdk.execution.run_executor import RunExecutor
@@ -33,6 +34,7 @@ from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.scripting import ScriptWriter
 from hpcflow.sdk.scripting.writer import ScriptWorkerArgs
 from hpcflow.sdk.submission.shells import get_shell
+from hpcflow.sdk.wait.run_wait import RunWaitEvent
 
 
 def make_run(
@@ -190,6 +192,114 @@ async def test_jobscript_executor_runs_snippets_on_legacy_or_worker_path(
         assert executor.script_workers == {}
     else:
         assert not executor.script_workers
+
+
+@pytest.mark.asyncio
+async def test_worker_preparation_failure_finalizes_and_reuses_worker(
+    tmp_path, monkeypatch
+):
+    if getattr(sys, "frozen", False):
+        pytest.skip("Worker subprocess tests require Python.")
+    monkeypatch.chdir(tmp_path)
+    workflow, _ = make_run(
+        tmp_path,
+        repeats=3,
+        enable_script_workers=True,
+        script="<<script:main_script_test_script_worker_process.py>>",
+    )
+    runs = workflow.get_all_EARs()
+    executor = hf.JobscriptExecutor(workflow, 0, 0, enable_script_workers=True)
+    executor.submission.prepare_submit()
+    monkeypatch.setenv(
+        "HPCFLOW_JS_FUNCS_PATH", str(executor.jobscript.jobscript_functions_path)
+    )
+    monkeypatch.setenv("HPCFLOW_WK_PATH_ARG", str(workflow.path))
+    prepare = executor._prepare_run_files
+
+    def fail_middle_preparation(action, run, run_dir):
+        if run.id_ == runs[1].id_:
+            raise UnsetParameterDataError("inputs.p1", "inputs.p1")
+        return prepare(action, run, run_dir)
+
+    monkeypatch.setattr(executor, "_prepare_run_files", fail_middle_preparation)
+    finalize = Mock(wraps=executor._finalize_run)
+    monkeypatch.setattr(executor, "_finalize_run", finalize)
+    monkeypatch.setattr(workflow, "WAIT_STATE_CHECK_INTERVAL", 60)
+    waiter = asyncio.create_task(workflow._wait_for_runs([runs[1].id_], quiet=True))
+    task = None
+    try:
+
+        async def registered():
+            while not executor.run_wait_state.get_waiter_ids(
+                runs[1].id_, RunWaitEvent.END
+            ):
+                if waiter.done():
+                    await waiter
+                    pytest.fail("Run waiter ended before registration.")
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(registered(), timeout=5)
+        task = asyncio.create_task(executor._execute())
+        await asyncio.wait_for(task, timeout=45)
+        await asyncio.wait_for(waiter, timeout=5)
+
+        fresh = hf.Workflow(workflow.path)
+        first, failed, last = fresh.get_all_EARs()
+        assert [run.status for run in (first, failed, last)] == [
+            EARStatus.success,
+            EARStatus.error,
+            EARStatus.success,
+        ]
+        assert [run.exit_code for run in (first, failed, last)] == [
+            0,
+            NO_COMMANDS_EXIT_CODE,
+            0,
+        ]
+        assert all(run.start_time and run.end_time for run in (first, failed, last))
+        assert failed.get("outputs.p2") is None
+        assert "Could not prepare run" in failed.get_app_std_path().read_text()
+        assert [call.kwargs["run"].id_ for call in finalize.call_args_list] == [
+            run.id_ for run in runs
+        ]
+        worker_pid = fresh.tasks[0].elements[0].outputs.p2.value
+        assert isinstance(worker_pid, int)
+        assert worker_pid > 0
+        assert worker_pid != os.getpid()
+        assert worker_pid == fresh.tasks[0].elements[2].outputs.p2.value
+        assert executor.completion.is_complete()
+        assert not executor._get_wait_endpoints()
+        assert executor.script_workers == {}
+    finally:
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if not waiter.done():
+            waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enable_script_workers", [False, True])
+async def test_unexpected_preparation_error_exits_nonzero(
+    tmp_path, monkeypatch, enable_script_workers
+):
+    monkeypatch.chdir(tmp_path)
+    workflow, run = make_run(tmp_path, enable_script_workers=enable_script_workers)
+    executor = hf.JobscriptExecutor(
+        workflow, 0, 0, enable_script_workers=enable_script_workers
+    )
+    executor.submission.prepare_submit()
+    monkeypatch.setattr(
+        executor, "_prepare_run_files", Mock(side_effect=OSError("unexpected failure"))
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await executor._execute()
+
+    assert exc_info.value.code == 1
+    assert "OSError: unexpected failure" in run.get_app_std_path().read_text()
+    assert executor.completion.is_complete()
 
 
 def generated_functions(action):

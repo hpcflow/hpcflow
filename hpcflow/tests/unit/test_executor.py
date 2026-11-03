@@ -11,7 +11,9 @@ import zmq
 import zmq.asyncio
 
 from hpcflow.app import app as hf
-from hpcflow.sdk.core import ABORT_EXIT_CODE
+from hpcflow.sdk.core import ABORT_EXIT_CODE, NO_COMMANDS_EXIT_CODE
+from hpcflow.sdk.core.enums import EARStatus
+from hpcflow.sdk.core.errors import UnsetParameterDataError
 from hpcflow.sdk.execution.jobscript_executor import (
     FinalizedRun,
     JobscriptAction,
@@ -315,6 +317,52 @@ async def test_finish_action_commits_before_cleanup_and_notification(
     workflow._clean_up_execute_dirs.assert_called_once_with(run, True)
     notify.assert_awaited_once_with(("waiter",))
     assert events == ["set_run_ends", "commit", "cleanup", "end", "start", "notify"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", ["none", "template", "output_files"])
+async def test_unset_preparation_does_not_dispatch_worker(
+    tmp_path, monkeypatch, caplog, metadata
+):
+    executor = hf.JobscriptExecutor.__new__(hf.JobscriptExecutor)
+    run = Mock(id_=7, status=EARStatus.submitted, skip=False)
+    run.get_run_std_preamble.return_value = "Run 7\n"
+    run.prepare_directory.return_value = None
+    run.action.supports_script_worker = True
+    run.action.jinja_template = metadata == "template"
+    run.action.output_files = [Mock()] if metadata == "output_files" else []
+    run.get_script_worker_args.return_value.shell_name = "powershell"
+    executor.runs = {7: run}
+    executor.jobscript_idx = 0
+    executor.jobscript_server = Mock(port_number=12345)
+    executor.enable_script_workers = True
+    worker = Mock()
+    executor.script_workers = {"worker": worker}
+    monkeypatch.setattr(executor, "_apply_group_task_conditions", Mock(return_value=True))
+    monkeypatch.setattr(
+        executor,
+        "_prepare_run_files",
+        Mock(side_effect=UnsetParameterDataError("inputs.p1", "inputs.p1")),
+    )
+    start = AsyncMock()
+    dispatch = AsyncMock()
+    monkeypatch.setattr(executor, "set_run_start", start)
+    monkeypatch.setattr(executor, "_execute_script_run", dispatch)
+    js_run = JobscriptRun(0, 7, tmp_path / "run.std", None)
+    action = JobscriptAction(0, 0, (0, 0, 0), (js_run,))
+
+    result = await executor._execute_run_inner(action, js_run, None)
+
+    assert result.exit_code == NO_COMMANDS_EXIT_CODE
+    assert not result.skipped
+    start.assert_awaited_once_with(7, None, port_number=12345)
+    dispatch.assert_not_awaited()
+    worker.stop.assert_not_called()
+    assert executor.script_workers == {"worker": worker}
+    run_std = js_run.run_std_path.read_text(encoding="utf-8")
+    assert "Could not prepare run 7" in run_std
+    assert "inputs.p1" in run_std
+    assert "Could not prepare run 7" in caplog.text
 
 
 @pytest.mark.asyncio

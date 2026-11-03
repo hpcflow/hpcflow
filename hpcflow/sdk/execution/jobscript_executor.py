@@ -400,9 +400,6 @@ class JobscriptExecutor(AppAware):
     ) -> JobscriptRunResult:
         """Execute a single element-action run."""
 
-        def _ignore_unset_parameter_data(exc: BaseException) -> bool:
-            return isinstance(exc, UnsetParameterDataErrorBase)
-
         run = self.runs[js_run.run_id]
 
         command_time = None
@@ -454,44 +451,28 @@ class JobscriptExecutor(AppAware):
                 and run.get_script_worker_args(self.jobscript_idx).shell_name
                 in SCRIPT_WORKER_SHELL_NAMES
             )
-            try:
-                with redirect_std_to_file(
-                    js_run.run_std_path,
-                    preamble=run_std_preamble,
-                    ignore=_ignore_unset_parameter_data,
-                ):
-                    unset_params = self._prepare_run_files(
+            preparation_failed = False
+            with redirect_std_to_file(js_run.run_std_path, preamble=run_std_preamble):
+                try:
+                    self._prepare_run_files(
                         action=action,
                         run=run,
                         run_dir=run_dir,
                     )
                     if not use_script_worker:
                         commands_file_path = self.ensure_commands_file(run)
+                except UnsetParameterDataErrorBase as exc:
+                    preparation_failed = True
+                    self.logger.error("Could not prepare run %s: %s", run.id_, exc)
+                    print(f"Could not prepare run {run.id_}: {exc}", file=sys.stderr)
 
-            except UnsetParameterDataErrorBase:
-                assert self.jobscript_server is not None
-                assert self.jobscript_server.port_number is not None
-                await self.set_run_start(
-                    run.id_,
-                    run_dir,
-                    port_number=self.jobscript_server.port_number,
-                )
-                new_run_skips.update(self._check_loop_termination(run))
-                return JobscriptRunResult(
-                    js_run=js_run,
-                    exit_code=1,
-                    new_run_skips=frozenset(new_run_skips),
-                    timeit=run_timeit,
-                )
-
-            if use_script_worker:
+            if use_script_worker and not preparation_failed:
                 executed = True
                 exit_code, command_time = await self._execute_script_run(
                     action=action,
                     js_run=js_run,
                     run=run,
                     run_dir=run_dir,
-                    unset_params=unset_params,
                 )
 
             elif commands_file_path:
@@ -519,11 +500,14 @@ class JobscriptExecutor(AppAware):
                     run_dir,
                     port_number=self.jobscript_server.port_number,
                 )
-                exit_code = (
-                    0
-                    if run.action.jinja_template or run.action.output_files
-                    else NO_COMMANDS_EXIT_CODE
-                )
+                if use_script_worker and preparation_failed:
+                    exit_code = NO_COMMANDS_EXIT_CODE
+                else:
+                    exit_code = (
+                        0
+                        if run.action.jinja_template or run.action.output_files
+                        else NO_COMMANDS_EXIT_CODE
+                    )
 
         with redirect_std_to_file(
             js_run.run_std_path,
@@ -785,7 +769,6 @@ class JobscriptExecutor(AppAware):
         js_run: JobscriptRun,
         run: ElementActionRun,
         run_dir: Path | None,
-        unset_params,
     ) -> tuple[int, float | None]:
         """Execute a Python snippet in a persistent script worker."""
         worker_id = run.script_worker_id

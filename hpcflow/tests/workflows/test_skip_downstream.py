@@ -1,8 +1,10 @@
+import json
 import os
 from hpcflow.sdk.core.test_utils import make_schemas
 import pytest
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core import NO_COMMANDS_EXIT_CODE
 from hpcflow.sdk.core.actions import EARStatus
 
 
@@ -624,25 +626,44 @@ def test_unset_parameters_found_when_writing_commands(tmp_path):
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error
     assert runs[1].status is EARStatus.error
+    assert runs[1].exit_code == NO_COMMANDS_EXIT_CODE
+    assert runs[1].start_time is not None
+    assert runs[1].end_time is not None
+    assert "Could not prepare run" in runs[1].get_app_std_path().read_text()
 
 
 @pytest.mark.integration
-def test_unset_parameters_found_when_writing_script_input_file(tmp_path):
+@pytest.mark.parametrize(
+    "allow_failed_dependencies", [False, True], ids=["disallowed", "allowed"]
+)
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_unset_parameters_found_when_writing_script_input_file(
+    tmp_path, pytestconfig, enable_script_workers, allow_failed_dependencies
+):
     cmd_ps = "echo <<parameter:p0>>; exit 1"
     cmd_bash = "exit; echo <<parameter:p0>>"
     cmd = cmd_ps if os.name == "nt" else cmd_bash
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("p0")],
-        outputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaInput("p_missing")],
         actions=[
-            hf.Action(commands=[hf.Command(command=cmd, stdout="<<parameter:p1>>")])
+            hf.Action(
+                commands=[hf.Command(command=cmd, stdout="<<parameter:p_missing>>")]
+            )
         ],  # will fail
     )
 
     s2 = hf.TaskSchema(
         objective="t2",
-        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"))],
+        inputs=[
+            hf.SchemaInput("p1"),
+            hf.SchemaInput(
+                "p_missing", allow_failed_dependencies=allow_failed_dependencies
+            ),
+        ],
         outputs=[hf.SchemaOutput(parameter=hf.Parameter("p2"))],
         actions=[
             hf.Action(
@@ -657,14 +678,15 @@ def test_unset_parameters_found_when_writing_script_input_file(tmp_path):
     )
 
     tasks = [
-        hf.Task(s1, inputs={"p0": 123}),  # will fail, and not set p2 for next task
-        hf.Task(s2),  # will fail when writing input JSON file
+        hf.Task(s1, inputs={"p0": 123}),
+        hf.Task(s2, inputs={"p1": 101}),
     ]
 
     wk = hf.Workflow.from_template_data(
         template_name="test_unset_parameters_in_script_input_file",
         path=tmp_path,
         tasks=tasks,
+        config={"delete_execute_dir": False},
         resources={
             "any": {
                 "write_app_logs": True,
@@ -672,10 +694,38 @@ def test_unset_parameters_found_when_writing_script_input_file(tmp_path):
             }
         },
     )
-    wk.submit(wait=True, add_to_known=False, status=False)
+    wk.submit(
+        wait=True,
+        add_to_known=False,
+        status=False,
+        enable_script_workers=enable_script_workers,
+    )
+    assert wk.submissions[0].enable_script_workers is (
+        enable_script_workers
+        or pytestconfig.getoption("--force-script-workers", default=False)
+    )
     runs = wk.get_all_EARs()
     assert runs[0].status is EARStatus.error
-    assert runs[1].status is EARStatus.error
+    assert runs[1].start_time is not None
+    assert runs[1].end_time is not None
+    if allow_failed_dependencies:
+        assert runs[1].status is EARStatus.success
+        assert runs[1].exit_code == 0
+        assert wk.tasks[1].elements[0].outputs.p2.value == 201
+        run_dir = runs[1].get_directory()
+        assert run_dir is not None
+        input_files = list(run_dir.glob("*_inputs.json"))
+        assert len(input_files) == 1
+        assert json.loads(input_files[0].read_text(encoding="utf-8")) == {
+            "p1": 101,
+            "p_missing": None,
+        }
+    else:
+        assert runs[1].status is EARStatus.error
+        assert runs[1].exit_code == NO_COMMANDS_EXIT_CODE
+        assert runs[1].get("outputs.p2") is None
+        assert "p_missing" in runs[1].get_app_std_path().read_text()
+    assert all(js.completion_obj.is_complete() for js in wk.submissions[0].jobscripts)
 
 
 @pytest.mark.integration

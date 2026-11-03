@@ -35,6 +35,14 @@ commits, subject to `delete_execute_dir`; failed or skipped iterations are retai
 Waiters are notified after final state is persisted, with filesystem completion
 state authoritative and ZeroMQ notifications used as wake-ups.
 
+When unset input data prevents preparation of an eligible worker run, the executor
+logs the cause, does not dispatch the worker, and finalizes that run with
+`NO_COMMANDS_EXIT_CODE` (66). Existing workers remain available for later runs, and
+permitted unset inputs at or below the configured failure threshold still proceed.
+Unexpected input- or command-file preparation errors are reported in run stderr and
+terminate the jobscript with a nonzero exit code. Legacy no-command exit-code behavior
+is unchanged.
+
 ## Script-worker protocol contract (version 1)
 
 The message contract and an isolated client/service loop are implemented.
