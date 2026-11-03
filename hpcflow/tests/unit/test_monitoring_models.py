@@ -119,7 +119,15 @@ def test_terminal_cache_keeps_enum_names_and_numeric_skip_reasons(tmp_path, reas
 
 
 @pytest.mark.parametrize(
-    "problem", ["schema", "duplicate_id", "id_type", "reference_type", "run_id_type"]
+    "problem",
+    [
+        "schema",
+        "duplicate_id",
+        "id_type",
+        "reference_type",
+        "run_id_type",
+        "workflow_name_type",
+    ],
 )
 def test_registry_rejects_invalid_persisted_data(existing_registry_json, problem):
     raw = deepcopy(existing_registry_json)
@@ -131,8 +139,10 @@ def test_registry_rejects_invalid_persisted_data(existing_registry_json, problem
         raw["records"][0]["local_id"] = "7"
     elif problem == "reference_type":
         raw["records"][0]["jobs"][0]["scheduler_reference"] = 123
-    else:
+    elif problem == "run_id_type":
         raw["records"][0]["jobs"][0]["run_ids"] = [True]
+    else:
+        raw["records"][0]["workflow_name"] = 17
     with pytest.raises(ValueError):
         RegistryData.from_json(raw)
 

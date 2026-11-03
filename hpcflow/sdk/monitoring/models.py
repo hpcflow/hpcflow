@@ -329,6 +329,9 @@ class SubmissionRecord:
             key: _string(data, key)
             for key in ("workflow_path", "workflow_id", "submission_part_id")
         }
+        workflow_name = data.get("workflow_name")
+        if workflow_name is not None and not isinstance(workflow_name, str):
+            raise ValueError("Expected a string for workflow_name")
         activity = data.get("activity", "unknown")
         accessibility = data.get("accessibility", "unreadable")
         if activity not in ("active", "inactive", "unknown") or accessibility not in (
@@ -361,7 +364,7 @@ class SubmissionRecord:
             submission_part_id=required["submission_part_id"],
             local_id=_integer(data, "local_id"),
             submission_index=_integer(data, "submission_index"),
-            workflow_name=data.get("workflow_name")
+            workflow_name=workflow_name
             or workflow_name_from_path(required["workflow_path"]),
             submitted_at=data.get("submitted_at", required["submission_part_id"]),
             activity=cast(Activity, activity),
