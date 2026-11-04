@@ -16,6 +16,7 @@ from hpcflow.sdk.core import ABORT_EXIT_CODE, NO_COMMANDS_EXIT_CODE
 from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.errors import UnsetParameterDataError
 from hpcflow.sdk.execution.client import JobscriptClient
+from hpcflow.sdk.execution.jobscript_executor import JobscriptAction, JobscriptRun
 from hpcflow.sdk.execution.protocol import StatusRequest
 from hpcflow.sdk.execution.run_executor import RunExecutor
 from hpcflow.sdk.execution.script_worker import adapter as adapter_module
@@ -500,6 +501,104 @@ async def test_reloaded_submission_executes_generated_jobscript(tmp_path, store)
     assert worker_pids[0] > 0
     assert worker_pids[0] not in (os.getpid(), process.pid)
     assert jobscript.completion_obj.is_complete()
+
+
+@pytest.mark.asyncio
+async def test_script_worker_survives_intervening_external_action(tmp_path, monkeypatch):
+    """Verify a worker survives an external action and is reused afterward."""
+    if getattr(sys, "frozen", False):
+        pytest.skip("Worker subprocess tests require Python.")
+    monkeypatch.chdir(tmp_path)
+    script = "<<script:main_script_test_script_worker_process.py>>"
+    schema = hf.TaskSchema(
+        objective="worker_interleaved",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                script=script,
+                script_exe="python_script",
+                script_data_in="direct",
+                script_data_out="direct",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            ),
+            hf.Action(
+                commands=[hf.Command("echo ordinary action")],
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            ),
+            hf.Action(
+                script=script,
+                script_exe="python_script",
+                script_data_in="direct",
+                script_data_out="direct",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            ),
+        ],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="worker_interleaved",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema, inputs={"p1": 101})],
+    )
+    workflow.add_submission(enable_script_workers=True)
+    executor = hf.JobscriptExecutor(workflow, 0, 0, enable_script_workers=True)
+    executor.submission.prepare_submit()
+    monkeypatch.setenv(
+        "HPCFLOW_JS_FUNCS_PATH", str(executor.jobscript.jobscript_functions_path)
+    )
+    monkeypatch.setenv("HPCFLOW_WK_PATH_ARG", str(workflow.path))
+
+    original_execute_run_commands = executor._execute_run_commands
+    active_worker_process_trees = []
+
+    async def execute_run_commands(
+        action: JobscriptAction,
+        js_run: JobscriptRun,
+        run,
+        run_dir,
+        commands_file_path,
+    ):
+        assert len(executor.script_workers) == 1
+        worker = next(iter(executor.script_workers.values()))
+        process = worker.worker.process
+        assert process is not None and process.returncode is None
+        descendant_pids = {
+            child.pid for child in psutil.Process(process.pid).children(recursive=True)
+        }
+        assert descendant_pids
+        result = await original_execute_run_commands(
+            action=action,
+            js_run=js_run,
+            run=run,
+            run_dir=run_dir,
+            commands_file_path=commands_file_path,
+        )
+        assert worker.worker.process is process
+        assert process.returncode is None
+        assert {
+            child.pid for child in psutil.Process(process.pid).children(recursive=True)
+        } == descendant_pids
+        active_worker_process_trees.append((process, descendant_pids))
+        return result
+
+    monkeypatch.setattr(executor, "_execute_run_commands", execute_run_commands)
+    await executor._execute()
+
+    completed = hf.Workflow(workflow.path)
+    runs = completed.get_all_EARs()
+    assert len(runs) == 3
+    assert all(run.success and run.end_time for run in runs)
+    worker_pid = runs[0].element.outputs.p2.value
+    assert worker_pid == runs[2].element.outputs.p2.value
+    process, descendant_pids = active_worker_process_trees[0]
+    assert worker_pid in descendant_pids
+    assert process.returncode is not None
+    assert not psutil.pid_exists(worker_pid)
+    assert executor.script_workers == {}
+    assert executor.completion.is_complete()
 
 
 @pytest.mark.asyncio
