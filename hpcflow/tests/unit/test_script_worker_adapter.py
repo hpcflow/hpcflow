@@ -128,10 +128,13 @@ def test_old_combined_submission_readable_but_cannot_execute(tmp_path, store):
     [(False, False), (True, False), (False, True), (True, True)],
 )
 async def test_jobscript_executor_runs_snippets_on_legacy_or_worker_path(
-    tmp_path, monkeypatch, capfd, enable_script_workers, fail
+    tmp_path, monkeypatch, capfd, pytestconfig, enable_script_workers, fail
 ):
     if getattr(sys, "frozen", False):
         pytest.skip("Worker subprocess tests require Python.")
+    effective_script_workers = enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers"
+    )
     workflow, run = make_run(
         tmp_path,
         repeats=2,
@@ -146,13 +149,13 @@ async def test_jobscript_executor_runs_snippets_on_legacy_or_worker_path(
         workflow,
         0,
         0,
-        enable_script_workers=enable_script_workers,
+        enable_script_workers=effective_script_workers,
     )
     worker_args = run.get_script_worker_args(0)
     worker_script = worker_args.get_script_path(workflow.submissions[0].scripts_path)
     worker_commands = worker_args.get_commands_path(workflow.submissions[0].commands_path)
     shell = executor.jobscript.shell
-    if enable_script_workers:
+    if effective_script_workers:
         assert worker_script.is_file()
         assert worker_commands.is_file()
     else:
@@ -168,14 +171,14 @@ async def test_jobscript_executor_runs_snippets_on_legacy_or_worker_path(
         shell=shell,
         os_name=executor.jobscript.os_name,
     )
-    assert ("--enable-script-workers" in jobscript_text) is enable_script_workers
+    assert ("--enable-script-workers" in jobscript_text) is effective_script_workers
 
     await executor._execute()
 
     finalized_runs = workflow.get_all_EARs()
     assert all(run.end_time is not None for run in finalized_runs)
     assert all(run.success is not fail for run in finalized_runs)
-    if fail and enable_script_workers:
+    if fail and effective_script_workers:
         assert all(
             "script worker action failed" in run.get_app_std_path().read_text()
             for run in finalized_runs
@@ -188,7 +191,7 @@ async def test_jobscript_executor_runs_snippets_on_legacy_or_worker_path(
             201,
             201,
         ]
-    if enable_script_workers:
+    if effective_script_workers:
         assert executor.script_workers == {}
     else:
         assert not executor.script_workers
@@ -414,35 +417,42 @@ async def test_active_worker_abort_or_cancellation_reaps_process(
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize("enable_script_workers", [False, True])
 def test_submission_reload_preserves_worker_opt_in(
-    tmp_path, store, enable_script_workers
+    tmp_path, store, pytestconfig, enable_script_workers
 ):
+    effective_script_workers = enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers"
+    )
     workflow, run = make_run(
         tmp_path, store=store, enable_script_workers=enable_script_workers
     )
     args = run.get_script_worker_args(0)
     fresh = hf.Workflow(workflow.path)
     submission = fresh.submissions[0]
-    assert submission.enable_script_workers is enable_script_workers
+    assert submission.enable_script_workers is effective_script_workers
     assert fresh.get_all_EARs()[0].get_script_worker_args(0).id == args.id
     for path in (
         args.get_script_path(submission.scripts_path),
         args.get_manifest_path(submission.scripts_path),
         args.get_commands_path(submission.commands_path),
     ):
-        assert path.is_file() is enable_script_workers
+        assert path.is_file() is effective_script_workers
     submission.prepare_submit()
     jobscript = submission.jobscripts[0]
     path = jobscript.write_jobscript()
-    assert ("--enable-script-workers" in path.read_text()) is enable_script_workers
+    assert ("--enable-script-workers" in path.read_text()) is effective_script_workers
     original = path.read_bytes()
     assert original == jobscript.write_jobscript().read_bytes()
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_old_submission_without_worker_option_defaults_to_disabled(tmp_path, store):
+def test_old_submission_without_worker_option_defaults_to_disabled(
+    tmp_path, store, pytestconfig
+):
     workflow, _ = make_run(tmp_path, store=store)
     data = dict(workflow._store.get_submissions()[0])
-    assert data.pop("enable_script_workers") is False
+    persisted_option = data.pop("enable_script_workers")
+    if not pytestconfig.getoption("--force-script-workers"):
+        assert persisted_option is False
     submission = hf.Submission.from_json_like({"index": 0, **data})
     submission.workflow = workflow
     assert submission.enable_script_workers is False

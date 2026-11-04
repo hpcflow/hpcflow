@@ -440,9 +440,14 @@ def test_multi_block_jobscript_multi_dependence_distinct_resources_sequence_and_
     assert len(sub.jobscripts[2].blocks) == 2
 
 
-def test_combine_scripts_unset_False_jobscript_hash_equivalence(tmp_path, monkeypatch):
+def test_combine_scripts_unset_False_jobscript_hash_equivalence(
+    tmp_path, monkeypatch, pytestconfig
+):
+    if pytestconfig.getoption("--force-script-workers"):
+        pytest.skip("This test verifies the default legacy submission mode.")
+
     def unexpected_worker_generation(*args, **kwargs):
-        pytest.fail("Production submissions must not generate script workers yet.")
+        pytest.fail("Default submissions must not generate script workers.")
 
     monkeypatch.setattr(
         "hpcflow.sdk.submission.submission.ScriptWriter.create",
