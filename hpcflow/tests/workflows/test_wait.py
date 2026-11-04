@@ -12,6 +12,7 @@ from hpcflow.sdk.core.test_utils import (
     launch_forced_array_item,
     report_jobscript_timeout,
     wait_for_array_item_completion,
+    wait_for_jobscript_completion,
 )
 from hpcflow.sdk.execution.jobscript_executor import JobscriptExecutor
 from hpcflow.sdk.persistence.utils import atomic_write
@@ -445,8 +446,8 @@ async def test_wait_for_forced_array_execution(wk_1_repeats_2):
 
     Execute a forced direct array out of order and verify that the workflow waiter remains
     blocked as individual array items complete. Once the final array item completes,
-    verify that the array completion state is consolidated to the jobscript-level
-    completion marker and the waiter is released.
+    verify that the jobscript and all array items report completion and the waiter is
+    released.
 
     """
     prepared = almost_submit(wk_1_repeats_2, force_array=True, status=False)
@@ -489,7 +490,7 @@ async def test_wait_for_forced_array_execution(wk_1_repeats_2):
         await asyncio.wait_for(wait_task, timeout=10)
 
     assert completion.is_complete()
-    assert not completion.array_path.exists()
+    assert all(completion.is_array_item_complete(idx) for idx in array_indices)
     assert_wk_1_repeats_success(wk_1_repeats_2)
 
 
@@ -509,11 +510,17 @@ async def test_wait_for_already_completed_forced_array(wk_1_repeats_2):
     js._set_process_ID(os.getpid())
 
     completion = js.completion_obj
+    array_indices = tuple(reversed(js.array_indices))
 
-    for array_idx in reversed(js.array_indices):
+    for array_idx in array_indices[:-1]:
         pid = launch_forced_array_item(js, prepared, array_idx)
         with report_jobscript_timeout(js, array_idx, pid):
             await wait_for_array_item_completion(completion, array_idx)
+
+    final_idx = array_indices[-1]
+    pid = launch_forced_array_item(js, prepared, final_idx)
+    with report_jobscript_timeout(js, final_idx, pid):
+        await wait_for_jobscript_completion(completion)
 
     assert completion.is_complete()
 

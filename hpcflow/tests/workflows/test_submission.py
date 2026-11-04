@@ -157,8 +157,7 @@ async def test_forced_array_execution(wk_1_repeats_2):
 
     Execute the array items out of order and verify that completing individual items does
     not prematurely mark the whole jobscript as complete. Once the final item completes,
-    verify that the array completion state is consolidated to the jobscript-level
-    completion marker and the intermediate array state is removed.
+    verify that the jobscript and all array items report completion.
 
     """
     prepared = almost_submit(wk_1_repeats_2, force_array=True, status=False)
@@ -184,5 +183,5 @@ async def test_forced_array_execution(wk_1_repeats_2):
         await wait_for_jobscript_completion(completion)
 
     assert completion.is_complete()
-    assert not completion.array_path.exists()
+    assert all(completion.is_array_item_complete(idx) for idx in array_indices)
     assert_wk_1_repeats_success(wk_1_repeats_2)

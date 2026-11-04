@@ -171,6 +171,34 @@ def test_mark_array_items_consolidates_to_complete(tmp_path):
     assert not completion.array_path.exists()
 
 
+def test_jobscript_completion_marker_precedes_array_cleanup(tmp_path, monkeypatch):
+    """A complete jobscript may still have superseded array state."""
+    completion = JobscriptCompletion(
+        tmp_path,
+        submission_idx=0,
+        jobscript_idx=0,
+        num_jobscripts=1,
+        array_indices=(0, 1),
+    )
+    completion.mark_array_item_complete(1)
+    cleanup_observations = []
+
+    def decline_removal_claim(path):
+        cleanup_observations.append((path, completion.is_complete(), path.exists()))
+        return None
+
+    monkeypatch.setattr(
+        "hpcflow.sdk.wait.utils.claim_path_for_removal",
+        decline_removal_claim,
+    )
+    completion.mark_array_item_complete(0)
+
+    assert cleanup_observations == [(completion.array_path, True, True)]
+    assert completion.is_complete()
+    assert completion.array_path.is_dir()
+    assert all(completion.is_array_item_complete(idx) for idx in (0, 1))
+
+
 def test_mark_array_items_consolidates_intermediate_node(tmp_path):
     completion = JobscriptCompletion(
         tmp_path,
