@@ -15,12 +15,14 @@ The ``delete_execute_dir`` setting defaults to ``True``. Set it to ``False`` to
 retain successful execution directories for inspection. This setting can also be
 overridden in a workflow template's ``config`` mapping.
 
-Applications can select settings that resolve to their ``DefaultConfiguration``
-value when omitted from an existing config file. This is configured with
-``ConfigOptions.defaulted_config_keys`` and requires no config-file rewrite. Explicit
-values still take precedence. Other unset settings retain the existing unset behavior.
-For caller-specific fallbacks, ``config.get("setting", default=value)`` handles an
-absent setting or nested path without changing the configuration file.
+Selected settings resolve to their application's ``DefaultConfiguration`` value
+when omitted from an existing config file. These settings are listed in
+``DEFAULTED_CONFIG_KEYS`` in the configuration module. If an application's default
+configuration omits one of these settings, the built-in default is used. No config
+file is rewritten, and explicit values still take precedence. Other unset settings
+retain the existing unset behavior. For caller-specific fallbacks,
+``config.get("setting", default=value)`` handles an absent setting or nested path
+without changing the configuration file.
 
 The long-term intention is for all settings to use their ``DefaultConfiguration``
 values when absent. Extending this behavior to every setting would change the

@@ -1,9 +1,11 @@
 from __future__ import annotations
 from contextlib import nullcontext
+from copy import deepcopy
 import os
 import time
 import pytest
 
+import hpcflow.sdk.config.config as config_module
 from hpcflow.app import app as hf
 from hpcflow.sdk.config import ConfigOptions
 from hpcflow.sdk.config.errors import (
@@ -159,7 +161,16 @@ def test_config_options_preserves_positional_arguments(tmp_path):
     )
     assert options.extra_schemas == ()
     assert options.default_known_configs_dir is None
-    assert options.defaulted_config_keys == ()
+    assert not hasattr(options, "defaulted_config_keys")
+
+
+def test_config_options_allows_missing_builtin_default(tmp_path):
+    key = "move_scratch_to_workflow"
+    default_config = deepcopy(hf.config_options.default_config)
+    del default_config["config"]["move_scratch_to_workflow"]
+    options = ConfigOptions(tmp_path, "TEST_CONFIG_DIR", default_config)
+    assert options.get_runtime_default(key) is True
+    assert key not in options.default_config["config"]
 
 
 @pytest.mark.parametrize("cached", [False, True])
@@ -207,11 +218,20 @@ def test_runtime_default_comes_from_app_config(modifiable_config, monkeypatch):
     assert hf.config.get_all()[key] is False
 
 
+def test_missing_app_default_uses_builtin_default(modifiable_config, monkeypatch):
+    key = "move_scratch_to_workflow"
+    hf.config.unset(key)
+    monkeypatch.delitem(hf.config_options.default_config["config"], key)
+    assert hf.config.get(key) is True
+    assert hf.config.get_all()[key] is True
+    assert key not in hf.config_options.default_config["config"]
+
+
 def test_mutable_runtime_default_is_not_modified(modifiable_config, monkeypatch):
     key = "user_affiliations"
     hf.config.unset(key)
     monkeypatch.setitem(hf.config_options.default_config["config"], key, [])
-    monkeypatch.setattr(hf.config_options, "defaulted_config_keys", (key,))
+    monkeypatch.setattr(config_module, "DEFAULTED_CONFIG_KEYS", [key])
     hf.config.get_all()[key].append("example")
     assert hf.config_options.default_config["config"]["user_affiliations"] == []
     assert hf.config.get(key) == []

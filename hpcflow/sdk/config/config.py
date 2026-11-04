@@ -114,6 +114,9 @@ DEFAULT_CONFIG: DefaultConfiguration = {
     },
 }
 
+#: Settings that use their default configuration value when omitted.
+DEFAULTED_CONFIG_KEYS = ["move_scratch_to_workflow"]
+
 
 @dataclass
 class ConfigOptions:
@@ -131,17 +134,13 @@ class ConfigOptions:
     extra_schemas: Sequence[Schema] = field(default_factory=list)
     #: Default directory of known configurations.
     default_known_configs_dir: str | None = None
-    #: Settings whose default values apply at runtime when omitted from a config file.
-    defaulted_config_keys: Sequence[str] = field(default_factory=tuple)
     _schemas: Sequence[Schema] = field(init=False)
     _configurable_keys: Sequence[str] = field(init=False)
 
     def __post_init__(self) -> None:
         self._schemas, self._configurable_keys = self.init_schemas()
-        invalid_keys = set(self.defaulted_config_keys) - set(self._configurable_keys)
-        missing_defaults = set(self.defaulted_config_keys) - set(
-            self.default_config["config"]
-        )
+        invalid_keys = set(DEFAULTED_CONFIG_KEYS) - set(self._configurable_keys)
+        missing_defaults = set(DEFAULTED_CONFIG_KEYS) - set(DEFAULT_CONFIG["config"])
         if invalid_keys or missing_defaults:
             raise ValueError(
                 "Runtime-defaulted config keys must be configurable and have a "
@@ -151,7 +150,10 @@ class ConfigOptions:
 
     def get_runtime_default(self, name: str) -> Any:
         """Get the configured default for a setting that uses runtime defaults."""
-        return deepcopy(cast("Mapping[str, Any]", self.default_config["config"])[name])
+        defaults = cast("Mapping[str, Any]", self.default_config["config"])
+        if name not in defaults:
+            defaults = cast("Mapping[str, Any]", DEFAULT_CONFIG["config"])
+        return deepcopy(defaults[name])
 
     def init_schemas(self) -> tuple[Sequence[Schema], Sequence[str]]:
         """
@@ -742,7 +744,7 @@ class Config:
         """Get all configurable items."""
         items: dict[str, Any] = {}
         for key in self._configurable_keys:
-            if key in self._unset_keys and key not in self._options.defaulted_config_keys:
+            if key in self._unset_keys and key not in DEFAULTED_CONFIG_KEYS:
                 continue
             try:
                 if as_str:
@@ -878,11 +880,11 @@ class Config:
             val = root_over
 
         elif name in self._unset_keys:
-            if raise_on_missing and name not in self._options.defaulted_config_keys:
+            if raise_on_missing and name not in DEFAULTED_CONFIG_KEYS:
                 raise ValueError("Not set.")
             val = (
                 self._options.get_runtime_default(name)
-                if name in self._options.defaulted_config_keys
+                if name in DEFAULTED_CONFIG_KEYS
                 else default_value
             )
 
@@ -890,7 +892,7 @@ class Config:
             val = cast("dict", self._modified_keys)[name]
 
         elif name in self._configurable_keys:
-            has_runtime_default = name in self._options.defaulted_config_keys
+            has_runtime_default = name in DEFAULTED_CONFIG_KEYS
             val = self._file.get_config_item(
                 config_key=self._config_key,
                 name=name,
