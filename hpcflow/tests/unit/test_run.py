@@ -114,6 +114,7 @@ def test_scratch_temporary_file_reference(
 @pytest.mark.parametrize("final_requires_dir", [False, True])
 @pytest.mark.parametrize("exit_code", [0, 1])
 @pytest.mark.parametrize("scratch", [False, True])
+@pytest.mark.parametrize("move_scratch", [False, True])
 def test_final_action_execute_directory_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -121,6 +122,7 @@ def test_final_action_execute_directory_cleanup(
     final_requires_dir: bool,
     exit_code: int,
     scratch: bool,
+    move_scratch: bool,
 ):
     schema = hf.TaskSchema(
         objective="directory_cleanup",
@@ -137,6 +139,7 @@ def test_final_action_execute_directory_cleanup(
         path=tmp_path,
         resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
         tasks=[hf.Task(schema=schema)],
+        config={"move_scratch_to_workflow": move_scratch},
     )
     wk.add_submission()
     runs = wk.get_all_EARs()
@@ -155,17 +158,246 @@ def test_final_action_execute_directory_cleanup(
     else:
         wk.set_EAR_start(runs[1].id_, final_dir, None)
         wk.set_EAR_end((0, 0, 1), runs[1], exit_code)
-    assert directory.exists() is (exit_code != 0)
+    relocated = scratch and move_scratch and exit_code != 0
+    assert directory.exists() is (exit_code != 0 and not relocated)
     if scratch:
         assert (tmp_path / "scratch").is_dir()
-        assert directory.parent.exists() is (exit_code != 0)
+        assert directory.parent.exists() is (exit_code != 0 and not relocated)
+    if relocated:
+        retained = wk.get_run_directories(run_ids=[runs[0].id_])[0]
+        assert retained is not None and retained.is_relative_to(wk.execution_path)
+        assert (retained / "intermediate.txt").read_text() == "keep until final action"
     first = wk.get_EARs_from_IDs([runs[0].id_])[0]
     assert first.dir_diff is not None
     assert "intermediate.txt" in first.dir_diff.files_created
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_retained_scratch_moves_contents_and_file_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str, exit_code: int
+) -> None:
+    file_spec = hf.FileSpec(label="input", name="input.txt")
+    schema = hf.TaskSchema(
+        objective="retained_scratch",
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo final")],
+                input_file_generators=[
+                    hf.InputFileGenerator(input_file=file_spec, inputs=[])
+                ],
+                requires_dir=True,
+            ),
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="retained_scratch",
+        path=tmp_path,
+        store=store,
+        resources={"any": {"scratch": str(tmp_path / "scratch")}},
+        tasks=[hf.Task(schema=schema)],
+        config={"delete_execute_dir": False},
+    )
+    wk.add_submission()
+    first, final = wk.get_all_EARs()
+    directory = first.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(first.id_, directory, None)
+    (directory / "input.txt").write_text("generated", encoding="utf-8")
+    (directory / "nested").mkdir()
+    (directory / "nested" / ".undeclared").write_bytes(b"\x00\x01\xff")
+    original_rename = os.rename
+
+    def cross_device_rename(src, dst, *args, **kwargs):
+        if Path(src) == directory:
+            raise OSError(errno.EXDEV, "Cross-device link")
+        return original_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", cross_device_rename)
+    wk.set_EAR_end((0, 0, 0), first, 0)
+    assert directory.exists()
+    final = wk.get_EARs_from_IDs(final.id_)
+    assert Path(final.get("input_files.input")) == directory / "input.txt"
+    wk.set_EAR_start(final.id_, directory, None)
+    wk.set_EAR_end((0, 0, 1), final, exit_code)
+
+    wk = hf.Workflow(wk.path)
+    first, final = wk.get_all_EARs()
+    relocated = first.get_directory()
+    assert relocated is not None and relocated.is_relative_to(wk.execution_path)
+    assert final.get_directory() == relocated
+    assert Path(final.get("input_files.input")) == relocated / "input.txt"
+    assert (relocated / "input.txt").read_text() == "generated"
+    assert (relocated / "nested" / ".undeclared").read_bytes() == b"\x00\x01\xff"
+    assert not directory.exists()
+    assert list((tmp_path / "scratch").iterdir()) == []
+    assert first.success
+    assert final.success is (exit_code == 0)
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("skip_downstream", [False, True])
+def test_failed_scratch_waits_for_remaining_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bulk: bool,
+    skip_downstream: bool,
+) -> None:
+    schema = hf.TaskSchema(
+        objective="failed_scratch",
+        actions=[
+            hf.Action(commands=[hf.Command("echo first")], requires_dir=True),
+            hf.Action(commands=[hf.Command("echo final")], requires_dir=True),
+        ],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="failed_scratch",
+        path=tmp_path,
+        resources={
+            "any": {
+                "scratch": str(tmp_path / "scratch"),
+                "skip_downstream_on_failure": skip_downstream,
+            }
+        },
+        tasks=[hf.Task(schema=schema)],
+    )
+    wk.add_submission()
+    first, final = wk.get_all_EARs()
+    directory = first.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(first.id_, directory, None)
+    (directory / "failure.log").write_text("diagnostic", encoding="utf-8")
+    if skip_downstream:
+        wk.set_EAR_skip({final.id_: SkipReason.UPSTREAM_FAILURE})
+    if bulk:
+        wk.set_multi_run_ends({(0, 0, 0): [(first, 1, directory)]})
+    else:
+        wk.set_EAR_end((0, 0, 0), first, 1)
+    assert directory.exists() is (not skip_downstream)
+    if not skip_downstream:
+        final = wk.get_EARs_from_IDs(final.id_)
+        assert final.prepare_directory() == directory
+        wk.set_EAR_start(final.id_, directory, None)
+        if bulk:
+            wk.set_multi_run_ends({(0, 0, 1): [(final, 0, directory)]})
+        else:
+            wk.set_EAR_end((0, 0, 1), final, 0)
+    wk = hf.Workflow(wk.path)
+    relocated = wk.get_run_directories()[0]
+    assert relocated is not None and relocated.is_relative_to(wk.execution_path)
+    assert (relocated / "failure.log").read_text() == "diagnostic"
+    assert not directory.exists()
+    assert list((tmp_path / "scratch").iterdir()) == []
+
+
+@pytest.mark.parametrize("error", ["conflict", "copy"])
+def test_scratch_move_reports_errors_without_removing_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: str
+) -> None:
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_move_error",
+        path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch")}},
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    objective="scratch_move_error",
+                    actions=[
+                        hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)
+                    ],
+                )
+            )
+        ],
+        config={"delete_execute_dir": False},
+    )
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(run.id_, directory, None)
+    (directory / "diagnostic.txt").write_text("keep", encoding="utf-8")
+    if error == "conflict":
+        wk.execution_path.mkdir(parents=True)
+        (wk.execution_path / "existing.txt").write_text("existing", encoding="utf-8")
+        expected: type[OSError] = FileExistsError
+    else:
+        import shutil
+
+        original_rename = os.rename
+
+        def cross_device_rename(src, dst, *args, **kwargs):
+            if Path(src) == directory:
+                raise OSError(errno.EXDEV, "Cross-device link")
+            return original_rename(src, dst, *args, **kwargs)
+
+        def deny_copy(*args, **kwargs):
+            raise PermissionError(errno.EACCES, "Copy denied")
+
+        monkeypatch.setattr(os, "rename", cross_device_rename)
+        monkeypatch.setattr(shutil, "copytree", deny_copy)
+        expected = PermissionError
+    with pytest.raises(expected):
+        wk.set_EAR_end((0, 0, 0), run, 0)
+    assert (directory / "diagnostic.txt").read_text() == "keep"
+    assert hf.Workflow(wk.path).get_run_directories() == [directory]
+    if error == "conflict":
+        assert (wk.execution_path / "existing.txt").read_text() == "existing"
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+def test_retained_scratch_move_is_per_element_iteration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bulk: bool
+) -> None:
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_iteration_move",
+        path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch")}},
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    objective="scratch_iteration_move",
+                    actions=[
+                        hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)
+                    ],
+                ),
+                repeats=2,
+            )
+        ],
+        config={"delete_execute_dir": False},
+    )
+    wk.add_submission()
+    runs = wk.get_all_EARs()
+    directories = [run.prepare_directory() for run in runs]
+    for idx, (run, directory) in enumerate(zip(runs, directories)):
+        assert directory is not None
+        monkeypatch.chdir(directory)
+        wk.set_EAR_start(run.id_, directory, None)
+        (directory / "diagnostic.txt").write_text(str(idx), encoding="utf-8")
+    if bulk:
+        wk.set_multi_run_ends(
+            {(0, 0, 0): [(run, 0, path) for run, path in zip(runs, directories)]}
+        )
+    else:
+        first_dir = directories[0]
+        assert first_dir is not None
+        monkeypatch.chdir(first_dir)
+        wk.set_EAR_end((0, 0, 0), runs[0], 0)
+        assert directories[1] is not None and directories[1].exists()
+        monkeypatch.chdir(directories[1])
+        wk.set_EAR_end((0, 0, 0), runs[1], 0)
+    wk = hf.Workflow(wk.path)
+    for idx, directory in enumerate(wk.get_run_directories()):
+        assert directory is not None and directory.is_relative_to(wk.execution_path)
+        assert (directory / "diagnostic.txt").read_text() == str(idx)
+    assert list((tmp_path / "scratch").iterdir()) == []
+
+
+@pytest.mark.parametrize("scratch", [False, True])
 def test_execute_directory_retained_after_missing_saved_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scratch: bool
 ):
     schema = hf.TaskSchema(
         objective="missing_file",
@@ -179,7 +411,10 @@ def test_execute_directory_retained_after_missing_saved_file(
         save_files=["missing"],
     )
     wk = hf.Workflow.from_template_data(
-        template_name="missing_file", path=tmp_path, tasks=[hf.Task(schema=schema)]
+        template_name="missing_file",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema)],
+        resources={"any": {"scratch": str(tmp_path / "scratch") if scratch else None}},
     )
     wk.add_submission()
     run = wk.get_all_EARs()[0]
@@ -188,7 +423,11 @@ def test_execute_directory_retained_after_missing_saved_file(
     monkeypatch.chdir(directory)
     wk.set_EAR_start(run.id_, directory, None)
     wk.set_EAR_end((0, 0, 0), run, 0)
-    assert directory.is_dir()
+    retained = wk.get_run_directories()[0]
+    assert retained is not None and retained.is_dir()
+    if scratch:
+        assert retained.is_relative_to(wk.execution_path)
+        assert not directory.exists()
     assert not wk.get_EARs_from_IDs([run.id_])[0].success
 
 
@@ -264,7 +503,7 @@ def test_scratch_pruning_preserves_other_workflows(
     monkeypatch.chdir(directory)
     wk.set_EAR_start(run.id_, directory, None)
     wk.set_EAR_end((0, 0, 0), run, exit_code)
-    assert directory.parent.exists() is (exit_code != 0)
+    assert not directory.parent.exists()
     assert sentinel.read_text() == "keep"
 
 

@@ -143,10 +143,11 @@ def test_config_with_updates(modifiable_config):
     assert level_1 == level_3 != level_2
 
 
-def test_delete_execute_dir_default_and_override(modifiable_config):
-    assert hf.config.get("delete_execute_dir") is True
-    hf.config.set("delete_execute_dir", False)
-    assert hf.config.get("delete_execute_dir") is False
+@pytest.mark.parametrize("key", ["delete_execute_dir", "move_scratch_to_workflow"])
+def test_directory_policy_default_and_override(modifiable_config, key: str):
+    assert hf.config.get(key) is True
+    hf.config.set(key, False)
+    assert hf.config.get(key) is False
 
 
 @pytest.mark.integration

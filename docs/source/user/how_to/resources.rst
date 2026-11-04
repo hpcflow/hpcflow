@@ -31,7 +31,21 @@
     directories. After cleanup, empty ancestors are pruned up to and including the
     workflow-specific scratch directory. Pruning stops at non-empty directories, so other
     runs' files are preserved. The supplied scratch parent is never removed. When
-    ``delete_execute_dir`` is false, working directories and their ancestors are retained.
+    ``delete_execute_dir`` is false, working directories are retained.
+
+    By default, ``move_scratch_to_workflow: true`` moves retained custom-scratch working
+    directories back into the workflow's normal ``execute`` tree. This includes failed
+    iterations and successful iterations retained by ``delete_execute_dir: false``.
+    Moving waits until every action in the iteration has finished or been skipped, so
+    intermediate files remain available to actions that still need them. All remaining
+    contents are moved, including undeclared files and subdirectories; directory lookup
+    and temporary file references are updated. Empty scratch ancestors are then pruned.
+    Existing non-empty destinations are reported as errors rather than overwritten.
+
+    Set ``move_scratch_to_workflow: false`` in the application configuration or the
+    workflow template's ``config`` mapping to leave retained directories on scratch.
+    Recovery requires the execution process to reach its normal completion handling:
+    node loss, forcible termination, or scheduler wall-time termination may prevent it.
 
     Node-local scratch is not shared between nodes. Actions that share intermediate
     working files must use the same scratch path and execute on the same node, for example

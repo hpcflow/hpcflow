@@ -105,6 +105,11 @@ PARAM_DATA_NOT_SET: Final[int] = 0
 _UNSET_PARAMETER_VALUE = object()
 
 
+@dataclass(frozen=True)
+class _FilePathUpdate:
+    path: str
+
+
 @TimeIt.decorator
 def update_param_source_dict(source: ParamSource, update: ParamSource) -> ParamSource:
     """
@@ -1007,6 +1012,12 @@ class StoreParameter:
             file=None,
             source=self.source,
         )
+
+    def relocate_file(self, path: str) -> Self:
+        """Return a copy referencing a relocated, non-stored file."""
+        if self.file is None or self.file["store_contents"]:
+            raise ValueError(f"Parameter ID {self.id_!r} is not a temporary file.")
+        return self.unset().set_file({**self.file, "path": path})
 
     def update_source(self, src: ParamSource) -> Self:
         """Return a copy, with updated source."""
@@ -2185,6 +2196,12 @@ class PersistentStore(
         self._pending.set_parameters[param_id] = (_UNSET_PARAMETER_VALUE, False)
         if save:
             self.save()
+
+    def relocate_file_parameter(
+        self, param_id: int, path: str, save: bool = True
+    ) -> None:
+        """Update a temporary file's path without clearing its value or source."""
+        self.set_parameter_value(param_id, _FilePathUpdate(path), is_file=True, save=save)
 
     def set_parameter_values(self, values: dict[int, Any], save: bool = True):
         """Set multiple non-file parameter values by parameter IDs."""

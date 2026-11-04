@@ -3626,12 +3626,18 @@ class Workflow(AppAware):
         scratch = run.resources.scratch
         if scratch is None:
             return self.execution_path
+        if self._get_scratch_relocation_record(run.id_).is_file():
+            return self.execution_path
         if not scratch.strip():
             raise ValueError("The `scratch` resource must be a non-empty directory path.")
         scratch_path = Path(scratch).expanduser()
         if not scratch_path.is_absolute():
             scratch_path = Path(self.path) / scratch_path
         return scratch_path / f"{self._app.name}_{self.id_}" / self._exec_dir_name
+
+    def _get_scratch_relocation_record(self, run_id: int) -> Path:
+        # Per-run records keep directory lookup correct after reloading the workflow.
+        return self.artifacts_path / "relocated_execute_dirs" / str(run_id)
 
     @TimeIt.decorator
     def get_task_elements(
@@ -3804,22 +3810,25 @@ class Workflow(AppAware):
         return new_run_skips
 
     def _clean_up_execute_dirs(self, run: ElementActionRun, success: bool) -> None:
-        """Remove an iteration's working directories after its final successful run."""
+        """Delete successful working directories or relocate retained scratch."""
         delete_execute_dir = (self.template.config or {}).get("delete_execute_dir")
         if delete_execute_dir is None:
             delete_execute_dir = self._app.config.get("delete_execute_dir")
-        if delete_execute_dir is False:
-            return
-        if not success or run.skip:
-            return
-        action_runs = run.element_iteration.EAR_IDs
-        final_action = max(idx for idx, ids in action_runs.items() if ids)
-        if run.id_ != action_runs[final_action][-1]:
+        run_ids = list(run.element_iteration.EAR_IDs_flat)
+        runs = self.get_EARs_from_IDs(run_ids)
+        if any(i.end_time is None and not i.skip for i in runs):
             return
 
-        run_ids = list(run.element_iteration.EAR_IDs_flat)
-        other_runs = self.get_EARs_from_IDs([i for i in run_ids if i != run.id_])
-        if any(i.skip or not i.success for i in other_runs):
+        if (
+            delete_execute_dir is False
+            or not success
+            or any(i.skip or not i.success for i in runs)
+        ):
+            move_scratch = (self.template.config or {}).get("move_scratch_to_workflow")
+            if move_scratch is None:
+                move_scratch = self._app.config.get("move_scratch_to_workflow")
+            if move_scratch:
+                self._move_retained_scratch_dirs(runs)
             return
 
         directories = {
@@ -3828,13 +3837,15 @@ class Workflow(AppAware):
         self._unset_deleted_execute_file_refs(run_ids, directories)
         execution_paths = {
             self._get_run_execution_path(i).resolve()
-            for i in (*other_runs, run)
+            for i in runs
             if i.action.requires_dir
         }
         scratch_roots = {
             self._get_run_execution_path(i).parent
-            for i in (*other_runs, run)
-            if i.action.requires_dir and i.resources.scratch is not None
+            for i in runs
+            if i.action.requires_dir
+            and i.resources.scratch is not None
+            and self._get_run_execution_path(i) != self.execution_path
         }
         for directory in sorted(
             directories, key=lambda path: len(path.parts), reverse=True
@@ -3860,6 +3871,85 @@ class Workflow(AppAware):
             for root in scratch_roots:
                 if directory.is_relative_to(root):
                     self._prune_empty_scratch_dirs(directory.parent, root)
+
+    def _move_retained_scratch_dirs(self, runs: Sequence[ElementActionRun]) -> None:
+        run_ids = [run.id_ for run in runs]
+        directories: dict[Path, tuple[Path, list[int]]] = {}
+        for action_run, directory in zip(runs, self.get_run_directories(run_ids=run_ids)):
+            root = self._get_run_execution_path(action_run)
+            if (
+                directory is None
+                or action_run.resources.scratch is None
+                or root == self.execution_path
+            ):
+                continue
+            if directory not in directories:
+                directories[directory] = (root, [])
+            directories[directory][1].append(action_run.id_)
+
+        for directory, (root, directory_run_ids) in directories.items():
+            if directory.is_symlink() or not directory.resolve().is_relative_to(
+                root.resolve()
+            ):
+                raise RuntimeError(f"Unsafe execution directory for move: {directory}")
+            if not directory.exists():
+                continue
+            destination = self.execution_path / directory.relative_to(root)
+            if not destination.resolve().is_relative_to(Path(self.path).resolve()):
+                raise RuntimeError(f"Unsafe destination for scratch move: {destination}")
+            if destination.is_symlink() or (
+                destination.exists()
+                and (not destination.is_dir() or any(destination.iterdir()))
+            ):
+                raise FileExistsError(
+                    f"Cannot move scratch directory {directory}: "
+                    f"destination already exists: {destination}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                destination.rmdir()
+            if Path.cwd().resolve().is_relative_to(directory.resolve()):
+                os.chdir(self.path)
+            self._app.submission_logger.debug(
+                f"Moving retained scratch directory {directory} to {destination}."
+            )
+            try:
+                directory.rename(destination)
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+                shutil.copytree(directory, destination, symlinks=True)
+                shutil.rmtree(directory)
+            self._relocate_execute_file_refs(run_ids, directory, destination)
+            for run_id in directory_run_ids:
+                record = self._get_scratch_relocation_record(run_id)
+                record.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(record, b"")
+            self._prune_empty_scratch_dirs(directory.parent, root.parent)
+
+    def _relocate_execute_file_refs(
+        self, run_ids: Sequence[int], source: Path, destination: Path
+    ) -> None:
+        parameter_ids = {
+            parameter_id
+            for run in self.get_EARs_from_IDs(run_ids)
+            for key, value in run.data_idx.items()
+            if key.startswith(("input_files.", "output_files."))
+            for parameter_id in ([value] if isinstance(value, int) else value)
+        }
+        source = Path(os.path.abspath(source))
+        with self._store.cached_load(), self.batch_update():
+            for parameter in self._store.get_parameters(parameter_ids):
+                if parameter.file is None or parameter.file["store_contents"]:
+                    continue
+                path = Path(os.path.abspath(Path(self.path) / parameter.file["path"]))
+                if path.is_relative_to(source):
+                    relocated = destination / path.relative_to(source)
+                    self._store.relocate_file_parameter(
+                        parameter.id_,
+                        path=str(relocated.relative_to(self.path)),
+                        save=False,
+                    )
 
     @staticmethod
     def _prune_empty_scratch_dirs(directory: Path, root: Path) -> None:

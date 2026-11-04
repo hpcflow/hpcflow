@@ -110,6 +110,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
         "delete_execute_dir": True,
+        "move_scratch_to_workflow": True,
     },
 }
 

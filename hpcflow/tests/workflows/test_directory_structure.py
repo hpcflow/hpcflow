@@ -15,8 +15,13 @@ from hpcflow.sdk.core.test_utils import (
 @pytest.mark.parametrize("exit_code", [0, 1])
 @pytest.mark.parametrize("delete_execute_dir", [True, False])
 @pytest.mark.parametrize("scratch", [False, True])
+@pytest.mark.parametrize("move_scratch", [False, True])
 def test_execute_directory_lifecycle(
-    tmp_path: Path, exit_code: int, delete_execute_dir: bool, scratch: bool
+    tmp_path: Path,
+    exit_code: int,
+    delete_execute_dir: bool,
+    scratch: bool,
+    move_scratch: bool,
 ):
     result_file = hf.FileSpec(label="result", name="result.txt")
     schema = hf.TaskSchema(
@@ -53,7 +58,10 @@ def test_execute_directory_lifecycle(
             "any": {"scratch": str(tmp_path / "scratch space") if scratch else None}
         },
         tasks=[hf.Task(schema=schema)],
-        config={"delete_execute_dir": delete_execute_dir},
+        config={
+            "delete_execute_dir": delete_execute_dir,
+            "move_scratch_to_workflow": move_scratch,
+        },
     )
     wk.add_submission()
     directories = wk.get_run_directories()
@@ -67,21 +75,32 @@ def test_execute_directory_lifecycle(
     runs = wk.get_all_EARs()
     assert runs[0].success
     assert runs[1].success is (exit_code == 0)
+    retained = exit_code != 0 or not delete_execute_dir
+    relocated = scratch and move_scratch and retained
     assert all(
-        path is not None and path.exists() is (exit_code != 0 or not delete_execute_dir)
+        path is not None and path.exists() is (retained and not relocated)
         for path in directories
     )
+    final_directories = wk.get_run_directories()
+    assert all(
+        path is not None and path.exists() is retained for path in final_directories
+    )
+    if relocated:
+        assert all(
+            path is not None and path.is_relative_to(wk.execution_path)
+            for path in final_directories
+        )
     saved = wk.task_artifacts_path / "result.txt"
     assert saved.read_text().strip() == "saved"
     if scratch:
         assert (tmp_path / "scratch space").is_dir()
         assert bool(list((tmp_path / "scratch space").iterdir())) is (
-            exit_code != 0 or not delete_execute_dir
+            retained and not move_scratch
         )
     assert runs[0].dir_diff is not None
     assert "result.txt" in runs[0].dir_diff.files_created
     if not delete_execute_dir:
-        final_directory = directories[-1]
+        final_directory = final_directories[-1]
         assert final_directory is not None
         assert not (final_directory / "result.txt").exists()
 
@@ -202,6 +221,9 @@ def test_save_files_path_entries(
         assert b_log.parent.name == "sub"
     directories = [i for i in wk.get_run_directories() if i is not None]
     assert all(path.exists() is (exit_code != 0) for path in directories)
+    if scratch and exit_code != 0:
+        assert all(path.is_relative_to(wk.execution_path) for path in directories)
+        assert list((tmp_path / "scratch").iterdir()) == []
 
 
 @pytest.mark.integration
