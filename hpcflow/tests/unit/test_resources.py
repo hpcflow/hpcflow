@@ -11,6 +11,41 @@ from hpcflow.sdk.core.types import ResourceSpecArgs
 from hpcflow.sdk.submission.schedulers.slurm import SlurmPosix
 
 
+@pytest.mark.parametrize("combine_scripts", [False, True])
+def test_scratch_does_not_distinguish_jobscripts(combine_scripts: bool) -> None:
+    resources = [
+        hf.ElementResources(scratch=scratch, combine_scripts=combine_scripts)
+        for scratch in (None, "/tmp", "/ramdisk")
+    ]
+    assert len({resource.get_jobscript_hash() for resource in resources}) == 1
+    assert resources[1].scratch == "/tmp"
+
+
+def test_different_scratch_resources_share_jobscript(tmp_path: Path) -> None:
+    schema = hf.TaskSchema(
+        objective="scratch_hash",
+        actions=[hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_hash",
+        path=tmp_path,
+        tasks=[
+            hf.Task(schema=schema),
+            hf.Task(
+                schema=schema,
+                resources={"any": {"scratch": str(tmp_path / "scratch")}},
+            ),
+        ],
+    )
+    submission = wk.add_submission()
+    assert submission is not None
+    assert len(submission.jobscripts) == 1
+    default_dir, scratch_dir = wk.get_run_directories()
+    assert default_dir is not None and default_dir.is_relative_to(wk.execution_path)
+    assert scratch_dir is not None
+    assert scratch_dir.is_relative_to(tmp_path / "scratch")
+
+
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize("level", ["workflow", "task", "both", "scoped"])
 @pytest.mark.parametrize("clear", [False, True])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import errno
 
 import pytest
 
@@ -103,6 +104,7 @@ def test_scratch_temporary_file_reference(
     wk.set_EAR_end((0, 0, 1), final, 0)
     assert not directory.exists()
     assert scratch.exists()
+    assert not directory.parent.exists()
     assert not wk.task_artifacts_path.exists()
     final = wk.get_EARs_from_IDs(final.id_)
     assert final.get("input_files.input") is None
@@ -156,6 +158,7 @@ def test_final_action_execute_directory_cleanup(
     assert directory.exists() is (exit_code != 0)
     if scratch:
         assert (tmp_path / "scratch").is_dir()
+        assert directory.parent.exists() is (exit_code != 0)
     first = wk.get_EARs_from_IDs([runs[0].id_])[0]
     assert first.dir_diff is not None
     assert "intermediate.txt" in first.dir_diff.files_created
@@ -231,6 +234,97 @@ def test_execute_directory_cleanup_is_per_element_iteration(
         assert all(
             path is not None and path.is_dir() for path in directories[index + 1 :]
         )
+    if scratch:
+        assert list((tmp_path / "scratch").iterdir()) == []
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_scratch_pruning_preserves_other_workflows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exit_code: int
+) -> None:
+    scratch = tmp_path / "scratch"
+    other_workflow = scratch / "other_workflow"
+    other_workflow.mkdir(parents=True)
+    sentinel = other_workflow / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    schema = hf.TaskSchema(
+        objective="scratch_cleanup",
+        actions=[hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)],
+    )
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_cleanup",
+        path=tmp_path,
+        resources={"any": {"scratch": str(scratch)}},
+        tasks=[hf.Task(schema=schema)],
+    )
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(run.id_, directory, None)
+    wk.set_EAR_end((0, 0, 0), run, exit_code)
+    assert directory.parent.exists() is (exit_code != 0)
+    assert sentinel.read_text() == "keep"
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_prune_empty_scratch_dirs(tmp_path: Path, missing: bool) -> None:
+    root = tmp_path / "workflow"
+    leaf = root / "execute" / "t_0" / "e_0"
+    leaf.mkdir(parents=True)
+    if missing:
+        leaf.rmdir()
+    hf.Workflow._prune_empty_scratch_dirs(leaf, root)
+    assert not root.exists()
+    assert tmp_path.is_dir()
+
+
+def test_prune_scratch_dirs_stops_at_nonempty_directory(tmp_path: Path) -> None:
+    root = tmp_path / "workflow"
+    leaf = root / "execute" / "t_0"
+    leaf.mkdir(parents=True)
+    sentinel = root / "execute" / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    hf.Workflow._prune_empty_scratch_dirs(leaf, root)
+    assert not leaf.exists()
+    assert sentinel.read_text() == "keep"
+    assert root.is_dir()
+
+
+def test_prepare_directory_retries_after_concurrent_prune(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wk = make_workflow_to_run_command("echo ready", path=tmp_path, requires_dir=True)
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    original_mkdir = Path.mkdir
+    calls = 0
+
+    def flaky_mkdir(self: Path, *args, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FileNotFoundError(errno.ENOENT, "pruned concurrently", str(self))
+        original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", flaky_mkdir)
+    directory = run.prepare_directory()
+    assert directory is not None and directory.is_dir()
+    assert calls >= 2
+
+
+def test_prune_scratch_dirs_propagates_unexpected_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def deny_rmdir(self: Path) -> None:
+        raise PermissionError(errno.EACCES, "Permission denied", str(self))
+
+    root = tmp_path / "workflow"
+    root.mkdir()
+    monkeypatch.setattr(Path, "rmdir", deny_rmdir)
+    with pytest.raises(PermissionError):
+        hf.Workflow._prune_empty_scratch_dirs(root, root)
 
 
 def test_compose_commands_no_shell_var(tmp_path: Path):

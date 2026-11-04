@@ -508,6 +508,7 @@ class ElementResources(JSONLike):
         """Get hash from all arguments that distinguish jobscripts."""
 
         exclude = [
+            "scratch",
             "time_limit",
             "skip_downstream_on_failure",
             "random_seed",

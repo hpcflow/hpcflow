@@ -21,13 +21,17 @@
     iteration and run subdirectories. Relative scratch paths are resolved against the
     workflow directory; ``~`` is expanded on the execution machine. The scratch path must
     be non-empty. As with other resources, it can be specified at workflow or task level,
-    or for a particular action scope.
+    or for a particular action scope. Different ``scratch`` values do not force separate
+    jobscripts.
 
     Scratch directories and staged input files are created when a run starts, not when
     its submission is prepared. Saved files and parsed outputs still go into the workflow
     store. The usual ``save_files`` and ``delete_execute_dir`` policies apply: successful
     iterations are cleaned up by default, while failed iterations retain their working
-    directories. The scratch parent is never removed.
+    directories. After cleanup, empty ancestors are pruned up to and including the
+    workflow-specific scratch directory. Pruning stops at non-empty directories, so other
+    runs' files are preserved. The supplied scratch parent is never removed. When
+    ``delete_execute_dir`` is false, working directories and their ancestors are retained.
 
     Node-local scratch is not shared between nodes. Actions that share intermediate
     working files must use the same scratch path and execute on the same node, for example

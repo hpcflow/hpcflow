@@ -75,6 +75,9 @@ def test_execute_directory_lifecycle(
     assert saved.read_text().strip() == "saved"
     if scratch:
         assert (tmp_path / "scratch space").is_dir()
+        assert bool(list((tmp_path / "scratch space").iterdir())) is (
+            exit_code != 0 or not delete_execute_dir
+        )
     assert runs[0].dir_diff is not None
     assert "result.txt" in runs[0].dir_diff.files_created
     if not delete_execute_dir:

@@ -9,6 +9,7 @@ import codecs
 from contextlib import contextmanager, nullcontext
 import copy
 from dataclasses import dataclass, field, fields, replace
+import errno
 from io import BytesIO
 import json
 
@@ -3830,6 +3831,11 @@ class Workflow(AppAware):
             for i in (*other_runs, run)
             if i.action.requires_dir
         }
+        scratch_roots = {
+            self._get_run_execution_path(i).parent
+            for i in (*other_runs, run)
+            if i.action.requires_dir and i.resources.scratch is not None
+        }
         for directory in sorted(
             directories, key=lambda path: len(path.parts), reverse=True
         ):
@@ -3851,6 +3857,26 @@ class Workflow(AppAware):
                 f"Removing execution directory after EAR {run.id_}: {directory}."
             )
             shutil.rmtree(directory)
+            for root in scratch_roots:
+                if directory.is_relative_to(root):
+                    self._prune_empty_scratch_dirs(directory.parent, root)
+
+    @staticmethod
+    def _prune_empty_scratch_dirs(directory: Path, root: Path) -> None:
+        """Remove empty ancestors up to and including the workflow's scratch root."""
+        while directory.is_relative_to(root):
+            if directory.is_symlink():
+                raise RuntimeError(f"Unsafe scratch directory for cleanup: {directory}")
+            try:
+                directory.rmdir()
+            except FileNotFoundError:
+                # Another run may have already pruned this directory.
+                pass
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
+                break
+            directory = directory.parent
 
     def set_multi_run_ends(
         self,
