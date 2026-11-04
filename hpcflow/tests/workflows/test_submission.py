@@ -8,6 +8,7 @@ from hpcflow.tests.workflows.conftest import (
 from hpcflow.sdk.core.test_utils import (
     almost_submit,
     launch_forced_array_item,
+    report_jobscript_timeout,
     wait_for_array_item_completion,
     wait_for_jobscript_completion,
 )
@@ -172,13 +173,15 @@ async def test_forced_array_execution(wk_1_repeats_2):
     array_indices = tuple(reversed(js.array_indices))
 
     for array_idx in array_indices[:-1]:
-        launch_forced_array_item(js, prepared, array_idx)
-        await wait_for_array_item_completion(completion, array_idx)
+        pid = launch_forced_array_item(js, prepared, array_idx)
+        with report_jobscript_timeout(js, array_idx, pid):
+            await wait_for_array_item_completion(completion, array_idx)
         assert not completion.is_complete()
 
     final_idx = array_indices[-1]
-    launch_forced_array_item(js, prepared, final_idx)
-    await wait_for_jobscript_completion(completion)
+    pid = launch_forced_array_item(js, prepared, final_idx)
+    with report_jobscript_timeout(js, final_idx, pid):
+        await wait_for_jobscript_completion(completion)
 
     assert completion.is_complete()
     assert not completion.array_path.exists()
