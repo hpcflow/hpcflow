@@ -1,4 +1,16 @@
 
+<a name="v0.4.0a12"></a>
+## [v0.4.0a12](https://github.com/hpcflow/hpcflow/compare/v0.4.0a11...v0.4.0a12) - 2026.11.04
+
+### 🐛 Bug Fixes
+
+* validate bounds in `_values_from_latin_hypercube`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a11"></a>
 ## [v0.4.0a11](https://github.com/hpcflow/hpcflow/compare/v0.4.0a10...v0.4.0a11) - 2026.11.04
 
