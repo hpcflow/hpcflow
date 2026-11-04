@@ -172,6 +172,22 @@ def test_final_action_execute_directory_cleanup(
     assert "intermediate.txt" in first.dir_diff.files_created
 
 
+def _mock_cross_device_rename(
+    monkeypatch: pytest.MonkeyPatch, directory: Path
+) -> list[Path]:
+    original_rename = Path.rename
+    attempts: list[Path] = []
+
+    def rename(source: Path, destination: str | os.PathLike[str]) -> Path:
+        if source == directory:
+            attempts.append(source)
+            raise OSError(errno.EXDEV, "Cross-device link")
+        return original_rename(source, destination)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    return attempts
+
+
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_retained_scratch_moves_contents_and_file_references(
@@ -207,14 +223,7 @@ def test_retained_scratch_moves_contents_and_file_references(
     (directory / "input.txt").write_text("generated", encoding="utf-8")
     (directory / "nested").mkdir()
     (directory / "nested" / ".undeclared").write_bytes(b"\x00\x01\xff")
-    original_rename = os.rename
-
-    def cross_device_rename(src, dst, *args, **kwargs):
-        if Path(src) == directory:
-            raise OSError(errno.EXDEV, "Cross-device link")
-        return original_rename(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "rename", cross_device_rename)
+    rename_attempts = _mock_cross_device_rename(monkeypatch, directory)
     wk.set_EAR_end((0, 0, 0), first, 0)
     assert directory.exists()
     final = wk.get_EARs_from_IDs(final.id_)
@@ -222,6 +231,7 @@ def test_retained_scratch_moves_contents_and_file_references(
     wk.set_EAR_start(final.id_, directory, None)
     wk.set_EAR_end((0, 0, 1), final, exit_code)
 
+    assert rename_attempts == [directory]
     wk = hf.Workflow(wk.path)
     first, final = wk.get_all_EARs()
     relocated = first.get_directory()
@@ -319,6 +329,7 @@ def test_scratch_move_reports_errors_without_removing_source(
     monkeypatch.chdir(directory)
     wk.set_EAR_start(run.id_, directory, None)
     (directory / "diagnostic.txt").write_text("keep", encoding="utf-8")
+    rename_attempts: list[Path] = []
     if error == "conflict":
         wk.execution_path.mkdir(parents=True)
         (wk.execution_path / "existing.txt").write_text("existing", encoding="utf-8")
@@ -326,17 +337,10 @@ def test_scratch_move_reports_errors_without_removing_source(
     else:
         import shutil
 
-        original_rename = os.rename
-
-        def cross_device_rename(src, dst, *args, **kwargs):
-            if Path(src) == directory:
-                raise OSError(errno.EXDEV, "Cross-device link")
-            return original_rename(src, dst, *args, **kwargs)
-
         def deny_copy(*args, **kwargs):
             raise PermissionError(errno.EACCES, "Copy denied")
 
-        monkeypatch.setattr(os, "rename", cross_device_rename)
+        rename_attempts = _mock_cross_device_rename(monkeypatch, directory)
         monkeypatch.setattr(shutil, "copytree", deny_copy)
         expected = PermissionError
     with pytest.raises(expected):
@@ -345,6 +349,8 @@ def test_scratch_move_reports_errors_without_removing_source(
     assert hf.Workflow(wk.path).get_run_directories() == [directory]
     if error == "conflict":
         assert (wk.execution_path / "existing.txt").read_text() == "existing"
+    else:
+        assert rename_attempts == [directory]
 
 
 @pytest.mark.parametrize("bulk", [False, True])
