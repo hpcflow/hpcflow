@@ -14,6 +14,7 @@ __dir__ = sdk_app.get_app_module_dir()
 config_options = ConfigOptions(
     directory_env_var="HPCFLOW_CONFIG_DIR",
     default_directory="~/.hpcflow",
+    defaulted_config_keys=("move_scratch_to_workflow",),
 )
 
 # load built in template components (in this case, for demonstration purposes):

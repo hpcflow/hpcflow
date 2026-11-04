@@ -353,6 +353,69 @@ def test_scratch_move_reports_errors_without_removing_source(
         assert rename_attempts == [directory]
 
 
+@pytest.mark.parametrize("application_value", [None, False, True])
+@pytest.mark.parametrize("workflow_value", [None, False, True])
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_scratch_move_config_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modifiable_config,
+    application_value: bool | None,
+    workflow_value: bool | None,
+    exit_code: int,
+) -> None:
+    key = "move_scratch_to_workflow"
+    if application_value is None:
+        hf.config.unset(key)
+    else:
+        hf.config.set(key, application_value)
+    hf.config.save()
+    config_directory = hf.config.config_directory
+    hf.reload_config(config_dir=config_directory, warn=False)
+    expected_application = True if application_value is None else application_value
+    assert hf.config.get(key) is expected_application
+    config_path = hf.config.config_file_path
+    original_config = config_path.read_bytes()
+
+    wk = hf.Workflow.from_template_data(
+        template_name="scratch_config_fallback",
+        path=tmp_path,
+        resources={"any": {"scratch": str(tmp_path / "scratch")}},
+        tasks=[
+            hf.Task(
+                schema=hf.TaskSchema(
+                    objective="scratch_config_fallback",
+                    actions=[
+                        hf.Action(commands=[hf.Command("echo ready")], requires_dir=True)
+                    ],
+                )
+            )
+        ],
+        config={
+            "delete_execute_dir": exit_code != 0,
+            **({key: workflow_value} if workflow_value is not None else {}),
+        },
+    )
+    wk.add_submission()
+    run = wk.get_all_EARs()[0]
+    directory = run.prepare_directory()
+    assert directory is not None
+    monkeypatch.chdir(directory)
+    wk.set_EAR_start(run.id_, directory, None)
+    (directory / "diagnostic.txt").write_text("keep", encoding="utf-8")
+    wk.set_EAR_end((0, 0, 0), run, exit_code)
+
+    expected = workflow_value if workflow_value is not None else expected_application
+    move = expected is not False
+    retained = hf.Workflow(wk.path).get_run_directories()[0]
+    assert retained is not None
+    assert retained.is_relative_to(wk.execution_path) is move
+    assert directory.exists() is (not move)
+    assert (retained / "diagnostic.txt").read_text() == "keep"
+    assert config_path.read_bytes() == original_config
+    assert hf.config.get(key) is expected_application
+
+
 @pytest.mark.parametrize("bulk", [False, True])
 def test_retained_scratch_move_is_per_element_iteration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bulk: bool
