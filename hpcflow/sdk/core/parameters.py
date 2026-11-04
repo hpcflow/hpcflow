@@ -1877,7 +1877,9 @@ class MultiPathSequence(_BaseSequence):
         bounds = bounds or {}
         unknown_paths = [path for path in bounds if path not in paths]
         if unknown_paths:
-            raise ValueError(f"Bounds keys must be in paths; unknown paths: {unknown_paths!r}")
+            raise ValueError(
+                f"Bounds keys must be in paths; unknown paths: {unknown_paths!r}"
+            )
 
         scaling = np.asarray(
             [bounds.get(path, {}).get("scaling", "linear") for path in paths]
