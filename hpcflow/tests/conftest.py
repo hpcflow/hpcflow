@@ -1,6 +1,8 @@
 from __future__ import annotations
 import copy
+from importlib import import_module
 from pathlib import Path
+import sys
 import pytest
 from click.testing import CliRunner
 
@@ -47,6 +49,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(
                     pytest.mark.skip(reason="add --integration option to run")
                 )
+
+
+def pytest_configure(config: pytest.Config):
+    if hasattr(config, "workerinput"):
+        # in pytest-xdist workers, `sys.argv[0]` is "-c", so substitute the app's CLI
+        # script, which `RunTimeInfo.invocation_command` uses when invoked via the CLI:
+        app_module = import_module(hf.package_name)
+        sys.argv[0] = str(Path(*app_module.__path__, "cli.py"))
 
 
 @pytest.fixture(scope="session", autouse=True)
