@@ -69,6 +69,7 @@ def isolated_app_config(tmp_path_factory, pytestconfig):
     hf.run_time_info.in_pytest = True
     original_config_dir = hf.config.config_directory
     original_config_key = hf.config.config_key
+    server_advertise_host = hf.config.server_advertise_host
 
     # honour config overrides provided via top-level CLI options `--with-config`:
     overrides = copy.deepcopy(hf.config._overrides)
@@ -76,6 +77,10 @@ def isolated_app_config(tmp_path_factory, pytestconfig):
     hf.unload_config()
     new_config_dir = tmp_path_factory.mktemp("app_config")
     hf.load_config(config_dir=new_config_dir, overrides=overrides)
+    if server_advertise_host is not None and "server_advertise_host" not in overrides:
+        # Persist the configured waiter address for test subprocesses as well.
+        hf.config.server_advertise_host = server_advertise_host
+        hf.config.save()
 
     if pytestconfig.getoption("--configure-python-env"):
         # for setting up a Python env using the currently active virtual/conda env:
