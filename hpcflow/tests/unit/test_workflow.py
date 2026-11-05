@@ -650,7 +650,9 @@ def test_consolidate_array_outputs(
     archive = empty_workflow._read_array_output_archive(consolidated)
     np.testing.assert_array_equal(archive.run_ID, [100, 101])  # sorted by run ID
     if ragged:
-        np.testing.assert_array_equal(archive.data, [[1, 2, 0], [3, 4, 5]])
+        np.testing.assert_array_equal(archive.data[0], [1, 2])
+        np.testing.assert_array_equal(archive.data[1], [3, 4, 5])
+        assert sum(group.nbytes for group in archive.data.groups) == 5 * 8
         np.testing.assert_array_equal(archive.shape, [[2], [3]])
     else:
         np.testing.assert_array_equal(archive.data, [[1, 2], [3, 4]])
@@ -773,6 +775,50 @@ def test_consolidate_array_outputs_verification_failure_keeps_shards(
     ]
 
 
+def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> None:
+    # Exceed the 8 MiB spool limit on both serialization and verification.
+    _write_array_output_archive(
+        empty_workflow, "p1.grid", 6, [100], np.full((1, 2, 2, 2), 7, dtype=np.int64)
+    )
+    _write_array_output_archive(
+        empty_workflow,
+        "p1.grid",
+        7,
+        [101],
+        np.full((1, 112, 112, 112), 9, dtype=np.int64),
+    )
+    path = empty_workflow.consolidate_array_outputs(status=False)["p1.grid"]
+    # Retain Zstandard's content-size header for tools that use one-shot decompression.
+    contents = zstd.ZstdDecompressor().decompress(path.read_bytes())
+    with np.load(BytesIO(contents), allow_pickle=False) as archive:
+        assert archive["data_0"].shape == (1, 2, 2, 2)
+        assert archive["data_1"].shape == (1, 112, 112, 112)
+    output = empty_workflow.get_array_output("p1.grid")
+    assert isinstance(output.data, list)
+    assert output.data[0].shape == (2, 2, 2)
+    assert output.data[1].shape == (112, 112, 112)
+    assert np.all(output.data[0] == 7)
+    assert np.all(output.data[1] == 9)
+
+
+def test_consolidate_array_outputs_write_failure_keeps_shards(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+
+    def failed_copy(source, destination, **kwargs):
+        destination.write(b"partial")
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(
+        zstd, "ZstdCompressor", lambda **kwargs: SimpleNamespace(copy_stream=failed_copy)
+    )
+    with pytest.raises(OSError, match="simulated disk failure"):
+        empty_workflow.consolidate_array_outputs(status=False)
+    assert _archive_files(empty_workflow, "p1.a") == ["0/6.npz.zst"]
+    np.testing.assert_array_equal(empty_workflow.get_array_output("p1.a").data, [[1, 2]])
+
+
 def _make_archive(
     data: np.ndarray, run_IDs: list[int], shape: np.ndarray | None = None
 ) -> _ArrayOutputArchive:
@@ -865,6 +911,76 @@ def test_merge_member_array_output_archives() -> None:
     np.testing.assert_array_equal(merged["shape"], [[3], [2], [1]])
     with pytest.raises(ValueError, match="same member"):
         hf.Workflow._merge_array_output_archives("x", [members, members])
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.dtype("U6")])
+def test_shape_groups_trim_legacy_padding_and_preserve_members(
+    empty_workflow: Workflow, tmp_path: Path, dtype: np.dtype
+) -> None:
+    # The first row has a much smaller original shape than its legacy padded storage.
+    small = np.full((2, 4, 4, 4), 99, dtype=dtype)
+    small[0, :1, :1, :1] = 1
+    small[1] = 2
+    legacy = replace(
+        _make_archive(small, [5, 5], np.array([[1, 1, 1], [4, 4, 4]])),
+        member_idx=np.array([2, 0]),
+    )
+    other = _make_archive(np.full((1, 1, 1, 1), 3, dtype=dtype), [3])
+    merged = hf.Workflow._merge_array_output_archives(
+        "x", [legacy, other], group_by_shape=True
+    )
+    assert "data" not in merged
+    assert merged["data_0"].shape == (2, 1, 1, 1)
+    assert merged["data_1"].shape == (1, 4, 4, 4)
+    assert (
+        merged["data_0"].nbytes + merged["data_1"].nbytes == 66 * np.dtype(dtype).itemsize
+    )
+    np.testing.assert_array_equal(merged["run_ID"], [3, 5, 5])
+    np.testing.assert_array_equal(merged["member_idx"], [-1, 0, 2])
+    buffer = BytesIO()
+    np.savez(buffer, **merged)
+    path = tmp_path / "grouped.npz.zst"
+    path.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
+    archive = empty_workflow._read_array_output_archive(path)
+    np.testing.assert_array_equal(archive.data[0], np.full((1, 1, 1), 3, dtype=dtype))
+    np.testing.assert_array_equal(archive.data[1], np.full((4, 4, 4), 2, dtype=dtype))
+    np.testing.assert_array_equal(archive.data[2], np.full((1, 1, 1), 1, dtype=dtype))
+    # Re-consolidation accepts grouped and legacy inputs together.
+    again = hf.Workflow._merge_array_output_archives(
+        "x",
+        [archive, _make_archive(np.full((1, 1, 1, 1), 4, dtype=dtype), [6])],
+        group_by_shape=True,
+    )
+    assert again["data_0"].shape == (3, 1, 1, 1)
+    np.testing.assert_array_equal(again["run_ID"], [3, 5, 5, 6])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"group_idx": np.array([0, 2])},
+        {"group_idx": np.array([0.0, 1.0])},
+        {"row_idx": np.array([-1, 0])},
+        {"row_idx": np.array([0, 1])},
+        {"shape": np.array([[2], [2]])},
+        {"data_1": np.ones((1, 3), dtype=float)},
+    ],
+)
+def test_read_array_output_rejects_invalid_shape_groups(
+    empty_workflow: Workflow, tmp_path: Path, change: dict
+) -> None:
+    merged = hf.Workflow._merge_array_output_archives(
+        "x",
+        [_make_archive(np.array([[1, 0], [2, 3]]), [0, 1], np.array([[1], [2]]))],
+        group_by_shape=True,
+    )
+    merged.update(change)
+    buffer = BytesIO()
+    np.savez(buffer, **merged)
+    path = tmp_path / "bad_groups.npz.zst"
+    path.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
+    with pytest.raises(ValueError, match="invalid shape groups"):
+        empty_workflow._read_array_output_archive(path)
 
 
 @pytest.mark.parametrize("member_idx", [[0], [[0, 1]], [-2, 1], [0.0, 1.0]])

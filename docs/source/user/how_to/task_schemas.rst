@@ -262,6 +262,18 @@ pads to the largest shape and records each original shape, which is restored on
 reading. Arrays sharing a sub-parameter must have the same dimensionality and
 compatible dtypes. Mask data is stored in a corresponding ``.__mask__`` archive.
 
+Consolidation (also performed by default when zipping a workflow) groups arrays by
+their original shape within one archive per sub-parameter. Small grids therefore
+do not get padded to the size of the largest grid in the workflow. Original run
+and member ordering is retained through metadata. Existing padded archives remain
+readable, and their padding is trimmed when merged with new shards. Newly grouped
+archives require a version of hpcflow that supports shape groups.
+Consolidation uses temporary disk space for the uncompressed NPZ to avoid keeping
+additional serialization buffers in RAM; the source and grouped arrays still
+require memory. Reading also uses temporary disk space and loads the groups into
+memory. Passing ``consolidate=False`` to ``Workflow.zip`` (or ``--no-consolidate``
+on the CLI) preserves the existing shard archives instead.
+
 ``Workflow.get_array_output`` and ``WorkflowTask.get_array_output`` expose
 ``member_idx`` alongside the producing run metadata. A scalar run ID returns all
 its saved members, stacked when shapes match or as a list when shapes vary.

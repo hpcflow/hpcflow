@@ -21,6 +21,7 @@ import random
 import shutil
 import string
 import sys
+from tempfile import SpooledTemporaryFile
 from threading import Thread
 import time
 from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
@@ -1152,10 +1153,33 @@ class ArrayOutput:
 
 
 @dataclass(frozen=True)
+class _ShapeGroupedArray:
+    """Rectangular arrays grouped by shape, indexed in metadata order."""
+
+    groups: tuple[np.ndarray, ...]
+    group_idx: np.ndarray
+    row_idx: np.ndarray
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.groups[0].dtype
+
+    @property
+    def ndim(self) -> int:
+        return self.groups[0].ndim
+
+    def __len__(self) -> int:
+        return len(self.group_idx)
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        return self.groups[self.group_idx[index]][self.row_idx[index]]
+
+
+@dataclass(frozen=True)
 class _ArrayOutputArchive:
     """Array data and per-run/member metadata loaded from an NPZ archive."""
 
-    data: np.ndarray
+    data: np.ndarray | _ShapeGroupedArray
     task_insert_ID: np.ndarray
     task_idx: np.ndarray
     element_idx: np.ndarray
@@ -6031,14 +6055,15 @@ class Workflow(AppAware):
                     np.argsort(selected_members, kind="stable")
                 ]
             for archive_idx in matching_indices:
+                entry = data[archive_idx]
                 if shapes is None:
-                    array_shape = data.shape[1:]
+                    array_shape = entry.shape
                 else:
                     array_shape = tuple(int(dim) for dim in shapes[archive_idx])
                 array_slices: tuple[slice, ...] = tuple(
                     slice(0, dim) for dim in array_shape
                 )
-                output_arrays.append(np.array(data[archive_idx][array_slices]))
+                output_arrays.append(np.array(entry[array_slices]))
                 output_shapes.append(array_shape)
                 member_indices.append(
                     int(archive.member_idx[archive_idx])
@@ -6156,6 +6181,10 @@ class Workflow(AppAware):
         by re-reading, and only then are the shard files removed. Runs saved later go to
         new shard archives, so consolidation may be repeated to fold them in. Readers
         (:meth:`get_array_output`, parameter decoding) handle both forms transparently.
+        Mixed shapes are stored in separate dense groups, without global padding.
+        Existing padded archives remain readable. Temporary disk space is required
+        for the uncompressed NPZ during writing and reading; data arrays are still
+        loaded into memory. Older hpcflow versions cannot read shape-group archives.
 
         Parameters
         ----------
@@ -6226,16 +6255,37 @@ class Workflow(AppAware):
         # existing consolidated data first, then shards in path order:
         sources = ([consolidated_path] if has_consolidated else []) + shard_paths
         archives = [self._read_array_output_archive(path) for path in sources]
-        merged = self._merge_array_output_archives(name, archives)
-
-        buffer = BytesIO()
-        np.savez(buffer, **cast("dict[str, Any]", merged))
-        atomic_write(
-            consolidated_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
-        )
-
-        # verify before discarding the shards:
         expected_count = sum(len(archive.run_ID) for archive in archives)
+        merged = self._merge_array_output_archives(name, archives, group_by_shape=True)
+        del archives
+
+        # Keep the uncompressed NPZ on disk rather than duplicating all data in RAM.
+        partial_path = consolidated_path.with_name(
+            f"{consolidated_path.name}.{uuid4().hex}.partial"
+        )
+        try:
+            with SpooledTemporaryFile(max_size=8 * 1024**2) as buffer:
+                np.savez(buffer, **cast("dict[str, Any]", merged))
+                del merged
+                size = buffer.tell()
+                buffer.seek(0)
+                with partial_path.open("xb") as destination:
+                    zstd.ZstdCompressor(level=1).copy_stream(
+                        buffer, destination, size=size
+                    )
+                    destination.flush()
+                    os.fsync(destination.fileno())
+            os.replace(partial_path, consolidated_path)
+            if hasattr(os, "O_DIRECTORY"):
+                directory_fd = os.open(consolidated_path.parent, os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            partial_path.unlink(missing_ok=True)
+
+        # Verify before discarding the shards, with source and merged arrays released.
         verified = self._read_array_output_archive(consolidated_path)
         if len(verified.run_ID) != expected_count:
             raise RuntimeError(
@@ -6252,12 +6302,15 @@ class Workflow(AppAware):
 
     @staticmethod
     def _merge_array_output_archives(
-        name: str, archives: Sequence[_ArrayOutputArchive]
+        name: str,
+        archives: Sequence[_ArrayOutputArchive],
+        *,
+        group_by_shape: bool = False,
     ) -> dict[str, np.ndarray]:
         """Merge archives into NPZ contents, sorted by run ID then member index.
 
-        Entries are zero-padded to the largest shape; ``shape`` is included only when
-        entry shapes differ, matching :meth:`_save_array_output`.
+        Shards use padding. Consolidation groups entries by their original shapes,
+        trimming any padding inherited from older archives.
         """
         # widen fixed-width strings across archives; reject other dtype mismatches:
         merged_dtype = archives[0].data.dtype
@@ -6280,7 +6333,9 @@ class Workflow(AppAware):
                     archive.shape
                     if archive.shape is not None
                     else np.broadcast_to(
-                        np.asarray(archive.data.shape[1:], dtype=np.int32),
+                        np.asarray(
+                            cast(np.ndarray, archive.data).shape[1:], dtype=np.int32
+                        ),
                         (len(archive.run_ID), ndim),
                     )
                 )
@@ -6288,18 +6343,6 @@ class Workflow(AppAware):
             ],
             axis=0,
         ).astype(np.int32)
-        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
-        data = np.zeros((total, *max_shape), dtype=merged_dtype)
-        offset = 0
-        for archive in archives:
-            count = len(archive.run_ID)
-            region: tuple[slice, ...] = (
-                slice(offset, offset + count),
-                *(slice(0, dim) for dim in archive.data.shape[1:]),
-            )
-            data[region] = archive.data
-            offset += count
-
         metadata_names = [
             field.name
             for field in fields(_ArrayOutputArchive)
@@ -6336,10 +6379,44 @@ class Workflow(AppAware):
             )
         order = np.lexsort((member_indices, run_IDs))
         merged: dict[str, np.ndarray] = {
-            "data": data[order],
-            **{key: values[order] for key, values in metadata.items()},
+            key: values[order] for key, values in metadata.items()
         }
         shapes = shapes[order]
+        entries = [
+            (archive, index)
+            for archive in archives
+            for index in range(len(archive.run_ID))
+        ]
+        if group_by_shape and not np.all(shapes == shapes[0]):
+            group_shapes, group_indices, group_counts = np.unique(
+                shapes, axis=0, return_inverse=True, return_counts=True
+            )
+            groups = [
+                np.empty((int(count), *(int(dim) for dim in shape)), dtype=merged_dtype)
+                for shape, count in zip(group_shapes, group_counts)
+            ]
+            row_indices = np.empty(total, dtype=np.int64)
+            next_rows = np.zeros(len(groups), dtype=np.int64)
+            for dest_idx, source_idx in enumerate(order):
+                group = int(group_indices[dest_idx])
+                row = int(next_rows[group])
+                archive, index = entries[source_idx]
+                slices = tuple(slice(0, int(dim)) for dim in shapes[dest_idx])
+                groups[group][row] = archive.data[index][slices]
+                row_indices[dest_idx] = row
+                next_rows[group] += 1
+            merged.update({f"data_{index}": data for index, data in enumerate(groups)})
+            merged["group_idx"] = group_indices.astype(np.int64)
+            merged["row_idx"] = row_indices
+        else:
+            max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+            data = np.zeros((total, *max_shape), dtype=merged_dtype)
+            for dest_idx, source_idx in enumerate(order):
+                archive, index = entries[source_idx]
+                shape = shapes[dest_idx]
+                slices = tuple(slice(0, int(dim)) for dim in shape)
+                data[(dest_idx, *slices)] = archive.data[index][slices]
+            merged["data"] = data
         if not np.all(shapes == shapes[0]):
             merged["shape"] = shapes
         if has_members:
@@ -6350,53 +6427,99 @@ class Workflow(AppAware):
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
         """Decompress, load, and validate an array-output NPZ archive."""
         compressed = self._store.get_binary_file(path)
-        buffer = BytesIO(zstd.ZstdDecompressor().decompress(compressed))
-        with np.load(buffer, allow_pickle=False) as archive:
-            required_names = [
-                field.name
-                for field in fields(_ArrayOutputArchive)
-                if field.name not in {"shape", "member_idx"}
-            ]
-            if not all(name in archive.files for name in required_names):
-                raise ValueError(
-                    f"Array-output archive {path} has an unsupported format."
-                )
+        with SpooledTemporaryFile(max_size=8 * 1024**2) as buffer:
+            zstd.ZstdDecompressor().copy_stream(BytesIO(compressed), buffer)
+            del compressed
+            buffer.seek(0)
+            with np.load(buffer, allow_pickle=False) as archive:
+                return self._load_array_output_npz(path, archive)
 
-            arrays = {name: archive[name] for name in required_names}
-            data = arrays["data"]
-            run_ids = arrays["run_ID"]
-            shapes = archive["shape"] if "shape" in archive.files else None
-            members = archive["member_idx"] if "member_idx" in archive.files else None
-            if data.ndim < 1 or run_ids.ndim != 1:
-                raise ValueError(
-                    f"Array-output archive {path} has invalid data or run_ID dimensions."
-                )
-            if len(data) != len(run_ids):
-                raise ValueError(
-                    f"Array-output archive {path} has mismatched data and run_ID lengths."
-                )
-            for name, metadata in arrays.items():
-                if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
+    @staticmethod
+    def _load_array_output_npz(path: Path, archive: Any) -> _ArrayOutputArchive:
+        """Read either legacy padded data or shape groups from an open NPZ."""
+        required_names = [
+            field.name
+            for field in fields(_ArrayOutputArchive)
+            if field.name not in {"data", "shape", "member_idx"}
+        ]
+        if not all(name in archive.files for name in required_names):
+            raise ValueError(f"Array-output archive {path} has an unsupported format.")
+
+        arrays = {name: archive[name] for name in required_names}
+        run_ids = arrays["run_ID"]
+        if run_ids.ndim != 1:
+            raise ValueError(
+                f"Array-output archive {path} has invalid data or run_ID dimensions."
+            )
+        shapes = archive["shape"] if "shape" in archive.files else None
+        members = archive["member_idx"] if "member_idx" in archive.files else None
+        data: np.ndarray | _ShapeGroupedArray
+        if "data" in archive.files:
+            data = archive["data"]
+        else:
+            group_names = [name for name in archive.files if name.startswith("data_")]
+            if (
+                not group_names
+                or set(group_names) != {f"data_{i}" for i in range(len(group_names))}
+                or "group_idx" not in archive.files
+                or "row_idx" not in archive.files
+                or shapes is None
+            ):
+                raise ValueError(f"Array-output archive {path} has invalid shape groups.")
+            groups = tuple(archive[f"data_{i}"] for i in range(len(group_names)))
+            group_idx, row_idx = archive["group_idx"], archive["row_idx"]
+            if (
+                group_idx.shape != run_ids.shape
+                or row_idx.shape != run_ids.shape
+                or group_idx.dtype.kind not in "iu"
+                or row_idx.dtype.kind not in "iu"
+                or np.any(group_idx < 0)
+                or np.any(group_idx >= len(groups))
+                or any(group.ndim < 1 for group in groups)
+                or len({group.ndim for group in groups}) != 1
+                or len({group.dtype for group in groups}) != 1
+                or shapes.shape != (len(run_ids), groups[0].ndim - 1)
+            ):
+                raise ValueError(f"Array-output archive {path} has invalid shape groups.")
+            for index, group in enumerate(groups):
+                rows = row_idx[group_idx == index]
+                if (
+                    len(rows) != len(group)
+                    or not np.array_equal(np.sort(rows), np.arange(len(group)))
+                    or np.any(shapes[group_idx == index] != group.shape[1:])
+                ):
                     raise ValueError(
-                        f"Array-output archive {path} has invalid {name} metadata."
+                        f"Array-output archive {path} has invalid shape groups."
                     )
-            if shapes is not None and (
-                shapes.shape != (len(data), data.ndim - 1)
-                or np.any(shapes < 0)
-                or np.any(shapes > data.shape[1:])
-            ):
+            data = _ShapeGroupedArray(groups, group_idx, row_idx)
+        if data.ndim < 1 or run_ids.ndim != 1:
+            raise ValueError(
+                f"Array-output archive {path} has invalid data or run_ID dimensions."
+            )
+        if len(data) != len(run_ids):
+            raise ValueError(
+                f"Array-output archive {path} has mismatched data and run_ID lengths."
+            )
+        for name, metadata in arrays.items():
+            if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
                 raise ValueError(
-                    f"Array-output archive {path} has invalid shape metadata."
+                    f"Array-output archive {path} has invalid {name} metadata."
                 )
-            if members is not None and (
-                members.shape != (len(data),)
-                or members.dtype.kind not in "iu"
-                or np.any(members < -1)
-            ):
-                raise ValueError(
-                    f"Array-output archive {path} has invalid member_idx metadata."
-                )
-            return _ArrayOutputArchive(**arrays, shape=shapes, member_idx=members)
+        if shapes is not None and (
+            shapes.shape != (len(data), data.ndim - 1)
+            or np.any(shapes < 0)
+            or (isinstance(data, np.ndarray) and np.any(shapes > data.shape[1:]))
+        ):
+            raise ValueError(f"Array-output archive {path} has invalid shape metadata.")
+        if members is not None and (
+            members.shape != (len(data),)
+            or members.dtype.kind not in "iu"
+            or np.any(members < -1)
+        ):
+            raise ValueError(
+                f"Array-output archive {path} has invalid member_idx metadata."
+            )
+        return _ArrayOutputArchive(data=data, **arrays, shape=shapes, member_idx=members)
 
     def show_all_EAR_statuses(self) -> None:
         """
