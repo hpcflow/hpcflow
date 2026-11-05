@@ -1,8 +1,12 @@
+import errno
+import logging
 import os
 from pathlib import Path
 import shutil
 import time
 import uuid
+
+logger = logging.getLogger(__name__)
 
 
 def claim_path_for_removal(path: Path, *, attempts: int = 5) -> Path | None:
@@ -58,12 +62,24 @@ def remove_superseded_directory(path: Path) -> None:
     authoritative when this method is called. Failure to remove redundant child state
     therefore does not affect completion correctness.
 
+    An ``EINVAL`` error while claiming the directory has been observed on macOS
+    GitHub Actions runners during concurrent array completion. The error is logged
+    and cleanup is skipped. Other unexpected claim errors propagate.
+
     Parameters
     ----------
     path
         Directory containing redundant child completion state.
     """
-    cleanup_path = claim_path_for_removal(path)
+    try:
+        cleanup_path = claim_path_for_removal(path)
+    except OSError as exc:
+        if exc.errno != errno.EINVAL:
+            raise
+        logger.warning(
+            "Unable to claim superseded directory %s for cleanup: %s", path, exc
+        )
+        return
 
     if cleanup_path is None:
         return

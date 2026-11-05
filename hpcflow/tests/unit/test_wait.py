@@ -1,4 +1,6 @@
 import asyncio
+import errno
+import logging
 
 import pytest
 
@@ -66,6 +68,32 @@ def test_complete_run_event(tmp_path):
     assert set(waiter_ids) == {"A", "B"}
     assert state.is_complete(123, RunWaitEvent.END)
     assert not state.get_event_path(123, RunWaitEvent.END).exists()
+
+
+def test_complete_run_event_survives_einval_cleanup(tmp_path, monkeypatch, caplog):
+    state = RunWaitState(tmp_path, 0, 0)
+    state.register(123, RunWaitEvent.END, "A")
+    state.register(123, RunWaitEvent.END, "B")
+    event_path = state.get_event_path(123, RunWaitEvent.END)
+
+    def fail_claim(src, dst):
+        assert state.is_complete(123, RunWaitEvent.END)
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    monkeypatch.setattr("hpcflow.sdk.wait.utils.os.replace", fail_claim)
+    with caplog.at_level(logging.WARNING, logger="hpcflow.sdk.wait.utils"):
+        assert set(state.complete(123, RunWaitEvent.END)) == {"A", "B"}
+
+    assert state.is_complete(123, RunWaitEvent.END)
+    assert state.register(123, RunWaitEvent.END, "C")
+    assert event_path.is_dir()
+    records = [
+        record for record in caplog.records if record.name == "hpcflow.sdk.wait.utils"
+    ]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert str(event_path) in records[0].getMessage()
+    assert "Invalid argument" in records[0].getMessage()
 
 
 def test_register_completed_run_event(tmp_path):

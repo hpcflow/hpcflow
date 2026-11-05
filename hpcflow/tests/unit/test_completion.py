@@ -1,8 +1,12 @@
+import errno
+import logging
+import os
 from pathlib import Path
 
 import pytest
 
 from hpcflow.sdk.wait.completion import ArrayCompletionTree, JobscriptCompletion
+from hpcflow.sdk.wait.utils import remove_superseded_directory
 
 
 def node_ranges(nodes):
@@ -197,6 +201,65 @@ def test_jobscript_completion_marker_precedes_array_cleanup(tmp_path, monkeypatc
     assert completion.is_complete()
     assert completion.array_path.is_dir()
     assert all(completion.is_array_item_complete(idx) for idx in (0, 1))
+
+
+@pytest.mark.parametrize("fail_root", [False, True], ids=["intermediate", "root"])
+def test_array_completion_continues_after_einval_claim(
+    tmp_path, monkeypatch, caplog, fail_root
+):
+    """A failed cleanup claim must not prevent higher-level consolidation."""
+    array_indices = tuple(range(20))
+    completion = JobscriptCompletion(
+        tmp_path,
+        submission_idx=0,
+        jobscript_idx=0,
+        num_jobscripts=1,
+        array_indices=array_indices,
+    )
+    for idx in array_indices[:-1]:
+        completion.mark_array_item_complete(idx)
+
+    marker_paths = completion.get_array_item_completion_paths(array_indices[-1])
+    children_path = completion.array_path if fail_root else marker_paths[-1].parent
+    parent_marker = marker_paths[0] if fail_root else marker_paths[-2]
+    original_replace = os.replace
+    failed_claims = []
+
+    def replace(src, dst):
+        if Path(src) == children_path:
+            assert parent_marker.exists()
+            failed_claims.append((src, dst))
+            raise OSError(errno.EINVAL, "Invalid argument")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr("hpcflow.sdk.wait.utils.os.replace", replace)
+    with caplog.at_level(logging.WARNING, logger="hpcflow.sdk.wait.utils"):
+        completion.mark_array_item_complete(array_indices[-1])
+
+    assert len(failed_claims) == 1
+    assert completion.is_complete()
+    assert completion.is_submission_complete()
+    assert all(completion.is_array_item_complete(idx) for idx in array_indices)
+    if fail_root:
+        assert children_path.is_dir()
+    records = [
+        record for record in caplog.records if record.name == "hpcflow.sdk.wait.utils"
+    ]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert str(children_path) in records[0].getMessage()
+    assert "Invalid argument" in records[0].getMessage()
+
+
+def test_cleanup_claim_propagates_unexpected_os_error(tmp_path, monkeypatch):
+    def fail_claim(path):
+        raise OSError(errno.EIO, "I/O error")
+
+    monkeypatch.setattr("hpcflow.sdk.wait.utils.claim_path_for_removal", fail_claim)
+    with pytest.raises(OSError) as exc_info:
+        remove_superseded_directory(tmp_path / "superseded")
+
+    assert exc_info.value.errno == errno.EIO
 
 
 def test_mark_array_items_consolidates_intermediate_node(tmp_path):
