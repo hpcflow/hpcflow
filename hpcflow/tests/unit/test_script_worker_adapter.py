@@ -465,11 +465,52 @@ def test_old_submission_without_worker_option_defaults_to_disabled(
 
 @pytest.mark.asyncio
 async def test_script_worker_survives_intervening_external_action(tmp_path, monkeypatch):
-    """Verify a worker survives an external action and is reused afterward."""
+    """Keep worker globals across a failed script and intervening external action."""
     if getattr(sys, "frozen", False):
         pytest.skip("Worker subprocess tests require Python.")
     monkeypatch.chdir(tmp_path)
     script = "<<script:main_script_test_script_worker_process.py>>"
+    worker_script = tmp_path / "worker_state.py"
+    worker_script.write_text(
+        "global _hpcflow_worker_count\n"
+        "try:\n"
+        "    _hpcflow_worker_count += 1\n"
+        "except NameError:\n"
+        "    _hpcflow_worker_count = 1\n"
+        "\n"
+        "def worker_state(p1):\n"
+        "    import os\n"
+        "    if _hpcflow_worker_count == 1:\n"
+        "        raise RuntimeError('failure after changing worker state')\n"
+        "    return {'p2': {'pid': os.getpid(), 'count': _hpcflow_worker_count}}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    get_script_artifact_name = hf.Action.get_script_artifact_name
+
+    def get_worker_script_artifact_name(
+        action,
+        env_spec,
+        act_idx,
+        ret_specifiers=False,
+        include_suffix=True,
+        specs_suffix_delim=".",
+    ):
+        if action.script == script:
+            result = (f"worker_action_{act_idx}", worker_script)
+            return (*result, {}) if ret_specifiers else result
+        return get_script_artifact_name(
+            action,
+            env_spec=env_spec,
+            act_idx=act_idx,
+            ret_specifiers=ret_specifiers,
+            include_suffix=include_suffix,
+            specs_suffix_delim=specs_suffix_delim,
+        )
+
+    monkeypatch.setattr(
+        hf.Action, "get_script_artifact_name", get_worker_script_artifact_name
+    )
     schema = hf.TaskSchema(
         objective="worker_interleaved",
         inputs=[hf.SchemaInput("p1")],
@@ -502,6 +543,7 @@ async def test_script_worker_survives_intervening_external_action(tmp_path, monk
         template_name="worker_interleaved",
         path=tmp_path,
         tasks=[hf.Task(schema=schema, inputs={"p1": 101})],
+        resources={"any": {"skip_downstream_on_failure": False}},
     )
     workflow.add_submission(enable_script_workers=True)
     executor = hf.JobscriptExecutor(workflow, 0, 0, enable_script_workers=True)
@@ -550,9 +592,13 @@ async def test_script_worker_survives_intervening_external_action(tmp_path, monk
     completed = hf.Workflow(workflow.path)
     runs = completed.get_all_EARs()
     assert len(runs) == 3
-    assert all(run.success and run.end_time for run in runs)
-    worker_pid = runs[0].element.outputs.p2.value
-    assert worker_pid == runs[2].element.outputs.p2.value
+    assert runs[0].end_time is not None and not runs[0].success
+    assert runs[1].end_time is not None and runs[1].success
+    assert runs[2].end_time is not None and runs[2].success
+    assert "failure after changing worker state" in runs[0].get_app_std_path().read_text()
+    worker_result = runs[2].element.outputs.p2.value
+    worker_pid = worker_result["pid"]
+    assert worker_result["count"] == 2
     process, descendant_pids = active_worker_process_trees[0]
     assert worker_pid in descendant_pids
     assert process.returncode is not None

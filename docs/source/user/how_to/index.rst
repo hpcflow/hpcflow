@@ -11,6 +11,7 @@ This help snippets guide you through common quick tasks in |app_name|.
    Template Components <template_components>
    Workflow Templates <workflow_templates>
    Workflows <workflows>
+   Script workers <script_workers>
    Environments <environments>
    Meta-tasks <meta_tasks>
    Loops <loops>
