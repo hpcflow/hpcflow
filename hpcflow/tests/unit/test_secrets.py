@@ -18,8 +18,12 @@ def test_set_get_delete_secret():
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("combine_scripts", [False, True])
-def test_secret_in_env(tmp_path: Path, reload_template_components, combine_scripts: bool):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+def test_secret_in_env(
+    tmp_path: Path, reload_template_components, enable_script_workers: bool
+):
     key, value = "TOP_SECRET_KEY", "TOP_SECRET_VALUE"
     hf.set_secret(key, value)
 
@@ -45,12 +49,15 @@ def test_secret_in_env(tmp_path: Path, reload_template_components, combine_scrip
             tasks=tasks,
             path=tmp_path,
             config={"log_file_level": "debug"},
-            resources={
-                "any": {"combine_scripts": combine_scripts, "write_app_logs": True}
-            },
+            resources={"any": {"write_app_logs": True}},
             store="zarr",
         )
-        wk.submit(wait=True, status=False, add_to_known=False)
+        wk.submit(
+            wait=True,
+            status=False,
+            add_to_known=False,
+            enable_script_workers=enable_script_workers,
+        )
 
         # test secret not exposed in debug logs:
         run = wk.get_EARs_from_IDs([0])[0]

@@ -11,7 +11,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
 
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.element import ElementResources
 from hpcflow.sdk.core.errors import NoCLIFormatMethodError

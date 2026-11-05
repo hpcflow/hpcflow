@@ -1,12 +1,15 @@
 from __future__ import annotations
 import copy
+import functools
 from importlib import import_module
+import inspect
 from pathlib import Path
 import sys
 import pytest
 from click.testing import CliRunner
 
 from hpcflow.app import app as hf
+from hpcflow.sdk.core.workflow import Workflow
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]):
@@ -101,6 +104,29 @@ def isolated_app_config(tmp_path_factory, pytestconfig):
         overrides=overrides,
     )
     hf.run_time_info.in_pytest = False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def force_script_workers(pytestconfig):
+    """Enable script workers on all new submissions if `--force-script-workers` is
+    given. The persisted submission setting determines the jobscript command, so this
+    covers the whole execution path."""
+    if not pytestconfig.getoption("--force-script-workers"):
+        yield
+        return
+
+    original = Workflow._add_submission
+    signature = inspect.signature(original)
+
+    @functools.wraps(original)
+    def _add_submission(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        bound.arguments["enable_script_workers"] = True
+        return original(*bound.args, **bound.kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Workflow, "_add_submission", _add_submission)
+        yield
 
 
 @pytest.fixture()

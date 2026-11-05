@@ -4,16 +4,17 @@ Model of information submitted to a scheduler.
 
 from __future__ import annotations
 from collections import Counter, defaultdict
+from pathlib import Path
+from dataclasses import dataclass
 
 import os
 import logging
 import subprocess
-from textwrap import dedent, indent
+import threading
 from typing import TextIO, cast, overload, TYPE_CHECKING
 from typing_extensions import override
 
 import numpy as np
-from hpcflow.sdk.core import SKIPPED_EXIT_CODE
 from hpcflow.sdk.core.enums import DEFAULT_ARRAY_WRAP_ORDER, EARStatus
 from hpcflow.sdk.core.errors import (
     JobscriptSubmissionFailure,
@@ -24,16 +25,15 @@ from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import nth_value, parse_timestamp, current_timestamp
 from hpcflow.sdk.utils.arrays import reshape_max_width
-from hpcflow.sdk.utils.strings import extract_py_from_future_imports
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.direct import DirectScheduler
 from hpcflow.sdk.submission.shells import get_shell, DEFAULT_SHELL_NAMES
+from hpcflow.sdk.wait.completion import JobscriptCompletion
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from datetime import datetime
-    from pathlib import Path
     from typing import Any, ClassVar, Literal
     from typing_extensions import TypeIs
     from numpy.typing import NDArray, ArrayLike
@@ -61,6 +61,14 @@ JS_BLK_TASK_ELEMENTS_FILL_VALUE = -1
 JS_BLK_EAR_ID_FILL_VALUE = -1
 
 
+def _reap_process(proc: subprocess.Popen) -> None:
+    """Wait for a detached child process so that it is reaped on exit.
+
+    This is used by ``_launch_direct_js_posix``.
+    """
+    proc.wait()
+
+
 def is_jobscript_array(
     resources: ElementResources, num_elements: int, store: PersistentStore
 ) -> bool:
@@ -70,9 +78,6 @@ def is_jobscript_array(
             raise ValueError(
                 f"`use_job_array` not supported by scheduler: {resources.scheduler!r}"
             )
-        return False
-
-    if resources.combine_scripts:
         return False
 
     run_parallelism = store._features.EAR_parallelism
@@ -597,6 +602,13 @@ def resolve_jobscript_blocks(
         )
 
     return js_new_
+
+
+@dataclass(frozen=True)
+class PreparedJobscriptSubmission:
+    deps: dict[int, tuple[str, bool]]
+    js_path: Path
+    submit_cmd: list[str]
 
 
 def ensure_max_array_size(
@@ -1229,6 +1241,13 @@ class Jobscript(JSONLike):
         return self._is_array
 
     @property
+    def array_indices(self) -> tuple[int, ...] | None:
+        """The set of array indices, if this jobscript is an array jobscript."""
+        if self.is_array:
+            return tuple(range(self.blocks[0].num_elements))
+        return None
+
+    @property
     def os_name(self) -> str:
         """
         The name of the OS to use.
@@ -1298,17 +1317,6 @@ class Jobscript(JSONLike):
         return self._scheduler_obj
 
     @property
-    def EAR_ID_file_name(self) -> str:
-        """
-        The name of a file containing EAR IDs.
-        """
-        return f"js_{self.index}_EAR_IDs.txt"
-
-    @property
-    def combined_script_indices_file_name(self) -> str:
-        return f"js_{self.index}_script_indices.txt"
-
-    @property
     def direct_win_pid_file_name(self) -> str:
         """File for holding the direct execution PID."""
         return f"js_{self.index}_pid.txt"
@@ -1322,24 +1330,6 @@ class Jobscript(JSONLike):
     def jobscript_functions_name(self):
         assert self.shell_idx is not None
         return self.submission.get_jobscript_functions_name(self.shell, self.shell_idx)
-
-    @property
-    def EAR_ID_file_path(self) -> Path:
-        """
-        The path to the file containing EAR IDs for this jobscript.
-        """
-        return self.submission.js_run_ids_path / self.EAR_ID_file_name
-
-    @property
-    def combined_script_indices_file_path(self) -> Path:
-        """
-        The path to the file containing script indices, in the case this is a
-        ``combine_scripts=True`` jobscript.
-        """
-        return (
-            self.submission.js_script_indices_path
-            / self.combined_script_indices_file_name
-        )
 
     @property
     def jobscript_path(self) -> Path:
@@ -1503,7 +1493,7 @@ class Jobscript(JSONLike):
         """
         return self.workflow.get_text_file(self.get_stderr_path(array_idx))
 
-    def print_stdout(self, array_idx: int | None = None) -> None:
+    def print_stdout(self, array_idx: int | None = None, **kwargs) -> None:
         """Print the contents of the standard output stream file.
 
         Notes
@@ -1512,9 +1502,9 @@ class Jobscript(JSONLike):
         even if that includes multiple elements/actions.
 
         """
-        print(self.get_stdout(array_idx))
+        print(self.get_stdout(array_idx), **kwargs)
 
-    def print_stderr(self, array_idx: int | None = None) -> None:
+    def print_stderr(self, array_idx: int | None = None, **kwargs) -> None:
         """Print the contents of the standard error stream file.
 
         Notes
@@ -1523,7 +1513,7 @@ class Jobscript(JSONLike):
         even if that includes multiple elements/actions.
 
         """
-        print(self.get_stderr(array_idx))
+        print(self.get_stderr(array_idx), **kwargs)
 
     @property
     def direct_win_pid_file_path(self) -> Path:
@@ -1624,8 +1614,9 @@ class Jobscript(JSONLike):
         os_name: str | None = None,
         scheduler_name: str | None = None,
         scheduler_args: dict[str, Any] | None = None,
-    ) -> str:
+    ):
         """Prepare the jobscript file contents as a string."""
+        self.submission.validate_execution_mode()
         scheduler_name = scheduler_name or self.scheduler_name
         assert scheduler_name
         assert os_name
@@ -1634,26 +1625,27 @@ class Jobscript(JSONLike):
             os_name=os_name,
             scheduler_args=scheduler_args or self._get_submission_scheduler_args(),
         )
+
+        if self.resources.write_app_logs:
+            js_log_enable_disable = shell.JS_LOG_PATH_ENABLE
+        else:
+            js_log_enable_disable = shell.JS_LOG_PATH_DISABLE
+
         app_caps = self._app.package_name.upper()
         header_args = {
             "app_caps": app_caps,
-            "jobscript_functions_name": self.jobscript_functions_name,
-            "jobscript_functions_dir": self.submission.JS_FUNCS_DIR_NAME,
             "sub_idx": self.submission.index,
             "js_idx": self.index,
-            "run_IDs_file_name": self.EAR_ID_file_name,
-            "run_IDs_file_dir": self.submission.JS_RUN_IDS_DIR_NAME,
-            "tmp_dir_name": self.submission.TMP_DIR_NAME,
+            "jobscript_functions_name": self.jobscript_functions_name,
+            "jobscript_functions_dir": self.submission.JS_FUNCS_DIR_NAME,
             "log_dir_name": self.submission.LOG_DIR_NAME,
-            "app_std_dir_name": self.submission.APP_STD_DIR_NAME,
-            "scripts_dir_name": self.submission.SCRIPTS_DIR_NAME,
+            "jobscript_log_path": js_log_enable_disable,
         }
-
         shebang = shell.JS_SHEBANG.format(
             shebang=" ".join(scheduler.shebang_executable or shell.shebang_executable)
         )
         header = shell.JS_HEADER.format(**header_args)
-
+        array_idx_opt = ""
         if isinstance(scheduler, QueuedScheduler):
             header = shell.JS_SCHEDULER_HEADER.format(
                 shebang=shebang,
@@ -1666,8 +1658,12 @@ class Jobscript(JSONLike):
                 ),
                 header=header,
             )
+            if self.is_array:
+                array_idx_opt = shell.JS_SCHEDULER_ARRAY_IDX_OPT.format(
+                    scheduler_array_item_var=scheduler.array_item_var
+                )
         else:
-            # the Scheduler (direct submission)
+            # direct submission
             assert isinstance(scheduler, DirectScheduler)
             wait_cmd = shell.get_wait_command(
                 workflow_app_alias=self.workflow_app_alias,
@@ -1680,113 +1676,29 @@ class Jobscript(JSONLike):
                 workflow_app_alias=self.workflow_app_alias,
                 wait_command=wait_cmd,
             )
+            if self.is_array:
+                # this will only be the case when the Submission object was created with
+                # `force_array=True`, in which case we expect the array index to be passed
+                # via a shell variable injected during testing:
+                array_idx_var = shell.format_env_var_get(f"{app_caps}_ARRAY_IDX")
+                array_idx_opt = f" --array-idx {array_idx_var}"
 
-        out = header
-
-        if self.resources.combine_scripts:
-            run_cmd = shell.JS_RUN_CMD_COMBINED.format(
-                workflow_app_alias=self.workflow_app_alias
-            )
-            out += run_cmd + "\n"
-        else:
-            run_cmd = shell.JS_APP_START_TIMER.format(
-                app_caps=app_caps
-            ) + shell.JS_RUN_CMD.format(
+        return (
+            header
+            + shell.JS_APP_START_TIMER.format(app_caps=app_caps)
+            + shell.JS_EXECUTE_CMD.format(
                 workflow_app_alias=self.workflow_app_alias,
                 timeit="--timeit " if self.submission.timeit else "",
                 app_caps=app_caps,
+                array_idx_opt=array_idx_opt,
+                script_worker_opt=(
+                    " --enable-script-workers"
+                    if self.submission.enable_script_workers
+                    else ""
+                ),
             )
-
-            if self.resources.write_app_logs:
-                run_log_enable_disable = shell.JS_RUN_LOG_PATH_ENABLE.format(
-                    run_log_file_name=self.submission.get_app_log_file_name(
-                        run_ID=shell.format_env_var_get(f"{app_caps}_RUN_ID")
-                    )
-                )
-            else:
-                run_log_enable_disable = shell.JS_RUN_LOG_PATH_DISABLE
-
-            block_run = shell.JS_RUN.format(
-                EAR_files_delimiter=self._EAR_files_delimiter,
-                app_caps=app_caps,
-                run_cmd=run_cmd,
-                sub_tmp_dir=self.submission.tmp_path,
-                run_log_enable_disable=run_log_enable_disable,
-            )
-            if len(self.blocks) == 1:
-                # forgo element and action loops if not necessary:
-                block = self.blocks[0]
-                if block.num_actions > 1:
-                    block_act = shell.JS_ACT_MULTI.format(
-                        num_actions=block.num_actions,
-                        run_block=indent(block_run, shell.JS_INDENT),
-                    )
-                else:
-                    block_act = shell.JS_ACT_SINGLE.format(run_block=block_run)
-
-                main = shell.JS_MAIN.format(
-                    action=block_act,
-                    app_caps=app_caps,
-                    block_start_elem_idx=0,
-                )
-
-                out += shell.JS_BLOCK_HEADER.format(app_caps=app_caps)
-                if self.is_array:
-                    if not isinstance(scheduler, QueuedScheduler):
-                        raise Exception("can only schedule arrays of jobs to a queue")
-                    out += shell.JS_ELEMENT_MULTI_ARRAY.format(
-                        scheduler_command=scheduler.js_cmd,
-                        scheduler_array_switch=scheduler.array_switch,
-                        scheduler_array_item_var=scheduler.array_item_var,
-                        num_elements=block.num_elements,
-                        main=main,
-                    )
-                elif block.num_elements == 1:
-                    out += shell.JS_ELEMENT_SINGLE.format(
-                        block_start_elem_idx=0,
-                        main=main,
-                    )
-                else:
-                    out += shell.JS_ELEMENT_MULTI_LOOP.format(
-                        block_start_elem_idx=0,
-                        num_elements=block.num_elements,
-                        main=indent(main, shell.JS_INDENT),
-                    )
-
-            else:
-                # use a shell loop for blocks, so always write the inner element and action
-                # loops:
-                block_act = shell.JS_ACT_MULTI.format(
-                    num_actions=shell.format_array_get_item("num_actions", "$block_idx"),
-                    run_block=indent(block_run, shell.JS_INDENT),
-                )
-                main = shell.JS_MAIN.format(
-                    action=block_act,
-                    app_caps=app_caps,
-                    block_start_elem_idx="$block_start_elem_idx",
-                )
-
-                # only non-array jobscripts will have multiple blocks:
-                element_loop = shell.JS_ELEMENT_MULTI_LOOP.format(
-                    block_start_elem_idx="$block_start_elem_idx",
-                    num_elements=shell.format_array_get_item(
-                        "num_elements", "$block_idx"
-                    ),
-                    main=indent(main, shell.JS_INDENT),
-                )
-                out += shell.JS_BLOCK_LOOP.format(
-                    num_elements=shell.format_array(
-                        [i.num_elements for i in self.blocks]
-                    ),
-                    num_actions=shell.format_array([i.num_actions for i in self.blocks]),
-                    num_blocks=len(self.blocks),
-                    app_caps=app_caps,
-                    element_loop=indent(element_loop, shell.JS_INDENT),
-                )
-
-        out += shell.JS_FOOTER
-
-        return out
+            + shell.JS_FOOTER
+        )
 
     @TimeIt.decorator
     def write_jobscript(
@@ -1826,8 +1738,13 @@ class Jobscript(JSONLike):
         return self.jobscript_path
 
     @TimeIt.decorator
-    def _launch_direct_js_win(self, submit_cmd: list[str]) -> int:
-        # this is a "trick" to ensure we always get a fully detached new process (with no
+    def _launch_direct_js_win(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
+        # this is a trick to ensure we always get a fully detached new process (with no
         # parent); the `powershell.exe -Command` process exits after running the inner
         # `Start-Process`, which is where the jobscript is actually invoked. I could not
         # find a way using `subprocess.Popen()` to ensure the new process was fully
@@ -1847,8 +1764,8 @@ class Jobscript(JSONLike):
             "-Command",
             f"$JS_proc = Start-Process "
             f'-Passthru -NoNewWindow -FilePath "{exe_path}" '
-            f'-RedirectStandardOutput "{self.direct_stdout_path}" '
-            f'-RedirectStandardError "{self.direct_stderr_path}" '
+            f'-RedirectStandardOutput "{self.get_stdout_path(array_idx)}" '
+            f'-RedirectStandardError "{self.get_stderr_path(array_idx)}" '
             f'-WorkingDirectory "{self.workflow.path}" '
             f"-ArgumentList {arg_list_str}; "
             f'Set-Content -Path "{self.direct_win_pid_file_path}" -Value $JS_proc.Id',
@@ -1862,34 +1779,62 @@ class Jobscript(JSONLike):
             args=args,
             cwd=self.workflow.path,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=env,
         )
         init_proc.wait()  # wait for the process ID file to be written
         return int(self.direct_win_pid_file_path.read_text())
 
     @TimeIt.decorator
-    def _launch_direct_js_posix(self, submit_cmd: list[str]) -> int:
+    def _launch_direct_js_posix(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
         # direct submission; submit jobscript asynchronously:
         # detached process, avoid interrupt signals propagating to the subprocess:
 
         def _launch(fp_stdout: TextIO, fp_stderr: TextIO) -> int:
-            # note: Popen copies the file objects, so this works!
+            # note: the child has its own stdout/stderr file descriptors after Popen
+            # returns, so the parent can close these file objects immediately after
+            # _launch().
             proc = subprocess.Popen(
                 args=submit_cmd,
                 stdout=fp_stdout,
                 stderr=fp_stderr,
                 cwd=str(self.workflow.path),
                 start_new_session=True,
+                env=env,
             )
+
+            # retain the Popen object and reap the child when it exits. This prevents
+            # zombie processes when HPCFlow is running in a long-lived process (e.g.
+            # a Jupyter kernel). If the HPCFlow process exits first (e.g. after CLI
+            # submission), the daemon thread exits with it and the detached jobscript
+            # is orphaned and subsequently adopted by the system's child reaper.
+            threading.Thread(target=_reap_process, args=(proc,), daemon=True).start()
+
             return proc.pid
 
         if self.resources.combine_jobscript_std:
-            with self.direct_std_out_err_path.open("wt") as fp_std:
+            with self.get_std_out_err_path(array_idx).open("wt") as fp_std:
                 return _launch(fp_std, fp_std)
         else:
-            with self.direct_stdout_path.open(
-                "wt"
-            ) as fp_stdout, self.direct_stderr_path.open("wt") as fp_stderr:
+            with (
+                self.get_stdout_path(array_idx).open("wt") as fp_stdout,
+                self.get_stderr_path(array_idx).open("wt") as fp_stderr,
+            ):
                 return _launch(fp_stdout, fp_stderr)
+
+    def _launch_direct(
+        self,
+        submit_cmd: list[str],
+        env: dict[str, str] | None = None,
+        array_idx: int | None = None,
+    ) -> int:
+        if os.name == "nt":
+            return self._launch_direct_js_win(submit_cmd, env=env, array_idx=array_idx)
+        return self._launch_direct_js_posix(submit_cmd, env=env, array_idx=array_idx)
 
     @TimeIt.decorator
     def _launch_queued(
@@ -1910,18 +1855,11 @@ class Jobscript(JSONLike):
             print(stderr)
         return stdout, stderr
 
-    @TimeIt.decorator
-    def submit(
-        self,
-        scheduler_refs: dict[int, tuple[str, bool]],
-        modify_js: bool = False,
-        print_stdout: bool = False,
-    ) -> str:
-        """
-        Submit the jobscript to the scheduler.
-        """
-        # map each dependency jobscript index to the JS ref (job/process ID) and if the
-        # dependency is an array dependency:
+    def _get_submission_dependencies(
+        self, scheduler_refs: dict[int, tuple[str, bool]]
+    ) -> dict[int, tuple[str, bool]]:
+        """Map each dependency jobscript index to the JS ref (job/process ID) and if the
+        # dependency is an array dependency"""
         deps: dict[int, tuple[str, bool]] = {}
         for (js_idx, _), deps_i in self.dependencies.items():
             dep_js_ref, dep_js_is_arr = scheduler_refs[js_idx]
@@ -1943,59 +1881,61 @@ class Jobscript(JSONLike):
                 for js_idx, (js_ref, _) in scheduler_refs.items():
                     if js_idx not in deps:
                         deps[js_idx] = (js_ref, False)
+        return deps
 
-        # make directory for jobscripts stdout/err stream files:
+    def prepare_submit(
+        self, scheduler_refs: dict[int, tuple[str, bool]]
+    ) -> PreparedJobscriptSubmission:
+        """Prepare this jobscript for submission without submitting it."""
+
+        deps = self._get_submission_dependencies(scheduler_refs)
         self.std_path.mkdir(exist_ok=True)
-
-        with self.EAR_ID_file_path.open(mode="wt", newline="\n") as ID_fp:
-            for block in self.blocks:
-                block.write_EAR_ID_file(ID_fp)
-
         js_path = self.shell.prepare_JS_path(self.write_jobscript(deps=deps))
-        submit_cmd = self.scheduler.get_submit_command(self.shell, js_path, deps)
-
-        if modify_js:
-            msg = (
-                f"Jobscript {self.index} written to the following path: {str(js_path)}. "
-                f"You may now modify this file. Ready to continue submission? [y|N]"
-            )
-            answer = input(msg)
-            while answer.lower() != "y":
-                answer = input(msg)
-
-        self._app.submission_logger.info(
-            f"submitting jobscript {self.index!r} with command: {submit_cmd!r}"
+        submit_cmd = self.scheduler.get_submit_command(
+            self.shell,
+            js_path,
+            deps,
+        )
+        return PreparedJobscriptSubmission(
+            deps=deps,
+            js_path=Path(js_path),
+            submit_cmd=submit_cmd,
         )
 
+    def _submit_prepared(
+        self, prepared: PreparedJobscriptSubmission, *, print_stdout: bool
+    ) -> str:
+        """Submit prepared jobscripts."""
         err_args: JobscriptSubmissionFailureArgs = {
-            "submit_cmd": submit_cmd,
+            "submit_cmd": prepared.submit_cmd,
             "js_idx": self.index,
-            "js_path": js_path,
+            "js_path": prepared.js_path,
         }
-        job_ID: str | None = None
-        process_ID: int | None = None
         try:
             if isinstance(self.scheduler, QueuedScheduler):
-                # scheduled submission, wait for submission so we can parse the job ID:
-                stdout, stderr = self._launch_queued(submit_cmd, print_stdout)
+                stdout, stderr = self._launch_queued(prepared.submit_cmd, print_stdout)
                 err_args["stdout"] = stdout
                 err_args["stderr"] = stderr
+
             else:
-                if os.name == "nt":
-                    process_ID = self._launch_direct_js_win(submit_cmd)
-                else:
-                    process_ID = self._launch_direct_js_posix(submit_cmd)
+                if self.is_array:
+                    raise ValueError(
+                        "Cannot submit an array jobscript to the direct scheduler."
+                    )
+                process_ID = self._launch_direct(prepared.submit_cmd)
+
         except Exception as subprocess_exc:
             err_args["subprocess_exc"] = subprocess_exc
             raise JobscriptSubmissionFailure(
-                "Failed to execute submit command.", **err_args
+                "Failed to execute submit command.",
+                **err_args,
             )
 
         if isinstance(self.scheduler, QueuedScheduler):
-            # scheduled submission
             if stderr:
                 raise JobscriptSubmissionFailure(
-                    "Non-empty stderr from submit command.", **err_args
+                    "Non-empty stderr from submit command.",
+                    **err_args,
                 )
 
             try:
@@ -2012,19 +1952,41 @@ class Jobscript(JSONLike):
                 )
 
             self._set_scheduler_job_ID(job_ID)
-            ref = job_ID
+            return job_ID
 
-        else:
-            # direct submission
-            assert process_ID is not None
-            self._set_process_ID(process_ID)
-            ref = str(process_ID)
+        self._set_process_ID(process_ID)
+        return str(process_ID)
 
-        self._set_submit_cmdline(submit_cmd)
+    @TimeIt.decorator
+    def submit(
+        self,
+        scheduler_refs: dict[int, tuple[str, bool]],
+        modify_js: bool = False,
+        print_stdout: bool = False,
+    ) -> str:
+        """Prepare and submit this jobscript."""
+
+        prepared = self.prepare_submit(scheduler_refs)
+        if modify_js:
+            msg = (
+                f"Jobscript {self.index} written to the following path: "
+                f"{prepared.js_path}. You may now modify this file. "
+                "Ready to continue submission? [y|N]"
+            )
+            answer = input(msg)
+            while answer.lower() != "y":
+                answer = input(msg)
+
+        self._app.submission_logger.info(
+            f"submitting jobscript {self.index!r} with command: {prepared.submit_cmd!r}"
+        )
+        ref = self._submit_prepared(prepared, print_stdout=print_stdout)
+
+        self._set_submit_cmdline(prepared.submit_cmd)
         self._set_submit_time(current_timestamp())
 
-        # a downstream direct jobscript might need to wait for this jobscript, which
-        # means this jobscript's process ID must be committed:
+        # a downstream direct jobscript might need to wait for this jobscript, which means
+        # this jobscript's process ID must be committed.
         self.workflow._store._pending.commit_all()
 
         return ref
@@ -2068,7 +2030,7 @@ class Jobscript(JSONLike):
                 "states."
             )
 
-            not_run_states = EARStatus.get_non_running_submitted_states()
+            not_run_states = EARStatus.get_terminal_states()
             all_EAR_states = set(ear.status for ear in self.all_EARs)
             self._app.submission_logger.debug(
                 f"Unique EAR states are: {tuple(i.name for i in all_EAR_states)!r}"
@@ -2111,487 +2073,19 @@ class Jobscript(JSONLike):
             }
         return out
 
-    def compose_combined_script(
-        self, action_scripts: list[list[tuple[str, Path, bool]]]
-    ) -> tuple[str, list[list[int]], list[int], list[int]]:
-        """
-        Prepare the combined-script file string, if applicable.
-        """
-
-        # use an index array for action scripts:
-        script_names: list[str] = []
-        requires_dir: list[bool] = []
-        script_data: dict[str, tuple[int, Path]] = {}
-        script_indices: list[list[int]] = []
-        for i in action_scripts:
-            indices_i: list[int] = []
-            for name_j, path_j, req_dir_i in i:
-                if name_j in script_data:
-                    idx = script_data[name_j][0]
-                else:
-                    idx = len(script_names)
-                    script_names.append(name_j)
-                    requires_dir.append(req_dir_i)
-                    script_data[name_j] = (idx, path_j)
-                indices_i.append(idx)
-            script_indices.append(indices_i)
-
-        if not self.resources.combine_scripts:
-            raise TypeError(
-                f"Jobscript {self.index} is not a `combine_scripts` jobscript."
-            )
-
-        tab_indent = "    "
-
-        script_funcs_lst: list[str] = []
-        future_imports: set[str] = set()
-        for act_name, (_, snip_path) in script_data.items():
-            main_func_name = snip_path.stem
-            with snip_path.open("rt") as fp:
-                script_str = fp.read()
-            script_str, future_imports_i = extract_py_from_future_imports(script_str)
-            future_imports.update(future_imports_i)
-            script_funcs_lst.append(
-                dedent("""\
-                def {act_name}(*args, **kwargs):
-                {script_str}
-                    return {main_func_name}(*args, **kwargs)
-                """).format(
-                    act_name=act_name,
-                    script_str=indent(script_str, tab_indent),
-                    main_func_name=main_func_name,
-                )
-            )
-
-        app_caps = self._app.package_name.upper()
-        if self.resources.write_app_logs:
-            sub_log_path = f'os.environ["{app_caps}_LOG_PATH"]'
-        else:
-            sub_log_path = '""'
-
-        py_imports = dedent("""\
-            import os
-            from collections import defaultdict
-            from pathlib import Path
-            import traceback
-            import time
-            from typing import Dict
-
-            import {app_module} as app
-
-            from hpcflow.sdk.core.errors import UnsetParameterDataErrorBase
-            from hpcflow.sdk.core.skip_reason import SkipReason
-
-            log_path = {log_path}
-            wk_path = os.getenv("{app_caps}_WK_PATH")
-            """).format(
-            app_module=self._app.module,
-            app_caps=app_caps,
-            log_path=sub_log_path,
-        )
-
-        py_main_block_workflow_load = dedent("""\
-                app.load_config(
-                    overrides={{"log_file_path": log_path}},
-                    config_dir=r"{cfg_dir}",
-                    config_key=r"{cfg_invoc_key}",
-                )
-                wk = app.Workflow(wk_path)
-            """).format(
-            cfg_dir=self._app.config.config_directory,
-            cfg_invoc_key=self._app.config.config_key,
-            app_caps=app_caps,
-        )
-
-        func_invoc_lines = dedent("""\
-                import pprint
-                if not run.action.is_OFP and run.action.script_data_out_has_direct:
-                    outputs = func(**func_kwargs)
-                elif run.action.is_OFP:
-                    out_name = run.action.output_file_parsers[0].output.typ
-                    outputs = {out_name: func(**func_kwargs)}
-                else:
-                    outputs = {}
-                    func(**func_kwargs)
-            """)
-
-        script_funcs = "\n".join(script_funcs_lst)
-        script_names_str = "[" + ", ".join(f"{i}" for i in script_names) + "]"
-        main = dedent("""\
-            {py_imports}
-            
-            sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
-            with app.redirect_std_to_file(sub_std_path):
-            {py_main_block_workflow_load}
-
-                with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
-                    lns = fp.read().strip().split("\\n")
-                    run_IDs = [[int(i) for i in ln.split("{run_ID_delim}")] for ln in lns]
-
-                get_all_runs_tic = time.perf_counter()
-                run_IDs_flat = [j for i in run_IDs for j in i]
-                runs = wk.get_EARs_from_IDs(run_IDs_flat, as_dict=True)
-
-                for run_id, run in runs.items():
-                    if not wk._Workflow__apply_group_task_conditions(run):                    
-                        # run was set to skip due to task condition not being met:                        
-                        run._skip = SkipReason.TASK_CONDITION_NOT_MET.value                
-                
-                run_skips : Dict[int, bool] = {{k: v.skip for k, v in runs.items()}}
-                get_all_runs_toc = time.perf_counter()
-
-                with open(os.environ["{app_caps}_SCRIPT_INDICES_FILE"], mode="r") as fp:
-                    lns = fp.read().strip().split("\\n")
-                    section_idx = -1
-                    script_indices = []
-                    for ln in lns:
-                        if ln.startswith("#"):
-                            section_idx += 1
-                            continue
-                        ln_parsed = [int(i) for i in ln.split("{script_idx_delim}")]
-                        if section_idx == 0:
-                            num_elements = ln_parsed
-                        elif section_idx == 1:
-                            num_actions = ln_parsed
-                        else:
-                            script_indices.append(ln_parsed)
-
-                port = int(os.environ["{app_caps}_RUN_PORT"])
-                action_scripts = {script_names}
-                requires_dir = {requires_dir!r}
-                run_dirs = wk.get_run_directories()
-
-                get_ins_time_fp = open(f"js_{js_idx}_get_inputs_times.txt", "wt")
-                func_time_fp = open(f"js_{js_idx}_func_times.txt", "wt")
-                run_time_fp = open(f"js_{js_idx}_run_times.txt", "wt")
-                set_start_multi_times_fp = open(f"js_{js_idx}_set_start_multi_times.txt", "wt")
-                set_end_multi_times_fp = open(f"js_{js_idx}_set_end_multi_times.txt", "wt")
-                save_multi_times_fp = open(f"js_{js_idx}_save_multi_times.txt", "wt")
-                loop_term_times_fp = open(f"js_{js_idx}_loop_term_times.txt", "wt")
-
-                get_all_runs_time = get_all_runs_toc - get_all_runs_tic
-                print(f"get_all_runs_time: {{get_all_runs_time:.4f}}")
- 
-            app.logger.info(
-                f"running {num_blocks} jobscript block(s) in combined jobscript index "
-                f"{js_idx}."
-            )
-
-            block_start_elem_idx = 0
-            for block_idx in range({num_blocks}):
-
-                app.logger.info(f"running block index {{block_idx}}.")
-
-                os.environ["{app_caps}_BLOCK_IDX"] = str(block_idx)
-
-                block_run_IDs = [
-                    run_IDs[block_start_elem_idx + i]
-                    for i in range(num_elements[block_idx])
-                ]
-
-                for block_act_idx in range(num_actions[block_idx]):
-                
-                    app.logger.info(
-                        f"running block action index {{block_act_idx}} "
-                        f"(in block {{block_idx}})."
-                    )
-
-                    os.environ["{app_caps}_BLOCK_ACT_IDX"] = str(block_act_idx)
-
-                    block_act_run_IDs = [i[block_act_idx] for i in block_run_IDs]
-
-                    block_act_std_path = Path(
-                        os.environ["{app_caps}_SUB_STD_DIR"],
-                        f"js_{js_idx}_blk_{{block_idx}}_blk_act_{{block_act_idx}}.txt",
-                    )
-                    with app.redirect_std_to_file(block_act_std_path):
-                        # set run starts for all runs of the block/action:
-                        block_act_run_dirs = [run_dirs[i] for i in block_act_run_IDs]
-                        block_act_runs = [runs[i] for i in block_act_run_IDs]
-
-                        block_act_run_IDs_non_skipped = []
-                        block_act_run_dirs_non_skipped = []
-                        for i, j in zip(block_act_run_IDs, block_act_run_dirs):
-                            if not run_skips[i]:
-                                block_act_run_IDs_non_skipped.append(i)
-                                block_act_run_dirs_non_skipped.append(j)
-                                                     
-                        if block_act_run_IDs_non_skipped:
-                            for run_id in block_act_run_IDs_non_skipped:
-                                runs[run_id].prepare_directory()
-                            set_start_multi_tic = time.perf_counter()
-                            app.logger.info("setting run starts.")
-                            wk.set_multi_run_starts(block_act_run_IDs_non_skipped, block_act_run_dirs_non_skipped, port)
-                            app.logger.info("finished setting run starts.")
-                            set_start_multi_toc = time.perf_counter()
-                            set_start_multi_time = set_start_multi_toc - set_start_multi_tic
-                            print(f"{{set_start_multi_time:.4f}}", file=set_start_multi_times_fp, flush=True)
-
-                    all_act_outputs = {{}}
-                    run_end_dat = defaultdict(list)
-                    block_act_key=({js_idx}, block_idx, block_act_idx)
-
-                    for block_elem_idx in range(num_elements[block_idx]):
-
-                        js_elem_idx = block_start_elem_idx + block_elem_idx
-                        run_ID = block_act_run_IDs[block_elem_idx]
-
-                        app.logger.info(
-                            f"run_ID is {{run_ID}}; block element index: {{block_elem_idx}}; "
-                            f"block action index: {{block_act_idx}}; in block {{block_idx}}."
-                        )
-
-                        if run_ID == -1:                            
-                            continue
-
-                        run = runs[run_ID]
-
-                        skip = run_skips[run_ID]
-                        if skip:
-                            app.logger.info(f"run_ID: {{run_ID}}; run is set to skip; skipping.")
-                            # set run end
-                            run_end_dat[block_act_key].append((run, {skipped_exit_code}, None))
-                            continue
-                            
-                        run_tic = time.perf_counter()
-
-                        loop_idx_str = ";".join(
-                            f"{{k}}={{v}}" for k, v in run.element_iteration.loop_idx.items()
-                        )
-                        rng_spawn_key_str = ",".join(
-                            str(key_i) for key_i in run.resources.rng_spawn_key or []
-                        )
-
-                        os.environ["{app_caps}_TASK_IDX"] = str(run.task.index)
-                        os.environ["{app_caps}_TASK_INSERT_ID"] = str(run.task.insert_ID)
-                        os.environ["{app_caps}_BLOCK_ELEM_IDX"] = str(block_elem_idx)
-                        os.environ["{app_caps}_JS_ELEM_IDX"] = str(js_elem_idx)                        
-                        os.environ["{app_caps}_RUN_ID"] = str(run_ID)
-                        os.environ["{app_caps}_ELEMENT_IDX"] = str(run.element.index)
-                        os.environ["{app_caps}_ELEMENT_ID"] = str(run.element.id_)
-                        os.environ["{app_caps}_ELEMENT_ITER_IDX"] = str(run.element_iteration.index)
-                        os.environ["{app_caps}_ELEMENT_ITER_LOOP_IDX"] = loop_idx_str
-                        os.environ["{app_caps}_RUN_RANDOM_SEED"] = str(run.resources.random_seed)
-                        os.environ["{app_caps}_RUN_RNG_SPAWN_KEY"] = rng_spawn_key_str
-
-                        app.submission_logger.debug("The following secrets are available:")
-                        for secret_key in run.get_environment().secrets:
-                            app.submission_logger.debug(secret_key)
-                            os.environ[secret_key] = app.get_secret(secret_key)                        
-                        
-                        std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"{{run_ID}}.txt")
-                        with app.redirect_std_to_file(std_path):
-
-                            if {write_app_logs!r}:
-                                new_log_path = Path(
-                                    os.environ["{app_caps}_SUB_LOG_DIR"],
-                                    f"{run_log_name}",
-                                )
-                                # TODO: this doesn't work!
-                                app.logger.info(
-                                    f"run_ID: {{run_ID}}; moving log path to {{new_log_path}}"
-                                )
-                                app.config.log_path = new_log_path
-
-                            run_dir = run_dirs[run_ID]
-
-                            script_idx = script_indices[block_idx][block_act_idx]
-                            req_dir = requires_dir[script_idx]
-                            if req_dir:
-                                app.logger.info(f"run_ID: {{run_ID}}; changing to run directory: {{run_dir}}")
-                                os.chdir(run_dir)
-                            
-                            # retrieve script inputs:
-                            app.logger.info(f"run_ID: {{run_ID}}; retrieving script inputs.")
-                            get_ins_tic = time.perf_counter()
-                            try:
-                                with run.raise_on_failure_threshold() as unset_params:
-                                    app.logger.info(f"run_ID: {{run_ID}}; writing script input files.")
-                                    run.write_script_data_in_files(block_act_key)
-
-                                    app.logger.info(f"run_ID: {{run_ID}}; retrieving funcion kwargs.")
-                                    func_kwargs = run.get_py_script_func_kwargs(
-                                        raise_on_unset=False,
-                                        add_script_files=True,
-                                        blk_act_key=block_act_key,
-                                    )
-                                    app.logger.info(
-                                        f"run_ID: {{run_ID}}; script inputs have keys: "
-                                        f"{{tuple(func_kwargs.keys())!r}}."
-                                    )                                
-                            except UnsetParameterDataErrorBase:
-                                # not all required parameter data is set, so fail this run:
-                                exit_code = 1
-                                run_end_dat[block_act_key].append((run, exit_code, None))
-                                app.logger.info(
-                                    f"run_ID: {{run_ID}}; some parameter data is unset, "
-                                    f"so cannot run; setting exit code to 1."
-                                )
-                                continue # don't run the function
-
-                            get_ins_toc = time.perf_counter()
-
-                            func = action_scripts[script_idx]
-                            app.logger.info(f"run_ID: {{run_ID}}; function to run is: {{func.__name__}}")
-
-
-                        try:
-                            func_tic = time.perf_counter()
-                            app.logger.info(f"run_ID: {{run_ID}}; invoking function.")
-            {func_invoc_lines}
-                            
-                        except Exception:
-                            print(f"Exception caught during execution of script function {{func.__name__}}.")
-                            traceback.print_exc()
-                            exit_code = 1
-                            outputs = {{}}
-                        else:
-                            app.logger.info(f"run_ID: {{run_ID}}; finished function invocation.")
-                            exit_code = 0
-                        finally:
-                            func_toc = time.perf_counter()
-                            
-                        with app.redirect_std_to_file(std_path):
-                            # set run end
-                            block_act_key=({js_idx}, block_idx, block_act_idx)
-                            run_end_dat[block_act_key].append((run, exit_code, run_dir))
-
-                            # store outputs to save at end:
-                            app.logger.info(f"run_ID: {{run_ID}}; setting outputs to save.")
-                            for name_i, out_i in outputs.items():
-                                p_id = run.data_idx[f"outputs.{{name_i}}"]
-                                all_act_outputs[p_id] = out_i
-                            app.logger.info(f"run_ID: {{run_ID}}; finished setting outputs to save.")
-                                
-                            if req_dir:
-                                app.logger.info(f"run_ID: {{run_ID}}; changing directory back")
-                                os.chdir(os.environ["{app_caps}_SUB_TMP_DIR"])
-
-                            if {write_app_logs!r}:
-                                app.logger.info(f"run_ID: {{run_ID}}; moving log path back to " + {sub_log_path!r})
-                                app.config.log_path = {sub_log_path}
-
-                        run_toc = time.perf_counter()
-
-                        get_ins_time = get_ins_toc - get_ins_tic
-                        func_time = func_toc - func_tic
-                        run_time = run_toc - run_tic
-
-                        print(f"{{get_ins_time:.4f}}", file=get_ins_time_fp)
-                        print(f"{{func_time:.4f}}", file=func_time_fp)
-                        print(f"{{run_time:.4f}}", file=run_time_fp)
-
-                    with app.redirect_std_to_file(block_act_std_path):
-                    
-                        if all_act_outputs:
-                            # save outputs of all elements of this action
-                            save_all_tic = time.perf_counter()
-                            app.logger.info(
-                                f"saving outputs of block action index {{block_act_idx}} "
-                                f"in block {{block_idx}}."
-                            )                            
-                            wk.set_parameter_values(all_act_outputs)
-                            app.logger.info(
-                                f"finished saving outputs of block action index {{block_act_idx}} "
-                                f"in block {{block_idx}}."
-                            )
-                            save_all_toc = time.perf_counter()
-                            save_all_time_i = save_all_toc - save_all_tic
-                            print(f"{{save_all_time_i:.4f}}", file=save_multi_times_fp, flush=True)
-
-                        all_loop_term_tic = time.perf_counter()
-                        app.logger.info(f"run_ID: {{run_ID}}; checking for loop terminations")
-                        for run_i in block_act_runs:
-                            if not run_skips[run_i.id_]:
-                                skipped_IDs_i = wk._check_loop_termination(run_i)
-                                for skip_ID in skipped_IDs_i:
-                                    run_skips[skip_ID] =  2 # SkipReason.LOOP_TERMINATION
-                                    if skip_ID in runs:
-                                        runs[skip_ID]._skip = 2 # mutates runs within `run_end_dat`
-                        app.logger.info(f"run_ID: {{run_ID}}; finished checking for loop terminations.")
-                                    
-                        all_loop_term_toc = time.perf_counter()
-                        all_loop_term_time_i = all_loop_term_toc - all_loop_term_tic
-                        print(f"{{all_loop_term_time_i:.4f}}", file=loop_term_times_fp, flush=True)
-
-                        # set run end for all elements of this action
-                        app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
-                        set_multi_end_tic = time.perf_counter()
-                        new_skips = wk.set_multi_run_ends(run_end_dat)
-                        run_skips.update(new_skips)
-                        for run_id, skip_i in new_skips.items():
-                            runs[run_id]._skip = skip_i
-                        set_multi_end_toc = time.perf_counter()
-                        set_multi_end_time = set_multi_end_toc - set_multi_end_tic
-                        app.logger.info(f"run_ID: {{run_ID}}; finished setting run ends.")
-                        print(f"{{set_multi_end_time:.4f}}", file=set_end_multi_times_fp, flush=True)
-
-                block_start_elem_idx += num_elements[block_idx]
-
-            get_ins_time_fp.close()
-            func_time_fp.close()
-            run_time_fp.close()
-            set_start_multi_times_fp.close()
-            set_end_multi_times_fp.close()
-            save_multi_times_fp.close()
-            loop_term_times_fp.close()
-        """).format(
-            py_imports=py_imports,
-            py_main_block_workflow_load=indent(py_main_block_workflow_load, tab_indent),
-            app_caps=self._app.package_name.upper(),
-            script_idx_delim=",",  # TODO
-            script_names=script_names_str,
-            requires_dir=requires_dir,
-            num_blocks=len(self.blocks),
-            run_ID_delim=self._EAR_files_delimiter,
-            run_log_name=self.submission.get_app_log_file_name(run_ID="{run_ID}"),
-            js_idx=self.index,
-            write_app_logs=self.resources.write_app_logs,
-            sub_log_path=sub_log_path,
-            skipped_exit_code=SKIPPED_EXIT_CODE,
-            func_invoc_lines=indent(func_invoc_lines, tab_indent * 4),
-        )
-
-        future_imports_str = (
-            f"from __future__ import {', '.join(future_imports)}\n\n"
-            if future_imports
-            else ""
-        )
-        script = dedent("""\
-            {future_imports_str}{script_funcs}
-            if __name__ == "__main__":
-            {main}
-        """).format(
-            future_imports_str=future_imports_str,
-            script_funcs=script_funcs,
-            main=indent(main, tab_indent),
-        )
-
-        num_elems = [i.num_elements for i in self.blocks]
-        num_acts = [len(i) for i in action_scripts]
-
-        return script, script_indices, num_elems, num_acts
-
-    def write_script_indices_file(
-        self, indices: list[list[int]], num_elems: list[int], num_acts: list[int]
-    ) -> None:
-        """
-        Write a text file containing the action script index for each block and action
-        in a `combined_scripts` script.
-        """
-        delim = ","  # TODO: refactor?
-        with self.combined_script_indices_file_path.open("wt") as fp:
-            fp.write("# number of elements per block:\n")
-            fp.write(delim.join(str(i) for i in num_elems) + "\n")
-            fp.write("# number of actions per block:\n")
-            fp.write(delim.join(str(i) for i in num_acts) + "\n")
-            fp.write("# script indices:\n")
-            for block in indices:
-                fp.write(delim.join(str(i) for i in block) + "\n")
-
     def get_app_std_path(self) -> Path:
         std_dir = self.submission.get_app_std_path(
             self.workflow.submissions_path,
             self.submission.index,
         )
         return std_dir / f"js_{self.index}.txt"  # TODO: refactor
+
+    @property
+    def completion_obj(self) -> JobscriptCompletion:
+        return JobscriptCompletion(
+            self.submission.workflow.submissions_path,
+            self.submission.index,
+            self.index,
+            num_jobscripts=len(self.submission.jobscripts),
+            array_indices=self.array_indices,
+        )

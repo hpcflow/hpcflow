@@ -42,8 +42,8 @@ def extract_py_from_future_imports(py_str: str) -> tuple[str, set[str]]:
 
     Notes
     -----
-    This is required when generated a combined-scripts jobscript that concatenates
-    multiple Python scripts into one script. If `__future__` statements are included in
+    Generated Python script workers concatenate multiple snippets into one program.
+    If `__future__` statements are included in
     these individual scripts, they must be moved to the top of the file [1].
 
     References

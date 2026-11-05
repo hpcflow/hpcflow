@@ -1,3 +1,7 @@
+from collections.abc import Mapping
+from typing import Any
+
+
 def get_hash(obj):
     """Return a hash from an arbitrarily nested structure dicts, lists, tuples, and
     sets.
@@ -15,3 +19,18 @@ def get_hash(obj):
         return hash(frozenset((k, get_hash(v)) for k, v in obj.items()))
 
     return hash(obj)
+
+
+def freeze(value: Any) -> Any:
+    """Recursively convert containers to hashable equivalents.
+
+    Preserves sequence order and raises TypeError if a value cannot be converted to a
+    hashable representation.
+    """
+    if isinstance(value, Mapping):
+        return tuple(sorted((k, freeze(v)) for k, v in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze(v) for v in value)
+    if isinstance(value, set):
+        return frozenset(freeze(v) for v in value)
+    return value

@@ -5,10 +5,12 @@ Model of an execution environment.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import Any, TYPE_CHECKING
 from typing_extensions import override
 from pathlib import Path
 import copy
+import hashlib
 import warnings
 
 from hpcflow.sdk.typing import hydrate
@@ -16,14 +18,65 @@ from hpcflow.sdk.core.errors import DuplicateExecutableError
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ExecutablesList
 from hpcflow.sdk.core.utils import check_valid_py_identifier, get_duplicate_items
-from hpcflow.sdk.utils.hashing import get_hash
+from hpcflow.sdk.utils.hashing import freeze, get_hash
 from hpcflow.sdk.utils.strings import looks_like_secret
 from hpcflow.sdk.core.warnings import warn_secrets_in_env
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-    from typing import Any, ClassVar, Literal
+    from collections.abc import Sequence, Iterator
+    from typing import ClassVar, Literal
     from typing_extensions import Self
+
+
+class EnvironmentSpec(Mapping[str, Any], JSONLike):
+    """
+    A frozen specification of an environment, including at least a name, with any other
+    arbitrary keys allowing for distinction between environments of the same name.
+
+    """
+
+    _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
+        ChildObjectSpec(
+            name="_data",
+            is_multiple=False,
+            is_single_attribute=True,
+        ),
+    )
+
+    def __init__(self, data: Mapping[str, object]) -> None:
+        if not isinstance(data.get("name"), str):
+            raise ValueError("'name' must be present and be a string")
+
+        self._data = {key: freeze(value) for key, value in data.items()}
+
+    @property
+    def name(self) -> str:
+        name = self["name"]
+        assert isinstance(name, str)
+        return name
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __hash__(self) -> int:
+        return hash(self.as_tuple())
+
+    def as_tuple(self) -> tuple[tuple[str, object], ...]:
+        return tuple(sorted(self._data.items()))
+
+    def hexdigest(self, extra: Any | None = None, length: int = 20) -> str:
+        """Get a hash digest of the environment specification, in a truncated hexadecimal
+        format."""
+        to_encode: object = self.as_tuple()
+        if extra is not None:
+            to_encode = (to_encode, freeze(extra))
+        return hashlib.sha256(repr(to_encode).encode()).hexdigest()[:length]
 
 
 @dataclass
@@ -286,6 +339,10 @@ class Environment(JSONLike):
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name!r})"
 
+    @property
+    def spec(self) -> EnvironmentSpec:
+        return EnvironmentSpec({"name": self.name, **self.specifiers})
+
     def _validate(self):
         if dup_labels := get_duplicate_items(exe.label for exe in self.executables):
             raise DuplicateExecutableError(dup_labels)
@@ -382,3 +439,8 @@ class Environment(JSONLike):
     def source_file(self) -> Literal["<builtin>"] | Path | None:
         """If this environment was defined in a file, get the path to that file."""
         return self._source_file
+
+
+# TODO: hashable EnvironmentInstance class, to represent the environment with a single
+# resolved executable instance for each executable label.
+# perhaps: Environment.to_instance(ElementResources) -> EnvironmentInstance

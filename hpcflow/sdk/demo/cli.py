@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import Literal
     from ..app import BaseApp
+    from ..core.types import FollowSpec
 
 
 def get_demo_software_CLI(app: BaseApp):
@@ -245,7 +246,7 @@ def get_demo_workflow_CLI(app: BaseApp):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
-        follow: bool = False,
+        follow: FollowSpec = False,
         delete: bool = False,
     ):
         if ret_id and not add_to_known:

@@ -39,7 +39,7 @@ from hpcflow.sdk.core.errors import (
     MissingVariableSubstitutionError,
     YAMLError,
 )
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.utils.deferred_file import DeferredFileWriter
 
 if TYPE_CHECKING:

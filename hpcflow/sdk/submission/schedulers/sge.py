@@ -13,7 +13,7 @@ from hpcflow.sdk.core.errors import (
     NoCompatibleSGEPEError,
     UnknownSGEPEError,
 )
-from hpcflow.sdk.log import TimeIt
+from hpcflow.sdk.instrumentation import TimeIt
 from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.utils import run_cmd

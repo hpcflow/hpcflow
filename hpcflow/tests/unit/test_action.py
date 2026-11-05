@@ -906,12 +906,12 @@ def test_get_commands_file_hash_distinct_env_spec():
     h1 = act.get_commands_file_hash(
         data_idx=data_idx,
         action_idx=0,
-        env_spec_hashable=(("version", "name"), ("3.12", "python_env")),
+        env_spec={"name": "python_env", "version": "3.12"},
     )
     h2 = act.get_commands_file_hash(
         data_idx=data_idx,
         action_idx=0,
-        env_spec_hashable=(("version", "name"), ("3.13", "python_env")),
+        env_spec={"name": "python_env", "version": "3.13"},
     )
     assert h1 != h2
 
@@ -919,16 +919,16 @@ def test_get_commands_file_hash_distinct_env_spec():
 def test_get_commands_file_hash_equivalent_env_spec():
     act = hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])
     data_idx = {"inputs.p1": 0}
-    env_spec_hashable = (("version", "name"), ("3.12", "python_env"))
+    env_spec = ({"name": "python_env", "version": "3.12"},)
     h1 = act.get_commands_file_hash(
         data_idx=data_idx,
         action_idx=0,
-        env_spec_hashable=env_spec_hashable,
+        env_spec=env_spec,
     )
     h2 = act.get_commands_file_hash(
         data_idx=data_idx,
         action_idx=0,
-        env_spec_hashable=env_spec_hashable,
+        env_spec=env_spec,
     )
     assert h1 == h2
 

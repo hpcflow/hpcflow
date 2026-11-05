@@ -7,6 +7,9 @@ from hpcflow.app import app as hf
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
 @pytest.mark.parametrize("store", ["json", "zarr"])
 @pytest.mark.parametrize(
     ("schema_save_files", "task_save_files", "saved"),
@@ -18,7 +21,7 @@ from hpcflow.app import app as hf
     ],
 )
 def test_input_file_generator_creates_file(
-    tmp_path, store, schema_save_files, task_save_files, saved
+    tmp_path, store, schema_save_files, task_save_files, saved, enable_script_workers
 ):
 
     hf.config._show(metadata=True)
@@ -57,7 +60,9 @@ def test_input_file_generator_creates_file(
         path=tmp_path,
         store=store,
     )
-    wk.submit(wait=True, add_to_known=False)
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
+    assert all(run.success and run.end_time for run in wk.get_all_EARs())
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
 
     run_0 = wk.get_all_EARs()[0]
     param_id = run_0.data_idx["input_files.my_input_file"]
@@ -141,9 +146,16 @@ def test_inapplicable_jobscript_action(tmp_path):
 
 
 @pytest.mark.integration
-def test_IFG_std_stream_redirect_on_exception(tmp_path, reload_template_components):
+def test_IFG_std_stream_redirect_on_exception(
+    tmp_path, reload_template_components, pytestconfig
+):
     """Test exceptions raised by the app during execution of a IFG script are printed to the
     std-stream redirect file (and not the jobscript's standard error file)."""
+    if pytestconfig.getoption("--force-script-workers", default=False):
+        pytest.skip(
+            "This test corrupts the worker bootstrap environment; it only covers the "
+            "legacy child-process error path."
+        )
 
     # define a custom python environment which redefines the `WK_PATH` shell variable to
     # a nonsense value so the app cannot load the workflow and thus raises an exception
@@ -194,9 +206,8 @@ def test_IFG_std_stream_redirect_on_exception(tmp_path, reload_template_componen
 
 
 @pytest.mark.integration
-def test_IFG_std_out_std_err_not_redirected(tmp_path):
-    """Test that standard error and output streams from an IFG script are written to the jobscript
-    standard error and output files."""
+def test_IFG_std_out_std_err_not_redirected(tmp_path, pytestconfig):
+    """Test that IFG output is captured by the legacy jobscript or worker logs."""
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
     s1 = hf.TaskSchema(
         objective="t1",
@@ -225,7 +236,13 @@ def test_IFG_std_out_std_err_not_redirected(tmp_path):
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    if wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
+    if wk.submissions[0].enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers", default=False
+    ):
+        run = wk.get_all_EARs()[0]
+        std_stream = run.get_app_std_path().read_text()
+        assert f"{stdout_msg}\n{stderr_msg}" in std_stream
+    elif wk.submissions[0].jobscripts[0].resources.combine_jobscript_std:
         std_out_err = wk.submissions[0].jobscripts[0].direct_std_out_err_path.read_text()
         assert std_out_err.strip() == f"{stdout_msg}\n{stderr_msg}"
     else:
@@ -236,7 +253,7 @@ def test_IFG_std_out_std_err_not_redirected(tmp_path):
 
 
 @pytest.mark.integration
-def test_IFG_pass_env_spec(tmp_path):
+def test_IFG_pass_env_spec(tmp_path, pytestconfig):
     inp_file = hf.FileSpec(label="my_input_file", name="my_input_file.txt")
 
     if os.name == "nt":
@@ -271,9 +288,18 @@ def test_IFG_pass_env_spec(tmp_path):
     )
     wk.submit(wait=True, add_to_known=False, status=False)
 
-    # check the command successfully printed the env spec and file contents to stdout:
+    # check the command successfully printed the file contents to stdout:
     std_out = wk.submissions[0].jobscripts[0].direct_stdout_path.read_text()
-    assert std_out.strip() == f"{{'name': 'python_env'}}\n{str(p1_val)}"
+    workers_enabled = wk.submissions[0].enable_script_workers or pytestconfig.getoption(
+        "--force-script-workers", default=False
+    )
+    expected_stdout = str(p1_val)
+    if not workers_enabled:
+        expected_stdout = f"{{'name': 'python_env'}}\n{expected_stdout}"
+    assert std_out.strip() == expected_stdout
+    if workers_enabled:
+        run = wk.get_all_EARs()[0]
+        assert "{'name': 'python_env'}" in run.get_app_std_path().read_text()
 
 
 @pytest.mark.integration

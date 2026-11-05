@@ -8,3 +8,4 @@ Development
    Contributing <../contribute/index>
    Tips and Tricks <tips_and_tricks>
    Contributor how-to guides <how_to>
+   Script-worker execution <script_workers>

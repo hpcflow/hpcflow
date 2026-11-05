@@ -59,6 +59,16 @@ def pytest_addoption(parser: pytest.Parser):
         ),
     )
     parser.addoption(
+        "--force-script-workers",
+        action="store_true",
+        default=False,
+        help=(
+            "Create every new submission with persistent script workers enabled, to "
+            "run the existing test suite on the script-worker execution path. Tests "
+            "that explicitly request the legacy path are also run with workers."
+        ),
+    )
+    parser.addoption(
         "--with-env-source",
         action="store",
         help=(

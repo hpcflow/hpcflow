@@ -138,3 +138,5 @@ class JobscriptHeaderArgs(TypedDict):
     config_dir: NotRequired[str]
     #: Configuration key.
     config_invoc_key: NotRequired[Any]
+    #: Configuration overrides
+    config_overrides: NotRequired[str]

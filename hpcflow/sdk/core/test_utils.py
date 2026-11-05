@@ -3,19 +3,29 @@ Utilities for making data to use in testing.
 """
 
 from __future__ import annotations
+import asyncio
+from contextlib import contextmanager
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Any, ClassVar, TypeAlias, TYPE_CHECKING
+from typing import Any, ClassVar, Literal, TypeAlias, TYPE_CHECKING
+
+import psutil
+
 from hpcflow.app import app as hf
 from hpcflow.sdk.core.parameters import ParameterValue
 from hpcflow.sdk.core.utils import get_file_context, split_param_label
+from hpcflow.sdk.submission.jobscript import Jobscript, PreparedJobscriptSubmission
 from hpcflow.sdk.submission.shells import ALL_SHELLS
 from hpcflow.sdk.typing import hydrate
+from hpcflow.sdk.wait.completion import JobscriptCompletion
+from hpcflow.tests.unit.utils.test_patches import asyncio_timeout
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
     from typing_extensions import Self
     from h5py import Group as HDF5Group  # type: ignore
+    from rich.status import Status
     from .actions import Action
     from .element import ElementGroup
     from .loop import Loop
@@ -577,3 +587,170 @@ def command_line_test(
         EAR=run, shell=shell, env=run.get_environment()
     )
     assert cmd_line == expected
+
+
+def almost_submit(
+    workflow,
+    tasks: Sequence[int] | None = None,
+    JS_parallelism: bool | Literal["direct", "scheduled"] | None = None,
+    force_array: bool = False,
+    min_jobscripts: bool = True,
+    status: Status | None = None,
+    timeit: bool = False,
+    jobscript_idx: int = 0,
+    deps: dict[int, tuple[str, bool]] | None = None,
+) -> PreparedJobscriptSubmission:
+    """Generate a submission and prepare a jobscript without submitting it."""
+    sub = workflow.add_submission(
+        tasks=tasks,
+        JS_parallelism=JS_parallelism,
+        force_array=force_array,
+        min_jobscripts=min_jobscripts,
+        status=status,
+        timeit=timeit,
+    )
+    assert sub is not None
+
+    sub.prepare_submit()
+
+    js = sub.jobscripts[jobscript_idx]
+    return js.prepare_submit({} if deps is None else deps)
+
+
+def launch_forced_array_item(
+    js: Jobscript,
+    prepared: PreparedJobscriptSubmission,
+    array_idx: int,
+) -> int:
+    env = os.environ.copy()
+    env[f"{js._app.package_name.upper()}_ARRAY_IDX"] = str(array_idx)
+    return js._launch_direct(prepared.submit_cmd, env=env, array_idx=array_idx)
+
+
+def _describe_process_tree(pid: int) -> str:
+    try:
+        process = psutil.Process(pid)
+    except psutil.Error as error:
+        return f"PID {pid}: {type(error).__name__}: {error}"
+
+    def describe(proc: psutil.Process) -> str:
+        try:
+            return f"PID {proc.pid} ({proc.name()}): {proc.status()}"
+        except psutil.Error as error:
+            return f"PID {proc.pid}: {type(error).__name__}: {error}"
+
+    lines = [describe(process)]
+    try:
+        children = process.children(recursive=True)
+    except psutil.Error as error:
+        lines.append(
+            f"Could not inspect child processes: {type(error).__name__}: {error}"
+        )
+    else:
+        lines.extend(describe(child) for child in children)
+    return "\n".join(lines)
+
+
+def _read_output_tail(path: Path) -> str:
+    limit = 32_768
+    try:
+        with path.open("rb") as stream:
+            size = stream.seek(0, os.SEEK_END)
+            stream.seek(max(size - limit, 0))
+            output = stream.read(limit).decode("utf-8", errors="replace")
+    except OSError as error:
+        return f"<{type(error).__name__}: {error}>"
+
+    if size > limit:
+        return f"<{size - limit} earlier bytes omitted>\n{output}"
+    return output or "<empty>"
+
+
+def _find_run_output_paths(app_std_dir: Path) -> tuple[list[Path], list[str]]:
+    paths: list[Path] = []
+    errors: list[str] = []
+
+    def report_error(error: OSError) -> None:
+        errors.append(f"{type(error).__name__}: {error}")
+
+    for directory, subdirectories, filenames in os.walk(
+        app_std_dir, onerror=report_error
+    ):
+        subdirectories.sort()
+        if Path(directory) == app_std_dir:
+            continue
+        for filename in sorted(filenames):
+            if filename.endswith(".txt"):
+                if len(paths) == 10:
+                    errors.append("Additional run output files omitted after 10.")
+                    return paths, errors
+                paths.append(Path(directory) / filename)
+    return paths, errors
+
+
+@contextmanager
+def report_jobscript_timeout(
+    js: Jobscript,
+    array_idx: int,
+    pid: int,
+) -> Iterator[None]:
+    """Include process and redirected-output diagnostics when a test times out."""
+    try:
+        yield
+    except asyncio.TimeoutError as error:
+        process_state = _describe_process_tree(pid)
+        try:
+            completion = js.completion_obj
+            completion_state = (
+                f"array item complete={completion.is_array_item_complete(array_idx)}, "
+                f"jobscript complete={completion.is_complete()}"
+            )
+        except (OSError, ValueError) as completion_error:
+            completion_state = (
+                f"unavailable: {type(completion_error).__name__}: {completion_error}"
+            )
+
+        stdout_path = js.get_stdout_path(array_idx)
+        stderr_path = js.get_stderr_path(array_idx)
+        if stdout_path == stderr_path:
+            paths = [("Jobscript stdout/stderr", stdout_path)]
+        else:
+            paths = [
+                ("Jobscript stdout", stdout_path),
+                ("Jobscript stderr", stderr_path),
+            ]
+        app_output_path = js.get_app_std_path()
+        paths.append(("Jobscript application output", app_output_path))
+        run_paths, errors = _find_run_output_paths(app_output_path.parent)
+        paths.extend(("Run application output", path) for path in run_paths)
+        output = "\n".join(
+            f"{label} ({path}):\n{_read_output_tail(path)}" for label, path in paths
+        )
+        if errors:
+            output += "\nCould not collect all run output:\n" + "\n".join(errors)
+        raise asyncio.TimeoutError(
+            f"Timed out after launching jobscript array item {array_idx} (PID {pid}).\n"
+            f"Process state:\n{process_state}\n"
+            f"Completion state: {completion_state}\n{output}"
+        ) from error
+
+
+async def wait_for_array_item_completion(
+    completion: JobscriptCompletion,
+    array_idx: int,
+    *,
+    timeout: float = 10,
+) -> None:
+    async with asyncio_timeout(timeout):
+        while not completion.is_array_item_complete(array_idx):
+            await asyncio.sleep(0.01)
+
+
+async def wait_for_jobscript_completion(
+    completion: JobscriptCompletion,
+    *,
+    timeout: float = 10,
+) -> None:
+    async with asyncio_timeout(timeout):
+        while not completion.is_complete():
+            await asyncio.sleep(0.01)

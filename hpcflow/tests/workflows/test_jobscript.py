@@ -48,8 +48,13 @@ def test_bad_action_py_script_exit_code(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("exit_code", [0, 1, 98, -1, -123124])
-def test_action_py_script_specified_exit_code(tmp_path, exit_code):
+@pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+@pytest.mark.parametrize("exit_code", [0, 1, 64, 98, -1, -123124])
+def test_action_py_script_specified_exit_code(
+    tmp_path, pytestconfig, exit_code, enable_script_workers
+):
     s1 = hf.TaskSchema(
         objective="t1",
         inputs=[hf.SchemaInput("exit_code")],
@@ -66,12 +71,19 @@ def test_action_py_script_specified_exit_code(tmp_path, exit_code):
     wk = hf.Workflow.from_template_data(
         tasks=[t1], template_name="script_exit_test", path=tmp_path
     )
-    wk.submit(wait=True, add_to_known=False)
-    recorded_exit = wk.get_EARs_from_IDs([0])[0].exit_code
+    wk.submit(wait=True, add_to_known=False, enable_script_workers=enable_script_workers)
+    assert wk.submissions[0].enable_script_workers is (
+        enable_script_workers
+        or pytestconfig.getoption("--force-script-workers", default=False)
+    )
+    run = wk.get_EARs_from_IDs([0])[0]
     if os.name == "posix":
         # exit code from bash wraps around:
         exit_code %= 256
-    assert recorded_exit == exit_code
+    assert run.exit_code == exit_code
+    assert run.end_time is not None
+    assert run.success is (exit_code == 0)
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
 
 
 @pytest.mark.integration

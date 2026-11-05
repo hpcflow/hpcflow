@@ -248,6 +248,16 @@ def callback_unset_log_file_path(config: Config) -> None:
     config._app.log.remove_file_handler()
 
 
+def callback_update_log_file_levels(config: Config, value: dict[str, str]) -> None:
+    """Callback to set per-logger file logging levels."""
+    config._app.log.update_file_logger_levels(value)
+
+
+def callback_unset_log_file_levels(config: Config) -> None:
+    """Reset per-logger file logging levels."""
+    config._app.log.update_file_logger_levels()
+
+
 def callback_deprecation_demo_data_dir(
     config: Config, value: str | None = None
 ) -> str | None:

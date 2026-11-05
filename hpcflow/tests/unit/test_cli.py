@@ -9,6 +9,7 @@ from hpcflow import __version__
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
+    _make_internal_CLI,
     _make_API_CLI,
     _make_workflow_CLI,
     _make_zip_CLI,
@@ -105,6 +106,40 @@ def test_cli_ret_id_without_submitted_jobscripts(submitted_js):
     app.read_known_submissions_file.assert_not_called()
 
 
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+def test_cli_ret_id_with_follow_and_workers(command_name: str) -> None:
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    workflow.path = Path("workflow")
+    submitted_js = {0: [0]}
+    app.read_known_submissions_file = Mock(
+        return_value=[{"path": str(workflow.path), "sub_idx": 0, "local_id": 7}]
+    )
+    args = ["--quiet", "--ret-id", "--follow=all"]
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        submit.return_value = submitted_js
+        args.append("--enable-script-workers")
+    else:
+        if command_name == "demo-go":
+            command = get_demo_workflow_CLI(app).commands["go"]
+            submit = app.make_and_submit_demo_workflow = Mock()
+        else:
+            command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+            submit = app.make_and_submit_workflow = Mock()
+        submit.return_value = (workflow, submitted_js)
+        args.insert(0, "workflow.yaml")
+
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert result.output == "7\n"
+    assert submit.call_args.kwargs["follow"] == "all"
+    assert submit.call_args.kwargs["return_idx"] is True
+    if command_name == "submit":
+        assert submit.call_args.kwargs["enable_script_workers"] is True
+
+
 @pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
 def test_cli_submit_follow(option: list[str]) -> None:
     workflow = Mock(spec=Workflow)
@@ -112,6 +147,33 @@ def test_cli_submit_follow(option: list[str]) -> None:
     result = CliRunner().invoke(command, option, obj=workflow)
     assert result.exit_code == 0, result.output
     assert workflow.submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize(
+    ("option", "expected"),
+    [
+        (["--follow=all"], "all"),
+        (["--follow=0"], 0),
+        (["--follow", "3"], 3),
+        (["-f", "all"], "all"),
+    ],
+)
+def test_cli_submit_follow_array_spec(option: list[str], expected: object) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["follow"] == expected
+    assert type(workflow.submit.call_args.kwargs["follow"]) is type(expected)
+
+
+@pytest.mark.parametrize("value", ["foo", "-1"])
+def test_cli_submit_follow_invalid(value: str) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, [f"--follow={value}"], obj=workflow)
+    assert result.exit_code != 0
+    workflow.submit.assert_not_called()
 
 
 @pytest.mark.parametrize("option", [[], ["--delete"]])
@@ -164,6 +226,13 @@ def test_cli_go_delete(demo: bool, option: list[str]) -> None:
     result = CliRunner().invoke(command, ["workflow.yaml", *option])
     assert result.exit_code == 0, result.output
     assert submit.call_args.kwargs["delete"] == bool(option)
+
+
+def test_cli_retired_combined_execution_command_removed():
+    workflow_cli = _make_internal_CLI(hf).commands["workflow"]
+    assert isinstance(workflow_cli, click.Group)
+    assert "execute-combined-runs" not in workflow_cli.commands
+    assert "execute-jobscript" in workflow_cli.commands
 
 
 @pytest.mark.parametrize(

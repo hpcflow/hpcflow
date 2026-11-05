@@ -107,6 +107,65 @@ def test_execute_directory_lifecycle(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
+    "enable_script_workers", [False, True], ids=["legacy", "workers"]
+)
+@pytest.mark.parametrize("move_scratch", [False, True])
+def test_script_execution_in_scratch(
+    tmp_path: Path, pytestconfig, enable_script_workers: bool, move_scratch: bool
+):
+    schema = hf.TaskSchema(
+        objective="script_scratch",
+        inputs=[hf.SchemaInput("p1")],
+        outputs=[hf.SchemaOutput("p2")],
+        actions=[
+            hf.Action(
+                script="<<script:main_script_test_json_in_json_out.py>>",
+                script_data_in="json",
+                script_data_out="json",
+                script_exe="python_script",
+                environments=[hf.ActionEnvironment(environment="python_env")],
+                requires_dir=True,
+            )
+        ],
+    )
+    scratch = tmp_path / "scratch space"
+    wk = hf.Workflow.from_template_data(
+        template_name="script_scratch",
+        path=tmp_path,
+        tasks=[hf.Task(schema=schema, inputs={"p1": 101})],
+        resources={"any": {"scratch": str(scratch)}},
+        config={
+            "delete_execute_dir": False,
+            "move_scratch_to_workflow": move_scratch,
+        },
+    )
+    wk.add_submission(enable_script_workers=enable_script_workers)
+    (original_directory,) = wk.get_run_directories()
+    assert original_directory is not None and original_directory.is_relative_to(scratch)
+    assert not original_directory.exists()
+
+    wk.submit(wait=True, add_to_known=False, status=False)
+
+    run = wk.get_all_EARs()[0]
+    assert run.action.supports_script_worker
+    assert wk.submissions[0].enable_script_workers is (
+        enable_script_workers
+        or pytestconfig.getoption("--force-script-workers", default=False)
+    )
+    assert run.success and run.end_time
+    assert run.dir_diff is not None
+    p2 = wk.tasks[0].elements[0].outputs.p2
+    assert isinstance(p2, hf.ElementParameter)
+    assert p2.value == 201
+    assert wk.submissions[0].jobscripts[0].completion_obj.is_complete()
+    (directory,) = hf.Workflow(wk.path).get_run_directories()
+    assert directory is not None and directory.is_dir()
+    assert directory.is_relative_to(wk.execution_path if move_scratch else scratch)
+    assert original_directory.exists() is not move_scratch
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
     ("task_save_files", "expected_files"),
     [
         (None, {"retained.txt"}),

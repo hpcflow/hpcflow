@@ -1,4 +1,4 @@
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 from hpcflow.sdk import sdk_classes
 
@@ -18,6 +18,8 @@ hiddenimports = [
     "requests",  # for GitHub fsspec file system
     "fsspec.implementations.github",  # for GitHub fsspec file system
     "hpcflow.pytest_plugin",
+    "pytest_asyncio",
+    "pytest_asyncio.plugin",
 ]
 
 datas = (
@@ -37,4 +39,5 @@ datas = (
         "hpcflow.tests", include_py_files=True, excludes=("**/__pycache__",)
     )
     + collect_data_files("hpcflow.tests.data")
+    + copy_metadata("pytest_asyncio")
 )
