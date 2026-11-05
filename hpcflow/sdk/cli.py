@@ -754,7 +754,7 @@ def _make_workflow_CLI(app: BaseApp):
         """Merge shard archives of array outputs into one file per output.
 
         Each NAME's shard archives are merged into a single
-        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        parameters/array_outputs/NAME/consolidated.zip file and the shards are then
         removed. With no NAMES, consolidate every array output. Safe to repeat: runs
         saved after an earlier consolidation are folded in.
         """

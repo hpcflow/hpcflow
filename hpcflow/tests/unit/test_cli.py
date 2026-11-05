@@ -251,16 +251,16 @@ def test_cli_consolidate_array_outputs(
 ):
     workflow = Mock(spec=Workflow)
     workflow.consolidate_array_outputs.return_value = {
-        "p1.a": tmp_path / "p1.a" / "consolidated.npz.zst",
-        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.npz.zst",
+        "p1.a": tmp_path / "p1.a" / "consolidated.zip",
+        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.zip",
     }
     command = _make_workflow_CLI(hf).commands["consolidate-array-outputs"]
     result = CliRunner().invoke(command, args, obj=workflow)
     assert result.exit_code == 0, result.output
     workflow.consolidate_array_outputs.assert_called_once_with(names, status=status)
     assert result.output.splitlines() == [
-        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.npz.zst'}",
-        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.npz.zst'}",
+        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.zip'}",
+        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.zip'}",
     ]
 
 

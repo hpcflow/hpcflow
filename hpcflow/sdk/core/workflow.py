@@ -69,9 +69,15 @@ from hpcflow.sdk.core.template_expressions import resolve_workflow_input_referen
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
+from hpcflow.sdk.persistence.array_outputs import (
+    ChunkedArray,
+    read_chunked_array_output,
+    write_chunked_array_output,
+)
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import (
     ARRAY_OUTPUT_CONSOLIDATED_NAME,
+    ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME,
     ARRAY_OUTPUT_MASK_SUFFIX,
     ask_pw_on_auth_exc,
     atomic_write,
@@ -1189,7 +1195,7 @@ class _ShapeGroupedArray:
 class _ArrayOutputArchive:
     """Array data and per-run/member metadata loaded from an NPZ archive."""
 
-    data: np.ndarray | _ShapeGroupedArray
+    data: np.ndarray | _ShapeGroupedArray | ChunkedArray
     task_insert_ID: np.ndarray
     task_idx: np.ndarray
     element_idx: np.ndarray
@@ -5780,6 +5786,10 @@ class Workflow(AppAware):
             Path(path).parent.name
             for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_CONSOLIDATED_NAME}")
         }
+        names |= {
+            Path(path).parent.name
+            for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME}")
+        }
         if not include_internal:
             names = {n for n in names if not n.endswith(f".{ARRAY_OUTPUT_MASK_SUFFIX}")}
         return sorted(names)
@@ -5801,6 +5811,16 @@ class Workflow(AppAware):
         """Return the path of the single-file consolidated archive for an output."""
         return self._get_array_output_root(name) / ARRAY_OUTPUT_CONSOLIDATED_NAME
 
+    def _existing_array_output_consolidated_path(self, name: str) -> Path | None:
+        for filename in (
+            ARRAY_OUTPUT_CONSOLIDATED_NAME,
+            ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME,
+        ):
+            path = self._get_array_output_root(name) / filename
+            if self._array_output_fs.exists(path.as_posix()):
+                return path
+        return None
+
     def _list_array_output_shard_paths(self, name: str) -> list[Path]:
         """Return sorted shard archive paths (``<shard>/<file>.npz.zst``) for an output."""
         root = self._get_array_output_root(name).as_posix()
@@ -5811,8 +5831,8 @@ class Workflow(AppAware):
     def _list_array_output_archive_paths(self, name: str) -> list[Path]:
         """Return all archive paths for an output: shards, then consolidated (if any)."""
         paths = self._list_array_output_shard_paths(name)
-        consolidated = self._get_array_output_consolidated_path(name)
-        if self._array_output_fs.exists(consolidated.as_posix()):
+        consolidated = self._existing_array_output_consolidated_path(name)
+        if consolidated is not None:
             paths.append(consolidated)
         return paths
 
@@ -5827,10 +5847,7 @@ class Workflow(AppAware):
         shard = self._get_array_output_archive_path(name, run_file_ID)
         if self._array_output_fs.exists(shard.as_posix()):
             return shard
-        consolidated = self._get_array_output_consolidated_path(name)
-        if self._array_output_fs.exists(consolidated.as_posix()):
-            return consolidated
-        return None
+        return self._existing_array_output_consolidated_path(name)
 
     def _load_array_output_archive(
         self, name: str, path: Path, cache: dict[Path, _ArrayOutputArchive]
@@ -5841,7 +5858,9 @@ class Workflow(AppAware):
             try:
                 cache[path] = self._read_array_output_archive(path)
             except FileNotFoundError:
-                consolidated = self._get_array_output_consolidated_path(name)
+                consolidated = self._existing_array_output_consolidated_path(name)
+                if consolidated is None:
+                    raise
                 if path == consolidated:
                     raise
                 if consolidated not in cache:
@@ -5984,8 +6003,9 @@ class Workflow(AppAware):
         only members that supplied that array.
 
         Archives are Zstandard-compressed NPZ files in 500-file shard directories,
-        optionally merged into one ``consolidated.npz.zst`` per output by
-        :meth:`consolidate_array_outputs`; both forms are read transparently.
+        optionally merged into one indexed ``consolidated.zip`` per output by
+        :meth:`consolidate_array_outputs`. Single-run reads load only the matching
+        chunks. Legacy padded/grouped ``consolidated.npz.zst`` archives remain readable.
         Earlier uncompressed NPZ archives are not supported.
         With ``run_IDs=None``, include every saved run for this output, across tasks
         and iterations. With ``sort=False``, archives are visited in path order.
@@ -6045,7 +6065,13 @@ class Workflow(AppAware):
             data, shapes = archive.data, archive.shape
             has_shape_metadata |= shapes is not None
             has_member_metadata |= archive.member_idx is not None
-            matching_indices = np.flatnonzero(archive.run_ID == run_ID)
+            if isinstance(data, ChunkedArray):
+                start, stop = np.searchsorted(
+                    archive.run_ID, run_ID, side="left"
+                ), np.searchsorted(archive.run_ID, run_ID, side="right")
+                matching_indices = np.arange(start, stop)
+            else:
+                matching_indices = np.flatnonzero(archive.run_ID == run_ID)
             if not len(matching_indices) or (
                 archive.member_idx is None and len(matching_indices) != 1
             ):
@@ -6183,18 +6209,21 @@ class Workflow(AppAware):
         *,
         status: bool = True,
     ) -> dict[str, Path]:
-        """Merge each output's shard archives into one ``consolidated.npz.zst`` file.
+        """Merge each output's shard archives into one indexed ``consolidated.zip``.
 
         For every selected output, all shard archives (``<shard>/<file>.npz.zst``) and
         any existing consolidated archive are merged, sorted by run ID, written
-        atomically to ``parameters/array_outputs/<name>/consolidated.npz.zst``, verified
-        by re-reading, and only then are the shard files removed. Runs saved later go to
+        atomically to ``parameters/array_outputs/<name>/consolidated.zip``, verified
+        one chunk at a time, and only then are the shard files removed. Runs saved later go to
         new shard archives, so consolidation may be repeated to fold them in. Readers
         (:meth:`get_array_output`, parameter decoding) handle both forms transparently.
-        Mixed shapes are stored in separate dense groups, without global padding.
-        Existing padded archives remain readable. Temporary disk space is required
-        for the uncompressed NPZ during writing and reading; data arrays are still
-        loaded into memory. Older hpcflow versions cannot read shape-group archives.
+        Mixed shapes are stored in independently compressed chunks without global
+        padding, targeting 16 MiB per chunk (larger entries get their own chunk).
+        Existing NPZ/Zstandard archives remain readable and are migrated on
+        consolidation, including when no new shards exist. Consolidation still
+        loads source shards and merged arrays into memory, but chunk writes, reads,
+        and verification avoid full-size serialization buffers. Older hpcflow
+        versions cannot read the indexed format.
 
         Parameters
         ----------
@@ -6258,33 +6287,35 @@ class Workflow(AppAware):
         """Consolidate one output; return the archive path, or None if no archives."""
         shard_paths = self._list_array_output_shard_paths(name)
         consolidated_path = self._get_array_output_consolidated_path(name)
-        has_consolidated = consolidated_path.is_file()
-        if not shard_paths:
-            return consolidated_path if has_consolidated else None
+        existing = self._existing_array_output_consolidated_path(name)
+        if not shard_paths and (existing is None or existing == consolidated_path):
+            return existing
 
         # existing consolidated data first, then shards in path order:
-        sources = ([consolidated_path] if has_consolidated else []) + shard_paths
+        sources = ([existing] if existing is not None else []) + shard_paths
         archives = [self._read_array_output_archive(path) for path in sources]
         expected_count = sum(len(archive.run_ID) for archive in archives)
         merged = self._merge_array_output_archives(name, archives, group_by_shape=True)
         del archives
 
-        # Keep the uncompressed NPZ on disk rather than duplicating all data in RAM.
+        # Stream independently compressed chunks into an atomic replacement file.
         partial_path = consolidated_path.with_name(
             f"{consolidated_path.name}.{uuid4().hex}.partial"
         )
         try:
-            with _ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
-                np.savez(buffer, **cast("dict[str, Any]", merged))
-                del merged
-                size = buffer.tell()
-                buffer.seek(0)
-                with partial_path.open("xb") as destination:
-                    zstd.ZstdCompressor(level=1).copy_stream(
-                        buffer, destination, size=size
-                    )
-                    destination.flush()
-                    os.fsync(destination.fileno())
+            write_chunked_array_output(partial_path, merged)
+            del merged
+            # Verify the index and every chunk before replacing an existing archive.
+            verified = self._read_array_output_archive(partial_path)
+            if len(verified.run_ID) != expected_count:
+                raise RuntimeError(
+                    f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
+                    f"entries; expected {expected_count}. Shard archives were left intact."
+                )
+            assert isinstance(verified.data, ChunkedArray)
+            verified.data.verify()
+            with partial_path.open("r+b") as destination:
+                os.fsync(destination.fileno())
             os.replace(partial_path, consolidated_path)
             if hasattr(os, "O_DIRECTORY"):
                 directory_fd = os.open(consolidated_path.parent, os.O_DIRECTORY)
@@ -6295,13 +6326,8 @@ class Workflow(AppAware):
         finally:
             partial_path.unlink(missing_ok=True)
 
-        # Verify before discarding the shards, with source and merged arrays released.
-        verified = self._read_array_output_archive(consolidated_path)
-        if len(verified.run_ID) != expected_count:
-            raise RuntimeError(
-                f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
-                f"entries; expected {expected_count}. Shard archives were left intact."
-            )
+        if existing is not None and existing != consolidated_path:
+            existing.unlink()
         for shard_path in shard_paths:
             shard_path.unlink()
             try:
@@ -6344,7 +6370,8 @@ class Workflow(AppAware):
                     if archive.shape is not None
                     else np.broadcast_to(
                         np.asarray(
-                            cast(np.ndarray, archive.data).shape[1:], dtype=np.int32
+                            cast("np.ndarray | ChunkedArray", archive.data).shape[1:],
+                            dtype=np.int32,
                         ),
                         (len(archive.run_ID), ndim),
                     )
@@ -6452,6 +6479,11 @@ class Workflow(AppAware):
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
         """Decompress, load, and validate an array-output NPZ archive."""
+        if not path.name.endswith(".npz.zst"):
+            data, arrays, shapes = read_chunked_array_output(
+                self._array_output_fs, path.as_posix()
+            )
+            return _ArrayOutputArchive(data=data, shape=shapes, **arrays)
         compressed = self._store.get_binary_file(path)
         with _ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
             zstd.ZstdDecompressor().copy_stream(BytesIO(compressed), buffer)

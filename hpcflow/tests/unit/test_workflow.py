@@ -23,11 +23,11 @@ from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     make_test_data_YAML_workflow,
 )
+from hpcflow.sdk.persistence.array_outputs import ChunkedArray
 from hpcflow.sdk.core.workflow import (
     ArrayOutput,
     _ArrayOutputArchive,
     _ArrayOutputBuffer,
-    _ShapeGroupedArray,
 )
 
 if TYPE_CHECKING:
@@ -654,22 +654,27 @@ def test_consolidate_array_outputs(
 
     consolidated = empty_workflow._get_array_output_consolidated_path("p1.a")
     assert results == {"p1.a": consolidated}
-    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.zip"]
     assert not (consolidated.parent / "0").exists()
     assert empty_workflow.list_array_outputs() == ["p1.a"]
     archive = empty_workflow._read_array_output_archive(consolidated)
     np.testing.assert_array_equal(archive.run_ID, [100, 101])  # sorted by run ID
     if ragged:
-        assert isinstance(archive.data, _ShapeGroupedArray)
+        assert isinstance(archive.data, ChunkedArray)
         np.testing.assert_array_equal(archive.data[0], [1, 2])
         np.testing.assert_array_equal(archive.data[1], [3, 4, 5])
         assert (
-            sum(group.nbytes for group in archive.data.groups)
+            sum(
+                int(np.prod(shape)) * archive.data.dtype.itemsize
+                for _, shape in archive.data.chunks
+            )
             == first.nbytes + second.nbytes
         )
         np.testing.assert_array_equal(archive.shape, [[2], [3]])
     else:
-        np.testing.assert_array_equal(archive.data, [[1, 2], [3, 4]])
+        np.testing.assert_array_equal(
+            [archive.data[i] for i in range(2)], [[1, 2], [3, 4]]
+        )
         assert archive.shape is None
 
     # all three reader routes resolve to the consolidated archive:
@@ -691,7 +696,7 @@ def test_consolidate_array_outputs(
     )
     assert _archive_files(empty_workflow, "p1.a") == [
         "1/1.npz.zst",
-        "consolidated.npz.zst",
+        "consolidated.zip",
     ]
     assert empty_workflow._resolve_array_output_archive_path("p1.a", 501) != consolidated
     np.testing.assert_array_equal(
@@ -700,7 +705,7 @@ def test_consolidate_array_outputs(
     assert empty_workflow.consolidate_array_outputs("outputs.p1.a") == {
         "p1.a": consolidated
     }
-    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.a") == ["consolidated.zip"]
     archive = empty_workflow._read_array_output_archive(consolidated)
     np.testing.assert_array_equal(archive.run_ID, [100, 101, 102])
     np.testing.assert_array_equal(archive.data[2][:2], [6, 7])
@@ -730,16 +735,15 @@ def test_zip_consolidates_array_outputs(
         )
 
     expected = (
-        ["0/6.npz.zst", "1/0.npz.zst"]
-        if consolidate is False
-        else ["consolidated.npz.zst"]
+        ["0/6.npz.zst", "1/0.npz.zst"] if consolidate is False else ["consolidated.zip"]
     )
     assert _archive_files(empty_workflow, "p1.a") == expected
     with zipfile.ZipFile(zip_path) as archive:
         members = sorted(
             name.split("parameters/array_outputs/p1.a/", 1)[1]
             for name in archive.namelist()
-            if "parameters/array_outputs/p1.a/" in name and name.endswith(".npz.zst")
+            if "parameters/array_outputs/p1.a/" in name
+            and name.endswith((".npz.zst", ".zip"))
         )
     assert members == expected
 
@@ -755,15 +759,15 @@ def test_consolidate_array_outputs_selection(empty_workflow: Workflow) -> None:
     # naming a masked output consolidates its mask archive too; others untouched:
     results = empty_workflow.consolidate_array_outputs(["p1.m"], status=False)
     assert sorted(results) == ["p1.m", "p1.m.__mask__"]
-    assert _archive_files(empty_workflow, "p1.m") == ["consolidated.npz.zst"]
-    assert _archive_files(empty_workflow, "p1.m.__mask__") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.m") == ["consolidated.zip"]
+    assert _archive_files(empty_workflow, "p1.m.__mask__") == ["consolidated.zip"]
     assert _archive_files(empty_workflow, "p1.other") == ["0/6.npz.zst"]
     assert empty_workflow.list_array_outputs() == ["p1.m", "p1.other"]
 
     # consolidating everything includes internal mask archives:
     results = empty_workflow.consolidate_array_outputs(status=False)
     assert sorted(results) == ["p1.m", "p1.m.__mask__", "p1.other"]
-    assert _archive_files(empty_workflow, "p1.other") == ["consolidated.npz.zst"]
+    assert _archive_files(empty_workflow, "p1.other") == ["consolidated.zip"]
 
 
 def test_consolidate_array_outputs_verification_failure_keeps_shards(
@@ -776,7 +780,7 @@ def test_consolidate_array_outputs_verification_failure_keeps_shards(
 
     def corrupt_read(path: Path):
         archive = real_read(path)
-        if path == consolidated:
+        if path.name.endswith(".partial"):
             # simulate a truncated re-read of the freshly written archive
             return replace(archive, run_ID=archive.run_ID[:1])
         return archive
@@ -787,7 +791,6 @@ def test_consolidate_array_outputs_verification_failure_keeps_shards(
     assert _archive_files(empty_workflow, "p1.a") == [
         "0/6.npz.zst",
         "0/7.npz.zst",
-        "consolidated.npz.zst",
     ]
 
 
@@ -821,11 +824,13 @@ def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> Non
         np.full((1, 112, 112, 112), 9, dtype=np.int64),
     )
     path = empty_workflow.consolidate_array_outputs(status=False)["p1.grid"]
-    # Retain Zstandard's content-size header for tools that use one-shot decompression.
-    contents = zstd.ZstdDecompressor().decompress(path.read_bytes())
-    with np.load(BytesIO(contents), allow_pickle=False) as archive:
-        assert archive["data_0"].shape == (1, 2, 2, 2)
-        assert archive["data_1"].shape == (1, 112, 112, 112)
+    from zipfile import ZipFile
+
+    with ZipFile(path) as archive:
+        with archive.open("chunks/000000.npy") as chunk:
+            assert np.load(chunk, allow_pickle=False).shape == (1, 2, 2, 2)
+        with archive.open("chunks/000001.npy") as chunk:
+            assert np.load(chunk, allow_pickle=False).shape == (1, 112, 112, 112)
     output = empty_workflow.get_array_output("p1.grid")
     assert isinstance(output.data, list)
     assert output.data[0].shape == (2, 2, 2)
@@ -839,17 +844,193 @@ def test_consolidate_array_outputs_write_failure_keeps_shards(
 ) -> None:
     _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
 
-    def failed_copy(source, destination, **kwargs):
-        destination.write(b"partial")
+    def failed_copy(path, contents):
+        path.write_bytes(b"partial")
         raise OSError("simulated disk failure")
 
     monkeypatch.setattr(
-        zstd, "ZstdCompressor", lambda **kwargs: SimpleNamespace(copy_stream=failed_copy)
+        "hpcflow.sdk.core.workflow.write_chunked_array_output", failed_copy
     )
     with pytest.raises(OSError, match="simulated disk failure"):
         empty_workflow.consolidate_array_outputs(status=False)
     assert _archive_files(empty_workflow, "p1.a") == ["0/6.npz.zst"]
     np.testing.assert_array_equal(empty_workflow.get_array_output("p1.a").data, [[1, 2]])
+
+
+@pytest.mark.parametrize("storage", ["directory", "zip"])
+def test_array_output_partial_reads(
+    empty_workflow: Workflow,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    storage: str,
+) -> None:
+    from functools import partial
+    from zipfile import ZIP_STORED, ZipFile
+    from hpcflow.sdk.persistence.array_outputs import write_chunked_array_output
+
+    values = [
+        np.arange(2, dtype=np.int64),
+        np.arange(4, dtype=np.int64),
+        np.arange(2, dtype=np.int64) + 10,
+        np.arange(4, dtype=np.int64) + 10,
+    ]
+    for index, value in enumerate(values):
+        _write_array_output_archive(
+            empty_workflow, "p1.a", index, [100 + index], value[None]
+        )
+    monkeypatch.setattr(
+        "hpcflow.sdk.core.workflow.write_chunked_array_output",
+        partial(write_chunked_array_output, chunk_bytes=16),
+    )
+    empty_workflow.consolidate_array_outputs(status=False)
+    workflow = empty_workflow
+    if storage == "zip":
+        zip_path = workflow.zip(path=str(tmp_path), status=False)
+        with ZipFile(zip_path) as outer:
+            assert (
+                outer.getinfo(
+                    "parameters/array_outputs/p1.a/consolidated.zip"
+                ).compress_type
+                == ZIP_STORED
+            )
+        workflow = hf.Workflow(zip_path)
+    monkeypatch.setattr(
+        workflow,
+        "get_EARs_from_IDs",
+        lambda ids: (
+            SimpleNamespace(run_file_ID=ids - 100, id_=ids)
+            if isinstance(ids, int)
+            else [SimpleNamespace(run_file_ID=i - 100, id_=i) for i in ids]
+        ),
+    )
+    read = Mock(wraps=ChunkedArray._read_chunk)
+
+    def tracked_read(data: ChunkedArray, index: int) -> np.ndarray:
+        return read(data, index)
+
+    monkeypatch.setattr(ChunkedArray, "_read_chunk", tracked_read)
+
+    # Header reads do not load any payload or call the legacy whole-file reader.
+    def reject_whole_file(path: Path) -> bytes:
+        if not workflow._array_output_fs.exists(path.as_posix()):
+            raise FileNotFoundError(path)
+        raise AssertionError("whole-file read")
+
+    monkeypatch.setattr(workflow._store, "get_binary_file", reject_whole_file)
+    path = workflow._get_array_output_consolidated_path("p1.a")
+    archive = workflow._read_array_output_archive(path)
+    read.assert_not_called()
+    assert isinstance(archive.data, ChunkedArray)
+    assert len(archive.data.chunks) == 4
+    result = workflow.get_array_output("p1.a", 102)
+    np.testing.assert_array_equal(result.data, values[2])
+    assert read.call_count == 1
+    read.reset_mock()
+    result = workflow.get_array_output("p1.a", [102, 100, 102], sort=False)
+    np.testing.assert_array_equal(result.run_ID, [102, 100, 102])
+    for actual, expected in zip(result.data, [values[2], values[0], values[2]]):
+        np.testing.assert_array_equal(actual, expected)
+    assert {call.args[1] for call in read.call_args_list} == {0, 1}
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_array_output_legacy_consolidated_migration(
+    empty_workflow: Workflow, grouped: bool
+) -> None:
+    archive = _make_archive(
+        np.array([[1, 0, 0], [2, 3, 4]]), [100, 101], np.array([[1], [3]])
+    )
+    contents = hf.Workflow._merge_array_output_archives(
+        "p1.a", [archive], group_by_shape=grouped
+    )
+    buffer = BytesIO()
+    np.savez(buffer, allow_pickle=False, **contents)
+    root = empty_workflow._get_array_output_root("p1.a")
+    root.mkdir(parents=True)
+    legacy = root / "consolidated.npz.zst"
+    legacy.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
+    assert empty_workflow.list_array_outputs() == ["p1.a"]
+    before = empty_workflow.get_array_output("p1.a")
+    new_path = empty_workflow.consolidate_array_outputs(status=False)["p1.a"]
+    assert new_path.name == "consolidated.zip"
+    assert not legacy.exists()
+    after = empty_workflow.get_array_output("p1.a")
+    for actual, expected in zip(after.data, before.data):
+        np.testing.assert_array_equal(actual, expected)
+    assert isinstance(
+        empty_workflow._read_array_output_archive(new_path).data, ChunkedArray
+    )
+
+
+def test_array_output_nested_zip_uses_range_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zipfile import ZIP_STORED, ZipFile
+    from fsspec.implementations.zip import ZipFileSystem  # type: ignore[import-untyped]
+    from hpcflow.sdk.persistence.array_outputs import (
+        _StoredMember,
+        read_chunked_array_output,
+        write_chunked_array_output,
+    )
+
+    values = np.random.default_rng(0).random((1024, 512))
+    contents = hf.Workflow._merge_array_output_archives(
+        "x", [_make_archive(values, list(range(1024)))], group_by_shape=True
+    )
+    inner_path = tmp_path / "consolidated.zip"
+    write_chunked_array_output(inner_path, contents, chunk_bytes=64 * 1024)
+    outer_path = tmp_path / "workflow.zip"
+    with ZipFile(outer_path, "w", compression=ZIP_STORED) as outer:
+        outer.write(inner_path, "consolidated.zip")
+    sizes: list[int] = []
+    original_read = _StoredMember.read
+
+    def tracked_read(stream: _StoredMember, size: int | None = -1) -> bytes:
+        result = original_read(stream, size)
+        sizes.append(len(result))
+        return result
+
+    monkeypatch.setattr(_StoredMember, "read", tracked_read)
+    fs = ZipFileSystem(str(outer_path))
+    try:
+        data, _, _ = read_chunked_array_output(fs, "consolidated.zip")
+        np.testing.assert_array_equal(data[999], values[999])
+        assert sizes
+        assert sum(sizes) < inner_path.stat().st_size // 4
+    finally:
+        fs.close()
+
+
+def test_array_output_failed_verification_preserves_previous_archive(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zipfile import ZipFile
+    from hpcflow.sdk.persistence.array_outputs import write_chunked_array_output
+
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+    path = empty_workflow.consolidate_array_outputs(status=False)["p1.a"]
+    previous = path.read_bytes()
+    shard = _write_array_output_archive(
+        empty_workflow, "p1.a", 7, [101], np.array([[3, 4]])
+    )
+
+    def corrupt_write(path: Path, contents: dict[str, np.ndarray]) -> None:
+        write_chunked_array_output(path, contents)
+        with ZipFile(path) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        files["chunks/000000.npy"] = b"corrupt"
+        with ZipFile(path, "w") as archive:
+            for name, value in files.items():
+                archive.writestr(name, value)
+
+    monkeypatch.setattr(
+        "hpcflow.sdk.core.workflow.write_chunked_array_output", corrupt_write
+    )
+    with pytest.raises(ValueError):
+        empty_workflow.consolidate_array_outputs(status=False)
+    assert path.read_bytes() == previous
+    assert shard.is_file()
+    assert not list(path.parent.glob("*.partial"))
 
 
 def _make_archive(
