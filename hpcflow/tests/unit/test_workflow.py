@@ -622,8 +622,12 @@ def _archive_files(workflow: Workflow, name: str) -> list[str]:
 
 
 @pytest.mark.parametrize("ragged", [False, True])
+@pytest.mark.parametrize("dtype", [None, "int32", "int64"])
 def test_consolidate_array_outputs(
-    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch, ragged: bool
+    empty_workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+    ragged: bool,
+    dtype: str | None,
 ) -> None:
     ears_by_ID = {
         100: SimpleNamespace(run_file_ID=6, id_=100),
@@ -639,10 +643,11 @@ def test_consolidate_array_outputs(
             else [ears_by_ID[run_ID] for run_ID in run_IDs]
         ),
     )
-    second = np.array([3, 4, 5]) if ragged else np.array([3, 4])
+    first = np.array([1, 2], dtype=dtype)
+    second = np.array([3, 4, 5] if ragged else [3, 4], dtype=dtype)
     # two shards in different shard directories (0/6 and 1/0), newest run first:
     _write_array_output_archive(empty_workflow, "p1.a", 500, [101], second[None])
-    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
+    _write_array_output_archive(empty_workflow, "p1.a", 6, [100], first[None])
     assert _archive_files(empty_workflow, "p1.a") == ["0/6.npz.zst", "1/0.npz.zst"]
 
     results = empty_workflow.consolidate_array_outputs(status=False)
@@ -658,7 +663,10 @@ def test_consolidate_array_outputs(
         assert isinstance(archive.data, _ShapeGroupedArray)
         np.testing.assert_array_equal(archive.data[0], [1, 2])
         np.testing.assert_array_equal(archive.data[1], [3, 4, 5])
-        assert sum(group.nbytes for group in archive.data.groups) == 5 * 8
+        assert (
+            sum(group.nbytes for group in archive.data.groups)
+            == first.nbytes + second.nbytes
+        )
         np.testing.assert_array_equal(archive.shape, [[2], [3]])
     else:
         np.testing.assert_array_equal(archive.data, [[1, 2], [3, 4]])
@@ -678,7 +686,9 @@ def test_consolidate_array_outputs(
     assert empty_workflow._resolve_array_output_archive_path("p1.a", 6) == consolidated
 
     # a run saved after consolidation lands in a new shard and is folded in on repeat:
-    _write_array_output_archive(empty_workflow, "p1.a", 501, [102], np.array([[6, 7]]))
+    _write_array_output_archive(
+        empty_workflow, "p1.a", 501, [102], np.array([[6, 7]], dtype=dtype)
+    )
     assert _archive_files(empty_workflow, "p1.a") == [
         "1/1.npz.zst",
         "consolidated.npz.zst",
