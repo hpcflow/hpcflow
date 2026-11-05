@@ -464,46 +464,6 @@ def test_old_submission_without_worker_option_defaults_to_disabled(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("store", ["json", "zarr"])
-async def test_reloaded_submission_executes_generated_jobscript(tmp_path, store):
-    if getattr(sys, "frozen", False):
-        pytest.skip("Worker subprocess tests require Python.")
-    workflow, _ = make_run(
-        tmp_path,
-        store=store,
-        repeats=2,
-        enable_script_workers=True,
-        script="<<script:main_script_test_script_worker_process.py>>",
-    )
-    fresh = hf.Workflow(workflow.path)
-    submission = fresh.submissions[0]
-    assert submission.enable_script_workers is True
-    submission.prepare_submit()
-    jobscript = submission.jobscripts[0]
-    path = jobscript.write_jobscript()
-    process = await asyncio.create_subprocess_exec(
-        *jobscript.shell.get_command_file_launch_command(str(path)),
-        cwd=fresh.path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90)
-        assert process.returncode == 0, (stdout.decode(), stderr.decode())
-    finally:
-        if process.returncode is None:
-            process.kill()
-            await process.wait()
-    completed = hf.Workflow(workflow.path)
-    assert all(run.success and run.end_time for run in completed.get_all_EARs())
-    worker_pids = [element.outputs.p2.value for element in completed.tasks[0].elements]
-    assert worker_pids[0] == worker_pids[1]
-    assert worker_pids[0] > 0
-    assert worker_pids[0] not in (os.getpid(), process.pid)
-    assert jobscript.completion_obj.is_complete()
-
-
-@pytest.mark.asyncio
 async def test_script_worker_survives_intervening_external_action(tmp_path, monkeypatch):
     """Verify a worker survives an external action and is reused afterward."""
     if getattr(sys, "frozen", False):
@@ -607,6 +567,7 @@ async def test_script_worker_survives_intervening_external_action(tmp_path, monk
 async def test_reloaded_jobscript_isolates_and_reuses_environment_workers(
     tmp_path, store, different_interpreters, reload_template_components, monkeypatch
 ):
+    """Execute a reloaded jobscript and verify worker reuse, isolation and cleanup."""
     if getattr(sys, "frozen", False):
         pytest.skip("Worker subprocess tests require Python.")
     second_python = getattr(sys, "_base_executable", sys.executable)
@@ -691,6 +652,7 @@ async def test_reloaded_jobscript_isolates_and_reuses_environment_workers(
     workflow.add_submission(enable_script_workers=True)
     fresh = hf.Workflow(workflow.path)
     submission = fresh.submissions[0]
+    assert submission.enable_script_workers is True
     assert len(submission.jobscripts) == 1
     runs = fresh.get_all_EARs()
     identities = [run.script_worker_id for run in runs]
@@ -730,6 +692,8 @@ async def test_reloaded_jobscript_isolates_and_reuses_environment_workers(
     assert results[1]["pid"] == results[3]["pid"]
     assert results[0]["pid"] != results[1]["pid"]
     for index, (run, result) in enumerate(zip(finalized, results)):
+        assert result["pid"] > 0
+        assert result["pid"] not in (os.getpid(), process.pid)
         group = "one" if index % 2 == 0 else "two"
         assert result["group"] == result["setup_group"] == group
         assert result["run_id"] == str(run.id_)
@@ -906,6 +870,12 @@ def test_output_persistence_error_is_nonzero_and_diagnostic(tmp_path, monkeypatc
     assert "save failed" in (tmp_path / "run.std").read_text()
 
 
+@pytest.fixture(scope="module")
+def system_exit_run(tmp_path_factory):
+    """Share a run whose outputs and finalization must remain untouched."""
+    return make_run(tmp_path_factory.mktemp("system_exit_run"))
+
+
 @pytest.mark.parametrize(
     "code",
     [
@@ -930,7 +900,7 @@ def test_output_persistence_error_is_nonzero_and_diagnostic(tmp_path, monkeypatc
     ],
 )
 def test_system_exit_returns_process_status_and_restores_context(
-    tmp_path, monkeypatch, code
+    tmp_path, monkeypatch, code, system_exit_run
 ):
     if getattr(sys, "frozen", False):
         pytest.skip("Comparing interpreter exit codes requires Python.")
@@ -941,7 +911,7 @@ def test_system_exit_returns_process_status_and_restores_context(
         timeout=10,
     )
     expected_exit_code = RunExecutor._normalise_return_code(process.returncode)
-    workflow, run = make_run(tmp_path)
+    workflow, run = system_exit_run
     save_parameter = Mock()
     monkeypatch.setattr(workflow, "save_parameter", save_parameter)
     cwd = Path.cwd()
@@ -1267,24 +1237,35 @@ def test_input_file_generator_leaves_promised_file_validation_to_parent(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("exit_codes", "system_exit", "exit_message"),
+    "scenarios",
     [
-        ((0, 0), False, None),
-        ((1, 1), False, None),
-        ((1, 0), False, None),
-        ((0, 0), True, None),
-        ((7, 0), True, None),
-        ((ABORT_EXIT_CODE, 0), True, None),
-        ((1, 0), True, "worker exit message"),
+        pytest.param([((0, 0), False, None)], id="builtin"),
+        pytest.param(
+            [
+                ((1, 1), False, None),
+                ((1, 0), False, None),
+                ((0, 0), True, None),
+                ((7, 0), True, None),
+                ((ABORT_EXIT_CODE, 0), True, None),
+                ((1, 0), True, "worker exit message"),
+            ],
+            id="failures-and-system-exit",
+        ),
     ],
 )
 async def test_generated_adapter_over_real_transport_persists_and_reuses_worker(
-    tmp_path, monkeypatch, exit_codes, system_exit, exit_message
+    tmp_path, monkeypatch, scenarios
 ):
+    """Reuse one worker across recovery scenarios, keeping each run's state distinct."""
     if getattr(sys, "frozen", False):
         pytest.skip("This worker subprocess test requires Python.")
-    workflow, run = make_run(tmp_path, repeats=2)
-    if any(exit_codes) or system_exit:
+    expectations = [
+        (exit_code, system_exit and index == 0, exit_message)
+        for exit_codes, system_exit, exit_message in scenarios
+        for index, exit_code in enumerate(exit_codes)
+    ]
+    workflow, run = make_run(tmp_path, repeats=len(expectations))
+    if any(exit_code or system_exit for exit_code, system_exit, _ in expectations):
         snippet = tmp_path / "worker_action.py"
         snippet.write_text(
             "def worker_action(p1):\n"
@@ -1341,18 +1322,19 @@ async def test_generated_adapter_over_real_transport_persists_and_reuses_worker(
     try:
         await client.start()
         process = client.worker.process
-        for element_idx, bound_run in enumerate(runs):
+        for element_idx, (bound_run, expected) in enumerate(zip(runs, expectations)):
+            exit_code, system_exit, exit_message = expected
             invocation = ScriptWorkerRun(
                 client,
                 ExecuteScriptRequest(bound_run.id_, 0, 0, element_idx),
                 {
                     **os.environ,
-                    "WORKER_FAIL": str(exit_codes[element_idx]),
-                    "WORKER_EXIT_NOW": str(int(system_exit and element_idx == 0)),
+                    "WORKER_FAIL": str(exit_code),
+                    "WORKER_EXIT_NOW": str(int(system_exit)),
                     "WORKER_EXIT_MESSAGE": exit_message or "",
                 },
             )
-            assert await invocation.run() == exit_codes[element_idx]
+            assert await invocation.run() == exit_code, (element_idx, expected)
             assert invocation.child_work_times[0] >= 0
             assert invocation.child_orchestration_times[0] >= 0
             assert client.worker.process is process
@@ -1361,8 +1343,10 @@ async def test_generated_adapter_over_real_transport_persists_and_reuses_worker(
     finally:
         await client.abort()
     fresh = hf.Workflow(workflow.path)
-    for index, (bound_run, exit_code) in enumerate(zip(fresh.get_all_EARs(), exit_codes)):
-        if system_exit and index == 0:
+    for bound_run, (exit_code, system_exit, exit_message) in zip(
+        fresh.get_all_EARs(), expectations
+    ):
+        if system_exit:
             assert bound_run.get("outputs.p2") is None
             if exit_message is not None:
                 assert (
