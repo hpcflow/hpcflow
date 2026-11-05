@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 import codecs
-from contextlib import contextmanager, nullcontext
+from contextlib import closing, contextmanager, ExitStack, nullcontext
 import copy
 from dataclasses import dataclass, field, fields, replace
 import errno
@@ -21,7 +21,6 @@ import random
 import shutil
 import string
 import sys
-from tempfile import SpooledTemporaryFile
 from threading import Thread
 import time
 from typing import ParamSpec, SupportsIndex, TypeVar, overload, cast, TYPE_CHECKING
@@ -72,7 +71,12 @@ from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.array_outputs import (
     ChunkedArray,
     read_chunked_array_output,
-    write_chunked_array_output,
+    write_streamed_array_output,
+)
+from hpcflow.sdk.persistence.array_output_sources import (
+    ArrayOutputBuffer as _ArrayOutputBuffer,
+    normalize_metadata,
+    open_array_output_source,
 )
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import (
@@ -125,7 +129,7 @@ from hpcflow.sdk.core.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
     from typing import TextIO
@@ -1156,16 +1160,6 @@ class ArrayOutput:
             if field.name == "name":
                 attributes.append(f"    dtype={self.dtype},")
         return f"{self.__class__.__name__}(\n" + "\n".join(attributes) + "\n)"
-
-
-class _ArrayOutputBuffer(SpooledTemporaryFile[bytes]):
-    """Spool binary archives with the seekable interface ZipFile needs on Python 3.10."""
-
-    def seekable(self) -> bool:
-        # Both the in-memory buffer and the rolled-over file support seeking.
-        # Python 3.10's SpooledTemporaryFile does not expose this method.
-        self.tell()  # preserve the usual ValueError after the buffer is closed
-        return True
 
 
 @dataclass(frozen=True)
@@ -6060,54 +6054,63 @@ class Workflow(AppAware):
         has_shape_metadata = False
         has_member_metadata = False
         member_indices: list[int] = []
-        for run_ID, archive_path in run_files:
-            archive = self._load_array_output_archive(name, archive_path, loaded_archives)
-            data, shapes = archive.data, archive.shape
-            has_shape_metadata |= shapes is not None
-            has_member_metadata |= archive.member_idx is not None
-            if isinstance(data, ChunkedArray):
-                start, stop = np.searchsorted(
-                    archive.run_ID, run_ID, side="left"
-                ), np.searchsorted(archive.run_ID, run_ID, side="right")
-                matching_indices = np.arange(start, stop)
-            else:
-                matching_indices = np.flatnonzero(archive.run_ID == run_ID)
-            if not len(matching_indices) or (
-                archive.member_idx is None and len(matching_indices) != 1
-            ):
-                raise ValueError(
-                    f"Expected one entry for run ID {run_ID} in array-output archive "
-                    f"for {name!r}, found {len(matching_indices)}."
+        with ExitStack() as readers:
+            opened_archives: set[int] = set()
+            for run_ID, archive_path in run_files:
+                archive = self._load_array_output_archive(
+                    name, archive_path, loaded_archives
                 )
-
-            if archive.member_idx is not None:
-                selected_members = archive.member_idx[matching_indices]
-                if len(np.unique(selected_members)) != len(selected_members):
-                    raise ValueError(
-                        f"Duplicate member indices for run ID {run_ID} in "
-                        f"array output {name!r}."
-                    )
-                matching_indices = matching_indices[
-                    np.argsort(selected_members, kind="stable")
-                ]
-            for archive_idx in matching_indices:
-                entry = data[archive_idx]
-                if shapes is None:
-                    array_shape = entry.shape
+                data, shapes = archive.data, archive.shape
+                if isinstance(data, ChunkedArray) and id(data) not in opened_archives:
+                    readers.enter_context(data.reading())
+                    opened_archives.add(id(data))
+                has_shape_metadata |= shapes is not None
+                has_member_metadata |= archive.member_idx is not None
+                if isinstance(data, ChunkedArray):
+                    start, stop = np.searchsorted(
+                        archive.run_ID, run_ID, side="left"
+                    ), np.searchsorted(archive.run_ID, run_ID, side="right")
+                    matching_indices = np.arange(start, stop)
                 else:
-                    array_shape = tuple(int(dim) for dim in shapes[archive_idx])
-                array_slices: tuple[slice, ...] = tuple(
-                    slice(0, dim) for dim in array_shape
-                )
-                output_arrays.append(np.array(entry[array_slices]))
-                output_shapes.append(array_shape)
-                member_indices.append(
-                    int(archive.member_idx[archive_idx])
-                    if archive.member_idx is not None
-                    else -1
-                )
-                for key, values in metadata.items():
-                    values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
+                    matching_indices = np.flatnonzero(archive.run_ID == run_ID)
+                if not len(matching_indices) or (
+                    archive.member_idx is None and len(matching_indices) != 1
+                ):
+                    raise ValueError(
+                        f"Expected one entry for run ID {run_ID} in array-output archive "
+                        f"for {name!r}, found {len(matching_indices)}."
+                    )
+
+                if archive.member_idx is not None:
+                    selected_members = archive.member_idx[matching_indices]
+                    if len(np.unique(selected_members)) != len(selected_members):
+                        raise ValueError(
+                            f"Duplicate member indices for run ID {run_ID} in "
+                            f"array output {name!r}."
+                        )
+                    matching_indices = matching_indices[
+                        np.argsort(selected_members, kind="stable")
+                    ]
+                for archive_idx in matching_indices:
+                    entry = data[archive_idx]
+                    if shapes is None:
+                        array_shape = entry.shape
+                    else:
+                        array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+                    array_slices: tuple[slice, ...] = tuple(
+                        slice(0, dim) for dim in array_shape
+                    )
+                    output_arrays.append(np.array(entry[array_slices]))
+                    output_shapes.append(array_shape)
+                    member_indices.append(
+                        int(archive.member_idx[archive_idx])
+                        if archive.member_idx is not None
+                        else -1
+                    )
+                    for key, values in metadata.items():
+                        values.append(
+                            getattr(archive, key)[archive_idx : archive_idx + 1]
+                        )
 
         combined_metadata = {
             key: np.concatenate(values) for key, values in metadata.items()
@@ -6220,9 +6223,11 @@ class Workflow(AppAware):
         Mixed shapes are stored in independently compressed chunks without global
         padding, targeting 16 MiB per chunk (larger entries get their own chunk).
         Existing NPZ/Zstandard archives remain readable and are migrated on
-        consolidation, including when no new shards exist. Consolidation still
-        loads source shards and merged arrays into memory, but chunk writes, reads,
-        and verification avoid full-size serialization buffers. Older hpcflow
+        consolidation, including when no new shards exist. A metadata pass is
+        followed by a payload pass, opening one source at a time and buffering at
+        most 32 MiB of shape chunks, plus source entries and metadata. Legacy NPZs
+        spill to temporary disk above 8 MiB; nonstandard compressed/Fortran NPYs
+        can still load one source array. Older hpcflow
         versions cannot read the indexed format.
 
         Parameters
@@ -6293,18 +6298,93 @@ class Workflow(AppAware):
 
         # existing consolidated data first, then shards in path order:
         sources = ([existing] if existing is not None else []) + shard_paths
-        archives = [self._read_array_output_archive(path) for path in sources]
-        expected_count = sum(len(archive.run_ID) for archive in archives)
-        merged = self._merge_array_output_archives(name, archives, group_by_shape=True)
-        del archives
+        plans: list[tuple[dict[str, np.ndarray], np.ndarray, np.dtype]] = []
+        merged_dtype: np.dtype | None = None
+        ndim = None
+        # Pass one keeps only metadata, shapes and dtypes, never source payloads.
+        for path in sources:
+            with open_array_output_source(self._array_output_fs, path) as source:
+                if ndim is not None and ndim != source.shapes.shape[1]:
+                    raise ValueError(
+                        f"Cannot consolidate array output {name!r}: archives have different dimensionality."
+                    )
+                ndim = source.shapes.shape[1]
+                merged_dtype = (
+                    source.dtype
+                    if merged_dtype is None
+                    else _resolve_array_output_dtype(
+                        name, merged_dtype, source.dtype, action="consolidate"
+                    )
+                )
+                plans.append(
+                    (
+                        normalize_metadata(source.metadata, name),
+                        source.shapes.copy(),
+                        source.dtype,
+                    )
+                )
+        assert merged_dtype is not None
+        metadata = {
+            key: np.concatenate([plan[0][key] for plan in plans])
+            for key in plans[0][0]
+            if key != "member_idx"
+        }
+        has_members = any("member_idx" in plan[0] for plan in plans)
+        members = np.concatenate(
+            [
+                plan[0].get(
+                    "member_idx", np.full(len(plan[0]["run_ID"]), -1, dtype=np.int64)
+                )
+                for plan in plans
+            ]
+        )
+        order = np.lexsort((members, metadata["run_ID"]))
+        runs = metadata["run_ID"][order]
+        sorted_members = members[order]
+        duplicate = (runs[1:] == runs[:-1]) & (sorted_members[1:] == sorted_members[:-1])
+        if np.any(duplicate):
+            raise ValueError(
+                f"Cannot consolidate array output {name!r}: run/member pairs appear more than once."
+            )
+        expected_count = len(order)
+        destination_indices = np.empty(expected_count, dtype=np.int64)
+        destination_indices[order] = np.arange(expected_count)
+        metadata = {key: values[order] for key, values in metadata.items()}
+        if has_members:
+            metadata["member_idx"] = sorted_members
+        shapes = np.concatenate([plan[1] for plan in plans], axis=0)[order]
+
+        def entries() -> Generator[tuple[int, np.ndarray], None, None]:
+            offset = 0
+            for path, (saved_metadata, saved_shapes, saved_dtype) in zip(sources, plans):
+                with open_array_output_source(self._array_output_fs, path) as source:
+                    current = normalize_metadata(source.metadata, name)
+                    if (
+                        current.keys() != saved_metadata.keys()
+                        or source.dtype != saved_dtype
+                        or not np.array_equal(source.shapes, saved_shapes)
+                        or any(
+                            not np.array_equal(current[key], value)
+                            for key, value in saved_metadata.items()
+                        )
+                    ):
+                        raise RuntimeError(
+                            f"Array-output source {path} changed during consolidation."
+                        )
+                    for source_index in source.entry_order:
+                        index = int(source_index)
+                        yield int(destination_indices[offset + index]), source[index]
+                offset += len(saved_shapes)
 
         # Stream independently compressed chunks into an atomic replacement file.
         partial_path = consolidated_path.with_name(
             f"{consolidated_path.name}.{uuid4().hex}.partial"
         )
         try:
-            write_chunked_array_output(partial_path, merged)
-            del merged
+            with closing(entries()) as source_entries:
+                write_streamed_array_output(
+                    partial_path, metadata, merged_dtype, shapes, source_entries
+                )
             # Verify the index and every chunk before replacing an existing archive.
             verified = self._read_array_output_archive(partial_path)
             if len(verified.run_ID) != expected_count:

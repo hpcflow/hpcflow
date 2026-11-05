@@ -844,12 +844,12 @@ def test_consolidate_array_outputs_write_failure_keeps_shards(
 ) -> None:
     _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
 
-    def failed_copy(path, contents):
+    def failed_copy(path, *args, **kwargs):
         path.write_bytes(b"partial")
         raise OSError("simulated disk failure")
 
     monkeypatch.setattr(
-        "hpcflow.sdk.core.workflow.write_chunked_array_output", failed_copy
+        "hpcflow.sdk.core.workflow.write_streamed_array_output", failed_copy
     )
     with pytest.raises(OSError, match="simulated disk failure"):
         empty_workflow.consolidate_array_outputs(status=False)
@@ -866,7 +866,7 @@ def test_array_output_partial_reads(
 ) -> None:
     from functools import partial
     from zipfile import ZIP_STORED, ZipFile
-    from hpcflow.sdk.persistence.array_outputs import write_chunked_array_output
+    from hpcflow.sdk.persistence.array_outputs import write_streamed_array_output
 
     values = [
         np.arange(2, dtype=np.int64),
@@ -879,8 +879,8 @@ def test_array_output_partial_reads(
             empty_workflow, "p1.a", index, [100 + index], value[None]
         )
     monkeypatch.setattr(
-        "hpcflow.sdk.core.workflow.write_chunked_array_output",
-        partial(write_chunked_array_output, chunk_bytes=16),
+        "hpcflow.sdk.core.workflow.write_streamed_array_output",
+        partial(write_streamed_array_output, chunk_bytes=16),
     )
     empty_workflow.consolidate_array_outputs(status=False)
     workflow = empty_workflow
@@ -930,7 +930,8 @@ def test_array_output_partial_reads(
     np.testing.assert_array_equal(result.run_ID, [102, 100, 102])
     for actual, expected in zip(result.data, [values[2], values[0], values[2]]):
         np.testing.assert_array_equal(actual, expected)
-    assert {call.args[1] for call in read.call_args_list} == {0, 1}
+    expected_chunks = {int(archive.data.chunk_idx[index]) for index in (0, 2)}
+    assert {call.args[1] for call in read.call_args_list} == expected_chunks
 
 
 @pytest.mark.parametrize("grouped", [False, True])
@@ -1005,7 +1006,7 @@ def test_array_output_failed_verification_preserves_previous_archive(
     empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from zipfile import ZipFile
-    from hpcflow.sdk.persistence.array_outputs import write_chunked_array_output
+    from hpcflow.sdk.persistence.array_outputs import write_streamed_array_output
 
     _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
     path = empty_workflow.consolidate_array_outputs(status=False)["p1.a"]
@@ -1014,8 +1015,14 @@ def test_array_output_failed_verification_preserves_previous_archive(
         empty_workflow, "p1.a", 7, [101], np.array([[3, 4]])
     )
 
-    def corrupt_write(path: Path, contents: dict[str, np.ndarray]) -> None:
-        write_chunked_array_output(path, contents)
+    def corrupt_write(
+        path: Path,
+        metadata: dict[str, np.ndarray],
+        dtype: np.dtype,
+        shapes: np.ndarray,
+        entries,
+    ) -> None:
+        write_streamed_array_output(path, metadata, dtype, shapes, entries)
         with ZipFile(path) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}
         files["chunks/000000.npy"] = b"corrupt"
@@ -1024,13 +1031,90 @@ def test_array_output_failed_verification_preserves_previous_archive(
                 archive.writestr(name, value)
 
     monkeypatch.setattr(
-        "hpcflow.sdk.core.workflow.write_chunked_array_output", corrupt_write
+        "hpcflow.sdk.core.workflow.write_streamed_array_output", corrupt_write
     )
     with pytest.raises(ValueError):
         empty_workflow.consolidate_array_outputs(status=False)
     assert path.read_bytes() == previous
     assert shard.is_file()
     assert not list(path.parent.glob("*.partial"))
+
+
+def test_array_output_consolidation_opens_one_source_at_a_time(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+    from hpcflow.sdk.persistence.array_output_sources import open_array_output_source
+
+    for index in range(6):
+        _write_array_output_archive(
+            empty_workflow, "p1.a", index, [100 + index], np.full((1, 4), index)
+        )
+    active = 0
+    opens = 0
+
+    @contextmanager
+    def guarded_source(fs, path):
+        nonlocal active, opens
+        assert active == 0
+        active += 1
+        opens += 1
+        try:
+            with open_array_output_source(fs, path) as source:
+                yield source
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(
+        "hpcflow.sdk.core.workflow.open_array_output_source", guarded_source
+    )
+    monkeypatch.setattr(
+        empty_workflow,
+        "_merge_array_output_archives",
+        Mock(side_effect=AssertionError("full-data merge")),
+    )
+    empty_workflow.consolidate_array_outputs(status=False)
+    assert active == 0
+    assert opens == 12  # metadata pass, then payload pass
+    np.testing.assert_array_equal(
+        empty_workflow.get_array_output("p1.a").data,
+        np.repeat(np.arange(6)[:, None], 4, axis=1),
+    )
+
+
+@pytest.mark.parametrize("change", ["metadata", "shape", "dtype"])
+def test_array_output_consolidation_detects_source_changes(
+    empty_workflow: Workflow, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    from contextlib import contextmanager
+    from hpcflow.sdk.persistence.array_output_sources import open_array_output_source
+
+    shard = _write_array_output_archive(
+        empty_workflow, "p1.a", 6, [100], np.array([[1, 2]])
+    )
+    opens = 0
+
+    @contextmanager
+    def changed_source(fs, path):
+        nonlocal opens
+        opens += 1
+        with open_array_output_source(fs, path) as source:
+            if opens == 2:
+                if change == "metadata":
+                    source.metadata["run_ID"] = source.metadata["run_ID"] + 1
+                elif change == "shape":
+                    source.shapes = source.shapes + 1
+                else:
+                    source.dtype = np.dtype(np.float64)
+            yield source
+
+    monkeypatch.setattr(
+        "hpcflow.sdk.core.workflow.open_array_output_source", changed_source
+    )
+    with pytest.raises(RuntimeError, match="changed during consolidation"):
+        empty_workflow.consolidate_array_outputs(status=False)
+    assert shard.is_file()
+    assert not list(shard.parent.parent.glob("*.partial"))
 
 
 def _make_archive(

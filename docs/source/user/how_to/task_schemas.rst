@@ -285,9 +285,25 @@ Array archives store task, element, iteration, action, and run IDs and indices a
 than wrapping them. Existing signed metadata remains readable and is converted
 when archives are merged. Member indices remain signed to preserve the ``-1``
 whole-value marker.
-Consolidation still holds source shards and grouped destination arrays in memory.
-It streams chunks directly to a temporary replacement archive and verifies every
-chunk before replacing the previous archive and removing the source shards.
+Consolidation makes two passes over its sources. The first collects metadata,
+original shapes, and dtypes; the second copies entries one source at a time into
+shape buffers with a shared 32 MiB budget. Full buffers and evicted partial
+buffers are written directly as chunks. An entry exceeding 16 MiB is written on
+its own after flushing the shape buffers. Metadata stays in RAM, but complete
+source collections and destination groups are never materialized there.
+Source metadata, shapes, and dtypes are checked again in the second pass to
+detect changes during consolidation.
+
+For live and legacy ``.npz.zst`` sources, the decompressed NPZ spills to the system
+temporary directory above 8 MiB. Entries in standard uncompressed C-order NPY
+members are then read individually, trimming existing padding. This needs
+temporary disk space up to the largest decompressed source NPZ and decompresses
+each source twice. Externally compressed or Fortran-order legacy NPZs use a
+compatibility fallback that can load one source array into RAM. Indexed sources
+use their existing partial-read path. Source ZIP checksums and output chunks are
+verified without loading the complete standard array into RAM.
+Consolidation writes a temporary replacement archive and verifies every chunk
+before replacing the previous archive and removing the source shards.
 Indexed reads need no full-size temporary decompressed file. Legacy reads retain
 the temporary-file fallback above 8 MiB of decompressed NPZ data. Passing
 ``consolidate=False`` to ``Workflow.zip`` (or ``--no-consolidate`` on the CLI)

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from contextlib import contextmanager
+from collections import Counter, OrderedDict
 from io import BytesIO, BufferedIOBase
 import json
 from pathlib import Path
 import struct
-from typing import Any, BinaryIO, Iterator, SupportsIndex, TYPE_CHECKING
+from typing import Any, BinaryIO, Iterable, Iterator, SupportsIndex, TYPE_CHECKING
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from fsspec.core import OpenFile  # type: ignore
@@ -133,29 +134,123 @@ def write_chunked_array_output(
                 chunks.append({"name": name, "shape": list(data.shape)})
                 with archive.open(name, "w", force_zip64=True) as stream:
                     np.save(stream, data, allow_pickle=False)
-        metadata = {key: contents[key] for key in METADATA_NAMES}
-        metadata.update(chunk_idx=chunk_idx, row_idx=row_idx)
-        if "member_idx" in contents:
-            metadata["member_idx"] = contents["member_idx"]
-        buffer = BytesIO()
-        # NumPy 1.x treats savez(allow_pickle=False) as another array, rather
-        # than an option. Write NPY members explicitly to disable pickle on all
-        # supported versions without creating an "allow_pickle" metadata entry.
-        with ZipFile(buffer, "w", compression=ZIP_STORED) as metadata_archive:
-            for key, values in metadata.items():
-                with metadata_archive.open(f"{key}.npy", "w", force_zip64=True) as member:
-                    np.save(member, values, allow_pickle=False)
-        archive.writestr("metadata.npz", buffer.getvalue())
-        archive.writestr(
-            "format.json",
-            json.dumps(
-                {
-                    "version": 1,
-                    "dtype": np.lib.format.dtype_to_descr(groups[0].dtype),
-                    "chunks": chunks,
-                }
-            ),
-        )
+        _write_index(archive, contents, groups[0].dtype, chunks, chunk_idx, row_idx)
+
+
+def _write_index(
+    archive: ZipFile,
+    contents: dict[str, np.ndarray],
+    dtype: np.dtype,
+    chunks: list[dict[str, Any]],
+    chunk_idx: np.ndarray,
+    row_idx: np.ndarray,
+) -> None:
+    metadata = {key: contents[key] for key in METADATA_NAMES}
+    metadata.update(chunk_idx=chunk_idx, row_idx=row_idx)
+    if "member_idx" in contents:
+        metadata["member_idx"] = contents["member_idx"]
+    buffer = BytesIO()
+    # NumPy 1.x interprets savez(allow_pickle=False) as an extra array.
+    with ZipFile(buffer, "w", compression=ZIP_STORED) as metadata_archive:
+        for key, values in metadata.items():
+            with metadata_archive.open(f"{key}.npy", "w", force_zip64=True) as member:
+                np.save(member, values, allow_pickle=False)
+    archive.writestr("metadata.npz", buffer.getvalue())
+    archive.writestr(
+        "format.json",
+        json.dumps(
+            {
+                "version": 1,
+                "dtype": np.lib.format.dtype_to_descr(dtype),
+                "chunks": chunks,
+            }
+        ),
+    )
+
+
+def write_streamed_array_output(
+    path: Path,
+    metadata: dict[str, np.ndarray],
+    dtype: np.dtype,
+    shapes: np.ndarray,
+    entries: Iterable[tuple[int, np.ndarray]],
+    *,
+    chunk_bytes: int = ARRAY_OUTPUT_CHUNK_BYTES,
+) -> None:
+    """Consume entries once with at most two target chunks of active shape buffers.
+
+    Metadata is already sorted; entries may arrive in source order. Evicting a
+    partly filled buffer writes a smaller valid chunk. Oversized entries are
+    written directly after flushing other buffers.
+    """
+    if chunk_bytes < 1:
+        raise ValueError("Chunk size must be positive.")
+    count = len(metadata["run_ID"])
+    shape_counts = Counter(tuple(int(dim) for dim in shape) for shape in shapes)
+    buffers: OrderedDict[tuple[int, ...], tuple[np.ndarray, list[int]]] = OrderedDict()
+    chunk_idx = np.empty(count, dtype=np.uint32)
+    row_idx = np.empty(count, dtype=np.uint32)
+    seen = np.zeros(count, dtype=bool)
+    chunks: list[dict[str, Any]] = []
+    with ZipFile(path, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
+
+        def write_chunk(data: np.ndarray, indices: list[int]) -> None:
+            index = len(chunks)
+            if index > 2**32 - 1:
+                raise OverflowError("Too many array-output chunks for uint32 indices.")
+            name = f"chunks/{index:06d}.npy"
+            chunks.append({"name": name, "shape": list(data.shape)})
+            chunk_idx[indices] = index
+            row_idx[indices] = np.arange(len(indices), dtype=np.uint32)
+            with archive.open(name, "w", force_zip64=True) as stream:
+                np.save(stream, data, allow_pickle=False)
+
+        def flush() -> None:
+            _, (buffer, indices) = buffers.popitem(last=False)
+            write_chunk(buffer[: len(indices)], indices)
+
+        for index, value in entries:
+            if index < 0 or index >= count or seen[index]:
+                raise ValueError("Duplicate or invalid array-output entry index.")
+            shape = tuple(int(dim) for dim in shapes[index])
+            if value.shape != shape:
+                raise ValueError(
+                    "Array-output source changed shape during consolidation."
+                )
+            entry_bytes = int(np.prod(shape, dtype=object)) * dtype.itemsize
+            if entry_bytes > chunk_bytes:
+                while buffers:
+                    flush()
+                write_chunk(np.asarray(value, dtype=dtype)[None], [index])
+            else:
+                if shape not in buffers:
+                    capacity = min(
+                        shape_counts[shape], max(1, chunk_bytes // max(1, entry_bytes))
+                    )
+                    needed = capacity * entry_bytes
+                    while (
+                        buffers
+                        and sum(buf.nbytes for buf, _ in buffers.values()) + needed
+                        > 2 * chunk_bytes
+                    ):
+                        flush()
+                    buffers[shape] = (np.empty((capacity, *shape), dtype=dtype), [])
+                buffer, indices = buffers[shape]
+                buffer[len(indices)] = value
+                indices.append(index)
+                buffers.move_to_end(shape)
+                if len(indices) == len(buffer):
+                    del buffers[shape]
+                    write_chunk(buffer, indices)
+                # Do not retain an evicted/finished buffer through local variables.
+                del buffer, indices
+            seen[index] = True
+            del value
+        while buffers:
+            flush()
+        if not np.all(seen):
+            raise ValueError("Missing array-output entries during consolidation.")
+        _write_index(archive, metadata, dtype, chunks, chunk_idx, row_idx)
 
 
 @dataclass
@@ -170,6 +265,7 @@ class ChunkedArray:
     row_idx: np.ndarray
     _cached_index: int = field(default=-1, init=False)
     _cached_data: np.ndarray | None = field(default=None, init=False)
+    _archive: ZipFile | None = field(default=None, init=False, repr=False)
 
     @property
     def ndim(self) -> int:
@@ -184,10 +280,15 @@ class ChunkedArray:
         return len(self.chunk_idx)
 
     def _read_chunk(self, index: int) -> np.ndarray:
-        name, shape = self.chunks[index]
+        if self._archive is not None:
+            return self._load_chunk(index, self._archive)
         with _open_archive(self.fs, self.path) as stream, ZipFile(stream) as archive:
-            with archive.open(name) as member:
-                data = np.load(member, allow_pickle=False)
+            return self._load_chunk(index, archive)
+
+    def _load_chunk(self, index: int, archive: ZipFile) -> np.ndarray:
+        name, shape = self.chunks[index]
+        with archive.open(name) as member:
+            data = np.load(member, allow_pickle=False)
         if (
             not isinstance(data, np.ndarray)
             or data.shape != shape
@@ -195,6 +296,21 @@ class ChunkedArray:
         ):
             raise ValueError(f"Invalid array-output chunk {name!r} in {self.path}.")
         return data
+
+    @contextmanager
+    def reading(self) -> Iterator[ChunkedArray]:
+        """Share one ZIP handle for a request; close it before replacing the file."""
+        if self._archive is not None:
+            yield self
+            return
+        with _open_archive(self.fs, self.path) as stream, ZipFile(stream) as archive:
+            self._archive = archive
+            try:
+                yield self
+            finally:
+                self._archive = None
+                self._cached_data = None
+                self._cached_index = -1
 
     def __getitem__(self, index: SupportsIndex) -> np.ndarray:
         chunk = int(self.chunk_idx[index])
@@ -207,8 +323,9 @@ class ChunkedArray:
 
     def verify(self) -> None:
         """Read each chunk once to validate its dtype, shape, and ZIP CRC."""
-        for index in range(len(self.chunks)):
-            self._read_chunk(index)
+        with self.reading():
+            for index in range(len(self.chunks)):
+                self._read_chunk(index)
 
 
 def read_chunked_array_output(
