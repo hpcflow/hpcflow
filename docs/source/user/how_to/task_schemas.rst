@@ -294,14 +294,23 @@ source collections and destination groups are never materialized there.
 Source metadata, shapes, and dtypes are checked again in the second pass to
 detect changes during consolidation.
 
-For live and legacy ``.npz.zst`` sources, the decompressed NPZ spills to the system
-temporary directory above 8 MiB. Entries in standard uncompressed C-order NPY
+For live and legacy ``.npz.zst`` sources, the decompressed NPZ spills to a unique subdirectory of
+``WORKFLOW/parameters/array_outputs/.tmp/`` above 8 MiB. Entries in standard uncompressed C-order NPY
 members are then read individually, trimming existing padding. This needs
 temporary disk space up to the largest decompressed source NPZ and decompresses
 each source twice. Externally compressed or Fortran-order legacy NPZs use a
 compatibility fallback that can load one source array into RAM. Indexed sources
 use their existing partial-read path. Source ZIP checksums and output chunks are
 verified without loading the complete standard array into RAM.
+To use an existing scratch directory instead of the workflow-adjacent default,
+pass ``temp_dir="/scratch/my-job"`` to ``Workflow.consolidate_array_outputs`` or
+``Workflow.zip``. The corresponding CLI commands accept
+``--temp-dir /scratch/my-job``. A unique subdirectory is created under that
+directory for each output and removed afterward, including on failure. The
+default ``.tmp`` parent may remain empty so concurrent operations can share it
+safely. This controls decompressed source buffers in both passes; small buffers
+remain in RAM. Temporary replacement archives stay beside
+the destination archive to preserve atomic replacement across filesystems.
 Consolidation writes a temporary replacement archive and verifies every chunk
 before replacing the previous archive and removing the source shards.
 Indexed reads need no full-size temporary decompressed file. Legacy reads retain

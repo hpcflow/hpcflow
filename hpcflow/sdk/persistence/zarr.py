@@ -3271,7 +3271,8 @@ class ZarrPersistentStore(
                 add_pw_to="target_options",
             )
             dst_zarr_store = FSStore(url="", fs=zfs)
-            excludes = []
+            # Another consolidation may still have large temporary NPZs here.
+            excludes = [r"^parameters/array_outputs/\.tmp(?:/|$)"]
             if not include_execute:
                 excludes.append("execute")
             if not include_rechunk_backups:

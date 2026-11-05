@@ -21,6 +21,7 @@ import random
 import shutil
 import string
 import sys
+from tempfile import TemporaryDirectory
 from threading import Thread
 import time
 from typing import ParamSpec, SupportsIndex, TypeVar, overload, cast, TYPE_CHECKING
@@ -2913,6 +2914,7 @@ class Workflow(AppAware):
         include_rechunk_backups: bool = False,
         consolidate: bool = True,
         status: bool = True,
+        temp_dir: str | Path | None = None,
     ) -> str:
         """
         Convert the workflow to a zipped form.
@@ -2927,9 +2929,14 @@ class Workflow(AppAware):
             If True (default), first consolidate array-output shard archives into a
             single file per output (see :meth:`consolidate_array_outputs`); zipping many
             small shard files is much slower than zipping one file per output.
+        temp_dir:
+            Existing directory for decompressed source buffers during consolidation.
+            Defaults to a unique subdirectory of ``parameters/array_outputs/.tmp/``.
+            Temporary subdirectories are cleaned up afterward. Replacement archives are
+            created beside their destination to preserve atomic replacement.
         """
         if consolidate and self._store._features.edit:
-            self.consolidate_array_outputs(status=status)
+            self.consolidate_array_outputs(status=status, temp_dir=temp_dir)
         return self._store.zip(
             path=path,
             log=log,
@@ -6211,6 +6218,7 @@ class Workflow(AppAware):
         names: str | Iterable[str] | None = None,
         *,
         status: bool = True,
+        temp_dir: str | Path | None = None,
     ) -> dict[str, Path]:
         """Merge each output's shard archives into one indexed ``consolidated.zip``.
 
@@ -6238,6 +6246,13 @@ class Workflow(AppAware):
             (``<name>.__mask__``) are consolidated with their data.
         status
             Show a live status while consolidating.
+        temp_dir
+            Existing directory for source NPZ buffers that spill to disk. ``None``
+            uses a unique subdirectory of ``parameters/array_outputs/.tmp/``.
+            Each output's temporary subdirectory is removed on success or failure;
+            the empty ``.tmp`` parent is retained for concurrent operations.
+            The replacement archive remains
+            beside its destination so the final rename stays atomic.
 
         Returns
         -------
@@ -6258,6 +6273,12 @@ class Workflow(AppAware):
                 "Consolidating array outputs requires an editable workflow store; "
                 "unzip the workflow first."
             )
+        if temp_dir is not None:
+            temp_dir = Path(temp_dir).expanduser().resolve(strict=True)
+            if not temp_dir.is_dir():
+                raise NotADirectoryError(
+                    f"Temporary directory is not a directory: {temp_dir}"
+                )
         if names is None:
             selected = self._list_array_output_names(include_internal=True)
         else:
@@ -6283,12 +6304,14 @@ class Workflow(AppAware):
             for name in selected:
                 if status_obj is not None:
                     status_obj.update(f"Consolidating array output {name!r}...")
-                path = self._consolidate_array_output(name)
+                path = self._consolidate_array_output(name, temp_dir=temp_dir)
                 if path is not None:
                     results[name] = path
         return results
 
-    def _consolidate_array_output(self, name: str) -> Path | None:
+    def _consolidate_array_output(
+        self, name: str, *, temp_dir: str | Path | None = None
+    ) -> Path | None:
         """Consolidate one output; return the archive path, or None if no archives."""
         shard_paths = self._list_array_output_shard_paths(name)
         consolidated_path = self._get_array_output_consolidated_path(name)
@@ -6296,125 +6319,143 @@ class Workflow(AppAware):
         if not shard_paths and (existing is None or existing == consolidated_path):
             return existing
 
-        # existing consolidated data first, then shards in path order:
-        sources = ([existing] if existing is not None else []) + shard_paths
-        plans: list[tuple[dict[str, np.ndarray], np.ndarray, np.dtype]] = []
-        merged_dtype: np.dtype | None = None
-        ndim = None
-        # Pass one keeps only metadata, shapes and dtypes, never source payloads.
-        for path in sources:
-            with open_array_output_source(self._array_output_fs, path) as source:
-                if ndim is not None and ndim != source.shapes.shape[1]:
-                    raise ValueError(
-                        f"Cannot consolidate array output {name!r}: archives have different dimensionality."
-                    )
-                ndim = source.shapes.shape[1]
-                merged_dtype = (
-                    source.dtype
-                    if merged_dtype is None
-                    else _resolve_array_output_dtype(
-                        name, merged_dtype, source.dtype, action="consolidate"
-                    )
-                )
-                plans.append(
-                    (
-                        normalize_metadata(source.metadata, name),
-                        source.shapes.copy(),
-                        source.dtype,
-                    )
-                )
-        assert merged_dtype is not None
-        metadata = {
-            key: np.concatenate([plan[0][key] for plan in plans])
-            for key in plans[0][0]
-            if key != "member_idx"
-        }
-        has_members = any("member_idx" in plan[0] for plan in plans)
-        members = np.concatenate(
-            [
-                plan[0].get(
-                    "member_idx", np.full(len(plan[0]["run_ID"]), -1, dtype=np.int64)
-                )
-                for plan in plans
-            ]
+        scratch_root = (
+            Path(temp_dir)
+            if temp_dir is not None
+            else Path(self._store.path) / "parameters" / "array_outputs" / ".tmp"
         )
-        order = np.lexsort((members, metadata["run_ID"]))
-        runs = metadata["run_ID"][order]
-        sorted_members = members[order]
-        duplicate = (runs[1:] == runs[:-1]) & (sorted_members[1:] == sorted_members[:-1])
-        if np.any(duplicate):
-            raise ValueError(
-                f"Cannot consolidate array output {name!r}: run/member pairs appear more than once."
+        if temp_dir is None:
+            scratch_root.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(
+            prefix="consolidate-", dir=str(scratch_root)
+        ) as operation_temp_dir:
+            # existing consolidated data first, then shards in path order:
+            sources = ([existing] if existing is not None else []) + shard_paths
+            plans: list[tuple[dict[str, np.ndarray], np.ndarray, np.dtype]] = []
+            merged_dtype: np.dtype | None = None
+            ndim = None
+            # Pass one keeps only metadata, shapes and dtypes, never source payloads.
+            for path in sources:
+                with open_array_output_source(
+                    self._array_output_fs, path, temp_dir=operation_temp_dir
+                ) as source:
+                    if ndim is not None and ndim != source.shapes.shape[1]:
+                        raise ValueError(
+                            f"Cannot consolidate array output {name!r}: archives have different dimensionality."
+                        )
+                    ndim = source.shapes.shape[1]
+                    merged_dtype = (
+                        source.dtype
+                        if merged_dtype is None
+                        else _resolve_array_output_dtype(
+                            name, merged_dtype, source.dtype, action="consolidate"
+                        )
+                    )
+                    plans.append(
+                        (
+                            normalize_metadata(source.metadata, name),
+                            source.shapes.copy(),
+                            source.dtype,
+                        )
+                    )
+            assert merged_dtype is not None
+            metadata = {
+                key: np.concatenate([plan[0][key] for plan in plans])
+                for key in plans[0][0]
+                if key != "member_idx"
+            }
+            has_members = any("member_idx" in plan[0] for plan in plans)
+            members = np.concatenate(
+                [
+                    plan[0].get(
+                        "member_idx", np.full(len(plan[0]["run_ID"]), -1, dtype=np.int64)
+                    )
+                    for plan in plans
+                ]
             )
-        expected_count = len(order)
-        destination_indices = np.empty(expected_count, dtype=np.int64)
-        destination_indices[order] = np.arange(expected_count)
-        metadata = {key: values[order] for key, values in metadata.items()}
-        if has_members:
-            metadata["member_idx"] = sorted_members
-        shapes = np.concatenate([plan[1] for plan in plans], axis=0)[order]
-
-        def entries() -> Generator[tuple[int, np.ndarray], None, None]:
-            offset = 0
-            for path, (saved_metadata, saved_shapes, saved_dtype) in zip(sources, plans):
-                with open_array_output_source(self._array_output_fs, path) as source:
-                    current = normalize_metadata(source.metadata, name)
-                    if (
-                        current.keys() != saved_metadata.keys()
-                        or source.dtype != saved_dtype
-                        or not np.array_equal(source.shapes, saved_shapes)
-                        or any(
-                            not np.array_equal(current[key], value)
-                            for key, value in saved_metadata.items()
-                        )
-                    ):
-                        raise RuntimeError(
-                            f"Array-output source {path} changed during consolidation."
-                        )
-                    for source_index in source.entry_order:
-                        index = int(source_index)
-                        yield int(destination_indices[offset + index]), source[index]
-                offset += len(saved_shapes)
-
-        # Stream independently compressed chunks into an atomic replacement file.
-        partial_path = consolidated_path.with_name(
-            f"{consolidated_path.name}.{uuid4().hex}.partial"
-        )
-        try:
-            with closing(entries()) as source_entries:
-                write_streamed_array_output(
-                    partial_path, metadata, merged_dtype, shapes, source_entries
+            order = np.lexsort((members, metadata["run_ID"]))
+            runs = metadata["run_ID"][order]
+            sorted_members = members[order]
+            duplicate = (runs[1:] == runs[:-1]) & (
+                sorted_members[1:] == sorted_members[:-1]
+            )
+            if np.any(duplicate):
+                raise ValueError(
+                    f"Cannot consolidate array output {name!r}: run/member pairs appear more than once."
                 )
-            # Verify the index and every chunk before replacing an existing archive.
-            verified = self._read_array_output_archive(partial_path)
-            if len(verified.run_ID) != expected_count:
-                raise RuntimeError(
-                    f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
-                    f"entries; expected {expected_count}. Shard archives were left intact."
-                )
-            assert isinstance(verified.data, ChunkedArray)
-            verified.data.verify()
-            with partial_path.open("r+b") as destination:
-                os.fsync(destination.fileno())
-            os.replace(partial_path, consolidated_path)
-            if hasattr(os, "O_DIRECTORY"):
-                directory_fd = os.open(consolidated_path.parent, os.O_DIRECTORY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-        finally:
-            partial_path.unlink(missing_ok=True)
+            expected_count = len(order)
+            destination_indices = np.empty(expected_count, dtype=np.int64)
+            destination_indices[order] = np.arange(expected_count)
+            metadata = {key: values[order] for key, values in metadata.items()}
+            if has_members:
+                metadata["member_idx"] = sorted_members
+            shapes = np.concatenate([plan[1] for plan in plans], axis=0)[order]
 
-        if existing is not None and existing != consolidated_path:
-            existing.unlink()
-        for shard_path in shard_paths:
-            shard_path.unlink()
+            def entries() -> Generator[tuple[int, np.ndarray], None, None]:
+                offset = 0
+                for path, (saved_metadata, saved_shapes, saved_dtype) in zip(
+                    sources, plans
+                ):
+                    with open_array_output_source(
+                        self._array_output_fs, path, temp_dir=operation_temp_dir
+                    ) as source:
+                        current = normalize_metadata(source.metadata, name)
+                        if (
+                            current.keys() != saved_metadata.keys()
+                            or source.dtype != saved_dtype
+                            or not np.array_equal(source.shapes, saved_shapes)
+                            or any(
+                                not np.array_equal(current[key], value)
+                                for key, value in saved_metadata.items()
+                            )
+                        ):
+                            raise RuntimeError(
+                                f"Array-output source {path} changed during consolidation."
+                            )
+                        for source_index in source.entry_order:
+                            index = int(source_index)
+                            yield int(destination_indices[offset + index]), source[index]
+                    offset += len(saved_shapes)
+
+            # Stream independently compressed chunks into an atomic replacement file.
+            partial_path = consolidated_path.with_name(
+                f"{consolidated_path.name}.{uuid4().hex}.partial"
+            )
             try:
-                shard_path.parent.rmdir()  # remove the shard directory once empty
-            except OSError:
-                pass
-        return consolidated_path
+                with closing(entries()) as source_entries:
+                    write_streamed_array_output(
+                        partial_path, metadata, merged_dtype, shapes, source_entries
+                    )
+                # Verify the index and every chunk before replacing an existing archive.
+                verified = self._read_array_output_archive(partial_path)
+                if len(verified.run_ID) != expected_count:
+                    raise RuntimeError(
+                        f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
+                        f"entries; expected {expected_count}. Shard archives were left intact."
+                    )
+                assert isinstance(verified.data, ChunkedArray)
+                verified.data.verify()
+                with partial_path.open("r+b") as destination:
+                    os.fsync(destination.fileno())
+                os.replace(partial_path, consolidated_path)
+                if hasattr(os, "O_DIRECTORY"):
+                    directory_fd = os.open(consolidated_path.parent, os.O_DIRECTORY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+            finally:
+                partial_path.unlink(missing_ok=True)
+
+            if existing is not None and existing != consolidated_path:
+                existing.unlink()
+            for shard_path in shard_paths:
+                shard_path.unlink()
+                try:
+                    shard_path.parent.rmdir()  # remove the shard directory once empty
+                except OSError:
+                    pass
+            return consolidated_path
 
     @staticmethod
     def _merge_array_output_archives(

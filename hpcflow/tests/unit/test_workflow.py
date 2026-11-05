@@ -721,18 +721,29 @@ def test_consolidate_array_outputs(
 
 @pytest.mark.parametrize("consolidate", [None, False, True])
 def test_zip_consolidates_array_outputs(
-    empty_workflow: Workflow, tmp_path: Path, consolidate: bool | None
+    empty_workflow: Workflow,
+    tmp_path: Path,
+    consolidate: bool | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import zipfile
 
     _write_array_output_archive(empty_workflow, "p1.a", 6, [100], np.array([[1, 2]]))
     _write_array_output_archive(empty_workflow, "p1.a", 500, [101], np.array([[3, 4]]))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    consolidate_outputs = Mock(wraps=empty_workflow.consolidate_array_outputs)
+    monkeypatch.setattr(empty_workflow, "consolidate_array_outputs", consolidate_outputs)
     if consolidate is None:
-        zip_path = empty_workflow.zip(path=str(tmp_path), status=False)
+        zip_path = empty_workflow.zip(path=str(tmp_path), status=False, temp_dir=scratch)
     else:
         zip_path = empty_workflow.zip(
-            path=str(tmp_path), status=False, consolidate=consolidate
+            path=str(tmp_path), status=False, consolidate=consolidate, temp_dir=scratch
         )
+    if consolidate is False:
+        consolidate_outputs.assert_not_called()
+    else:
+        consolidate_outputs.assert_called_once_with(status=False, temp_dir=scratch)
 
     expected = (
         ["0/6.npz.zst", "1/0.npz.zst"] if consolidate is False else ["consolidated.zip"]
@@ -768,6 +779,30 @@ def test_consolidate_array_outputs_selection(empty_workflow: Workflow) -> None:
     results = empty_workflow.consolidate_array_outputs(status=False)
     assert sorted(results) == ["p1.m", "p1.m.__mask__", "p1.other"]
     assert _archive_files(empty_workflow, "p1.other") == ["consolidated.zip"]
+
+
+def test_zip_excludes_other_consolidation_scratch(
+    empty_workflow: Workflow, tmp_path: Path
+) -> None:
+    from zipfile import ZipFile
+
+    marker = (
+        Path(empty_workflow._store.path)
+        / "parameters"
+        / "array_outputs"
+        / ".tmp"
+        / "other-job"
+        / "source.tmp"
+    )
+    marker.parent.mkdir(parents=True)
+    marker.write_bytes(b"other consolidation's temporary data")
+    zip_path = empty_workflow.zip(path=str(tmp_path), consolidate=False, status=False)
+    with ZipFile(zip_path) as archive:
+        assert not any(
+            name.startswith("parameters/array_outputs/.tmp/")
+            for name in archive.namelist()
+        )
+    assert marker.read_bytes() == b"other consolidation's temporary data"
 
 
 def test_consolidate_array_outputs_verification_failure_keeps_shards(
@@ -811,7 +846,15 @@ def test_array_output_buffer_zip_roundtrip(max_size: int) -> None:
         buffer.seekable()
 
 
-def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> None:
+@pytest.mark.parametrize("use_temp_dir", [False, True])
+def test_consolidate_shape_groups_spill_to_disk(
+    empty_workflow: Workflow,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    use_temp_dir: bool,
+) -> None:
+    import tempfile
+
     # Exceed the 8 MiB spool limit on both serialization and verification.
     _write_array_output_archive(
         empty_workflow, "p1.grid", 6, [100], np.full((1, 2, 2, 2), 7, dtype=np.int64)
@@ -823,7 +866,30 @@ def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> Non
         [101],
         np.full((1, 112, 112, 112), 9, dtype=np.int64),
     )
-    path = empty_workflow.consolidate_array_outputs(status=False)["p1.grid"]
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    home_temp = tmp_path / "home-temp"
+    home_temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(home_temp))
+    temporary_file = Mock(wraps=tempfile.TemporaryFile)
+    monkeypatch.setattr(tempfile, "TemporaryFile", temporary_file)
+    path = empty_workflow.consolidate_array_outputs(
+        status=False, temp_dir=scratch if use_temp_dir else None
+    )["p1.grid"]
+    assert temporary_file.call_count >= 2
+    expected_root = (
+        scratch
+        if use_temp_dir
+        else Path(empty_workflow._store.path) / "parameters" / "array_outputs" / ".tmp"
+    )
+    used_directories = {
+        Path(call.kwargs["dir"]) for call in temporary_file.call_args_list
+    }
+    assert len(used_directories) == 1  # both passes share this output's unique directory
+    assert all(directory.parent == expected_root for directory in used_directories)
+    assert all(not directory.exists() for directory in used_directories)
+    assert not list(expected_root.iterdir())
+    assert not list(home_temp.iterdir())
     from zipfile import ZipFile
 
     with ZipFile(path) as archive:
@@ -837,6 +903,17 @@ def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> Non
     assert output.data[1].shape == (112, 112, 112)
     assert np.all(output.data[0] == 7)
     assert np.all(output.data[1] == 9)
+
+
+@pytest.mark.parametrize("kind", ["missing", "file"])
+def test_consolidate_array_outputs_rejects_invalid_temp_dir(
+    empty_workflow: Workflow, tmp_path: Path, kind: str
+) -> None:
+    scratch = tmp_path / "scratch"
+    if kind == "file":
+        scratch.write_text("file", encoding="utf-8")
+    with pytest.raises(FileNotFoundError if kind == "missing" else NotADirectoryError):
+        empty_workflow.consolidate_array_outputs(status=False, temp_dir=scratch)
 
 
 def test_consolidate_array_outputs_write_failure_keeps_shards(
@@ -854,6 +931,11 @@ def test_consolidate_array_outputs_write_failure_keeps_shards(
     with pytest.raises(OSError, match="simulated disk failure"):
         empty_workflow.consolidate_array_outputs(status=False)
     assert _archive_files(empty_workflow, "p1.a") == ["0/6.npz.zst"]
+    scratch_root = (
+        Path(empty_workflow._store.path) / "parameters" / "array_outputs" / ".tmp"
+    )
+    assert scratch_root.is_dir()
+    assert not list(scratch_root.iterdir())
     np.testing.assert_array_equal(empty_workflow.get_array_output("p1.a").data, [[1, 2]])
 
 
@@ -1054,13 +1136,13 @@ def test_array_output_consolidation_opens_one_source_at_a_time(
     opens = 0
 
     @contextmanager
-    def guarded_source(fs, path):
+    def guarded_source(fs, path, **kwargs):
         nonlocal active, opens
         assert active == 0
         active += 1
         opens += 1
         try:
-            with open_array_output_source(fs, path) as source:
+            with open_array_output_source(fs, path, **kwargs) as source:
                 yield source
         finally:
             active -= 1
@@ -1095,10 +1177,10 @@ def test_array_output_consolidation_detects_source_changes(
     opens = 0
 
     @contextmanager
-    def changed_source(fs, path):
+    def changed_source(fs, path, **kwargs):
         nonlocal opens
         opens += 1
-        with open_array_output_source(fs, path) as source:
+        with open_array_output_source(fs, path, **kwargs) as source:
             if opens == 2:
                 if change == "metadata":
                     source.metadata["run_ID"] = source.metadata["run_ID"] + 1

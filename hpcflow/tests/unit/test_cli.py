@@ -246,8 +246,13 @@ def test_cli_export_array_output_invalid_options(tmp_path: Path, options: list[s
         (["p1.a", "p2", "--status"], ("p1.a", "p2"), True),
     ],
 )
+@pytest.mark.parametrize("use_temp_dir", [False, True])
 def test_cli_consolidate_array_outputs(
-    tmp_path: Path, args: list[str], names: tuple[str, ...] | None, status: bool
+    tmp_path: Path,
+    args: list[str],
+    names: tuple[str, ...] | None,
+    status: bool,
+    use_temp_dir: bool,
 ):
     workflow = Mock(spec=Workflow)
     workflow.consolidate_array_outputs.return_value = {
@@ -255,9 +260,13 @@ def test_cli_consolidate_array_outputs(
         "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.zip",
     }
     command = _make_workflow_CLI(hf).commands["consolidate-array-outputs"]
+    if use_temp_dir:
+        args = [*args, "--temp-dir", str(tmp_path)]
     result = CliRunner().invoke(command, args, obj=workflow)
     assert result.exit_code == 0, result.output
-    workflow.consolidate_array_outputs.assert_called_once_with(names, status=status)
+    workflow.consolidate_array_outputs.assert_called_once_with(
+        names, status=status, temp_dir=tmp_path if use_temp_dir else None
+    )
     assert result.output.splitlines() == [
         f"p1.a: {tmp_path / 'p1.a' / 'consolidated.zip'}",
         f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.zip'}",
@@ -269,11 +278,18 @@ def test_cli_consolidate_array_outputs(
     [([], True), (["--consolidate"], True), (["--no-consolidate"], False)],
 )
 @pytest.mark.parametrize("top_level", [False, True])
+@pytest.mark.parametrize("use_temp_dir", [False, True])
 def test_cli_zip_consolidate_option(
-    tmp_path: Path, args: list[str], consolidate: bool, top_level: bool
+    tmp_path: Path,
+    args: list[str],
+    consolidate: bool,
+    top_level: bool,
+    use_temp_dir: bool,
 ):
     workflow = Mock(spec=Workflow)
     workflow.zip.return_value = str(tmp_path / "wk.zip")
+    if use_temp_dir:
+        args = [*args, "--temp-dir", str(tmp_path)]
     if top_level:
         app = Mock(wraps=hf)
         app._resolve_workflow_reference.return_value = str(tmp_path / "wk")
@@ -291,6 +307,7 @@ def test_cli_zip_consolidate_option(
         include_execute=False,
         include_rechunk_backups=False,
         consolidate=consolidate,
+        temp_dir=tmp_path if use_temp_dir else None,
     )
     assert str(tmp_path / "wk.zip") in result.output
 

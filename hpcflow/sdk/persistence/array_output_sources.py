@@ -99,7 +99,7 @@ def _npy_header(stream: Any) -> tuple[tuple[int, ...], bool, np.dtype]:
 
 @contextmanager
 def open_array_output_source(
-    fs: AbstractFileSystem, path: Path
+    fs: AbstractFileSystem, path: Path, *, temp_dir: str | Path | None = None
 ) -> Iterator[ArrayOutputSource]:
     """Keep only metadata and individual entries in RAM, spilling legacy NPZs to disk."""
     if not path.name.endswith(".npz.zst"):
@@ -117,7 +117,9 @@ def open_array_output_source(
                 np.lexsort((data.row_idx, data.chunk_idx)),
             )
         return
-    with ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
+    with ArrayOutputBuffer(
+        max_size=8 * 1024**2, dir=str(temp_dir) if temp_dir is not None else None
+    ) as buffer:
         with _open_archive(fs, path.as_posix()) as compressed:
             zstd.ZstdDecompressor().copy_stream(compressed, buffer)
         buffer.seek(0)
