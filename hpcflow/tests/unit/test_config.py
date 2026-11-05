@@ -1,14 +1,19 @@
 from __future__ import annotations
+from contextlib import nullcontext
+from copy import deepcopy
 import os
 import time
 import pytest
 
+import hpcflow.sdk.config.config as config_module
 from hpcflow.app import app as hf
+from hpcflow.sdk.config import ConfigOptions
 from hpcflow.sdk.config.errors import (
     ConfigFileValidationError,
     ConfigItemCallbackError,
     ConfigNonConfigurableError,
     ConfigReadOnlyError,
+    ConfigUnknownItemError,
 )
 
 
@@ -143,10 +148,119 @@ def test_config_with_updates(modifiable_config):
     assert level_1 == level_3 != level_2
 
 
-def test_delete_execute_dir_default_and_override(modifiable_config):
-    assert hf.config.get("delete_execute_dir") is True
-    hf.config.set("delete_execute_dir", False)
-    assert hf.config.get("delete_execute_dir") is False
+@pytest.mark.parametrize("key", ["delete_execute_dir", "move_scratch_to_workflow"])
+def test_directory_policy_default_and_override(modifiable_config, key: str):
+    assert hf.config.get(key) is True
+    hf.config.set(key, False)
+    assert hf.config.get(key) is False
+
+
+def test_config_options_preserves_positional_arguments(tmp_path):
+    options = ConfigOptions(
+        tmp_path, "TEST_CONFIG_DIR", hf.config_options.default_config, (), None
+    )
+    assert options.extra_schemas == ()
+    assert options.default_known_configs_dir is None
+    assert not hasattr(options, "defaulted_config_keys")
+
+
+def test_config_options_allows_missing_builtin_default(tmp_path):
+    key = "move_scratch_to_workflow"
+    default_config = deepcopy(hf.config_options.default_config)
+    del default_config["config"]["move_scratch_to_workflow"]
+    options = ConfigOptions(tmp_path, "TEST_CONFIG_DIR", default_config)
+    assert options.get_runtime_default(key) is True
+    assert key not in options.default_config["config"]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("persist_unset", [False, True])
+def test_get_missing_item_default(modifiable_config, cached: bool, persist_unset: bool):
+    key = "move_scratch_to_workflow"
+    hf.config.unset(key)
+    if persist_unset:
+        hf.config.save()
+        hf.reload_config(config_dir=hf.config.config_directory, warn=False)
+    config_path = hf.config.config_file_path
+    contents = config_path.read_bytes()
+    with hf.config.cached_config() if cached else nullcontext():
+        assert hf.config.get(key) is True
+        defaults: tuple[object, ...] = (True, False, 0, [], {})
+        for default in defaults:
+            assert hf.config.get(key, default=default) is True
+            assert hf.config.get(key) is True
+        assert hf.config.get(key, default=True, ret_root_and_parts=True) == (
+            True,
+            True,
+            [key],
+        )
+        assert hf.config.get_all()[key] is True
+    assert config_path.read_bytes() == contents
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_get_caller_default_for_unset_legacy_setting(modifiable_config, cached: bool):
+    key = "delete_execute_dir"
+    hf.config.unset(key)
+    with hf.config.cached_config() if cached else nullcontext():
+        defaults: tuple[object, ...] = (True, False, 0, [], {})
+        for default in defaults:
+            assert hf.config.get(key, default=default) == default
+            assert hf.config.get(key) is None
+
+
+def test_runtime_default_comes_from_app_config(modifiable_config, monkeypatch):
+    key = "move_scratch_to_workflow"
+    hf.config.unset(key)
+    monkeypatch.setitem(hf.config_options.default_config["config"], key, False)
+    assert hf.config.get(key, default=True) is False
+    assert getattr(hf.config, key) is False
+    assert hf.config.get_all()[key] is False
+
+
+def test_missing_app_default_uses_builtin_default(modifiable_config, monkeypatch):
+    key = "move_scratch_to_workflow"
+    hf.config.unset(key)
+    monkeypatch.delitem(hf.config_options.default_config["config"], key)
+    assert hf.config.get(key) is True
+    assert hf.config.get_all()[key] is True
+    assert key not in hf.config_options.default_config["config"]
+
+
+def test_mutable_runtime_default_is_not_modified(modifiable_config, monkeypatch):
+    key = "user_affiliations"
+    hf.config.unset(key)
+    monkeypatch.setitem(hf.config_options.default_config["config"], key, [])
+    monkeypatch.setattr(config_module, "DEFAULTED_CONFIG_KEYS", [key])
+    hf.config.get_all()[key].append("example")
+    assert hf.config_options.default_config["config"]["user_affiliations"] == []
+    assert hf.config.get(key) == []
+
+
+@pytest.mark.parametrize("value", [False, True])
+def test_get_default_preserves_explicit_value(modifiable_config, value: bool):
+    hf.config.set("move_scratch_to_workflow", value)
+    with hf.config.cached_config():
+        assert hf.config.get("move_scratch_to_workflow", default=not value) is value
+
+
+def test_get_nested_default(modifiable_config):
+    assert hf.config.get("shells.missing", default=[]) == []
+
+
+def test_get_default_rejects_unknown_item(modifiable_config):
+    with pytest.raises(ConfigUnknownItemError):
+        hf.config.get("unknown_setting", default=True)
+
+
+def test_unset_without_runtime_default_keeps_existing_semantics(modifiable_config):
+    hf.config.unset("log_file_path")
+    assert hf.config.get("log_file_path") is None
+    assert "log_file_path" not in hf.config.get_all()
+    hf.config.save()
+    hf.reload_config(config_dir=hf.config.config_directory, warn=False)
+    assert hf.config.get("log_file_path") is None
+    assert "log_file_path" not in hf.config.get_all()
 
 
 @pytest.mark.integration

@@ -3515,10 +3515,7 @@ class WorkflowTask(AppAware):
         param_j = self.workflow.get_parameter(data_idx_ij)
         is_set_i = param_j.is_set
         if param_j.file:
-            if param_j.file["store_contents"]:
-                file_j = Path(self.workflow.path) / param_j.file["path"]
-            else:
-                file_j = Path(param_j.file["path"])
+            file_j = Path(self.workflow.path) / param_j.file["path"]
             data_j = file_j.as_posix()
         else:
             meth_i = param_j.source.get("value_class_method")

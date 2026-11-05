@@ -32,6 +32,7 @@ rules:
         - use_rich_tracebacks
         - server_advertise_host
         - delete_execute_dir
+        - move_scratch_to_workflow
   - path: []
     condition:
       value.required_keys:
@@ -325,5 +326,12 @@ rules:
     doc: >
       If True, delete execution directories after all actions in an element iteration
       have completed successfully.
+    condition:
+      value.is_instance: [bool]
+
+  - path: [move_scratch_to_workflow]
+    doc: >
+      If True, move retained custom-scratch execution directories into the workflow
+      after an element iteration finishes or its remaining actions are skipped.
     condition:
       value.is_instance: [bool]

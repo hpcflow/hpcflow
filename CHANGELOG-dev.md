@@ -1,4 +1,48 @@
 
+<a name="v0.4.0a13"></a>
+## [v0.4.0a13](https://github.com/hpcflow/hpcflow/compare/v0.4.0a12...v0.4.0a13) - 2026.11.05
+
+### ♻ Code Refactoring
+
+* centralize defaulted configuration keys
+
+### ✨ Features
+
+* implement `Config.move_scratch_to_workflow` which moves custom-scratch retained exec dirs to the workflow tree
+* implement `ResourceSpec.scratch`, such that we can use node-local storage for execution working dirs
+
+### 🐛 Bug Fixes
+
+* apply scratch relocation default to existing configs
+* test on py3.10
+* scratch does not affect jobscript hash
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a12"></a>
+## [v0.4.0a12](https://github.com/hpcflow/hpcflow/compare/v0.4.0a11...v0.4.0a12) - 2026.11.04
+
+### 🐛 Bug Fixes
+
+* validate bounds in `_values_from_latin_hypercube`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a11"></a>
+## [v0.4.0a11](https://github.com/hpcflow/hpcflow/compare/v0.4.0a10...v0.4.0a11) - 2026.11.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 6 updates
+
+
 <a name="v0.4.0a10"></a>
 ## [v0.4.0a10](https://github.com/hpcflow/hpcflow/compare/v0.4.0a9...v0.4.0a10) - 2026.10.31
 

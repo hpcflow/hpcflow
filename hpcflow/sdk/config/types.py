@@ -107,6 +107,8 @@ class ConfigDescriptor(TypedDict):
     log_file_levels: NotRequired[dict[str, str]]
     #: Delete execution directories after successful task iterations.
     delete_execute_dir: NotRequired[bool]
+    #: Move retained custom-scratch execution directories back into the workflow.
+    move_scratch_to_workflow: NotRequired[bool]
 
 
 class InvocationDescriptor(TypedDict):

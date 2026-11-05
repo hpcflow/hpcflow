@@ -106,6 +106,11 @@ PARAM_DATA_NOT_SET: Final[int] = 0
 _UNSET_PARAMETER_VALUE = object()
 
 
+@dataclass(frozen=True)
+class _FilePathUpdate:
+    path: str
+
+
 @TimeIt.decorator
 def update_param_source_dict(source: ParamSource, update: ParamSource) -> ParamSource:
     """
@@ -1016,6 +1021,12 @@ class StoreParameter:
             file=None,
             source=self.source,
         )
+
+    def relocate_file(self, path: str) -> Self:
+        """Return a copy referencing a relocated, non-stored file."""
+        if self.file is None or self.file["store_contents"]:
+            raise ValueError(f"Parameter ID {self.id_!r} is not a temporary file.")
+        return self.unset().set_file({**self.file, "path": path})
 
     def update_source(self, src: ParamSource) -> Self:
         """Return a copy, with updated source."""
@@ -2042,6 +2053,7 @@ class PersistentStore(
         contents: str | None = None,
         filename: str | None = None,
         clean_up: bool = False,
+        execution_path: Path | None = None,
     ) -> File:
         if filename is None:
             filename = Path(path).name
@@ -2052,20 +2064,24 @@ class PersistentStore(
                 dst_dir = Path(self.workflow.input_files_path, str(new_idx))
                 dst_path = dst_dir / filename
             else:
-                # assume path is inside the EAR execution directory; transform that to the
-                # equivalent artifacts directory:
-                exec_sub_path = Path(path).relative_to(self.path)
-                dst_path = Path(
-                    self.workflow.task_artifacts_path, *exec_sub_path.parts[1:]
-                )
+                if execution_path is None:
+                    exec_sub_path = Path(*Path(path).relative_to(self.path).parts[1:])
+                else:
+                    exec_sub_path = Path(path).relative_to(execution_path)
+                dst_path = Path(self.workflow.task_artifacts_path, exec_sub_path)
             if dst_path.is_file():
                 dst_path = dst_path.with_suffix(dst_path.suffix + "_2")  # TODO: better!
         else:
             dst_path = Path(path)
 
+        stored_path = (
+            dst_path.relative_to(self.path)
+            if dst_path.is_relative_to(self.path)
+            else dst_path.absolute()
+        )
         file_param_dat: File = {
             "store_contents": store_contents,
-            "path": str(dst_path.relative_to(self.path)),
+            "path": str(stored_path),
         }
         self._pending.add_files.append(
             {
@@ -2090,6 +2106,7 @@ class PersistentStore(
         filename: str | None = None,
         clean_up: bool = False,
         save: bool = True,
+        execution_path: Path | None = None,
     ):
         """
         Set details of a file, including whether it is associated with a parameter.
@@ -2102,6 +2119,7 @@ class PersistentStore(
             contents=contents,
             filename=filename,
             clean_up=clean_up,
+            execution_path=execution_path,
         )
         if param_id is not None:
             self.set_parameter_value(
@@ -2200,6 +2218,12 @@ class PersistentStore(
         self._pending.set_parameters[param_id] = (_UNSET_PARAMETER_VALUE, False)
         if save:
             self.save()
+
+    def relocate_file_parameter(
+        self, param_id: int, path: str, save: bool = True
+    ) -> None:
+        """Update a temporary file's path without clearing its value or source."""
+        self.set_parameter_value(param_id, _FilePathUpdate(path), is_file=True, save=save)
 
     def set_parameter_values(self, values: dict[int, Any], save: bool = True):
         """Set multiple non-file parameter values by parameter IDs."""
