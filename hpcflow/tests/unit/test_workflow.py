@@ -23,7 +23,12 @@ from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     make_test_data_YAML_workflow,
 )
-from hpcflow.sdk.core.workflow import ArrayOutput, _ArrayOutputArchive, _ShapeGroupedArray
+from hpcflow.sdk.core.workflow import (
+    ArrayOutput,
+    _ArrayOutputArchive,
+    _ArrayOutputBuffer,
+    _ShapeGroupedArray,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -774,6 +779,23 @@ def test_consolidate_array_outputs_verification_failure_keeps_shards(
         "0/7.npz.zst",
         "consolidated.npz.zst",
     ]
+
+
+@pytest.mark.parametrize("max_size", [64, 1024**2])
+def test_array_output_buffer_zip_roundtrip(max_size: int) -> None:
+    from zipfile import ZipFile
+
+    # ZipFile reads require seekable(), including on Python 3.10. Exercise both
+    # an in-memory buffer and a file that spills to disk during archive writing.
+    with _ArrayOutputBuffer(max_size=max_size) as buffer:
+        assert buffer.seekable()
+        with ZipFile(buffer, "w") as archive:
+            archive.writestr("data", b"x" * 1024)
+        buffer.seek(0)
+        with ZipFile(buffer) as archive:
+            assert archive.read("data") == b"x" * 1024
+    with pytest.raises(ValueError):
+        buffer.seekable()
 
 
 def test_consolidate_shape_groups_spill_to_disk(empty_workflow: Workflow) -> None:

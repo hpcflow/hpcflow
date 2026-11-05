@@ -1152,6 +1152,16 @@ class ArrayOutput:
         return f"{self.__class__.__name__}(\n" + "\n".join(attributes) + "\n)"
 
 
+class _ArrayOutputBuffer(SpooledTemporaryFile[bytes]):
+    """Spool binary archives with the seekable interface ZipFile needs on Python 3.10."""
+
+    def seekable(self) -> bool:
+        # Both the in-memory buffer and the rolled-over file support seeking.
+        # Python 3.10's SpooledTemporaryFile does not expose this method.
+        self.tell()  # preserve the usual ValueError after the buffer is closed
+        return True
+
+
 @dataclass(frozen=True)
 class _ShapeGroupedArray:
     """Rectangular arrays grouped by shape, indexed in metadata order."""
@@ -6264,7 +6274,7 @@ class Workflow(AppAware):
             f"{consolidated_path.name}.{uuid4().hex}.partial"
         )
         try:
-            with SpooledTemporaryFile(max_size=8 * 1024**2) as buffer:
+            with _ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
                 np.savez(buffer, **cast("dict[str, Any]", merged))
                 del merged
                 size = buffer.tell()
@@ -6428,7 +6438,7 @@ class Workflow(AppAware):
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
         """Decompress, load, and validate an array-output NPZ archive."""
         compressed = self._store.get_binary_file(path)
-        with SpooledTemporaryFile(max_size=8 * 1024**2) as buffer:
+        with _ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
             zstd.ZstdDecompressor().copy_stream(BytesIO(compressed), buffer)
             del compressed
             buffer.seek(0)
