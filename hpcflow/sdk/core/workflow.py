@@ -24,7 +24,7 @@ import sys
 from tempfile import SpooledTemporaryFile
 from threading import Thread
 import time
-from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
+from typing import ParamSpec, SupportsIndex, TypeVar, overload, cast, TYPE_CHECKING
 from typing_extensions import Concatenate
 
 from uuid import uuid4
@@ -1171,7 +1171,7 @@ class _ShapeGroupedArray:
     def __len__(self) -> int:
         return len(self.group_idx)
 
-    def __getitem__(self, index: int) -> np.ndarray:
+    def __getitem__(self, index: SupportsIndex) -> np.ndarray:
         return self.groups[self.group_idx[index]][self.row_idx[index]]
 
 
@@ -6415,7 +6415,8 @@ class Workflow(AppAware):
                 archive, index = entries[source_idx]
                 shape = shapes[dest_idx]
                 slices = tuple(slice(0, int(dim)) for dim in shape)
-                data[(dest_idx, *slices)] = archive.data[index][slices]
+                data_index: tuple[int | slice, ...] = (dest_idx, *slices)
+                data[data_index] = archive.data[index][slices]
             merged["data"] = data
         if not np.all(shapes == shapes[0]):
             merged["shape"] = shapes

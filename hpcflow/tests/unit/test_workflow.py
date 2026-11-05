@@ -23,7 +23,7 @@ from hpcflow.sdk.core.test_utils import (
     P1_parameter_cls as P1,
     make_test_data_YAML_workflow,
 )
-from hpcflow.sdk.core.workflow import ArrayOutput, _ArrayOutputArchive
+from hpcflow.sdk.core.workflow import ArrayOutput, _ArrayOutputArchive, _ShapeGroupedArray
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -650,6 +650,7 @@ def test_consolidate_array_outputs(
     archive = empty_workflow._read_array_output_archive(consolidated)
     np.testing.assert_array_equal(archive.run_ID, [100, 101])  # sorted by run ID
     if ragged:
+        assert isinstance(archive.data, _ShapeGroupedArray)
         np.testing.assert_array_equal(archive.data[0], [1, 2])
         np.testing.assert_array_equal(archive.data[1], [3, 4, 5])
         assert sum(group.nbytes for group in archive.data.groups) == 5 * 8
@@ -938,7 +939,7 @@ def test_shape_groups_trim_legacy_padding_and_preserve_members(
     np.testing.assert_array_equal(merged["run_ID"], [3, 5, 5])
     np.testing.assert_array_equal(merged["member_idx"], [-1, 0, 2])
     buffer = BytesIO()
-    np.savez(buffer, **merged)
+    np.savez(buffer, allow_pickle=False, **merged)
     path = tmp_path / "grouped.npz.zst"
     path.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
     archive = empty_workflow._read_array_output_archive(path)
@@ -976,7 +977,7 @@ def test_read_array_output_rejects_invalid_shape_groups(
     )
     merged.update(change)
     buffer = BytesIO()
-    np.savez(buffer, **merged)
+    np.savez(buffer, allow_pickle=False, **merged)
     path = tmp_path / "bad_groups.npz.zst"
     path.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
     with pytest.raises(ValueError, match="invalid shape groups"):
