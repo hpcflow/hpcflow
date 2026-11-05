@@ -60,6 +60,12 @@ def pytest_configure(config: pytest.Config):
         # script, which `RunTimeInfo.invocation_command` uses when invoked via the CLI:
         app_module = import_module(hf.package_name)
         sys.argv[0] = str(Path(*app_module.__path__, "cli.py"))
+        if overrides := config.workerinput.get("hpcflow_config_overrides"):
+            hf.load_config(overrides=overrides)
+
+
+def pytest_configure_node(node):
+    node.workerinput["hpcflow_config_overrides"] = copy.deepcopy(hf.config._overrides)
 
 
 @pytest.fixture(scope="session", autouse=True)
