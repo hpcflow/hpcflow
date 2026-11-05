@@ -147,8 +147,8 @@ class ResourceSpecArgs(TypedDict):
 
     #: Which scope does this apply to.
     scope: NotRequired[ActionScope | str]
-    #: Which scratch space to use.
-    scratch: NotRequired[str]
+    #: Parent directory for workflow-specific execution directories, or None.
+    scratch: NotRequired[str | None]
     #: Which parallel mode to use.
     parallel_mode: NotRequired[str | ParallelMode]
     #: How many cores to request.

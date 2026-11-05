@@ -2864,7 +2864,8 @@ class ResourceSpec(JSONLike):
     scope:
         Which scope does this apply to.
     scratch: str
-        Which scratch space to use.
+        Parent directory for workflow-specific execution working directories. If None,
+        working directories remain inside the workflow.
     parallel_mode: ParallelMode
         Which parallel mode to use.
     num_cores: int
@@ -3272,11 +3273,8 @@ class ResourceSpec(JSONLike):
     @property
     def scratch(self) -> str | None:
         """
-        Which scratch space to use.
-
-        Todo
-        ----
-        Currently unused, except in tests.
+        Parent directory for workflow-specific execution working directories, or None
+        to execute inside the workflow.
         """
         return self._get_value("scratch")
 
