@@ -946,6 +946,70 @@ def test_merge_member_array_output_archives() -> None:
         hf.Workflow._merge_array_output_archives("x", [members, members])
 
 
+def test_array_output_uint32_metadata_roundtrip(
+    empty_workflow: Workflow, tmp_path: Path
+) -> None:
+    # Mix legacy int64 metadata and uint32 values above the signed int32 limit.
+    maximum = int(np.iinfo(np.uint32).max)
+    legacy_ids = np.array([maximum, 0], dtype=np.int64)
+    new_ids = np.array([2**31], dtype=np.uint32)
+    legacy = _make_archive(np.array([[9], [1]]), [maximum, 0])
+    new = replace(
+        _make_archive(np.array([[5]]), [2**31]), member_idx=np.array([2], dtype=np.int64)
+    )
+    metadata_names = (
+        "task_insert_ID",
+        "task_idx",
+        "element_idx",
+        "element_ID",
+        "iteration_idx",
+        "iteration_ID",
+        "action_idx",
+        "run_idx",
+        "run_ID",
+    )
+    legacy = replace(legacy, **{key: legacy_ids for key in metadata_names})
+    new = replace(new, **{key: new_ids for key in metadata_names})
+    merged = hf.Workflow._merge_array_output_archives("x", [legacy, new])
+    buffer = BytesIO()
+    np.savez(buffer, allow_pickle=False, **merged)
+    path = tmp_path / "uint32_metadata.npz.zst"
+    path.write_bytes(zstd.ZstdCompressor().compress(buffer.getvalue()))
+    restored = empty_workflow._read_array_output_archive(path)
+    for key in metadata_names:
+        values = getattr(restored, key)
+        assert values.dtype == np.dtype(np.uint32)
+        np.testing.assert_array_equal(values, [0, 2**31, maximum])
+    np.testing.assert_array_equal(restored.data, [[1], [5], [9]])
+    assert restored.member_idx is not None
+    assert restored.member_idx.dtype.kind == "i"
+    np.testing.assert_array_equal(restored.member_idx, [-1, 2, -1])
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "task_insert_ID",
+        "task_idx",
+        "element_idx",
+        "element_ID",
+        "iteration_idx",
+        "iteration_ID",
+        "action_idx",
+        "run_idx",
+        "run_ID",
+    ],
+)
+@pytest.mark.parametrize("value", [-1, 2**32])
+def test_array_output_metadata_rejects_uint32_overflow(
+    field_name: str, value: int
+) -> None:
+    archive = _make_archive(np.ones((1, 2)), [0])
+    archive = replace(archive, **{field_name: np.array([value], dtype=np.int64)})
+    with pytest.raises(OverflowError, match=f"metadata '{field_name}'.*uint32"):
+        hf.Workflow._merge_array_output_archives("x", [archive])
+
+
 @pytest.mark.parametrize("dtype", [np.int64, np.dtype("U6")])
 def test_shape_groups_trim_legacy_padding_and_preserve_members(
     empty_workflow: Workflow, tmp_path: Path, dtype: np.dtype

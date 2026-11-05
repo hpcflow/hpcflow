@@ -268,6 +268,11 @@ do not get padded to the size of the largest grid in the workflow. Original run
 and member ordering is retained through metadata. Existing padded archives remain
 readable, and their padding is trimmed when merged with new shards. Newly grouped
 archives require a version of hpcflow that supports shape groups.
+Array archives store task, element, iteration, action, and run IDs and indices as
+``uint32`` (0 to 4,294,967,295). Writes reject values outside this range rather
+than wrapping them. Existing signed metadata remains readable and is converted
+when archives are merged. Member indices remain signed to preserve the ``-1``
+whole-value marker.
 Consolidation uses temporary disk space for the uncompressed NPZ to avoid keeping
 additional serialization buffers in RAM; the source and grouped arrays still
 require memory. Reading also uses temporary disk space and loads the groups into

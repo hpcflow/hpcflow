@@ -6362,6 +6362,21 @@ class Workflow(AppAware):
             key: np.concatenate([getattr(archive, key) for archive in archives])
             for key in metadata_names
         }
+        # IDs and indices are nonnegative; normalize legacy signed metadata here
+        # so both shard writes and consolidation use the full uint32 range.
+        for key, values in metadata.items():
+            if values.dtype.kind not in "iu":
+                raise TypeError(
+                    f"Array output {name!r} metadata {key!r} must be integers."
+                )
+            if values.size and (
+                int(values.min()) < 0 or int(values.max()) > np.iinfo(np.uint32).max
+            ):
+                raise OverflowError(
+                    f"Array output {name!r} metadata {key!r} is outside the uint32 "
+                    "range [0, 4294967295]."
+                )
+            metadata[key] = values.astype(np.uint32, copy=False)
         run_IDs = metadata["run_ID"]
         has_members = any(archive.member_idx is not None for archive in archives)
         member_indices = np.concatenate(
