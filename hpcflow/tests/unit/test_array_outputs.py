@@ -45,6 +45,16 @@ def test_array_output_chunk_dtype_roundtrip(tmp_path: Path, values: np.ndarray) 
     data.verify()
 
 
+def test_array_output_metadata_has_no_pickle_option_array(tmp_path: Path) -> None:
+    path = tmp_path / "consolidated.zip"
+    write_chunked_array_output(path, _contents(np.ones((2, 3))))
+    with ZipFile(path) as archive:
+        with np.load(
+            BytesIO(archive.read("metadata.npz")), allow_pickle=False
+        ) as metadata:
+            assert set(metadata.files) == {*METADATA_NAMES, "chunk_idx", "row_idx"}
+
+
 @pytest.mark.parametrize(
     "corruption", ["version", "chunk", "row", "order", "duplicate", "dtype"]
 )

@@ -138,7 +138,13 @@ def write_chunked_array_output(
         if "member_idx" in contents:
             metadata["member_idx"] = contents["member_idx"]
         buffer = BytesIO()
-        np.savez(buffer, allow_pickle=False, **metadata)
+        # NumPy 1.x treats savez(allow_pickle=False) as another array, rather
+        # than an option. Write NPY members explicitly to disable pickle on all
+        # supported versions without creating an "allow_pickle" metadata entry.
+        with ZipFile(buffer, "w", compression=ZIP_STORED) as metadata_archive:
+            for key, values in metadata.items():
+                with metadata_archive.open(f"{key}.npy", "w", force_zip64=True) as member:
+                    np.save(member, values, allow_pickle=False)
         archive.writestr("metadata.npz", buffer.getvalue())
         archive.writestr(
             "format.json",
