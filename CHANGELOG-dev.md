@@ -1,4 +1,30 @@
 
+<a name="v0.4.0a14"></a>
+## [v0.4.0a14](https://github.com/hpcflow/hpcflow/compare/v0.4.0a13...v0.4.0a14) - 2026.11.06
+
+### ⚡ Performance Improvements
+
+* more memory-efficient array output consolidation
+
+### ✨ Features
+
+* support partial reads of array outputs
+
+### 🐛 Bug Fixes
+
+* set a sensible default for the temp dir used during array-output consolidation
+* np.save use for numpy v1
+* use `uint32` for IDs/indices in array output metadata
+* test assumption about integer storage
+* compat py3.10 `seekable`
+* type checking
+* store multiple data groups in each array output shard, corresponding to distinct shapes
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a13"></a>
 ## [v0.4.0a13](https://github.com/hpcflow/hpcflow/compare/v0.4.0a12...v0.4.0a13) - 2026.11.05
 
