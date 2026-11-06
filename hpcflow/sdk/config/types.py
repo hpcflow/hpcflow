@@ -113,6 +113,8 @@ class ConfigDescriptor(TypedDict):
     show_columns: NotRequired[list[str]]
     #: Ordered columns included in the show --list table.
     show_list_columns: NotRequired[list[str]]
+    #: Move retained custom-scratch execution directories back into the workflow.
+    move_scratch_to_workflow: NotRequired[bool]
 
 
 class InvocationDescriptor(TypedDict):

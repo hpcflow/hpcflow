@@ -169,6 +169,12 @@
   have been persisted, including when the final action does not itself require a
   directory. Failed or skipped iterations retain their directories for inspection.
 
+  When using a custom ``scratch`` resource, retained directories are moved into
+  the workflow's normal ``execute`` tree once the iteration finishes or its
+  remaining actions are skipped. This is enabled by default; set
+  ``move_scratch_to_workflow`` to ``False`` to leave retained directories on scratch.
+  Forcible termination or node loss may prevent the move.
+
   Files that must remain available after successful completion must be selected
   for retention with ``save_files`` (see below). Unsaved working files are deleted
   when the execution directory is removed.

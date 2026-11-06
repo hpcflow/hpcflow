@@ -35,6 +35,7 @@ rules:
         - show_timezone
         - show_columns
         - show_list_columns
+        - move_scratch_to_workflow
   - path: []
     condition:
       value.required_keys:
@@ -361,3 +362,10 @@ rules:
       and:
         - value.type.equal_to: str
         - value.length.greater_than: 0
+
+  - path: [move_scratch_to_workflow]
+    doc: >
+      If True, move retained custom-scratch execution directories into the workflow
+      after an element iteration finishes or its remaining actions are skipped.
+    condition:
+      value.is_instance: [bool]

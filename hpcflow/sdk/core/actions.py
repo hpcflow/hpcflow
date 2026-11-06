@@ -845,7 +845,15 @@ class ElementActionRun(AppAware):
         run_dir = self.get_directory()
         if run_dir is None:
             raise RuntimeError(f"No execution directory assigned to EAR {self.id_}.")
-        run_dir.mkdir(parents=True, exist_ok=True)
+        for attempt in range(5):
+            try:
+                run_dir.mkdir(parents=True, exist_ok=True)
+                break
+            except FileNotFoundError:
+                # A concurrent run on this node may prune an empty scratch ancestor
+                # between creating it and creating its child.
+                if attempt == 4:
+                    raise
         for path in self.get("input_files", {}).values():
             if path:
                 paths = path if isinstance(path, list) else [path]

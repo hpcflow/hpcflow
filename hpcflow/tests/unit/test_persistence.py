@@ -562,11 +562,11 @@ def test_zarr_consolidated_array_outputs_decode(
     archive_root = Path(workflow._store.path) / "parameters" / "array_outputs"
     assert sorted(
         str(path.relative_to(archive_root)).replace("\\", "/")
-        for path in archive_root.rglob("*.npz.zst")
+        for path in archive_root.rglob("*.zip")
     ) == [
-        "p1.a/consolidated.npz.zst",
-        "p1.m.__mask__/consolidated.npz.zst",
-        "p1.m/consolidated.npz.zst",
+        "p1.a/consolidated.zip",
+        "p1.m.__mask__/consolidated.zip",
+        "p1.m/consolidated.zip",
     ]
     assert workflow.list_array_outputs() == ["p1.a", "p1.m"]
     monkeypatch.setattr(

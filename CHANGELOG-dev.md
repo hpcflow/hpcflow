@@ -1,4 +1,82 @@
 
+<a name="v0.4.0a15"></a>
+## [v0.4.0a15](https://github.com/hpcflow/hpcflow/compare/v0.4.0a14...v0.4.0a15) - 2026.11.06
+
+### 🐛 Bug Fixes
+
+* mark pytest_configure_node as optional
+
+
+<a name="v0.4.0a14"></a>
+## [v0.4.0a14](https://github.com/hpcflow/hpcflow/compare/v0.4.0a13...v0.4.0a14) - 2026.11.06
+
+### ⚡ Performance Improvements
+
+* more memory-efficient array output consolidation
+
+### ✨ Features
+
+* support partial reads of array outputs
+
+### 🐛 Bug Fixes
+
+* set a sensible default for the temp dir used during array-output consolidation
+* np.save use for numpy v1
+* use `uint32` for IDs/indices in array output metadata
+* test assumption about integer storage
+* compat py3.10 `seekable`
+* type checking
+* store multiple data groups in each array output shard, corresponding to distinct shapes
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a13"></a>
+## [v0.4.0a13](https://github.com/hpcflow/hpcflow/compare/v0.4.0a12...v0.4.0a13) - 2026.11.05
+
+### ♻ Code Refactoring
+
+* centralize defaulted configuration keys
+
+### ✨ Features
+
+* implement `Config.move_scratch_to_workflow` which moves custom-scratch retained exec dirs to the workflow tree
+* implement `ResourceSpec.scratch`, such that we can use node-local storage for execution working dirs
+
+### 🐛 Bug Fixes
+
+* apply scratch relocation default to existing configs
+* test on py3.10
+* scratch does not affect jobscript hash
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a12"></a>
+## [v0.4.0a12](https://github.com/hpcflow/hpcflow/compare/v0.4.0a11...v0.4.0a12) - 2026.11.04
+
+### 🐛 Bug Fixes
+
+* validate bounds in `_values_from_latin_hypercube`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a11"></a>
+## [v0.4.0a11](https://github.com/hpcflow/hpcflow/compare/v0.4.0a10...v0.4.0a11) - 2026.11.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 6 updates
+
+
 <a name="v0.4.0a10"></a>
 ## [v0.4.0a10](https://github.com/hpcflow/hpcflow/compare/v0.4.0a9...v0.4.0a10) - 2026.10.31
 

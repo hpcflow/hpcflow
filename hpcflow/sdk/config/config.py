@@ -115,8 +115,12 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "show_timezone": "local",
         "show_columns": ["id", "name", "status", "actions"],
         "show_list_columns": ["id", "name", "submission", "submit", "status", "path"],
+        "move_scratch_to_workflow": True,
     },
 }
+
+#: Settings that use their default configuration value when omitted.
+DEFAULTED_CONFIG_KEYS = ["move_scratch_to_workflow"]
 
 
 @dataclass
@@ -140,6 +144,21 @@ class ConfigOptions:
 
     def __post_init__(self) -> None:
         self._schemas, self._configurable_keys = self.init_schemas()
+        invalid_keys = set(DEFAULTED_CONFIG_KEYS) - set(self._configurable_keys)
+        missing_defaults = set(DEFAULTED_CONFIG_KEYS) - set(DEFAULT_CONFIG["config"])
+        if invalid_keys or missing_defaults:
+            raise ValueError(
+                "Runtime-defaulted config keys must be configurable and have a "
+                f"default value; invalid keys: {sorted(invalid_keys)!r}, "
+                f"missing defaults: {sorted(missing_defaults)!r}."
+            )
+
+    def get_runtime_default(self, name: str) -> Any:
+        """Get the configured default for a setting that uses runtime defaults."""
+        defaults = cast("Mapping[str, Any]", self.default_config["config"])
+        if name not in defaults:
+            defaults = cast("Mapping[str, Any]", DEFAULT_CONFIG["config"])
+        return deepcopy(defaults[name])
 
     def init_schemas(self) -> tuple[Sequence[Schema], Sequence[str]]:
         """
@@ -730,7 +749,7 @@ class Config:
         """Get all configurable items."""
         items: dict[str, Any] = {}
         for key in self._configurable_keys:
-            if key in self._unset_keys:
+            if key in self._unset_keys and key not in DEFAULTED_CONFIG_KEYS:
                 continue
             try:
                 if as_str:
@@ -820,8 +839,9 @@ class Config:
     ):
         """Get a configuration item."""
 
-        if self._use_cache:
-            # note: we default_value is not necessarily hashable, so we can't cache on it!
+        use_cache = self._use_cache and default_value is None
+        if use_cache:
+            # Caller-specific defaults may be unhashable and must not enter the cache.
             key = (
                 name,
                 include_overrides,
@@ -865,21 +885,28 @@ class Config:
             val = root_over
 
         elif name in self._unset_keys:
-            if raise_on_missing:
+            if raise_on_missing and name not in DEFAULTED_CONFIG_KEYS:
                 raise ValueError("Not set.")
-            val = None
-            if default_value:
-                val = default_value
+            val = (
+                self._options.get_runtime_default(name)
+                if name in DEFAULTED_CONFIG_KEYS
+                else default_value
+            )
 
         elif name in self._modified_keys:
             val = cast("dict", self._modified_keys)[name]
 
         elif name in self._configurable_keys:
+            has_runtime_default = name in DEFAULTED_CONFIG_KEYS
             val = self._file.get_config_item(
                 config_key=self._config_key,
                 name=name,
-                raise_on_missing=raise_on_missing,
-                default_value=default_value,
+                raise_on_missing=raise_on_missing and not has_runtime_default,
+                default_value=(
+                    self._options.get_runtime_default(name)
+                    if has_runtime_default
+                    else default_value
+                ),
             )
 
         if callback:
@@ -891,7 +918,7 @@ class Config:
             else:
                 val = str(val)
 
-        if self._use_cache:
+        if use_cache:
             self._config_cache[key] = val
 
         return val
@@ -1104,13 +1131,23 @@ class Config:
         ----------
         path:
             The name of or path to the configuration item.
+        default:
+            Value returned when the item or nested path is missing. This does not
+            modify the configuration or replace explicitly configured values.
         """
         name, *suffix = parts = path.split(".")
-        root = deepcopy(self._get(name, callback=callback))
-        try:
-            out = get_in_container(root, suffix, cast_indices=True)
-        except KeyError:
+        root = deepcopy(
+            self._get(
+                name, callback=callback, default_value=default if not suffix else None
+            )
+        )
+        if root is None and suffix:
             out = default
+        else:
+            try:
+                out = get_in_container(root, suffix, cast_indices=True)
+            except KeyError:
+                out = default
         if copy:
             out = deepcopy(out)
         if not ret_root_and_parts:

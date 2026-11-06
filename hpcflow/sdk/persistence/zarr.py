@@ -45,6 +45,7 @@ from hpcflow.sdk.core.utils import (
 )
 from hpcflow.sdk.persistence.base import (
     _UNSET_PARAMETER_VALUE,
+    _FilePathUpdate,
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
@@ -1974,6 +1975,8 @@ class ZarrPersistentStore(
             is_unset = value is _UNSET_PARAMETER_VALUE
             if is_unset:
                 param_i = param_i.unset()
+            elif isinstance(value, _FilePathUpdate):
+                param_i = param_i.relocate_file(value.path)
             elif is_file:
                 param_i = param_i.set_file(value)
             else:
@@ -3263,11 +3266,13 @@ class ZarrPersistentStore(
                 ZipFileSystem,
                 fo=dst_path_s,
                 mode="w",
+                compression=0,  # Preserve seeking within indexed array-output ZIPs.
                 target_options={},
                 add_pw_to="target_options",
             )
             dst_zarr_store = FSStore(url="", fs=zfs)
-            excludes = []
+            # Another consolidation may still have large temporary NPZs here.
+            excludes = [r"^parameters/array_outputs/\.tmp(?:/|$)"]
             if not include_execute:
                 excludes.append("execute")
             if not include_rechunk_backups:

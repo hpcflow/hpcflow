@@ -1,6 +1,7 @@
 """Click CLI options that are used as decorators in multiple modules."""
 
 from __future__ import annotations
+from pathlib import Path
 from typing import TYPE_CHECKING
 import click
 
@@ -360,6 +361,12 @@ zip_consolidate_opt = click.option(
         "zipping, which makes zipping much faster."
     ),
 )
+array_output_temp_dir_opt = click.option(
+    "--temp-dir",
+    type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path),
+    default=None,
+    help="Directory for decompressed array-output buffers during consolidation (default: WORKFLOW/parameters/array_outputs/.tmp/).",
+)
 
 #: Standard option
 unzip_path_opt = click.option(
@@ -576,6 +583,7 @@ _add_doc_from_help(
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
     zip_consolidate_opt,
+    array_output_temp_dir_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,

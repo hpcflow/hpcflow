@@ -172,8 +172,10 @@ def test_show_with_existing_config_missing_monitoring_settings(
     )
     path.write_text(text, encoding="utf-8")
     hf.reload_config(config_dir=path.parent, config_key=hf.config.config_key, warn=False)
-    assert hf.config.get("show_max_recent", default=3) is None
-    assert hf.config.get("known_submissions_max_inactive", default=100) is None
+    assert hf.config.get("show_max_recent") is None
+    assert hf.config.get("known_submissions_max_inactive") is None
+    assert hf.config.get("show_max_recent", default=3) == 3
+    assert hf.config.get("known_submissions_max_inactive", default=100) == 100
     monkeypatch.setattr(hf, "_user_data_hostname_dir", tmp_path / "history")
     records = [record(tmp_path, i, "inactive", str(i)) for i in range(5)]
     for r in records:

@@ -262,6 +262,62 @@ pads to the largest shape and records each original shape, which is restored on
 reading. Arrays sharing a sub-parameter must have the same dimensionality and
 compatible dtypes. Mask data is stored in a corresponding ``.__mask__`` archive.
 
+Live submissions write the same per-run ``.npz.zst`` shards. Consolidation (also
+performed by default when zipping a workflow) creates one ``consolidated.zip`` per
+sub-parameter. Arrays are grouped by original shape and split into independently
+compressed chunks targeting 16 MiB uncompressed. An array larger than this target
+gets its own chunk. Small grids do not get padded to the largest grid size.
+
+Each archive contains a versioned ``format.json``, a ``metadata.npz`` index sorted
+by run ID and member index, and ``chunks/000000.npy``, etc. The index stores each
+entry's chunk and row as ``uint32``. Reading one run loads the index and only its
+matching chunks; a reader caches the last chunk while processing a request. Full
+output reads still load all requested data. Workflow ZIPs store these nested
+archives without outer compression, allowing direct range reads, including on
+Python 3.10--3.12. Externally recompressing the outer ZIP can make seeking slower.
+
+Existing padded and shape-group ``consolidated.npz.zst`` archives remain readable
+through the legacy reader. Consolidation migrates them to the indexed format,
+even without new shards, trimming their padding. Older hpcflow versions cannot
+read the new indexed archives.
+Array archives store task, element, iteration, action, and run IDs and indices as
+``uint32`` (0 to 4,294,967,295). Writes reject values outside this range rather
+than wrapping them. Existing signed metadata remains readable and is converted
+when archives are merged. Member indices remain signed to preserve the ``-1``
+whole-value marker.
+Consolidation makes two passes over its sources. The first collects metadata,
+original shapes, and dtypes; the second copies entries one source at a time into
+shape buffers with a shared 32 MiB budget. Full buffers and evicted partial
+buffers are written directly as chunks. An entry exceeding 16 MiB is written on
+its own after flushing the shape buffers. Metadata stays in RAM, but complete
+source collections and destination groups are never materialized there.
+Source metadata, shapes, and dtypes are checked again in the second pass to
+detect changes during consolidation.
+
+For live and legacy ``.npz.zst`` sources, the decompressed NPZ spills to a unique subdirectory of
+``WORKFLOW/parameters/array_outputs/.tmp/`` above 8 MiB. Entries in standard uncompressed C-order NPY
+members are then read individually, trimming existing padding. This needs
+temporary disk space up to the largest decompressed source NPZ and decompresses
+each source twice. Externally compressed or Fortran-order legacy NPZs use a
+compatibility fallback that can load one source array into RAM. Indexed sources
+use their existing partial-read path. Source ZIP checksums and output chunks are
+verified without loading the complete standard array into RAM.
+To use an existing scratch directory instead of the workflow-adjacent default,
+pass ``temp_dir="/scratch/my-job"`` to ``Workflow.consolidate_array_outputs`` or
+``Workflow.zip``. The corresponding CLI commands accept
+``--temp-dir /scratch/my-job``. A unique subdirectory is created under that
+directory for each output and removed afterward, including on failure. The
+default ``.tmp`` parent may remain empty so concurrent operations can share it
+safely. This controls decompressed source buffers in both passes; small buffers
+remain in RAM. Temporary replacement archives stay beside
+the destination archive to preserve atomic replacement across filesystems.
+Consolidation writes a temporary replacement archive and verifies every chunk
+before replacing the previous archive and removing the source shards.
+Indexed reads need no full-size temporary decompressed file. Legacy reads retain
+the temporary-file fallback above 8 MiB of decompressed NPZ data. Passing
+``consolidate=False`` to ``Workflow.zip`` (or ``--no-consolidate`` on the CLI)
+preserves existing archives instead.
+
 ``Workflow.get_array_output`` and ``WorkflowTask.get_array_output`` expose
 ``member_idx`` alongside the producing run metadata. A scalar run ID returns all
 its saved members, stacked when shapes match or as a list when shapes vary.

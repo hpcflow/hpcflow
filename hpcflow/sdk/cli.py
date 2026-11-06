@@ -57,6 +57,7 @@ from hpcflow.sdk.cli_common import (
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
     zip_consolidate_opt,
+    array_output_temp_dir_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -745,21 +746,26 @@ def _make_workflow_CLI(app: BaseApp):
 
     @workflow.command(name="consolidate-array-outputs")
     @click.argument("names", nargs=-1)
+    @array_output_temp_dir_opt
     @click.option(
         "--status/--no-status",
         default=True,
         help="If True, display a live status while consolidating.",
     )
     @_pass_workflow
-    def consolidate_array_outputs(wf: Workflow, names: tuple[str, ...], status: bool):
+    def consolidate_array_outputs(
+        wf: Workflow, names: tuple[str, ...], status: bool, temp_dir: Path | None
+    ):
         """Merge shard archives of array outputs into one file per output.
 
         Each NAME's shard archives are merged into a single
-        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        parameters/array_outputs/NAME/consolidated.zip file and the shards are then
         removed. With no NAMES, consolidate every array output. Safe to repeat: runs
         saved after an earlier consolidation are folded in.
         """
-        results = wf.consolidate_array_outputs(names or None, status=status)
+        results = wf.consolidate_array_outputs(
+            names or None, status=status, temp_dir=temp_dir
+        )
         for name, path in results.items():
             click.echo(f"{name}: {path}")
 
@@ -807,6 +813,7 @@ def _make_workflow_CLI(app: BaseApp):
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
     @zip_consolidate_opt
+    @array_output_temp_dir_opt
     @_pass_workflow
     def zip_workflow(
         wf: Workflow,
@@ -816,6 +823,7 @@ def _make_workflow_CLI(app: BaseApp):
         include_execute: bool,
         include_rechunk_backups: bool,
         consolidate: bool,
+        temp_dir: Path | None,
     ):
         """Generate a copy of the workflow in the zip file format in the current working
         directory."""
@@ -827,6 +835,7 @@ def _make_workflow_CLI(app: BaseApp):
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
                 consolidate=consolidate,
+                temp_dir=temp_dir,
             )
         )
 
@@ -1285,6 +1294,7 @@ def _make_zip_CLI(app: BaseApp):
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
     @zip_consolidate_opt
+    @array_output_temp_dir_opt
     @workflow_ref_type_opt
     def zip_workflow(
         workflow_ref: str,
@@ -1294,6 +1304,7 @@ def _make_zip_CLI(app: BaseApp):
         include_execute: bool,
         include_rechunk_backups: bool,
         consolidate: bool,
+        temp_dir: Path | None,
         ref_type: str | None,
     ):
         """Generate a copy of the specified workflow in the zip file format in the
@@ -1311,6 +1322,7 @@ def _make_zip_CLI(app: BaseApp):
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
                 consolidate=consolidate,
+                temp_dir=temp_dir,
             )
         )
 
