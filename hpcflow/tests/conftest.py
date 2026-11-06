@@ -61,7 +61,9 @@ def pytest_configure(config: pytest.Config):
             hf.load_config(overrides=overrides)
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_configure_node(node):
+    # pytest-xdist supplies this hook; bundled executables run without that plugin.
     node.workerinput["hpcflow_config_overrides"] = copy.deepcopy(hf.config._overrides)
 
 
