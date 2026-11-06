@@ -1,4 +1,12 @@
 
+<a name="v0.4.0a15"></a>
+## [v0.4.0a15](https://github.com/hpcflow/hpcflow/compare/v0.4.0a14...v0.4.0a15) - 2026.11.06
+
+### 🐛 Bug Fixes
+
+* mark pytest_configure_node as optional
+
+
 <a name="v0.4.0a14"></a>
 ## [v0.4.0a14](https://github.com/hpcflow/hpcflow/compare/v0.4.0a13...v0.4.0a14) - 2026.11.06
 
