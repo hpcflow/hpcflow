@@ -35,6 +35,7 @@ from .registry import (
 if TYPE_CHECKING:
     from ..app import BaseApp
     from ..core.workflow import Workflow
+    from ..submission.schedulers import Scheduler
 
 
 @dataclass(slots=True)
@@ -51,6 +52,14 @@ class ResolvedJob:
 
     registration: RegisteredJob
     reference: str | tuple[int, list[str]] | None
+
+
+@dataclass(slots=True)
+class SchedulerQuery:
+    """One scheduler query and every submission sharing its observation."""
+
+    scheduler: Scheduler
+    jobs: list[RegisteredJob]
 
 
 def check_identity(record: SubmissionRecord) -> None:
@@ -157,6 +166,46 @@ def context_key(job: JobRecord) -> str:
     )
 
 
+def query_context_key(app: BaseApp, job: JobRecord, scheduler: Scheduler) -> str:
+    """Identify compatible status queries independently of submission settings.
+
+    Directives, submission/cancel commands, and script-format options do not affect
+    status queries. Retain other arguments conservatively, and normalize a queued
+    scheduler's effective show command so omitted and explicit defaults can share
+    a snapshot. Login hosts on the same configured machine share a query target.
+    Cancellation continues to use the complete saved scheduler context.
+    """
+    submission_only = {
+        "directives",
+        "options",
+        "submit_cmd",
+        "del_cmd",
+        "js_cmd",
+        "login_nodes_cmd",
+        "array_switch",
+        "array_item_var",
+        "cwd_switch",
+        "shebang_executable",
+    }
+    args = {
+        key: value
+        for key, value in job.scheduler_args.items()
+        if key not in submission_only
+    }
+    show_cmd = getattr(scheduler, "show_cmd", None)
+    if isinstance(show_cmd, (list, tuple)):
+        args["show_cmd"] = list(show_cmd)
+    return json.dumps(
+        {
+            "scheduler_type": job.scheduler_type.lower(),
+            "os_name": job.os_name.lower(),
+            "machine": job.machine or app.config.get("machine") or socket.gethostname(),
+            "query_args": args,
+        },
+        sort_keys=True,
+    )
+
+
 def scheduler_is_local(app: BaseApp, job: JobRecord) -> bool:
     """Allow local jobs or queued jobs on an explicitly shared configured machine.
 
@@ -219,8 +268,12 @@ def observe_activity(
     records: list[SubmissionRecord],
     progress: Callable[[str], None] | None = None,
 ) -> None:
-    """Update records in place using at most one status call per scheduler context.
+    """Update records using one snapshot per compatible scheduler query target.
 
+    Submission directives and submit/cancel commands do not split status queries.
+    Deduplicate references across submissions and reuse each query's observation
+    for all matching jobs. Different effective show commands or targets remain
+    isolated. Malformed references fail individually instead of blocking the batch.
     Batch saved references across submission parts; known inactive records do not
     need queries. A live submitting process also keeps a record active. Scheduler
     failures produce unknown activity unless activity is independently known to be
@@ -280,21 +333,50 @@ def observe_activity(
             except (KeyError, TypeError, ValueError) as error:
                 failed.add(record.local_id)
                 record.scheduler_error = str(error)
+    queries: dict[str, SchedulerQuery] = {}
     for items in contexts.values():
         try:
             scheduler = scheduler_for(app, items[0].job)
-            refs = [ResolvedJob(item, scheduler_ref(item.job)) for item in items]
-            valid = [item.reference for item in refs if item.reference is not None]
+            query_key = query_context_key(app, items[0].job, scheduler)
+            if query_key not in queries:
+                queries[query_key] = SchedulerQuery(scheduler, [])
+            queries[query_key].jobs.extend(items)
+        except Exception as error:
+            for item in items:
+                record = item.submission
+                failed.add(record.local_id)
+                record.scheduler_error = str(error)
+                record.scheduler_availability = "unavailable"
+            app.submission_logger.info("Scheduler monitoring failed: %s", error)
+    for query in queries.values():
+        items = query.jobs
+        try:
+            refs = []
+            for item in items:
+                try:
+                    refs.append(ResolvedJob(item, scheduler_ref(item.job)))
+                except Exception as error:
+                    record = item.submission
+                    failed.add(record.local_id)
+                    record.scheduler_error = str(error)
+                    record.scheduler_availability = "unavailable"
+            valid = list(
+                {
+                    json.dumps(to_json(item.reference)): item.reference
+                    for item in refs
+                    if item.reference is not None
+                }.values()
+            )
             if progress and valid:
                 progress(
                     f"Querying {items[0].job.scheduler_type} scheduler ({len(valid)} jobs)"
                 )
-            states = scheduler.get_job_state_info(js_refs=valid) if valid else {}
+            states = query.scheduler.get_job_state_info(js_refs=valid) if valid else {}
             for resolved in refs:
                 record, job = resolved.registration.submission, resolved.registration.job
                 ref = resolved.reference
                 key = str(ref[0]) if isinstance(ref, tuple) else ref
-                observed = states.get(key)
+                observed = states.get(key) if key is not None else None
                 job.last_checked_at = timestamp()
                 job.last_observed_state = (
                     [state.name for state in observed.values()]

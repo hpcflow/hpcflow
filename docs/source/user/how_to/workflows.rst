@@ -81,6 +81,13 @@ Monitor submissions
 
         {{ app_package_name }} show ./workflow.zip
 
+    Each invocation queries a compatible scheduler target once across all selected
+    submissions, even when their resource directives or submission/cancel commands
+    differ. Duplicate references share the same observation. Distinct query
+    commands and cluster targets remain separate. Slurm reads one queue snapshot
+    and filters job IDs locally, so finished jobs do not trigger additional queries.
+    Snapshots are scoped to one invocation; the next ``show`` refreshes them.
+
     Rich progress displays workflow loading and scheduler queries. Suppress it
     with ``--no-status`` (or ``app.show(status=False)`` in Python).
 
