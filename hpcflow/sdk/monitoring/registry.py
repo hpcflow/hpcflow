@@ -201,8 +201,8 @@ class SubmissionRegistry:
 
     The host-scoped JSON registry retains job references needed for monitoring and
     cancellation. Read legacy history without changing its source file. Mutations
-    use an OS lock and atomic replacement; retention applies only to inactive
-    records, and allocated local IDs are never reused.
+    use an OS lock and atomic replacement. Inactive and unknown records have
+    separate retention limits; active records and allocated IDs are protected.
     """
 
     SCHEMA_VERSION = 1
@@ -263,9 +263,10 @@ class SubmissionRegistry:
     def transaction(self):
         """Yield mutable registry data under an exclusive lock and commit on success.
 
-        After the caller finishes, prune excess inactive records according to config,
-        retain active/unknown entries, and atomically replace the JSON document.
-        An exception in the caller skips the commit.
+        After the caller finishes, apply separate inactive and unknown retention
+        limits, retain every active record, and atomically replace the JSON document.
+        Unknown records are ordered by submission time, then local ID; rechecking
+        a stale record does not make it recent. Exceptions skip the commit.
         """
         with file_lock(self.path.with_suffix(".lock")):
             data = self.read()
@@ -277,6 +278,15 @@ class SubmissionRegistry:
                 reverse=True,
             )
             remove = {record.local_id for record in inactive[limit:]}
+            unknown_limit = get_limit(
+                self.app.config, "known_submissions_max_unknown", 10
+            )
+            unknown = sorted(
+                (record for record in data.records if record.activity == "unknown"),
+                key=lambda record: (sort_timestamp(record.submitted_at), record.local_id),
+                reverse=True,
+            )
+            remove.update(record.local_id for record in unknown[unknown_limit:])
             data.records = [
                 record for record in data.records if record.local_id not in remove
             ]

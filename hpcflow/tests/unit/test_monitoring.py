@@ -228,7 +228,7 @@ def test_missing_active_workflow_is_still_active_and_cancellable(app, tmp_path):
     assert SubmissionRegistry(app).read().records[0].activity == "unknown"
 
 
-def test_retention_protects_active_unknown_and_ids_are_not_reused(app, tmp_path):
+def test_retention_keeps_active_records_and_does_not_reuse_ids(app, tmp_path):
     app.config["known_submissions_max_inactive"] = 1
     records = [record(tmp_path, i, "inactive", str(i)) for i in range(5)]
     records[0].activity = "active"
@@ -241,6 +241,68 @@ def test_retention_protects_active_unknown_and_ids_are_not_reused(app, tmp_path)
         workflow=SimpleNamespace(path="new", id_="new", name="new"), index=0
     )
     assert registry.begin(sub, "now") == 5
+
+
+@pytest.mark.parametrize("limit", [None, 0, 2])
+def test_unknown_retention_defaults_and_independent_activity_limits(app, tmp_path, limit):
+    app.config["known_submissions_max_unknown"] = limit
+    app.config["known_submissions_max_inactive"] = 1
+    records = [record(tmp_path, i, "unknown", str(i)) for i in range(15)]
+    for i, r in enumerate(records):
+        r.submitted_at = f"2026-11-01T12:{i:02}:00Z"
+    records.extend(record(tmp_path, i, "active", str(i)) for i in (15, 16))
+    records.extend(record(tmp_path, i, "inactive", str(i)) for i in (17, 18))
+    registry = seed(app, records)
+    retained = registry.read()
+    expected = 10 if limit is None else limit
+    assert {r.local_id for r in retained.records if r.activity == "unknown"} == set(
+        range(15 - expected, 15)
+    )
+    assert {r.local_id for r in retained.records if r.activity == "active"} == {15, 16}
+    assert len([r for r in retained.records if r.activity == "inactive"]) == 1
+    assert retained.next_local_id == 19
+
+
+def test_unknown_retention_uses_submission_time_and_id_not_last_check(app, tmp_path):
+    app.config["known_submissions_max_unknown"] = 1
+    records = [record(tmp_path, i, "unknown", str(i)) for i in range(3)]
+    records[0].submitted_at = records[1].submitted_at = "2026-11-02T12:00:00Z"
+    records[2].submitted_at = "2026-11-01T12:00:00Z"
+    records[2].last_checked_at = records[2].finished_at = "2026-11-07T12:00:00Z"
+    registry = seed(app, list(reversed(records)))
+    assert [r.local_id for r in registry.read().records] == [1]
+    assert registry.read().next_local_id == 3
+
+
+def test_existing_unknown_history_prunes_on_update_not_read_only_operations(
+    app, tmp_path
+):
+    from hpcflow.sdk.monitoring.models import RegistryData, to_json
+
+    records = [record(tmp_path, i, "unknown", str(i)) for i in range(15)]
+    registry = SubmissionRegistry(app)
+    # Simulate a registry written before the unknown retention limit existed.
+    atomic_json(registry.path, to_json(RegistryData(records, next_local_id=15)))
+    before = registry.path.read_bytes()
+    assert len(list_registered_submissions(app)) == 15
+    app.get_scheduler.return_value.get_job_state_info.side_effect = OSError("offline")
+    assert len(collect(app, no_update=True, include_summary=False)) == 15
+    assert registry.path.read_bytes() == before
+    registry.update([])
+    assert {r.local_id for r in registry.read().records} == set(range(5, 15))
+    assert registry.read().next_local_id == 15
+
+
+def test_unknown_retention_setting_is_applied_from_real_config(
+    tmp_path, modifiable_config, monkeypatch
+):
+    hf.config.set("known_submissions_max_unknown", 2)
+    monkeypatch.setattr(hf, "_user_data_hostname_dir", tmp_path / "registry")
+    registry = SubmissionRegistry(hf)
+    with registry.transaction() as data:
+        data.records = [record(tmp_path, i, "unknown", str(i)) for i in range(5)]
+        data.next_local_id = 5
+    assert {r.local_id for r in registry.read().records} == {3, 4}
 
 
 def test_concurrent_updates_preserve_added_jobs(app, tmp_path):
@@ -1072,7 +1134,14 @@ def test_iteration_ranges_preserve_gaps_attempts_and_distinct_states(pattern, ex
     assert iteration_text_from_json(pattern).plain == expected
 
 
-@pytest.mark.parametrize("setting", ["show_max_recent", "known_submissions_max_inactive"])
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "show_max_recent",
+        "known_submissions_max_inactive",
+        "known_submissions_max_unknown",
+    ],
+)
 @pytest.mark.parametrize("value", [-1, True, 1.5, "2"])
 def test_invalid_config_limits(setting, value, modifiable_config):
     from hpcflow.sdk.config.errors import ConfigChangeValidationError

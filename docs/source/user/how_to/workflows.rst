@@ -208,12 +208,17 @@ Monitor submissions
     .. code-block:: console
 
         {{ app_package_name }} config set known_submissions_max_inactive 100
+        {{ app_package_name }} config set known_submissions_max_unknown 10
         {{ app_package_name }} config set show_max_recent 3
 
-    Both values are non-negative integers; zero disables inactive retention or display.
-    Active and unknown submissions are always retained and displayed, so the total number
-    of stored or displayed records can exceed these limits. ``--max-recent`` overrides
-    the display setting for one invocation.
+    All values are non-negative integers; zero disables retention for the respective
+    activity state or disables inactive display. Unknown records are limited to the
+    ten most recently submitted records by default, with local IDs breaking timestamp
+    ties. Rechecking an older record does not make it more recent. Active submissions
+    are always retained, so the total stored count can exceed these limits.
+    Retention is applied during registry writes; ``--list`` and ``--no-update`` do
+    not prune records. ``--max-recent`` overrides the inactive display setting for
+    one invocation.
 
     With ``--full``, elements with identical ordered action states share one row. For
     example, the element range ``[0–99]`` before the action icons applies separately
