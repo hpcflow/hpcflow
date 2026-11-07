@@ -14,6 +14,7 @@ _STATE_PRIORITY = (
     "running",
     "unknown",
     "submitted",
+    "scheduler_pending",
     "prepared",
     "pending",
     "condition_skipped",

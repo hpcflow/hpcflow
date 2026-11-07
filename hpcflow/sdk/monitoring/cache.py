@@ -1,6 +1,7 @@
 """Incremental terminal action state cache and compact display snapshots."""
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,6 +22,14 @@ from .models import (
 from .registry import atomic_bytes, file_lock, timestamp
 from .headers import read_bytes, is_archive
 from .states import display_state_name
+from .run_index import (
+    RunIndex,
+    RunMetadata,
+    parent_elements,
+    read_index,
+    scheduler_entries,
+    write_index,
+)
 
 if TYPE_CHECKING:
     from ..core.workflow import Workflow
@@ -167,22 +176,65 @@ def snapshot(entries: dict[int, ActionRunState], ids: list[int]) -> ActionSummar
     return result
 
 
+@dataclass(slots=True)
+class StateSelection:
+    """Cached/derived observations and the remaining IDs that need store reads."""
+
+    entries: dict[int, ActionRunState]
+    unresolved: list[int]
+    index: RunIndex
+
+
+def select_states(
+    record: SubmissionRecord, cache: TerminalStateCache | None
+) -> StateSelection:
+    """Combine terminal states and fresh queued-parent evidence before opening a workflow."""
+    ids = run_ids(record)
+    wanted = set(ids)
+    entries = (
+        {key: value for key, value in cache.terminal_states.items() if key in wanted}
+        if cache
+        else {}
+    )
+    index = read_index(record)
+    unresolved = [run_id for run_id in ids if run_id not in entries]
+    entries.update(scheduler_entries(record, index, unresolved))
+    return StateSelection(
+        entries, [run_id for run_id in unresolved if run_id not in entries], index
+    )
+
+
 def refresh_actions(
-    record: SubmissionRecord, workflow: "Workflow", no_update: bool = False
+    record: SubmissionRecord,
+    workflow: "Workflow",
+    no_update: bool = False,
+    selection: StateSelection | None = None,
 ) -> ActionSummary:
     """Refresh unresolved runs and reuse immutable terminal states from disk.
 
-    Query the workflow store only for IDs absent from the terminal cache. Build the
-    submission summary from cached and fresh entries, then merge terminal entries
-    under a file lock and write atomically. ``no_update`` performs no cache writes.
+    Query only runs absent from both the terminal cache and a fresh queued parent
+    observation with indexed coordinates. Bootstrap the parent index once using
+    jobscript block arrays and the runs read here. Merge newly terminal states under
+    a lock and write atomically. ``no_update`` performs no cache or index writes.
     A write failure is reported on the summary without losing collected states;
     store-read failures propagate to the collection layer.
     """
     ids = run_ids(record)
-    cache = read_cache(record)
-    entries = dict(cache.terminal_states) if cache else {}
-    unresolved = [i for i in ids if i not in entries]
+    selection = selection or select_states(record, read_cache(record))
+    entries = selection.entries
+    unresolved = selection.unresolved
+    new_metadata = {}
     with workflow._store.cache_ctx():
+        expected_jobs = {
+            run_id: job.jobscript_index for job in record.jobs for run_id in job.run_ids
+        }
+        missing_metadata = [
+            run_id
+            for run_id in ids
+            if run_id not in selection.index.runs
+            or selection.index.runs[run_id].jobscript_index != expected_jobs[run_id]
+        ]
+        parents = parent_elements(record, workflow) if missing_metadata else {}
         for run in workflow.get_EARs_from_IDs(unresolved) if unresolved else ():
             start, end = run.start_time, run.end_time
             entries[run.id_] = ActionRunState(
@@ -197,22 +249,42 @@ def refresh_actions(
                 finished_at=end.isoformat() if end else "",
                 skip_reason=run.skip_reason if run.status is EARStatus.skipped else None,
             )
+        for run_id, state in entries.items():
+            parent = parents.get(run_id)
+            if parent is None and run_id in selection.index.runs:
+                existing = selection.index.runs[run_id]
+                if existing.jobscript_index == expected_jobs[run_id]:
+                    parent = existing.jobscript_index, existing.jobscript_element
+            if parent is not None and state.display_state is None:
+                metadata = RunMetadata.from_state(state, *parent)
+                if selection.index.runs.get(run_id) != metadata:
+                    new_metadata[run_id] = metadata
     result = snapshot(entries, ids)
     if not no_update and not is_archive(record.workflow_path):
         try:
-            write_cache(
-                record,
-                TerminalStateCache(
-                    record.workflow_id,
-                    record.submission_index,
-                    {
-                        key: value
-                        for key, value in entries.items()
-                        if value.state in EARStatus.get_non_running_submitted_states()
-                    },
-                    result.observed_at,
-                ),
-            )
+            write_index(record, new_metadata)
+        except (OSError, zstd.ZstdError) as error:
+            result.cache_error = str(error)
+        terminal = {
+            key: value
+            for key, value in entries.items()
+            if value.state in EARStatus.get_non_running_submitted_states()
+        }
+        try:
+            # Do not rewrite a large terminal cache just because active runs were
+            # inspected again. Still migrate a legacy plain cache when necessary.
+            if any(run_id in terminal for run_id in unresolved) or (
+                terminal and not cache_path(record).exists()
+            ):
+                write_cache(
+                    record,
+                    TerminalStateCache(
+                        record.workflow_id,
+                        record.submission_index,
+                        terminal,
+                        result.observed_at,
+                    ),
+                )
         except (OSError, zstd.ZstdError) as error:
             result.cache_error = str(error)
     return result

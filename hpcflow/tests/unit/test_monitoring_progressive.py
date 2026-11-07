@@ -14,6 +14,7 @@ from hpcflow.sdk.monitoring.models import (
     ActionSummary,
     ElementGroup,
     IterationActionState,
+    JobRecord,
     SubmissionRecord,
 )
 from hpcflow.sdk.monitoring.render import build_table
@@ -72,6 +73,8 @@ def test_show_progressive_output_and_static_fallback(monkeypatch, terminal, enab
 
 def test_collector_reports_ready_and_failed_rows_without_extra_queries(monkeypatch):
     rows = [record(0), record(1)]
+    for index, row in enumerate(rows):
+        row.jobs = [JobRecord(0, run_ids=[index])]
     app = SimpleNamespace(config={}, submission_logger=Mock())
     registry = Mock()
     registry.read.return_value = SimpleNamespace(records=rows)

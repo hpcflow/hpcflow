@@ -10,13 +10,22 @@ import json
 from pathlib import Path
 import socket
 
-from .cache import cache_path, read_cache, refresh_actions, run_ids, snapshot, write_cache
+from .cache import (
+    cache_path,
+    read_cache,
+    refresh_actions,
+    run_ids,
+    select_states,
+    snapshot,
+    write_cache,
+)
 from .availability import existing_records
 from .references import resolve_records
 from .filtering import filter_templates, metadata_template_name
 from .settings import get_limit
 from .headers import read_header, is_archive
 from .models import (
+    JobObservation,
     JobRecord,
     ProcessReference,
     SubmissionRecord,
@@ -301,6 +310,9 @@ def observe_activity(
     failed = set()
     observed_records = []
     for record in records:
+        for job in record.jobs:
+            job.observation = None
+    for record in records:
         if is_archive(record.workflow_path):
             observed_records.append(record)
             record.submitting = False
@@ -394,6 +406,15 @@ def observe_activity(
                 ref = resolved.reference
                 key = str(ref[0]) if isinstance(ref, tuple) else ref
                 observed = states.get(key) if key is not None else None
+                job.observation = (
+                    JobObservation(
+                        elements={
+                            int(index): state.name for index, state in observed.items()
+                        }
+                    )
+                    if isinstance(observed, Mapping)
+                    else JobObservation(state=observed.name if observed else None)
+                )
                 job.last_checked_at = timestamp()
                 job.last_observed_state = (
                     [state.name for state in observed.values()]
@@ -409,6 +430,7 @@ def observe_activity(
                 failed.add(record.local_id)
                 record.scheduler_error = str(error)
                 record.scheduler_availability = "unavailable"
+                item.job.observation = None
             app.submission_logger.info("Scheduler monitoring failed: %s", error)
     # Already-inactive records were not queried. Preserve their timestamps rather
     # than making old history appear newly inactive on each show invocation.
@@ -470,7 +492,9 @@ def collect(
     but includes all matching history when a workflow reference is supplied.
 
     Refresh action summaries only for selected records when ``include_summary`` is
-    True, reusing terminal caches and loaded workflows. Inspection failures remain
+    True, reusing terminal caches and a persistent run/parent index. Fresh scheduler
+    queued/waiting observations can supply nonterminal states without loading EARs
+    or workflows; running and missing/unknown parents use store reads. Inspection failures remain
     visible as accessibility information rather than hiding the submission.
     ``no_update`` prevents registry/cache writes but still observes live states.
     Otherwise merge observations with concurrent registry changes and retention.
@@ -554,12 +578,18 @@ def collect(
                     except OSError as error:
                         summary.cache_error = str(error)
             else:
-                workflow = load_workflow(app, record, loaded, progress)
-                with workflow._store.cache_ctx():
+                selection = select_states(record, cache)
+                if not selection.unresolved:
+                    summary = snapshot(selection.entries, ids)
+                else:
+                    workflow = load_workflow(app, record, loaded, progress)
                     if progress:
                         progress(f"Reading action states: {record.workflow_name}")
                     summary = refresh_actions(
-                        record, workflow, no_update or is_archive(record.workflow_path)
+                        record,
+                        workflow,
+                        no_update or is_archive(record.workflow_path),
+                        selection=selection,
                     )
             record.last_action_summary = summary
             if (

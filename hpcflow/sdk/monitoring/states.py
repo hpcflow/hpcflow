@@ -59,6 +59,13 @@ ACTION_STATES["unknown"] = ActionDisplayState(
     (EARStatus.running.id, 1),
     "Last recorded as running, but submission activity cannot be confirmed.",
 )
+ACTION_STATES["scheduler_pending"] = ActionDisplayState(
+    "scheduler_pending",
+    "Q",
+    EARStatus.pending.colour,
+    (EARStatus.submitted.id, 1),
+    "Parent jobscript element is queued or waiting; this run's individual state has not been read.",
+)
 
 
 def display_state_name(entry: ActionRunState) -> str:
@@ -67,6 +74,8 @@ def display_state_name(entry: ActionRunState) -> str:
     Loop termination and unmet task conditions have separate symbols; unknown or
     upstream-related skips keep the general skipped state.
     """
+    if entry.display_state is not None:
+        return entry.display_state
     if entry.state is EARStatus.skipped:
         if entry.skip_reason is SkipReason.LOOP_TERMINATION:
             return "loop_skipped"

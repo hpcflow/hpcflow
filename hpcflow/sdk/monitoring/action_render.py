@@ -207,6 +207,8 @@ def display_summary(
     Preserve engine counts, timestamps, and the original snapshot. Inactivity gives
     no exit result or finish time, so only display counts and patterns are changed.
     Unknown activity makes recorded running states unknown rather than interrupted.
+    Old scheduler-derived states become unknown for either inactive or unknown
+    submissions: an earlier running parent never proved its individual run started.
     """
     if summary is None:
         return ActionSummary()
@@ -215,14 +217,29 @@ def display_summary(
         if include_loop_skipped or summary.without_loop_skipped is None
         else summary.without_loop_skipped
     )
-    if not inactive and not unknown:
-        return summary
-    running_state = "interrupted" if inactive else "unknown"
     counts = dict(
         summary.display_counts if summary.display_counts is not None else summary.counts
     )
-    if running := counts.pop("running", 0):
-        counts[running_state] = counts.get(running_state, 0) + running
+    # Older registry snapshots may contain R observations. Never render them as
+    # verified running states, even if the submission is currently active.
+    legacy_running = "scheduler_running" in counts or (
+        summary.display_counts is None
+        and any(
+            step.state == "scheduler_running"
+            for group in summary.groups
+            for step in group.pattern
+        )
+    )
+    if not inactive and not unknown and not legacy_running:
+        return summary
+    replacements = {"scheduler_running": "unknown"}
+    if inactive or unknown:
+        replacements.update(
+            running="interrupted" if inactive else "unknown", scheduler_pending="unknown"
+        )
+    for name, replacement in replacements.items():
+        if count := counts.pop(name, 0):
+            counts[replacement] = counts.get(replacement, 0) + count
     return replace(
         summary,
         display_counts=counts,
@@ -231,8 +248,8 @@ def display_summary(
                 group,
                 pattern=tuple(
                     (
-                        replace(step, state=running_state)
-                        if step.state == "running"
+                        replace(step, state=replacements[step.state])
+                        if step.state in replacements
                         else step
                     )
                     for step in group.pattern

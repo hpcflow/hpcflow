@@ -371,6 +371,32 @@ Monitor submissions
     Missing or corrupt caches are rebuilt when the workflow is readable. ``--no-update``
     queries current information without writing monitoring history or action caches.
 
+    For active workflows, ``show`` also saves run coordinates and each run's parent
+    jobscript element in ``artifacts/submissions/<index>/tmp/run_index.json.zst``.
+    The first observation builds this index from the jobscript block arrays and
+    inspected runs. Later observations reuse confirmed terminal states and skip
+    store lookups for indexed runs whose parent jobscript element is queued or
+    waiting. Uncached runs in running elements are read from the store, showing
+    their actual individual states and progress within sequential jobscripts.
+    Runs whose parent is no longer reported are also read to capture their actual
+    results, including skip reasons. If every unresolved run is queued or waiting,
+    no workflow load is needed. Scheduler queries remain batched across submissions.
+
+    Grey ``Q`` identifies a scheduler-derived observation: the parent jobscript
+    element is queued or waiting. It does not assert the individual action's stored
+    state. Confirmed terminal states take precedence. ``Q`` observations never
+    become terminal-cache entries or invent finish times. Running elements use
+    ordinary action-state icons based on store reads; there is no ``R`` state.
+
+    Missing mappings, unavailable schedulers, foreign machines without shared
+    scheduler configuration, and ZIP workflows
+    fall back to ordinary store reads for unresolved runs. Scheduler observations
+    are valid only for the current command and are never persisted as evidence for
+    the next command. Corrupt or mismatched indices are rebuilt when writable;
+    ``--no-update`` writes neither index nor terminal cache. Embedded ZIP indices
+    remain readable, and archives remain unchanged. Existing terminal caches are
+    not rewritten when no new terminal states were observed.
+
     New submissions save scheduler references after each successful job submission.
     ``{{ app_package_name }} cancel WORKFLOW_REF`` can therefore request cancellation
     even when workflow data is missing or incompatible, provided scheduler access is

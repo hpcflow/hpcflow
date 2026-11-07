@@ -114,6 +114,18 @@ class WorkflowKey:
 
 
 @dataclass(slots=True)
+class JobObservation:
+    """Fresh scheduler state for a whole job or individual zero-based array elements.
+
+    Invocation-only evidence: never reuse a saved scheduler observation to skip
+    reading run data after a scheduler failure, on another machine, or in an archive.
+    """
+
+    state: str | None = None
+    elements: dict[int, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class JobRecord:
     """Saved scheduler context and reference for one successfully submitted jobscript.
 
@@ -134,11 +146,14 @@ class JobRecord:
     process_created_at: float | None = None
     last_checked_at: str = ""
     last_observed_state: list[str] = field(default_factory=list)
+    observation: JobObservation | None = field(default=None, metadata={"transient": True})
 
     @classmethod
     def from_json(cls, data: dict) -> JobRecord:
         """Decode a saved job, converting legacy process-reference sequences to a model."""
-        values = _scalars(cls, data, {"scheduler_reference", "jobscript_index"})
+        values = _scalars(
+            cls, data, {"scheduler_reference", "jobscript_index", "observation"}
+        )
         reference = data.get("scheduler_reference")
         if isinstance(reference, (list, tuple)):
             reference = ProcessReference.from_json(reference)
@@ -169,15 +184,17 @@ class ActionRunState:
     started_at: str = ""
     finished_at: str = ""
     skip_reason: SkipReason | None = None
+    display_state: str | None = field(default=None, metadata={"transient": True})
 
     @classmethod
     def from_json(cls, data: dict) -> ActionRunState:
         """Decode cached run coordinates, engine status, timestamps, and optional skip reason."""
         return cls(
-            **{
-                key: _integer(data, key)
-                for key in ("task", "element", "iteration", "action", "attempt")
-            },
+            task=_integer(data, "task"),
+            element=_integer(data, "element"),
+            iteration=_integer(data, "iteration"),
+            action=_integer(data, "action"),
+            attempt=_integer(data, "attempt"),
             task_name=_string(data, "task_name"),
             state=EARStatus[data["state"]],
             started_at=data.get("started_at", ""),
@@ -248,9 +265,9 @@ class ActionSummary:
     """Compact action counts, grouped patterns, and timing observations for one part.
 
     ``counts`` preserve engine states; optional ``display_counts`` distinguish skip
-    reasons. ``without_loop_skipped`` provides a prepared visibility view rather than
-    requiring renderers to reread runs. ``cache_error`` reports persistence failures
-    without discarding the observation.
+    reasons and explicitly scheduler-derived observations. ``without_loop_skipped``
+    provides a prepared visibility view rather than requiring renderers to reread
+    runs. ``cache_error`` reports persistence failures without discarding the observation.
     """
 
     counts: dict[str, int] = field(default_factory=dict)
@@ -473,6 +490,7 @@ def to_json(value: Any) -> Any:
         return {
             f.name: to_json(getattr(value, f.name))
             for f in fields(value)
+            if not f.metadata.get("transient")
             if getattr(value, f.name) is not None
         }
     if isinstance(value, dict):
