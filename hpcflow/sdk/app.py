@@ -73,7 +73,7 @@ from hpcflow.sdk.core.errors import (
     EnvironmentNotFound,
     CannotRemoveBuiltinEnvironment,
 )
-from hpcflow.sdk.core.warnings import batch_warnings
+from hpcflow.sdk.core.warnings import DeprecationWarning_, batch_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -2944,13 +2944,15 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         return removed_IDs
 
     def clear_known_submissions_file(self) -> None:
-        """Clear the monitoring history, preserving the monotonic local ID counter."""
-        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
-
-        registry = SubmissionRegistry(self)
-        self.submission_logger.warning(f"Clearing submission history at {registry.path}")
-        with registry.transaction() as data:
-            data.records = []
+        """Deprecated alias for :meth:`clear_registry`."""
+        warnings.warn(
+            DeprecationWarning_(
+                "clear_known_submissions_file() and 'manage clear-known-subs' are deprecated.",
+                solution="Use clear_registry() or 'manage clear-registry' instead.",
+            ),
+            stacklevel=2,
+        )
+        self.clear_registry()
 
     @batch_warnings
     def _make_workflow(

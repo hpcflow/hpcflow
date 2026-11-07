@@ -202,7 +202,8 @@ class SubmissionRegistry:
     The host-scoped JSON registry retains job references needed for monitoring and
     cancellation. Read legacy history without changing its source file. Mutations
     use an OS lock and atomic replacement. Inactive and unknown records have
-    separate retention limits; active records and allocated IDs are protected.
+    separate retention limits; active records are protected. Only explicit
+    unregistering releases IDs; automatic pruning leaves them retired.
     """
 
     SCHEMA_VERSION = 1
@@ -260,36 +261,41 @@ class SubmissionRegistry:
         return data
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, *, prune: bool = True):
         """Yield mutable registry data under an exclusive lock and commit on success.
 
         After the caller finishes, apply separate inactive and unknown retention
         limits, retain every active record, and atomically replace the JSON document.
         Unknown records are ordered by submission time, then local ID; rechecking
-        a stale record does not make it recent. Exceptions skip the commit.
+        a stale record does not make it recent. Explicit removal uses ``prune=False``
+        to preserve records outside its selection. Exceptions skip the commit.
         """
         with file_lock(self.path.with_suffix(".lock")):
             data = self.read()
             yield data
-            limit = get_limit(self.app.config, "known_submissions_max_inactive", 100)
-            inactive = sorted(
-                (record for record in data.records if record.activity == "inactive"),
-                key=recent_key,
-                reverse=True,
-            )
-            remove = {record.local_id for record in inactive[limit:]}
-            unknown_limit = get_limit(
-                self.app.config, "known_submissions_max_unknown", 10
-            )
-            unknown = sorted(
-                (record for record in data.records if record.activity == "unknown"),
-                key=lambda record: (sort_timestamp(record.submitted_at), record.local_id),
-                reverse=True,
-            )
-            remove.update(record.local_id for record in unknown[unknown_limit:])
-            data.records = [
-                record for record in data.records if record.local_id not in remove
-            ]
+            if prune:
+                limit = get_limit(self.app.config, "known_submissions_max_inactive", 100)
+                inactive = sorted(
+                    (record for record in data.records if record.activity == "inactive"),
+                    key=recent_key,
+                    reverse=True,
+                )
+                remove = {record.local_id for record in inactive[limit:]}
+                unknown_limit = get_limit(
+                    self.app.config, "known_submissions_max_unknown", 10
+                )
+                unknown = sorted(
+                    (record for record in data.records if record.activity == "unknown"),
+                    key=lambda record: (
+                        sort_timestamp(record.submitted_at),
+                        record.local_id,
+                    ),
+                    reverse=True,
+                )
+                remove.update(record.local_id for record in unknown[unknown_limit:])
+                data.records = [
+                    record for record in data.records if record.local_id not in remove
+                ]
             atomic_json(self.path, to_json(data))
 
     def begin(self, submission: Submission, part: str) -> int:
@@ -311,7 +317,12 @@ class SubmissionRegistry:
                     getattr(submission.workflow, "template", None), "name", None
                 ),
             )
-            record.local_id = data.next_local_id
+            if data.free_local_ids:
+                record.local_id = min(data.free_local_ids)
+                record.revision = data.free_local_ids.pop(record.local_id)
+            else:
+                record.local_id = data.next_local_id
+                data.next_local_id += 1
             record.activity = "active"
             record.accessibility = "readable"
             record.submitting = True
@@ -319,9 +330,83 @@ class SubmissionRegistry:
                 os.getpid(), psutil.Process().create_time()
             )
             record.app_info = self.app.get_info()
-            data.next_local_id += 1
             data.records.append(record)
         return record.local_id
+
+    def unregister(self, local_id: int) -> SubmissionRecord:
+        """Remove one submission part and make its ID explicitly reusable.
+
+        Do not load/delete workflows or query/cancel jobs. Reject removal while
+        submission writes are in progress. Save the next revision for a reused ID
+        so previously collected observations cannot overwrite its new owner.
+        Automatically pruned IDs never enter this reuse pool.
+        """
+        if type(local_id) is not int or local_id < 0:
+            raise ValueError("Submission ID must be a non-negative integer")
+        with self.transaction(prune=False) as data:
+            record = next((r for r in data.records if r.local_id == local_id), None)
+            if record is None:
+                raise ValueError(f"Unknown registered submission ID: {local_id}")
+            self._ensure_unregisterable(record)
+            data.records.remove(record)
+            data.free_local_ids[local_id] = record.revision + 1
+        return record
+
+    def unregister_all(self, include_active: bool = False) -> list[SubmissionRecord]:
+        """Release all inactive entries, or every entry when explicitly requested.
+
+        Selection uses last recorded activity without querying schedulers. Including
+        active entries also includes unknown entries, which may still be running.
+        Validate the whole selection before removing anything; a live submitter
+        aborts the transaction. Do not prune records outside the selected activity
+        states, even when retention settings have since been lowered.
+        """
+        if type(include_active) is not bool:
+            raise ValueError("include_active must be a boolean")
+        with self.transaction(prune=False) as data:
+            selected = [
+                record
+                for record in data.records
+                if include_active or record.activity == "inactive"
+            ]
+            for record in selected:
+                self._ensure_unregisterable(record)
+            selected_ids = {record.local_id for record in selected}
+            data.records = [
+                record for record in data.records if record.local_id not in selected_ids
+            ]
+            data.free_local_ids.update(
+                {record.local_id: record.revision + 1 for record in selected}
+            )
+        return selected
+
+    @staticmethod
+    def _ensure_unregisterable(record: SubmissionRecord) -> None:
+        """Reject removal only while an original submitter can still append jobs."""
+        submitting = record.submitting
+        if submitting and record.submitting_owner:
+            import psutil
+
+            # Interrupted submitters may leave this flag set. Only the
+            # original live process can still append jobs to this entry.
+            owner = record.submitting_owner
+            foreign = record.jobs and all(
+                job.hostname and job.hostname != socket.gethostname()
+                for job in record.jobs
+            )
+            if foreign:
+                submitting = False
+            else:
+                try:
+                    submitting = (
+                        psutil.Process(owner.pid).create_time() == owner.created_at
+                    )
+                except psutil.NoSuchProcess:
+                    submitting = False
+        if submitting:
+            raise ValueError(
+                f"Cannot unregister submission {record.local_id} while jobs are being submitted"
+            )
 
     def add_job(self, local_id: int, job: JobRecord) -> None:
         """Append one successful job reference immediately and advance the record revision."""

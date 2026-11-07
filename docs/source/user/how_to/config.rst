@@ -83,10 +83,15 @@ Usually, when |app_name| is invoked, the first thing it does is load the configu
     
     Resetting the configuration will remove any custom configuration you had, including pointers to template component source files (like environment source files). If you want to make a copy of the old file before resetting, you can retrieve its file path like this: :code:`{{ app_package_name }} manage get-config-path`, with the CLI, or, :code:`{{ app_docs_import_conv }}.get_config_path()`, with the Python API.
 
-Clear the known-submissions file
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Clear the submission registry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The known-submissions file is used to track running and recent workflow, and is used by the :code:`{{ app_docs_import_conv }}.show` / :code:`{{ app_package_name }} show` command. Sometimes you might need to clear this file, which can be done like this:
+The submission registry tracks running and recent workflow submissions for
+:code:`{{ app_package_name }} show`. To reset it, delete the registry files directly
+without loading configuration, workflows, or registry contents. This works even if
+configuration or registry files are invalid. All machine names in the app's user
+data directory are included, along with legacy known-submissions files.
+Local IDs reset; workflow files and scheduler jobs are unaffected.
 
 .. tab-set::
 
@@ -94,7 +99,7 @@ The known-submissions file is used to track running and recent workflow, and is 
         
         .. code-block:: console
 
-            {{ app_package_name }} manage clear-known-subs
+            {{ app_package_name }} manage clear-registry
 
     .. tab-item:: Python API
         
@@ -104,4 +109,7 @@ The known-submissions file is used to track running and recent workflow, and is 
 
             import {{ app_module }} as {{ app_docs_import_conv }}
 
-            {{ app_docs_import_conv }}.clear_known_submissions_file()
+            {{ app_docs_import_conv }}.clear_registry()
+
+The old :code:`manage clear-known-subs` command and
+:code:`clear_known_submissions_file()` API remain deprecated aliases.

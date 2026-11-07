@@ -9,7 +9,9 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.app import BaseApp
 
 
-@pytest.mark.parametrize("name", ["show", "show_legend", "get_known_submissions"])
+@pytest.mark.parametrize(
+    "name", ["show", "show_legend", "get_known_submissions", "unregister"]
+)
 def test_inherited_monitoring_callable_remains_cached_and_exported(name):
     method = getattr(hf, name)
     assert method is getattr(hf, name)
@@ -18,7 +20,9 @@ def test_inherited_monitoring_callable_remains_cached_and_exported(name):
     assert inspect.signature(method) == inspect.signature(getattr(hf, f"_{name}"))
 
 
-@pytest.mark.parametrize("name", ["show", "show_legend", "get_known_submissions"])
+@pytest.mark.parametrize(
+    "name", ["show", "show_legend", "get_known_submissions", "unregister"]
+)
 def test_derived_app_monitoring_overrides_use_host_binding(name, monkeypatch):
     calls = []
 

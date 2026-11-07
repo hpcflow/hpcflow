@@ -391,11 +391,16 @@ class SubmissionRecord:
 
 @dataclass(slots=True)
 class RegistryData:
-    """The versioned registry document and its monotonic local ID counter."""
+    """Registry records, a fresh-ID counter, and IDs freed by explicit unregistering.
+
+    ``free_local_ids`` maps reusable IDs to their next revision, keeping stale
+    observations from an earlier registration from updating a reused ID.
+    """
 
     records: list[SubmissionRecord] = field(default_factory=list)
     next_local_id: int = 0
     schema_version: int = 1
+    free_local_ids: dict[int, int] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, data: dict) -> RegistryData:
@@ -409,9 +414,27 @@ class RegistryData:
         ids = {record.local_id for record in records}
         if len(ids) != len(records):
             raise ValueError("Duplicate local submission IDs")
-        return cls(
-            records, max(_integer(data, "next_local_id"), max(ids, default=-1) + 1)
-        )
+        next_id = max(_integer(data, "next_local_id"), max(ids, default=-1) + 1)
+        raw_free_ids = data.get("free_local_ids", {})
+        if not isinstance(raw_free_ids, dict):
+            raise ValueError("Invalid reusable submission IDs")
+        free_ids = {}
+        for key, revision in raw_free_ids.items():
+            if not isinstance(key, (str, int)) or isinstance(key, bool):
+                raise ValueError("Invalid reusable submission ID")
+            local_id = int(key)
+            if (
+                str(local_id) != str(key)
+                or local_id < 0
+                or local_id >= next_id
+                or local_id in ids
+                or local_id in free_ids
+                or type(revision) is not int
+                or revision < 1
+            ):
+                raise ValueError("Invalid reusable submission ID or revision")
+            free_ids[local_id] = revision
+        return cls(records, next_id, free_local_ids=free_ids)
 
 
 @dataclass(slots=True)

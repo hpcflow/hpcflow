@@ -120,7 +120,40 @@ Monitor submissions
     the default recent-submission limit; supply ``--max-recent N`` explicitly to
     limit its inactive history. This applies to ZIP paths too. An explicit path also supports
     inspecting a workflow whose submission history is no longer retained. Local IDs are
-    never reused within the monitoring registry.
+    not reused after automatic pruning. Explicit unregistering frees an ID for reuse.
+
+    Remove a specific registered submission part with ``unregister``:
+
+    .. code-block:: console
+
+        {{ app_package_name }} unregister 42
+
+    This removes only the record identified by the displayed submission ID and frees
+    that ID for reuse. Other parts of the same workflow remain registered. Running
+    jobs continue and workflow files are preserved. Missing workflows can also be
+    unregistered. The command is rejected while a submission command is still
+    registering jobs, to protect in-progress writes.
+
+    Unregister all inactive submissions with ``--all``. Include active and unknown
+    records with ``--include-active``; this flag requires ``--all``:
+
+    .. code-block:: console
+
+        {{ app_package_name }} unregister --all
+        {{ app_package_name }} unregister --all --include-active
+
+    Activity is the last registered observation; no scheduler queries are made.
+    Bulk removal is atomic: if any selected submission is still registering jobs,
+    the whole operation fails without removing records. Other activity states are
+    preserved when removing inactive entries, even if retention limits were lowered.
+    Every explicitly removed ID becomes reusable. In Python, use
+    ``app.unregister(all_submissions=True, include_active=False)``; bulk calls
+    return the removed IDs.
+
+    Future submissions reuse the lowest explicitly freed ID before allocating a new
+    ID. Automatic retention pruning does not free IDs. After unregistering, an old
+    command using that numeric ID may therefore refer to a newly registered workflow.
+    The SDK equivalent is ``app.unregister(42)``.
 
     Filter by exact, case-sensitive workflow template names with ``--tname``:
 

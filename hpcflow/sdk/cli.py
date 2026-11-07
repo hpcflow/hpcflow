@@ -1293,6 +1293,49 @@ def _make_show_CLI(app: BaseApp):
     return show
 
 
+def _make_unregister_CLI(app: BaseApp):
+    """Generate the explicit registry-entry removal command."""
+
+    @click.command(name="unregister")
+    @click.argument("submission_id", required=False, type=click.IntRange(min=0))
+    @click.option(
+        "--all",
+        "all_submissions",
+        is_flag=True,
+        help="Unregister all inactive submissions and free their IDs.",
+    )
+    @click.option(
+        "--include-active",
+        is_flag=True,
+        help="With --all, include active and unknown submissions too.",
+    )
+    def unregister(
+        submission_id: int | None, all_submissions: bool, include_active: bool
+    ):
+        """Unregister one submission or all inactive submissions, without cancelling jobs or deleting files."""
+        if all_submissions and submission_id is not None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all, not both.")
+        if not all_submissions and submission_id is None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all.")
+        if include_active and not all_submissions:
+            raise click.UsageError("--include-active requires --all.")
+        try:
+            if all_submissions:
+                removed = app.unregister(
+                    all_submissions=True, include_active=include_active
+                )
+                count = len(removed or [])
+                label = "submissions" if include_active else "inactive submissions"
+                click.echo(f"Unregistered {count} {label}.")
+            else:
+                app.unregister(submission_id)
+                click.echo(f"Unregistered submission {submission_id}.")
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+
+    return unregister
+
+
 def _make_zip_CLI(app: BaseApp):
     @click.command(name="zip")
     @click.argument("workflow_ref")
@@ -1845,9 +1888,18 @@ def _make_manage_CLI(app: BaseApp):
         """
         click.echo(app.get_config_path(config_dir))
 
+    @manage.command("clear-registry")
+    def clear_registry():
+        """Delete all submission registries without loading config or workflows.
+
+        Includes legacy records and all machine names in the app's data directory.
+        Workflow files and scheduler jobs are unaffected. Local IDs reset.
+        """
+        app.clear_registry()
+
     @manage.command("clear-known-subs")
     def clear_known_subs():
-        """Delete the contents of the known-submissions file."""
+        """Delete all submission registries (deprecated; use clear-registry)."""
         app.clear_known_submissions_file()
 
     @manage.command("clear-temp-dir")
@@ -2266,6 +2318,7 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(_make_internal_CLI(app))
     new_CLI.add_command(_make_template_components_CLI(app))
     new_CLI.add_command(_make_show_CLI(app))
+    new_CLI.add_command(_make_unregister_CLI(app))
     new_CLI.add_command(_make_open_CLI(app))
     new_CLI.add_command(_make_cancel_CLI(app))
     new_CLI.add_command(_make_zip_CLI(app))

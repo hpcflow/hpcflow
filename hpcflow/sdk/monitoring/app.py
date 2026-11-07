@@ -41,6 +41,17 @@ if TYPE_CHECKING:
             status: Status | None = None,
         ) -> list[dict[str, Any]]: ...
 
+    class _Unregister(Protocol):
+        """Callable interface for single-entry or bulk explicit removal."""
+
+        def __call__(
+            self,
+            local_id: int | None = None,
+            *,
+            all_submissions: bool = False,
+            include_active: bool = False,
+        ) -> list[int] | None: ...
+
     class _Show(Protocol):
         """Type of :py:meth:`BaseApp.show`"""
 
@@ -72,6 +83,21 @@ class MonitoringMixin:
     the host's responsibility.
     """
 
+    def clear_registry(self) -> None:
+        """Delete submission registries without loading configuration or workflows.
+
+        Remove registries for every machine name under the application's user data
+        directory, including legacy files that would otherwise be imported again.
+        Discover paths directly because configured machine aliases are unavailable
+        when configuration is broken. Missing files are harmless, and corrupt files
+        need not be parsed. This resets local IDs; workflow files, jobs, caches, and
+        registry lock files are left in place.
+        """
+        data_dir = self._monitoring_app.user_data_dir
+        for filename in ("known_submissions_v2.json", "known_submissions.txt"):
+            for path in data_dir.glob(f"*/{filename}"):
+                path.unlink(missing_ok=True)
+
     @property
     def _monitoring_app(self) -> BaseApp:
         """Expose the BaseApp host contract without a runtime circular import.
@@ -91,6 +117,51 @@ class MonitoringMixin:
         ``as_json`` is retained for compatibility; results always contain plain data.
         """
         return self._monitoring_app._get_app_func("get_known_submissions")
+
+    @property
+    def unregister(self) -> _Unregister:
+        """Unregister one submission part or a bulk activity selection.
+
+        Pass a local ID for one entry, or ``all_submissions=True`` for all inactive
+        records. With bulk removal, ``include_active=True`` also selects active and
+        unknown records, using their last recorded activity. Bulk calls return the
+        removed IDs; a single-entry call returns None.
+
+        Free IDs without cancelling jobs or deleting workflow files. Automatic
+        pruning does not free IDs. If a selected submission is still registering
+        jobs, reject the entire operation without removing any selected records.
+        """
+        return self._monitoring_app._get_app_func("unregister")
+
+    def _unregister(
+        self,
+        local_id: int | None = None,
+        *,
+        all_submissions: bool = False,
+        include_active: bool = False,
+    ) -> list[int] | None:
+        """Remove one entry or an explicit bulk selection and release its IDs.
+
+        Bulk removal returns the removed IDs, while single-entry removal preserves
+        its None return. Activity filters apply only with ``all_submissions=True``.
+        """
+        from .registry import SubmissionRegistry
+
+        if type(all_submissions) is not bool or type(include_active) is not bool:
+            raise ValueError("all_submissions and include_active must be booleans")
+        registry = SubmissionRegistry(self._monitoring_app)
+        if all_submissions:
+            if local_id is not None:
+                raise ValueError(
+                    "Specify a submission ID or all_submissions=True, not both"
+                )
+            return [record.local_id for record in registry.unregister_all(include_active)]
+        if local_id is None:
+            raise ValueError("Specify a submission ID or all_submissions=True")
+        if include_active:
+            raise ValueError("include_active requires all_submissions=True")
+        registry.unregister(local_id)
+        return None
 
     @property
     def show(self) -> _Show:
