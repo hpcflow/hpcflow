@@ -54,6 +54,43 @@
     store. Node-local directories may be removed by the cluster when a job finishes,
     regardless of the workflow's cleanup policy.
 
+    Peak memory usage
+    ~~~~~~~~~~~~~~~~~
+
+    Enable ``track_peak_memory`` to record memory usage separately for each run:
+
+    .. code-block:: yaml
+
+      resources:
+        any:
+          track_peak_memory: true
+          peak_memory_sampling_interval: 0.5
+
+    Tracking defaults to false and can be enabled at workflow or task level, or for an
+    action scope. After execution, ``run.peak_memory_bytes`` contains the largest sampled
+    sum of resident memory (RSS), in bytes, for the run's command process and its local
+    descendants. The result is persisted in both JSON and Zarr workflow stores, including
+    for commands that fail. It is ``None`` when tracking is disabled, the run is skipped
+    or has no command process, or no sample could be collected.
+
+    Samples are taken approximately every 0.5 seconds by default. Set
+    ``peak_memory_sampling_interval`` to a finite positive number of seconds to change
+    this, for example ``0.05`` for 50 milliseconds. The interval follows the usual
+    workflow, task and action-scope resource inheritance. Shorter intervals increase
+    monitoring overhead, particularly for runs with many child processes. Short-lived
+    processes and brief memory spikes may be missed. Shared memory can be counted more
+    than once when
+    summing process RSS; inaccessible processes are omitted. Processes on remote nodes
+    (for example, remote MPI ranks) are not included. This is a sampled local process-tree
+    measurement, rather than scheduler accounting or a memory limit.
+
+    When ``combine_scripts: true`` applies to a run, a warning is issued and peak memory
+    tracking is ignored. Combined execution is preserved and ``run.peak_memory_bytes``
+    remains ``None``. Set ``combine_scripts: false`` to track those runs separately.
+    Sampling ends when the command process exits. Aborted runs retain samples collected
+    before cancellation when normal run finalisation completes; forcible termination of
+    the executor may prevent saving.
+
     Shell and scheduler arguments
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

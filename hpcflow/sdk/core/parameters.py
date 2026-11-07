@@ -31,6 +31,7 @@ from hpcflow.sdk.core.errors import (
 )
 from hpcflow.sdk.core.json_like import ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.utils import (
+    validate_peak_memory_sampling_interval,
     check_valid_py_identifier,
     get_enum_by_name_or_val,
     split_param_label,
@@ -2899,6 +2900,10 @@ class ResourceSpec(JSONLike):
         Whether an app log file should be written.
     combine_jobscript_std: bool
         Whether jobscript standard output and error streams should be combined.
+    track_peak_memory: bool
+        Whether to sample peak resident memory during run execution.
+    peak_memory_sampling_interval: float
+        Seconds between memory samples; defaults to 0.5. Must be finite and positive.
     combine_scripts: bool
         Whether Python scripts should be combined.
     time_limit: str
@@ -2954,6 +2959,8 @@ class ResourceSpec(JSONLike):
         "array_wrap_order",
         "write_app_logs",
         "combine_jobscript_std",
+        "track_peak_memory",
+        "peak_memory_sampling_interval",
         "combine_scripts",
         "time_limit",
         "scheduler_args",
@@ -3039,6 +3046,8 @@ class ResourceSpec(JSONLike):
         SLURM_num_nodes: str | None = None,
         SLURM_num_cpus_per_task: str | None = None,
         inherit_directives: bool | None = None,
+        track_peak_memory: bool | None = None,
+        peak_memory_sampling_interval: float | None = None,
     ):
         #: Which scope does this apply to.
         self.scope = self.__parse_thing(self._app.ActionScope, scope)
@@ -3072,6 +3081,12 @@ class ResourceSpec(JSONLike):
         self._array_wrap_order = self._process_array_wrap_order(array_wrap_order)
         self._write_app_logs = write_app_logs
         self._combine_jobscript_std = combine_jobscript_std
+        self._track_peak_memory = track_peak_memory
+        self._peak_memory_sampling_interval = (
+            validate_peak_memory_sampling_interval(peak_memory_sampling_interval)
+            if peak_memory_sampling_interval is not None
+            else None
+        )
         self._combine_scripts = combine_scripts
         self._time_limit = time_limit
         self._scheduler_args = scheduler_args
@@ -3213,6 +3228,8 @@ class ResourceSpec(JSONLike):
             self._array_wrap_order = None
             self._write_app_logs = None
             self._combine_jobscript_std = None
+            self._track_peak_memory = None
+            self._peak_memory_sampling_interval = None
             self._combine_scripts = None
             self._time_limit = None
             self._scheduler_args = None
@@ -3382,6 +3399,16 @@ class ResourceSpec(JSONLike):
     @property
     def combine_jobscript_std(self) -> bool:
         return self._get_value("combine_jobscript_std")
+
+    @property
+    def track_peak_memory(self) -> bool | None:
+        """Whether to sample peak resident memory during run execution."""
+        return self._get_value("track_peak_memory")
+
+    @property
+    def peak_memory_sampling_interval(self) -> float | None:
+        """Seconds between memory samples, or None to inherit the interval."""
+        return self._get_value("peak_memory_sampling_interval")
 
     @property
     def combine_scripts(self) -> bool:

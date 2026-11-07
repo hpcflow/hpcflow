@@ -571,6 +571,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
         "exit_code",
         "run_hostname",
         "port_number",
+        "peak_memory_bytes",
     ]
     EXEC_TIME_DEFAULTS = {
         "skip": 0,
@@ -675,6 +676,7 @@ class ZarrStoreEAR(StoreEAR[ListAny, ZarrAttrs]):
             "exit_code": run_time_dat[6],
             "run_hostname": run_time_dat[7],
             "port_number": run_time_dat[8],
+            "peak_memory_bytes": run_time_dat[9] if len(run_time_dat) > 9 else None,
         }
         return cls(is_pending=False, **obj_dat)
 
@@ -1767,7 +1769,10 @@ class ZarrPersistentStore(
         )
 
     def _update_EAR_end(
-        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
+        self,
+        run_ends: dict[
+            int, tuple[datetime, dict[str, Any] | None, int, bool, int | None]
+        ],
     ):
         self._update_run_execution_metadata(
             updates={
@@ -1776,6 +1781,7 @@ class ZarrPersistentStore(
                     "snapshot_end": v[1],
                     "exit_code": v[2],
                     "success": v[3],
+                    "peak_memory_bytes": v[4],
                 }
                 for k, v in run_ends.items()
             }
@@ -2617,6 +2623,9 @@ class ZarrPersistentStore(
                         runs[idx] = ZarrStoreEAR.encode_run_time_metadata({}, self.ts_fmt)
 
                     enc_val = ZarrStoreEAR.encode_run_time_metadata(upd_data, self.ts_fmt)
+                    # Older workflows have shorter execution-metadata records.
+                    if len(runs[idx]) < len(enc_val):
+                        runs[idx].extend([None] * (len(enc_val) - len(runs[idx])))
 
                     for upd_idx in upd_data:
                         runs[idx][upd_idx] = enc_val[upd_idx]

@@ -569,6 +569,8 @@ class StoreEAR(Generic[SerFormT, ContextT]):
     snapshot_end: dict[str, Any] | None = None
     #: The exit code of the underlying executable, if known.
     exit_code: int | None = None
+    #: Sampled peak resident memory of the run process tree, in bytes.
+    peak_memory_bytes: int | None = None
     #: Metadata concerning e.g. the state of the EAR.
     metadata: Metadata | None = None
     #: Where this EAR was submitted to run, if known.
@@ -626,6 +628,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             "snapshot_start": self.snapshot_start,
             "snapshot_end": self.snapshot_end,
             "exit_code": self.exit_code,
+            "peak_memory_bytes": self.peak_memory_bytes,
             "metadata": self.metadata,
             "run_hostname": self.run_hostname,
             "port_number": self.port_number,
@@ -648,6 +651,7 @@ class StoreEAR(Generic[SerFormT, ContextT]):
         run_hostname: str | None = None,
         port_number: int | None = None,
         data_idx: DataIndex | None = None,
+        peak_memory_bytes: int | None = None,
     ) -> Self:
         """Return a shallow copy, with specified data updated."""
 
@@ -680,6 +684,11 @@ class StoreEAR(Generic[SerFormT, ContextT]):
             action_idx=self.action_idx,
             commands_idx=self.commands_idx,
             data_idx=data_idx,
+            peak_memory_bytes=(
+                peak_memory_bytes
+                if peak_memory_bytes is not None
+                else self.peak_memory_bytes
+            ),
             metadata=self.metadata,
             submission_idx=sub_idx,
             commands_file_ID=cmd_file,
@@ -1902,6 +1911,7 @@ class PersistentStore(
         success: bool,
         snapshot: bool,
         save: bool = True,
+        peak_memory_bytes: int | None = None,
     ) -> datetime:
         """
         Mark an element action run as finished.
@@ -1909,7 +1919,13 @@ class PersistentStore(
         # TODO: save output files
         dt = current_timestamp()
         ss_js = self._app.RunDirAppFiles.take_snapshot() if snapshot else None
-        self._pending.set_EAR_ends[EAR_ID] = (dt, ss_js, exit_code, success)
+        self._pending.set_EAR_ends[EAR_ID] = (
+            dt,
+            ss_js,
+            exit_code,
+            success,
+            peak_memory_bytes,
+        )
         if save:
             self.save()
         return dt
@@ -1927,7 +1943,7 @@ class PersistentStore(
         run_end_data: dict[int, tuple] = {}
         for id_i, dir_i, ex_i, sc_i in zip(run_ids, run_dirs, exit_codes, successes):
             ss_js_i = self._app.RunDirAppFiles.take_snapshot(dir_i) if dir_i else None
-            run_end_data[id_i] = (dt, ss_js_i, ex_i, sc_i)
+            run_end_data[id_i] = (dt, ss_js_i, ex_i, sc_i, None)
 
         self._pending.set_EAR_ends.update(run_end_data)
         if save:
@@ -2661,7 +2677,8 @@ class PersistentStore(
                 updates["snapshot_end"],
                 updates["exit_code"],
                 updates["success"],
-            ) = self._pending.set_EAR_ends.get(EAR_i.id_, (None, None, None, None))
+                updates["peak_memory_bytes"],
+            ) = self._pending.set_EAR_ends.get(EAR_i.id_, (None, None, None, None, None))
             if any(i is not None for i in updates.values()):
                 EAR_i = EAR_i.update(**updates)
 
@@ -2929,7 +2946,10 @@ class PersistentStore(
 
     @abstractmethod
     def _update_EAR_end(
-        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
+        self,
+        run_ends: dict[
+            int, tuple[datetime, dict[str, Any] | None, int, bool, int | None]
+        ],
     ) -> None: ...
 
     @abstractmethod

@@ -165,6 +165,8 @@ class RunMeta(TypedDict):
     metadata: Metadata | None
     #: When the EAR ended, if known.
     end_time: NotRequired[str | None]
+    #: Sampled peak resident memory, in bytes.
+    peak_memory_bytes: NotRequired[int | None]
     #: The exit code of the EAR, if known.
     exit_code: int | None
     #: When the EAR started, if known.
