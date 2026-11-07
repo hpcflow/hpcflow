@@ -40,6 +40,19 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
+class CollectionProgress:
+    """Current rows and unfinished observations for a progressive table.
+
+    Records belong to the collection invocation; consume updates immediately.
+    Pending entries use object identities because unregistered parts can lack IDs.
+    """
+
+    records: list[SubmissionRecord]
+    pending: frozenset[int]
+    checking_activity: bool = False
+
+
+@dataclass(slots=True)
 class RegisteredJob:
     """Associate a saved jobscript reference with its owning submission record."""
 
@@ -417,6 +430,7 @@ def collect(
     template_names: Sequence[str] | str | None = None,
     progress: Callable[[str], None] | None = None,
     include_missing: bool = False,
+    on_update: Callable[[CollectionProgress], None] | None = None,
 ) -> list[SubmissionRecord]:
     """Collect active submissions and a limited recent inactive history.
 
@@ -436,6 +450,8 @@ def collect(
     ``no_update`` prevents registry/cache writes but still observes live states.
     Otherwise merge observations with concurrent registry changes and retention.
     Return invocation-owned snapshots, without live workflow or scheduler objects.
+    ``on_update`` receives initial placeholders, scheduler results, and each ready
+    row. It performs no additional collection or scheduler queries.
     """
     if max_recent is None and workflow_ref is None:
         max_recent = get_limit(app.config, "show_max_recent", 3)
@@ -471,6 +487,8 @@ def collect(
         loaded[WorkflowKey(path, workflow.id_)] = workflow
     records = existing_records(records, include_missing)
     records = filter_templates(records, template_names)
+    if on_update:
+        on_update(CollectionProgress(records, frozenset(map(id, records)), True))
     for record in records:
         if record.legacy and record.activity != "inactive":
             try:
@@ -490,6 +508,9 @@ def collect(
         (r for r in records if r.activity == "inactive"), key=recent_key, reverse=True
     )[:max_recent]
     selected = active + inactive
+    pending = {id(record) for record in selected}
+    if on_update:
+        on_update(CollectionProgress(selected, frozenset(pending)))
     for record in selected:
         try:
             check_identity(record)
@@ -535,6 +556,10 @@ def collect(
                     setattr(record, field, getattr(summary, field))
         except Exception as error:
             note_failure(app, record, error)
+        finally:
+            pending.discard(id(record))
+            if on_update:
+                on_update(CollectionProgress(selected, frozenset(pending)))
     # Remote/archive completion may have changed activity while reading states.
     selected = (
         sorted(

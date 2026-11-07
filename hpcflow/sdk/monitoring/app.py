@@ -15,6 +15,8 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table, box
 from rich.text import Text
+from rich.live import Live
+from rich.spinner import Spinner
 from rich import print as rich_print
 
 from ..core.warnings import batch_warnings
@@ -207,8 +209,9 @@ class MonitoringMixin:
             Group iterations with identical action patterns. False shows each
             iteration separately and implies full detail.
         status : bool, default True
-            Show transient Rich progress while loading workflows, reading action
-            states, and querying schedulers. False suppresses the progress display.
+            Update terminal table rows progressively while loading workflows,
+            reading action states, and querying schedulers. Redirected output prints
+            the completed table once. False suppresses the progress display.
 
         include_missing : bool, default False
             Include registered workflows whose paths have been deleted or are
@@ -378,13 +381,51 @@ class MonitoringMixin:
                 console=console,
             )
             return
-        from hpcflow.sdk.monitoring.render import render
-        from hpcflow.sdk.monitoring.status import collect
+        from hpcflow.sdk.monitoring.render import build_table, render
+        from hpcflow.sdk.monitoring.status import CollectionProgress, collect
+
+        progressive = status and console.is_terminal and not console.is_dumb_terminal
+        spinner = Spinner("dots", text="Reading registered submissions...")
+        live_table = (
+            Live(spinner, console=console, transient=True, refresh_per_second=4)
+            if progressive
+            else None
+        )
+
+        def update_rows(update: CollectionProgress) -> None:
+            """Replace placeholders with ready rows without collecting data again."""
+            if live_table is not None:
+                live_table.update(
+                    Group(
+                        build_table(
+                            update.records,
+                            selected_columns,
+                            full,
+                            include_loop_skipped,
+                            False,
+                            display_timezone,
+                            group_elements,
+                            group_iterations,
+                            update.pending,
+                            update.checking_activity,
+                        ),
+                        spinner,
+                    ),
+                    refresh=True,
+                )
+
+        def update_message(message: str) -> None:
+            """Keep the progress footer current while the table stays visible."""
+            spinner.update(text=message)
 
         with (
-            console.status("Reading registered submissions...")
-            if status
-            else nullcontext()
+            live_table
+            if live_table is not None
+            else (
+                console.status("Reading registered submissions...")
+                if status
+                else nullcontext()
+            )
         ) as live_status:
             records = collect(
                 self._monitoring_app,
@@ -394,7 +435,12 @@ class MonitoringMixin:
                 no_update,
                 template_names=template_names,
                 include_missing=include_missing,
-                progress=live_status.update if live_status is not None else None,
+                progress=(
+                    update_message
+                    if live_table is not None
+                    else live_status.update if live_status is not None else None
+                ),
+                on_update=update_rows if live_table is not None else None,
                 include_summary=any(
                     SHOW_COLUMNS[name].requires_summary for name in selected_columns
                 ),

@@ -45,6 +45,13 @@ Monitor submissions
 
 .. jinja:: first_ctx
 
+    In an interactive terminal, ``show`` displays the table while it collects data.
+    Scheduler status starts as ``Checking...`` and run-state columns as ``Loading...``;
+    each row fills in when ready. Rows can reorder once activity is known, keeping
+    active submissions first. Scheduler queries remain batched across submissions.
+    Redirected output prints the completed table once. Use ``--no-status`` to disable
+    progressive display.
+
     Use ``{{ app_package_name }} show`` to list active submissions first, followed by
     recent inactive submissions. Submissions whose scheduler cannot be queried remain
     visible with unknown activity. Missing or incompatible workflow data does not imply

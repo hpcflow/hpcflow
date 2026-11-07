@@ -3,7 +3,8 @@
 from collections.abc import Sequence
 from datetime import tzinfo
 
-from rich.console import Console
+from rich.console import Console, RenderableType
+from rich.text import Text
 from rich.table import Table, box
 
 # Retain the existing imports for callers using the action rendering helpers.
@@ -30,27 +31,30 @@ from .columns import (
 from .models import SubmissionRecord
 
 
-def _render_table(
+def build_table(
     records: list[SubmissionRecord],
     columns: Sequence[str],
     full: bool,
-    console: Console | None,
     include_loop_skipped: bool,
     list_only: bool,
     display_timezone: tzinfo | None,
     group_elements: bool,
     group_iterations: bool,
-) -> None:
-    """Compose selected column renderers using a single shared formatting context."""
+    pending: frozenset[int] = frozenset(),
+    checking_activity: bool = False,
+) -> RenderableType:
+    """Build a table without output, optionally marking unfinished observations.
+
+    Pending summary cells hide previous snapshots so cached running icons are not
+    mistaken for newly observed states. Completed rows retain shared alignment.
+    """
     names = validate_columns(columns)
-    console = console or Console()
     if not records:
-        console.print(
+        return Text(
             "No registered submissions." if list_only else "No matching submissions."
         )
-        return
     context = prepare_context(
-        records,
+        [record for record in records if id(record) not in pending],
         names,
         full,
         include_loop_skipped,
@@ -66,8 +70,47 @@ def _render_table(
             column.list_title if list_only and column.list_title else column.title
         )
     for record in records:
-        table.add_row(*(column.render(record, context) for column in selected))
-    console.print(table)
+        table.add_row(
+            *(
+                (
+                    Text("Checking...", style="dim")
+                    if checking_activity and column.name == "status"
+                    else (
+                        Text("Loading...", style="dim")
+                        if id(record) in pending and column.requires_summary
+                        else column.render(record, context)
+                    )
+                )
+                for column in selected
+            )
+        )
+    return table
+
+
+def _render_table(
+    records: list[SubmissionRecord],
+    columns: Sequence[str],
+    full: bool,
+    console: Console | None,
+    include_loop_skipped: bool,
+    list_only: bool,
+    display_timezone: tzinfo | None,
+    group_elements: bool,
+    group_iterations: bool,
+) -> None:
+    """Print one completed table using the same builder as progressive output."""
+    (console or Console()).print(
+        build_table(
+            records,
+            columns,
+            full,
+            include_loop_skipped,
+            list_only,
+            display_timezone,
+            group_elements,
+            group_iterations,
+        )
+    )
 
 
 def render(
