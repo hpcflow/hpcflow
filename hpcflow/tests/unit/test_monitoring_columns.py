@@ -56,6 +56,7 @@ def submission(summary=None, local_id=0):
         "part",
         "2026-11-01T12:00:00+00:00",
         local_id=local_id,
+        activity="active",
         accessibility="readable",
         started_at="2026-11-01T12:05:00+00:00",
         last_action_summary=summary,

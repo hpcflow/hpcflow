@@ -45,6 +45,20 @@ ACTION_STATES["condition_skipped"] = ActionDisplayState(
     (EARStatus.skipped.id, 2),
     "Not attempted because a task condition was not met.",
 )
+ACTION_STATES["interrupted"] = ActionDisplayState(
+    "interrupted",
+    "I",
+    "dark_orange",
+    (EARStatus.aborted.id, 1),
+    "Last recorded as running, but the submission is inactive; exit outcome unknown.",
+)
+ACTION_STATES["unknown"] = ActionDisplayState(
+    "unknown",
+    "?",
+    EARStatus.pending.colour,
+    (EARStatus.running.id, 1),
+    "Last recorded as running, but submission activity cannot be confirmed.",
+)
 
 
 def display_state_name(entry: ActionRunState) -> str:

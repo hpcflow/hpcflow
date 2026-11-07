@@ -1,7 +1,7 @@
 """Render aligned, grouped action and element state cells."""
 
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import groupby
 
 from rich.table import Table
@@ -179,15 +179,51 @@ def action_column_widths(rows: list[FullActionRow]) -> ActionColumnWidths:
 
 
 def display_summary(
-    summary: ActionSummary | None, include_loop_skipped: bool = False
+    summary: ActionSummary | None,
+    include_loop_skipped: bool = False,
+    *,
+    inactive: bool = False,
+    unknown: bool = False,
 ) -> ActionSummary:
-    """Select the loop-skip visibility view, returning an empty summary if none exists."""
+    """Select visible runs and infer interrupted runs for inactive submissions.
+
+    Preserve engine counts, timestamps, and the original snapshot. Inactivity gives
+    no exit result or finish time, so only display counts and patterns are changed.
+    Unknown activity makes recorded running states unknown rather than interrupted.
+    """
     if summary is None:
         return ActionSummary()
-    return (
+    summary = (
         summary
         if include_loop_skipped or summary.without_loop_skipped is None
         else summary.without_loop_skipped
+    )
+    if not inactive and not unknown:
+        return summary
+    running_state = "interrupted" if inactive else "unknown"
+    counts = dict(
+        summary.display_counts if summary.display_counts is not None else summary.counts
+    )
+    if running := counts.pop("running", 0):
+        counts[running_state] = counts.get(running_state, 0) + running
+    return replace(
+        summary,
+        display_counts=counts,
+        groups=[
+            replace(
+                group,
+                pattern=tuple(
+                    (
+                        replace(step, state=running_state)
+                        if step.state == "running"
+                        else step
+                    )
+                    for step in group.pattern
+                ),
+            )
+            for group in summary.groups
+        ],
+        without_loop_skipped=None,
     )
 
 

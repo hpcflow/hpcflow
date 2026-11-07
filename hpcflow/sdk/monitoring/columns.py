@@ -45,6 +45,7 @@ class RenderContext:
     list_only: bool = False
     action_widths: ActionColumnWidths | None = None
     element_widths: ActionColumnWidths | None = None
+    action_summaries: dict[int, ActionSummary] = field(default_factory=dict)
     element_summaries: dict[int, ActionSummary] = field(default_factory=dict)
     display_timezone: tzinfo = field(default_factory=resolve_timezone)
     current_local_time: datetime = field(default_factory=lambda: local_now())
@@ -66,6 +67,18 @@ class RenderContext:
             align_omitted_date=align_omitted_date,
         )
 
+    def actions(self, record: SubmissionRecord) -> ActionSummary:
+        """Memoize visible actions, qualifying running states by submission activity."""
+        key = id(record)
+        if key not in self.action_summaries:
+            self.action_summaries[key] = display_summary(
+                record.last_action_summary,
+                self.include_loop_skipped,
+                inactive=record.activity == "inactive",
+                unknown=record.activity == "unknown",
+            )
+        return self.action_summaries[key]
+
     def elements(self, record: SubmissionRecord) -> ActionSummary:
         """Return the element summary for a record, computing it at most once.
 
@@ -74,9 +87,7 @@ class RenderContext:
         """
         key = id(record)
         if key not in self.element_summaries:
-            self.element_summaries[key] = element_summary(
-                display_summary(record.last_action_summary, self.include_loop_skipped)
-            )
+            self.element_summaries[key] = element_summary(self.actions(record))
         return self.element_summaries[key]
 
 
@@ -232,7 +243,7 @@ def _cached_note(
 def actions_cell(record: SubmissionRecord, context: RenderContext) -> RenderableType:
     """Render action counts or grouped full-detail action patterns for one submission."""
     cell = action_text(
-        record.last_action_summary or ActionSummary(),
+        context.actions(record),
         context.full,
         context.action_widths,
         include_loop_skipped=context.include_loop_skipped,
@@ -390,7 +401,7 @@ def prepare_context(
                 row
                 for record in records
                 for row in full_action_rows(
-                    display_summary(record.last_action_summary, include_loop_skipped),
+                    context.actions(record),
                     group_elements,
                     group_iterations,
                 )

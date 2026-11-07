@@ -201,6 +201,13 @@ Monitor submissions
     With ``--full``, elements sharing an overall state are grouped into aligned
     element ranges, using the same layout as action states.
 
+    For confirmed inactive submissions, runs last recorded as running show as
+    ``interrupted`` (an orange ``I``) in both Actions and Elements. This is a terminal
+    display state with an unknown exit outcome; it does not change the stored run
+    status or invent a finish time. For unknown submissions, recorded running states
+    show as ``unknown`` (a grey ``?``); confirmed terminal states remain visible.
+    Active submissions retain running states. Use ``show --legend`` to see all state icons.
+
     ``Submit``, ``Start``, and ``End`` show their respective datetimes in the
     displaying machine's local timezone, to seconds. Set ``show_timezone`` to
     ``UTC`` or an IANA timezone name to override this. Each timestamp is converted

@@ -9,8 +9,10 @@ from .models import ActionSummary, ElementGroup, IterationActionState
 _STATE_PRIORITY = (
     "error",
     "aborted",
+    "interrupted",
     "skipped",
     "running",
+    "unknown",
     "submitted",
     "prepared",
     "pending",
