@@ -19,6 +19,7 @@ from hpcflow import __version__, _app_name
 from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.execute import Executor
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
 from hpcflow.sdk.cli_common import (
@@ -105,9 +106,9 @@ string_option = click.option(
 workflow_ref_type_opt = click.option(
     "--ref-type",
     "-r",
-    type=click.Choice(("assume-id", "id", "path")),
+    type=click.Choice(("assume-id", "id", "name", "path")),
     default="assume-id",
-    help="How to interpret a reference, as an ID, a path, or to guess.",
+    help="Interpret a reference as a registered ID, workflow name, path, or guess.",
 )
 
 #: Get the current workflow from the context.
@@ -567,7 +568,7 @@ def _make_workflow_CLI(app: BaseApp):
     def workflow(ctx: click.Context, workflow_ref: str, ref_type: str | None):
         """Interact with existing {app_name} workflows.
 
-        WORKFLOW_REF is the path to, or local ID of, an existing workflow.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -787,6 +788,17 @@ def _make_workflow_CLI(app: BaseApp):
     def is_parameter_set(wf: Workflow, index: int):
         """Check if a parameter specified by data index is set."""
         click.echo(wf.is_parameter_set(index))
+
+    @workflow.command(name="show-runs")
+    @click.option(
+        "--state",
+        type=click.Choice(list(EARStatus.__members__), case_sensitive=False),
+        help="Show only action runs in this state; omit to show all runs.",
+    )
+    @_pass_workflow
+    def show_runs(wf: Workflow, state: str | None):
+        """List individual action attempts, their locations, states, and exit codes."""
+        wf.show_runs(state=state)
 
     @workflow.command(name="show-all-status")
     @_pass_workflow
@@ -1135,6 +1147,24 @@ def _make_template_components_CLI(app: BaseApp):
 
 
 def _make_show_CLI(app: BaseApp):
+    def columns_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.columns import validate_columns
+
+        try:
+            return validate_columns([name.strip() for name in value.split(",")])
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
+    def template_names_callback(ctx, param, value):
+        from hpcflow.sdk.monitoring.filtering import template_names
+
+        try:
+            return template_names(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
     def show_legend_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
@@ -1142,27 +1172,82 @@ def _make_show_CLI(app: BaseApp):
         ctx.exit()
 
     @click.command()
+    @click.argument("workflow_ref", required=False)
+    @click.option(
+        "--tname",
+        "template_names",
+        callback=template_names_callback,
+        help="Filter by exact template name(s), separated by commas.",
+    )
+    @click.option(
+        "--columns",
+        callback=columns_callback,
+        help="Comma-separated columns in display order; overrides show_columns or show_list_columns.",
+    )
+    @click.option(
+        "--list",
+        "list_only",
+        is_flag=True,
+        default=False,
+        help="List all registered submissions without loading workflows or querying schedulers.",
+    )
+    @click.option(
+        "--ref-type",
+        type=click.Choice(["assume-id", "id", "name", "path"]),
+        default="assume-id",
+        help="Interpret WORKFLOW_REF as a local ID, registered workflow name, or path.",
+    )
     @click.option(
         "-r",
         "--max-recent",
-        default=3,
-        help="The maximum number of inactive submissions to show.",
+        type=click.IntRange(min=0),
+        default=None,
+        help="Maximum inactive submissions to show (default: show_max_recent; WORKFLOW_REF or --list: all).",
     )
     @click.option(
         "--no-update",
         is_flag=True,
         default=False,
-        help=(
-            "If True, do not update the known-submissions file to remove workflows that "
-            "are no longer running."
-        ),
+        help=("Query current states without writing submission history or caches."),
     )
     @click.option(
         "-f",
         "--full",
         is_flag=True,
         default=False,
-        help="Allow multiple lines per workflow submission.",
+        help="Show action patterns grouped by elements with identical states.",
+    )
+    @click.option(
+        "--group-elements/--no-group-elements",
+        default=True,
+        help="Group identical elements, or show each element separately (implies --full).",
+    )
+    @click.option(
+        "--group-iterations/--no-group-iterations",
+        default=True,
+        help="Group identical iterations, or show each iteration separately (implies --full).",
+    )
+    @click.option(
+        "--no-group",
+        is_flag=True,
+        help="Show each element and iteration separately (implies --full).",
+    )
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="Show loading and scheduler-query progress.",
+    )
+    @click.option(
+        "--include-missing",
+        is_flag=True,
+        default=False,
+        help="Include registered workflows whose paths are missing or deleted.",
+    )
+    @click.option(
+        "--include-loop-skipped",
+        is_flag=True,
+        default=False,
+        help="Include runs skipped because a loop terminated (hidden by default).",
     )
     @click.option(
         "--legend",
@@ -1172,11 +1257,83 @@ def _make_show_CLI(app: BaseApp):
         expose_value=False,
         callback=show_legend_callback,
     )
-    def show(max_recent: int, full: bool, no_update: bool):
-        """Show information about running and recently active workflows."""
-        app.show(max_recent=max_recent, full=full, no_update=no_update)
+    def show(
+        workflow_ref,
+        ref_type,
+        max_recent: int | None,
+        full: bool,
+        no_update: bool,
+        include_loop_skipped: bool,
+        list_only: bool,
+        columns: tuple[str, ...] | None,
+        template_names: tuple[str, ...] | None,
+        group_elements: bool,
+        group_iterations: bool,
+        no_group: bool,
+        status: bool,
+        include_missing: bool,
+    ):
+        """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
+        app.show(
+            max_recent=max_recent,
+            full=full,
+            no_update=no_update,
+            workflow_ref=workflow_ref,
+            ref_type=ref_type,
+            include_loop_skipped=include_loop_skipped,
+            list_only=list_only,
+            columns=columns,
+            template_names=template_names,
+            group_elements=group_elements and not no_group,
+            group_iterations=group_iterations and not no_group,
+            status=status,
+            include_missing=include_missing,
+        )
 
     return show
+
+
+def _make_unregister_CLI(app: BaseApp):
+    """Generate the explicit registry-entry removal command."""
+
+    @click.command(name="unregister")
+    @click.argument("submission_id", required=False, type=click.IntRange(min=0))
+    @click.option(
+        "--all",
+        "all_submissions",
+        is_flag=True,
+        help="Unregister all inactive submissions and free their IDs.",
+    )
+    @click.option(
+        "--include-active",
+        is_flag=True,
+        help="With --all, include active and unknown submissions too.",
+    )
+    def unregister(
+        submission_id: int | None, all_submissions: bool, include_active: bool
+    ):
+        """Unregister one submission or all inactive submissions, without cancelling jobs or deleting files."""
+        if all_submissions and submission_id is not None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all, not both.")
+        if not all_submissions and submission_id is None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all.")
+        if include_active and not all_submissions:
+            raise click.UsageError("--include-active requires --all.")
+        try:
+            if all_submissions:
+                removed = app.unregister(
+                    all_submissions=True, include_active=include_active
+                )
+                count = len(removed or [])
+                label = "submissions" if include_active else "inactive submissions"
+                click.echo(f"Unregistered {count} {label}.")
+            else:
+                app.unregister(submission_id)
+                click.echo(f"Unregistered submission {submission_id}.")
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+
+    return unregister
 
 
 def _make_zip_CLI(app: BaseApp):
@@ -1204,8 +1361,7 @@ def _make_zip_CLI(app: BaseApp):
         """Generate a copy of the specified workflow in the zip file format in the
         current working directory.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
         wk = app.Workflow(workflow_path)
@@ -1251,8 +1407,7 @@ def _make_cancel_CLI(app: BaseApp):
     def cancel(workflow_ref: str, ref_type: str | None, status: bool, quiet: bool):
         """Stop all running jobscripts of the specified workflow.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         app.cancel(
@@ -1278,8 +1433,7 @@ def _make_rechunk_CLI(app: BaseApp):
     ):
         """Rechunk metadata/runs and parameters/base arrays.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -1342,8 +1496,10 @@ def _make_open_CLI(app: BaseApp):
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)
     def known_subs(path: bool = False):
-        """Open the known-submissions text file."""
-        file_path = app.known_subs_file_path
+        """Open the v2 known-submissions registry."""
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+        file_path = SubmissionRegistry(app).path
         if path:
             click.echo(file_path)
         else:
@@ -1732,9 +1888,18 @@ def _make_manage_CLI(app: BaseApp):
         """
         click.echo(app.get_config_path(config_dir))
 
+    @manage.command("clear-registry")
+    def clear_registry():
+        """Delete all submission registries without loading config or workflows.
+
+        Includes legacy records and all machine names in the app's data directory.
+        Workflow files and scheduler jobs are unaffected. Local IDs reset.
+        """
+        app.clear_registry()
+
     @manage.command("clear-known-subs")
     def clear_known_subs():
-        """Delete the contents of the known-submissions file."""
+        """Delete all submission registries (deprecated; use clear-registry)."""
         app.clear_known_submissions_file()
 
     @manage.command("clear-temp-dir")
@@ -2153,6 +2318,7 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(_make_internal_CLI(app))
     new_CLI.add_command(_make_template_components_CLI(app))
     new_CLI.add_command(_make_show_CLI(app))
+    new_CLI.add_command(_make_unregister_CLI(app))
     new_CLI.add_command(_make_open_CLI(app))
     new_CLI.add_command(_make_cancel_CLI(app))
     new_CLI.add_command(_make_zip_CLI(app))

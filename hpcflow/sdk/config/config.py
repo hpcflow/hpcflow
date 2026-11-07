@@ -110,6 +110,12 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
         "delete_execute_dir": True,
+        "known_submissions_max_inactive": 100,
+        "known_submissions_max_unknown": 10,
+        "show_max_recent": 3,
+        "show_timezone": "local",
+        "show_columns": ["id", "name", "status", "actions"],
+        "show_list_columns": ["id", "name", "submission", "submit", "status", "path"],
         "move_scratch_to_workflow": True,
     },
 }

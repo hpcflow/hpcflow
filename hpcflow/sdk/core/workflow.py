@@ -1255,9 +1255,9 @@ class Workflow(AppAware):
     Parameters
     ----------
     workflow_ref:
-        Either the path to a persistent workflow, or an integer that will interpreted
-        as the local ID of a workflow submission, as reported by the app `show`
-        command.
+        A path to a persistent workflow, a registered workflow name, or a local
+        submission ID reported by the app `show` command. Path objects and explicit
+        path strings are always interpreted as paths.
     store_fmt:
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:
@@ -1282,6 +1282,17 @@ class Workflow(AppAware):
             path = self._app._get_workflow_path_from_local_ID(workflow_ref)
         elif isinstance(workflow_ref, str):
             path = Path(workflow_ref)
+            from hpcflow.sdk.monitoring.references import (
+                is_path_reference,
+                resolve_records,
+                resolve_workflow_path,
+            )
+            from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+            if not is_path_reference(workflow_ref):
+                records = SubmissionRegistry(self._app).read().records
+                if resolve_records(records, workflow_ref):
+                    path = resolve_workflow_path(records, workflow_ref)
         else:
             path = workflow_ref
 
@@ -6699,6 +6710,27 @@ class Workflow(AppAware):
                 f"Array-output archive {path} has invalid member_idx metadata."
             )
         return _ArrayOutputArchive(data=data, **arrays, shape=shapes, member_idx=members)
+
+    def show_runs(self, state: EARStatus | str | None = None) -> None:
+        """Print individual action runs, optionally filtered by engine state.
+
+        Parameters
+        ----------
+        state : EARStatus or str, optional
+            An engine state or its case-insensitive name, such as ``error``.
+            Omit to show all runs. Invalid names raise ValueError.
+
+        Notes
+        -----
+        Include all attempts across iterations and submissions, so failed runs
+        remain inspectable after successful retries. Display run IDs, task and
+        element coordinates, action short names, attempt/submission/jobscript indices,
+        states, and exit codes.
+        Read workflow data without querying schedulers or updating monitoring files.
+        """
+        from ..monitoring.runs import show_runs
+
+        show_runs(self, state)
 
     def show_all_EAR_statuses(self) -> None:
         """

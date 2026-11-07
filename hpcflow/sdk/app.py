@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter, namedtuple, defaultdict
+from collections import namedtuple, defaultdict
 from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timezone
 import stat
@@ -25,16 +25,12 @@ from reretry import retry  # type: ignore
 from rich.console import Console, Group
 from rich.syntax import Syntax
 from rich.table import Table, box
-from rich.text import Text
-from rich.padding import Padding
 from rich.panel import Panel
 from rich.pretty import Pretty
-from rich import print as rich_print
 from fsspec.core import url_to_fs  # type: ignore
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
 
 from hpcflow import __version__
-from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.utils import (
     read_YAML_str,
     read_YAML_file,
@@ -62,11 +58,11 @@ from .core.workflow import Workflow as _Workflow
 from .core.environment import Environment as Environment_cls
 from .core.errors import SecretExistsError, SecretNotFoundError
 from hpcflow.sdk.log import AppLog, TimeIt
+from hpcflow.sdk.monitoring.app import MonitoringMixin
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.runtime import RunTimeInfo
 from hpcflow.sdk.cli import make_cli
-from hpcflow.sdk.submission.enums import JobscriptElementState
 from hpcflow.sdk.submission.shells import DEFAULT_SHELL_NAMES, get_shell
 from hpcflow.sdk.submission.shells.os_version import (
     get_OS_info_POSIX,
@@ -77,19 +73,17 @@ from hpcflow.sdk.core.errors import (
     EnvironmentNotFound,
     CannotRemoveBuiltinEnvironment,
 )
-from hpcflow.sdk.core.warnings import batch_warnings
+from hpcflow.sdk.core.warnings import DeprecationWarning_, batch_warnings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from logging import Logger
     from types import ModuleType
     from typing import ClassVar, Literal, Protocol
-    from typing_extensions import Final
     from rich.status import Status
     from .typing import (
         BasicTemplateComponents,
         KnownSubmission,
-        KnownSubmissionItem,
         PathLike,
         TemplateComponents,
         MakeWorkflowCommonArgs,
@@ -329,28 +323,6 @@ if TYPE_CHECKING:
             delete: bool = False,
         ) -> Mapping[int, Sequence[int]] | None: ...
 
-    class _GetKnownSubmissions(Protocol):
-        """Type of :py:meth:`BaseApp.get_known_submissions`"""
-
-        # Should be overloaded on as_json, but not bothering
-        def __call__(
-            self,
-            max_recent: int = 3,
-            no_update: bool = False,
-            as_json: bool = False,
-            status: Status | None = None,
-        ) -> Sequence[KnownSubmissionItem]: ...
-
-    class _Show(Protocol):
-        """Type of :py:meth:`BaseApp.show`"""
-
-        def __call__(
-            self,
-            max_recent: int = 3,
-            full: bool = False,
-            no_update: bool = False,
-        ) -> None: ...
-
     class _Cancel(Protocol):
         """Type of :py:meth:`BaseApp.cancel`"""
 
@@ -505,7 +477,7 @@ class Singleton(type, Generic[T]):
             raise RuntimeError(f"{cls.__name__!r} object has not be instantiated!")
 
 
-class BaseApp(metaclass=Singleton):
+class BaseApp(MonitoringMixin, metaclass=Singleton):
     """
     Class to generate the hpcflow application.
 
@@ -1799,58 +1771,6 @@ class BaseApp(metaclass=Singleton):
         return self.__get_app_func("get_shell_info")
 
     @property
-    def get_known_submissions(self) -> _GetKnownSubmissions:
-        """
-        Retrieve information about active and recently inactive finished workflows.
-
-        This method removes workflows from the known-submissions file that are found to be
-        inactive on this machine (according to the scheduler/process ID).
-
-        Parameters
-        ----------
-        max_recent: int
-            Maximum number of inactive workflows to retrieve.
-        no_update: bool
-            If True, do not update the known-submissions file to set submissions that are
-            now inactive.
-        as_json: bool
-            If True, only include JSON-compatible information. This will exclude the
-            `submission` key, for instance.
-
-        Returns
-        -------
-        list[KnownSubmissionItem]
-            List of descriptions of known items.
-        """
-        return self.__get_app_func("get_known_submissions")
-
-    @property
-    def show(self) -> _Show:
-        """
-        Show information about running workflows.
-
-        Parameters
-        ----------
-        max_recent: int
-            Maximum number of inactive workflows to show.
-        full: bool
-            If True, provide more information; output may spans multiple lines for each
-            workflow submission.
-        no_update: bool
-            If True, do not update the known-submissions file to remove workflows that are
-            no longer running.
-        """
-        return self.__get_app_func("show")
-
-    @property
-    def show_legend(self) -> Callable[[], None]:
-        """
-        Output a legend for the jobscript-element and EAR states that are displayed
-        by the `show` command.
-        """
-        return self.__get_app_func("show_legend")
-
-    @property
     def cancel(self) -> _Cancel:
         """
         Cancel the execution of a workflow submission.
@@ -1858,9 +1778,9 @@ class BaseApp(metaclass=Singleton):
         Parameters
         ----------
         workflow_ref: int | str | Path
-            Which workflow to cancel, by ID or path.
+            Which workflow to cancel, by registered ID, name, or path.
         ref_is_path: str
-            One of "``id``", "``path``" or "``assume-id``" (the default)
+            One of "``id``", "``name``", "``path``" or "``assume-id``" (the default)
         status: bool
             Whether to show a live status during cancel.
         """
@@ -1894,6 +1814,15 @@ class BaseApp(metaclass=Singleton):
         sub_cls.__module__ = self.module
         self.__app_type_cache[name] = sub_cls
         return sub_cls
+
+    def _get_app_func(self, name: str) -> Callable[..., Any]:
+        """Bind an app method through the shared lazy cache for use by mixins.
+
+        Preserve the existing wrapper metadata, application module, and private
+        cache. Implementations are resolved on the instance so derived apps can
+        continue to override methods such as ``_show``.
+        """
+        return self.__get_app_func(name)
 
     def __get_app_func(self, name: str) -> Callable[..., Any]:
         if name in self.__app_func_cache:
@@ -3015,15 +2944,15 @@ class BaseApp(metaclass=Singleton):
         return removed_IDs
 
     def clear_known_submissions_file(self) -> None:
-        """
-        Clear the known-submissions file of all submissions. This shouldn't be needed
-        normally.
-        """
-        self.submission_logger.warning(
-            f"clearing the known-submissions file at {self.known_subs_file_path}"
+        """Deprecated alias for :meth:`clear_registry`."""
+        warnings.warn(
+            DeprecationWarning_(
+                "clear_known_submissions_file() and 'manage clear-known-subs' are deprecated.",
+                solution="Use clear_registry() or 'manage clear-registry' instead.",
+            ),
+            stacklevel=2,
         )
-        with self.known_subs_file_path.open("wt", newline="\n"):
-            pass
+        self.clear_registry()
 
     @batch_warnings
     def _make_workflow(
@@ -3863,578 +3792,32 @@ class BaseApp(metaclass=Singleton):
         )
         return shell.get_version_info(exclude_os)
 
-    @TimeIt.decorator
-    def _get_known_submissions(
-        self,
-        max_recent: int = 3,
-        no_update: bool = False,
-        as_json: bool = False,
-        status: Status | None = None,
-    ) -> Sequence[KnownSubmissionItem]:
-        """
-        Retrieve information about active and recently inactive finished {app_name}
-        workflows.
-
-        This method removes workflows from the known-submissions file that are found to be
-        inactive on this machine (according to the scheduler/process ID).
-
-        Parameters
-        ----------
-        max_recent:
-            Maximum number of inactive workflows to retrieve.
-        no_update:
-            If True, do not update the known-submissions file to set submissions that are
-            now inactive.
-        as_json:
-            If True, only include JSON-compatible information. This will exclude the
-            `submission` key, for instance.
-        """
-        out: list[KnownSubmissionItem] = []
-        inactive_IDs: list[int] = []
-        start_times: dict[int, str] = {}
-        end_times: dict[int, str] = {}
-
-        ts_fmt = self._submission_ts_fmt
-
-        try:
-            if status:
-                status.update("Reading known submissions file...")
-            known_subs = self.read_known_submissions_file()
-        except FileNotFoundError:
-            known_subs = []
-
-        # keys are (workflow path, submission index)
-        active_jobscripts: dict[
-            tuple[str, int],
-            Mapping[int, Mapping[int, Mapping[int, JobscriptElementState]]],
-        ] = {}
-        loaded_workflows: dict[str, _Workflow] = {}  # keys are workflow path
-
-        # loop in reverse so we process more-recent submissions first:
-        for file_dat_i in known_subs[::-1]:
-            submit_time_str = file_dat_i["submit_time"]
-            submit_time_obj = parse_timestamp(submit_time_str, ts_fmt)
-
-            start_time_str = file_dat_i["start_time"]
-            start_time_obj = None
-            if start_time_str:
-                start_time_obj = parse_timestamp(start_time_str, ts_fmt)
-
-            end_time_str = file_dat_i["end_time"]
-            end_time_obj = None
-            if end_time_str:
-                end_time_obj = parse_timestamp(end_time_str, ts_fmt)
-
-            out_item: KnownSubmissionItem = {
-                "local_id": file_dat_i["local_id"],
-                "workflow_id": file_dat_i["workflow_id"],
-                "workflow_path": file_dat_i["path"],
-                "submit_time": submit_time_str,
-                "submit_time_obj": submit_time_obj,
-                "start_time": start_time_str,
-                "start_time_obj": start_time_obj,
-                "end_time": end_time_str,
-                "end_time_obj": end_time_obj,
-                "sub_idx": file_dat_i["sub_idx"],
-                "jobscripts": [],
-                "active_jobscripts": {},
-                "deleted": False,
-                "unloadable": False,
-            }
-            if file_dat_i["path"] in loaded_workflows:
-                wk_i = loaded_workflows[file_dat_i["path"]]
-            else:
-                # might have been moved/archived/deleted:
-                path_exists = Path(file_dat_i["path"]).exists()
-                out_item["deleted"] = not path_exists
-                if path_exists:
-                    try:
-                        if status:
-                            status.update(f"Inspecting workflow {file_dat_i['path']!r}.")
-                        wk_i = self.Workflow(file_dat_i["path"])
-                    except KeyboardInterrupt:
-                        raise
-                    except Exception:
-                        wk_i = None
-                        self.submission_logger.info(
-                            f"cannot load workflow from known-submissions file: "
-                            f"{file_dat_i['path']!r}!"
-                        )
-                        out_item["unloadable"] = True
-                        if file_dat_i["is_active"]:
-                            inactive_IDs.append(file_dat_i["local_id"])
-                            file_dat_i["is_active"] = False
-
-                    else:
-                        # cache:
-                        loaded_workflows[file_dat_i["path"]] = wk_i
-                else:
-                    wk_i = None
-
-            if wk_i:
-                if wk_i.id_ != file_dat_i["workflow_id"]:
-                    # overwritten with a new workflow
-                    if file_dat_i["is_active"]:
-                        inactive_IDs.append(file_dat_i["local_id"])
-                    out_item["deleted"] = True
-
-                else:
-                    with wk_i._store.cache_ctx():
-                        sub = wk_i.submissions[file_dat_i["sub_idx"]]
-                        if status:
-                            status.update(
-                                f"Loading workflow {file_dat_i['path']!r} run metadata..."
-                            )
-                        sub.use_EARs_cache = True  # pre-cache EARs of this submission
-
-                        all_jobscripts = sub._submission_parts[submit_time_str]
-                        out_item["jobscripts"] = all_jobscripts
-                        out_item["submission"] = sub
-                        if not out_item["start_time"]:
-                            start_time_obj = sub.start_time
-                            if start_time_obj:
-                                start_time = datetime.strftime(start_time_obj, ts_fmt)
-                                out_item["start_time"] = start_time
-                                start_times[file_dat_i["local_id"]] = start_time
-                            out_item["start_time_obj"] = start_time_obj
-
-                        if not out_item["end_time"]:
-                            end_time_obj = sub.end_time
-                            if end_time_obj:
-                                end_time = datetime.strftime(end_time_obj, ts_fmt)
-                                out_item["end_time"] = end_time
-                                end_times[file_dat_i["local_id"]] = end_time
-                            out_item["end_time_obj"] = end_time_obj
-
-                    if file_dat_i["is_active"]:
-                        # check it really is active:
-                        run_key = (file_dat_i["path"], file_dat_i["sub_idx"])
-                        act_i_js: Mapping[
-                            int, Mapping[int, Mapping[int, JobscriptElementState]]
-                        ]
-                        if run_key in active_jobscripts:
-                            act_i_js = active_jobscripts[run_key]
-                        else:
-                            try:
-                                if as_json:
-                                    act_i_js = cast(  # not actually used?
-                                        Any, sub.get_active_jobscripts(as_json=True)
-                                    )
-                                else:
-                                    act_i_js = sub.get_active_jobscripts()
-                            except KeyboardInterrupt:
-                                raise
-                            except Exception:
-                                self.submission_logger.info(
-                                    f"failed to retrieve active jobscripts from workflow "
-                                    f"at: {file_dat_i['path']!r}!"
-                                )
-                                out_item["unloadable"] = True
-                                act_i_js = {}
-                            else:
-                                active_jobscripts[run_key] = act_i_js
-
-                        out_item["active_jobscripts"] = {
-                            k: v for k, v in act_i_js.items() if k in all_jobscripts
-                        }
-                        if (
-                            not out_item["unloadable"]
-                            and not act_i_js
-                            and file_dat_i["is_active"]
-                        ):
-                            inactive_IDs.append(file_dat_i["local_id"])
-
-            out.append(out_item)
-
-        if (inactive_IDs or start_times or end_times) and not no_update:
-            removed_IDs = self.update_known_subs_file(
-                inactive_IDs, start_times, end_times
-            )
-            # remove these from the output, to avoid confusion (if kept, they would not
-            # appear in the next invocation of this method):
-            out = [item for item in out if item["local_id"] not in removed_IDs]
-
-        out_active, out_inactive = self.__partition(
-            out, lambda item: item["active_jobscripts"]
-        )
-        # sort inactive by most-recently finished, then deleted:
-        out_no_access, out_access = self.__partition(
-            out_inactive, lambda item: item["deleted"] or item["unloadable"]
-        )
-
-        # sort loadable inactive by end time or start time or submit time:
-        out_access = sorted(
-            out_access,
-            key=lambda i: (
-                i["end_time_obj"]
-                or i["start_time_obj"]
-                or i.get("submit_time_obj")
-                or self.__DEF_TIMESTAMP
-            ),
-            reverse=True,
-        )
-        out_inactive = (out_access + out_no_access)[:max_recent]
-
-        # show active submissions first:
-        out = out_active + out_inactive
-
-        if as_json:
-            for item in out:
-                item.pop("submission", None)
-                item.pop("submit_time_obj")
-        return out
-
-    __DEF_TIMESTAMP: Final[datetime] = datetime.fromtimestamp(0, tz=timezone.utc)
-
-    @staticmethod
-    def __partition(
-        lst: Iterable[T], cond: Callable[[T], Any]
-    ) -> tuple[list[T], list[T]]:
-        """
-        Split a list into two by whether the condition holds for each item.
-
-        Returns
-        -------
-        true_items
-            List of items for which the condition is true (or at least truthy).
-        false_items
-            List of items for which the condition is false.
-        """
-        lists: tuple[list[T], list[T]] = [], []
-        for item in lst:
-            lists[not cond(item)].append(item)
-        return lists
-
-    def _show_legend(self) -> None:
-        """
-        Output a legend for the jobscript-element and EAR states that are displayed
-        by the `show` command.
-        """
-        js_notes = Panel(
-            "The [i]Status[/i] column of the `show` command output displays the set of "
-            "unique jobscript-element states for that submission. Jobscript element "
-            "state meanings are shown below.",
-            width=80,
-            box=box.SIMPLE,
-        )
-
-        js_tab = Table(box=box.SQUARE, title="Jobscript element states")
-        js_tab.add_column("Symbol")
-        js_tab.add_column("State")
-        js_tab.add_column("Description")
-        for jse_state in JobscriptElementState.__members__.values():
-            js_tab.add_row(jse_state.rich_repr, jse_state.name, jse_state.doc)
-
-        act_notes = Panel(
-            "\nThe [i]Actions[/i] column of the `show` command output displays either the "
-            "set of unique action states for that submission, or (with the `--full` "
-            "option) an action state for each action of the submission. Action state "
-            "meanings are shown below.",
-            width=80,
-            box=box.SIMPLE,
-        )
-
-        act_tab = Table(box=box.SQUARE, title="Action states")
-        act_tab.add_column("Symbol")
-        act_tab.add_column("State")
-        act_tab.add_column("Description")
-        for ear_state in EARStatus.__members__.values():
-            act_tab.add_row(ear_state.rich_repr, ear_state.name, ear_state.doc)
-
-        group = Group(
-            js_notes,
-            js_tab,
-            act_notes,
-            act_tab,
-        )
-        rich_print(group)
-
-    @TimeIt.decorator
-    @batch_warnings
-    def _show(
-        self,
-        max_recent: int = 3,
-        full: bool = False,
-        no_update: bool = False,
-    ) -> None:
-        """
-        Show information about running {app_name} workflows.
-
-        Parameters
-        ----------
-        max_recent:
-            Maximum number of inactive workflows to show.
-        full:
-            If True, provide more information; output may spans multiple lines for each
-            workflow submission.
-        no_update:
-            If True, do not update the known-submissions file to remove workflows that are
-            no longer running.
-        """
-        # TODO: add --json to show, just returning this but without submissions?
-
-        allowed_cols = {
-            "id": "ID",
-            "name": "Name",
-            "status": "Status",
-            "submit_time": "Submit",
-            "start_time": "Start",
-            "end_time": "End",
-            "times": "Times",
-            "actions": "Actions",
-            "actions_compact": "Actions",
-        }
-
-        columns: tuple[str, ...]
-        if full:
-            columns = ("id", "name", "status", "actions")
-        else:
-            columns = (
-                "id",
-                "name",
-                "status",
-                # "submit_time",
-                # "start_time",
-                # "end_time",
-                "actions_compact",
-            )
-
-        unknown_cols = set(columns).difference(allowed_cols)
-        if unknown_cols:
-            raise ValueError(
-                f"Unknown column names: {unknown_cols!r}. Allowed columns are "
-                f"{list(allowed_cols)!r}."
-            )
-
-        # TODO: add --filter option to filter by ID or name
-        # TODO: add --sort option to sort by ID/name/start/end
-
-        ts_fmt = r"%Y-%m-%d %H:%M:%S"
-        ts_fmt_part = r"%H:%M:%S"
-
-        console = Console()
-        with console.status("Retrieving data...") as status:
-            run_dat = self._get_known_submissions(
-                max_recent=max_recent,
-                no_update=no_update,
-                status=status,
-            )
-            if not run_dat:
-                return
-
-            status.update("Formatting...")
-            table = Table(box=box.SQUARE, expand=False)
-            for col_name in columns:
-                table.add_column(allowed_cols[col_name])
-
-            row_pad = 1 if full else 0
-
-            for dat_i in run_dat:
-                deleted = dat_i["deleted"]
-                unloadable = dat_i["unloadable"]
-                no_access = deleted or unloadable
-                act_js = dat_i["active_jobscripts"]
-                style = "grey42" if (no_access or not act_js) else ""
-                style_wk_name = "grey42 strike" if deleted else style
-                style_it = "italic grey42" if (no_access or not act_js) else "italic"
-
-                all_cells: dict[str, str | Text | Padding] = {}
-                if "status" in columns:
-                    if act_js:
-                        act_js_states = set(
-                            state_i
-                            for js_dat in act_js.values()
-                            for block_dat in js_dat.values()
-                            for state_i in block_dat.values()
-                        )
-                        all_cells["status"] = "/".join(
-                            js_state.rich_repr
-                            for js_state in sorted(act_js_states, key=lambda x: x.id)
-                        )
-                    else:
-                        if deleted:
-                            txt = "deleted"
-                        elif unloadable:
-                            txt = "unloadable"
-                        else:
-                            txt = "inactive"
-                        all_cells["status"] = Text(txt, style=style_it)
-
-                if "id" in columns:
-                    all_cells["id"] = Text(str(dat_i["local_id"]), style=style)
-
-                if "name" in columns:
-                    all_cells["name"] = Text(
-                        Path(dat_i["workflow_path"]).name, style=style_wk_name
-                    )
-
-                start_time, end_time = None, None
-                if not no_access:
-                    start_time = cast("datetime", dat_i["start_time_obj"])
-                    end_time = cast("datetime", dat_i["end_time_obj"])
-
-                if "actions" in columns:
-                    task_tab: str | Table
-                    if not no_access:
-                        task_tab = Table(box=None, show_header=False)
-                        task_tab.add_column()
-                        task_tab.add_column()
-
-                        sub = dat_i["submission"]
-                        for task_idx, elements in sub.EARs_by_elements.items():
-                            task = sub.workflow.tasks[task_idx]
-
-                            # inner table for elements/actions:
-                            elem_tab_i = Table(box=None, show_header=False)
-                            elem_tab_i.add_column()
-                            for elem_idx, EARs in elements.items():
-                                elem_status = Text(f"{elem_idx} | ", style=style)
-                                iter_idx = 0
-                                for ear in EARs:
-                                    if ear.element_iteration.index >= iter_idx:
-                                        if iter_idx > 0:
-                                            elem_status.append("|")
-                                        iter_idx += 1
-                                    elem_status.append(
-                                        ear.status.symbol, style=ear.status.colour
-                                    )
-                                elem_tab_i.add_row(elem_status)
-                            task_tab.add_row(task.unique_name, elem_tab_i, style=style)
-                    else:
-                        task_tab = ""
-
-                    all_cells["actions"] = Padding(task_tab, (0, 0, row_pad, 0))
-
-                if "actions_compact" in columns:
-                    if not no_access:
-                        EAR_stat_count = Counter(
-                            ear.status
-                            for elements in dat_i["submission"].EARs_by_elements.values()
-                            for EARs in elements.values()
-                            for ear in EARs
-                        )
-                        all_cells["actions_compact"] = " | ".join(
-                            f"[{k.colour}]{k.symbol}[/{k.colour}]:{v}"  # type: ignore
-                            for k, v in dict(
-                                sorted(EAR_stat_count.items(), key=lambda x: x[0].id)
-                            ).items()
-                        )
-                    else:
-                        all_cells["actions_compact"] = ""
-
-                if "submit_time" in columns or "times" in columns:
-                    submit_time = parse_timestamp(
-                        dat_i["submit_time"], self._submission_ts_fmt
-                    )
-                    submit_time_full = submit_time.strftime(ts_fmt)
-
-                if "start_time" in columns or "times" in columns:
-                    start_time_full = start_time.strftime(ts_fmt) if start_time else "-"
-                    start_time_part = start_time_full
-                    if start_time and start_time.date() == submit_time.date():
-                        start_time_part = start_time.strftime(ts_fmt_part)
-
-                if "end_time" in columns or "times" in columns:
-                    end_time_full = end_time.strftime(ts_fmt) if end_time else "-"
-                    end_time_part = end_time_full
-                    if end_time and start_time and end_time.date() == start_time.date():
-                        end_time_part = end_time.strftime(ts_fmt_part)
-
-                if "submit_time" in columns:
-                    all_cells["submit_time"] = Padding(
-                        Text(submit_time_full, style=style), (0, 0, row_pad, 0)
-                    )
-
-                if "start_time" in columns:
-                    all_cells["start_time"] = Padding(
-                        Text(start_time_part, style=style), (0, 0, row_pad, 0)
-                    )
-
-                if "end_time" in columns:
-                    all_cells["end_time"] = Padding(
-                        Text(end_time_part, style=style), (0, 0, row_pad, 0)
-                    )
-
-                if "times" in columns:
-                    # submit/start/end on separate lines:
-                    times_tab = Table(box=None, show_header=False)
-                    times_tab.add_column()
-                    times_tab.add_column(justify="right")
-
-                    times_tab.add_row(
-                        Text("sb.", style=style_it), Text(submit_time_full, style=style)
-                    )
-
-                    if start_time:
-                        times_tab.add_row(
-                            Text("st.", style=style_it),
-                            Text(start_time_part, style=style),
-                        )
-                    if end_time:
-                        times_tab.add_row(
-                            Text("en.", style=style_it), Text(end_time_part, style=style)
-                        )
-
-                    all_cells["times"] = Padding(times_tab, (0, 0, row_pad, 0))
-
-                table.add_row(*(all_cells[col_name] for col_name in columns))
-
-        if table.row_count:
-            console.print(table)
-
     def _get_workflow_path_from_local_ID(self, local_ID: int) -> Path:
-        try:
-            known_subs = self.read_known_submissions_file()
-        except FileNotFoundError:
-            known_subs = []
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
 
-        if any((witness := sub)["local_id"] == local_ID for sub in known_subs):
-            return Path(witness["path"])
+        for record in SubmissionRegistry(self).read().records:
+            if record.local_id == local_ID:
+                return Path(record.workflow_path)
         raise ValueError(f"Specified local ID is not valid: {local_ID}.")
 
     def _resolve_workflow_reference(
         self, workflow_ref: str, ref_type: str | None
     ) -> Path:
-        path = None
-        if ref_type == "path":
-            path = Path(workflow_ref)
+        from hpcflow.sdk.monitoring.references import (
+            is_path_reference,
+            resolve_workflow_path,
+        )
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
 
-        elif ref_type == "id":
-            local_ID = int(workflow_ref)
-            path = self._get_workflow_path_from_local_ID(local_ID)
-
-        elif ref_type in ("assume-id", None):
-            # see if reference is a valid local ID:
-            is_local_ID = True
-            try:
-                local_ID = int(workflow_ref)
-            except ValueError:
-                is_local_ID = False
-            else:
-                try:
-                    path = self._get_workflow_path_from_local_ID(local_ID)
-                except ValueError:
-                    is_local_ID = False
-
-        if path is None:
-            # see if reference is a valid path:
-            is_path = True
-            path = Path(workflow_ref)
-            if not path.exists():
-                is_path = False
-
-            if is_path and is_local_ID:
-                raise ValueError(
-                    "Workflow reference appears to be both a valid path and a valid "
-                    "local ID; set `ref_is_path` to True or False to disambiguate: "
-                    f"{workflow_ref}."
-                )
-            elif not is_path and not is_local_ID:
-                raise ValueError(
-                    "Workflow reference appears to be neither a valid path or a valid "
-                    f"local ID: {workflow_ref}."
-                )
-        return path.resolve()
+        if ref_type == "path" or (
+            ref_type in (None, "assume-id")
+            and is_path_reference(workflow_ref)
+            and Path(workflow_ref).exists()
+        ):
+            return Path(workflow_ref).resolve()
+        return resolve_workflow_path(
+            SubmissionRegistry(self).read().records, workflow_ref, ref_type
+        )
 
     def _cancel(
         self,
@@ -4449,12 +3832,16 @@ class BaseApp(metaclass=Singleton):
         Parameters
         ----------
         workflow_ref: int | str | Path
-            Which workflow to cancel, by ID or path.
+            Which workflow to cancel, by registered ID, name, or path.
         ref_is_path: str
-            One of "``id``", "``path``" or "``assume-id``" (the default)
+            One of "``id``", "``name``", "``path``" or "``assume-id``" (the default)
         status: bool
             Whether to show a live status during cancel.
         """
+        from hpcflow.sdk.monitoring.status import cancel
+
+        if cancel(self, workflow_ref, ref_type=ref_is_path, quiet=quiet):
+            return
         path = self._resolve_workflow_reference(str(workflow_ref), ref_is_path)
         self.Workflow(path).cancel(status=status, quiet=quiet)
 
