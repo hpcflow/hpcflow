@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import zstandard as zstd
+
 from ..core.enums import EARStatus
 from ..core.skip_reason import SkipReason
 from .models import (
@@ -16,8 +18,8 @@ from .models import (
     TerminalStateCache,
     to_json,
 )
-from .registry import atomic_json, file_lock, timestamp
-from .headers import read_text, is_archive
+from .registry import atomic_bytes, file_lock, timestamp
+from .headers import read_bytes, is_archive
 from .states import display_state_name
 
 if TYPE_CHECKING:
@@ -25,31 +27,44 @@ if TYPE_CHECKING:
 
 
 def cache_path(record: SubmissionRecord) -> Path:
-    """Return the submission-scoped tmp/terminal_states.json path without creating it."""
+    """Return the submission-scoped tmp/terminal_states.json.zst path without creating it."""
     return (
         Path(record.workflow_path)
         / "artifacts"
         / "submissions"
         / str(record.submission_index)
         / "tmp"
-        / "terminal_states.json"
+        / "terminal_states.json.zst"
     )
 
 
 def read_cache(record: SubmissionRecord) -> TerminalStateCache | None:
     """Read valid terminal states for the record's workflow and submission.
 
-    Reject mismatched identities/schema versions and nonterminal entries. Missing,
-    unreadable, or malformed cache files return None so monitoring can rebuild them
-    from workflow data instead of relying on stale state.
+    Prefer zstd-compressed JSON, falling back to legacy plain JSON, including
+    embedded ZIP members. Reject mismatched identities/schema versions and
+    nonterminal entries. Missing, unreadable, or malformed caches return None so
+    monitoring can rebuild them. Reading alone never migrates or writes a cache.
     """
-    try:
-        data = json.loads(
-            read_text(
+    for suffix in ("json.zst", "json"):
+        try:
+            payload = read_bytes(
                 record.workflow_path,
-                f"artifacts/submissions/{record.submission_index}/tmp/terminal_states.json",
+                f"artifacts/submissions/{record.submission_index}/tmp/terminal_states.{suffix}",
             )
-        )
+            if suffix.endswith(".zst"):
+                payload = zstd.ZstdDecompressor().decompress(payload)
+            cache = _decode_cache(record, json.loads(payload))
+            if cache is not None:
+                return cache
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, zstd.ZstdError):
+            continue
+    return None
+
+
+def _decode_cache(record: SubmissionRecord, data: dict) -> TerminalStateCache | None:
+    """Validate a decoded cache independently of its compression or file container."""
+    try:
         if (
             data["schema_version"] != 1
             or data["workflow_id"] != record.workflow_id
@@ -185,28 +200,47 @@ def refresh_actions(
     result = snapshot(entries, ids)
     if not no_update and not is_archive(record.workflow_path):
         try:
-            path = cache_path(record)
-            with file_lock(path.with_suffix(".lock")):
-                current = read_cache(record)
-                terminal_states = dict(current.terminal_states) if current else {}
-                terminal_states.update(
+            write_cache(
+                record,
+                TerminalStateCache(
+                    record.workflow_id,
+                    record.submission_index,
                     {
                         key: value
                         for key, value in entries.items()
                         if value.state in EARStatus.get_non_running_submitted_states()
-                    }
-                )
-                atomic_json(
-                    path,
-                    to_json(
-                        TerminalStateCache(
-                            record.workflow_id,
-                            record.submission_index,
-                            terminal_states,
-                            result.observed_at,
-                        )
-                    ),
-                )
-        except OSError as error:
+                    },
+                    result.observed_at,
+                ),
+            )
+        except (OSError, zstd.ZstdError) as error:
             result.cache_error = str(error)
     return result
+
+
+def write_cache(record: SubmissionRecord, cache: TerminalStateCache) -> None:
+    """Merge immutable states and atomically write zstd-compressed JSON.
+
+    Keep the historical lock name, merge concurrent observations under that lock,
+    and remove the redundant legacy JSON only after a successful compressed write.
+    ZIP workflows remain read-only and can reuse either embedded cache format.
+    """
+    if is_archive(record.workflow_path):
+        return
+    path = cache_path(record)
+    with file_lock(path.with_name("terminal_states.lock")):
+        current = read_cache(record)
+        states = dict(current.terminal_states) if current else {}
+        states.update(cache.terminal_states)
+        merged = TerminalStateCache(
+            cache.workflow_id, cache.submission_index, states, cache.observed_at
+        )
+        payload = json.dumps(
+            to_json(merged), ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        try:
+            compressed = zstd.ZstdCompressor().compress(payload)
+        except zstd.ZstdError as error:
+            raise OSError("Could not compress terminal-state cache") from error
+        atomic_bytes(path, compressed)
+        path.with_suffix("").unlink(missing_ok=True)

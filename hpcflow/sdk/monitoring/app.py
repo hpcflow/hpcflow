@@ -58,6 +58,7 @@ if TYPE_CHECKING:
             group_elements: bool = True,
             group_iterations: bool = True,
             status: bool = True,
+            include_missing: bool = False,
         ) -> None: ...
 
 
@@ -138,6 +139,11 @@ class MonitoringMixin:
             Show transient Rich progress while loading workflows, reading action
             states, and querying schedulers. False suppresses the progress display.
 
+        include_missing : bool, default False
+            Include registered workflows whose paths have been deleted or are
+            missing. Applies to live and registry-only listings. Hidden records
+            remain registered and their saved job references can still be cancelled.
+
         Notes
         -----
         Datetime columns use ``show_timezone`` (local by default). Suffixes are
@@ -180,7 +186,12 @@ class MonitoringMixin:
             status.update("Inspecting submissions...")
 
         return to_json(
-            collect(self._monitoring_app, max_recent=max_recent, no_update=no_update)
+            collect(
+                self._monitoring_app,
+                max_recent=max_recent,
+                no_update=no_update,
+                include_missing=True,
+            )
         )
 
     def _show_legend(self) -> None:
@@ -257,6 +268,7 @@ class MonitoringMixin:
         group_elements: bool = True,
         group_iterations: bool = True,
         status: bool = True,
+        include_missing: bool = False,
     ) -> None:
         """Resolve display settings, collect selected submissions, and render the table.
 
@@ -284,6 +296,7 @@ class MonitoringMixin:
                     ref_type,
                     max_recent,
                     template_names,
+                    include_missing=include_missing,
                 ),
                 columns=selected_columns,
                 display_timezone=display_timezone,
@@ -309,6 +322,7 @@ class MonitoringMixin:
                 max_recent,
                 no_update,
                 template_names=template_names,
+                include_missing=include_missing,
                 progress=live_status.update if live_status is not None else None,
                 include_summary=any(
                     SHOW_COLUMNS[name].requires_summary for name in selected_columns

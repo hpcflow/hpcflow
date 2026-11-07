@@ -48,6 +48,7 @@ class RenderContext:
     element_summaries: dict[int, ActionSummary] = field(default_factory=dict)
     display_timezone: tzinfo = field(default_factory=resolve_timezone)
     current_local_time: datetime = field(default_factory=lambda: local_now())
+    status_icon_width: int = 0
 
     def format_datetime(
         self,
@@ -161,30 +162,38 @@ def format_datetime(
     return f"{parsed.strftime(pattern)} {parsed.tzname()} ({offset})"
 
 
-def status_cell(record: SubmissionRecord, context: RenderContext) -> Text:
-    """Render compact activity text and coloured scheduler-state icons.
+def scheduler_icons(record: SubmissionRecord) -> Text:
+    """Render distinct scheduler icons in legend order, retaining unknown state text."""
+    states = JobscriptElementState.__members__
+    names = sorted(
+        set(record.scheduler_states),
+        key=lambda name: (states[name].id if name in states else len(states), name),
+    )
+    text = Text()
+    for index, name in enumerate(names):
+        if index:
+            text.append(" ")
+        if state := states.get(name):
+            text.append(state.symbol, style=state.colour)
+        else:
+            text.append(name)
+    return text
 
-    Keep scheduler observations visible even when workflow data is inaccessible.
-    Distinct icons follow the scheduler legend order; availability diagnostics
-    have their own optional column. Registry-only listings show recorded activity.
+
+def status_cell(record: SubmissionRecord, context: RenderContext) -> Text:
+    """Place scheduler icons left of activity text, aligned across the whole table.
+
+    Reserve the maximum icon width even for submissions with no scheduler states.
+    Availability diagnostics have their own column. Registry listings retain their
+    last-activity-only presentation without adding live observations.
     """
-    text = Text(record.activity)
     if context.list_only:
-        return text
-    if record.scheduler_states:
-        states = JobscriptElementState.__members__
-        names = sorted(
-            set(record.scheduler_states),
-            key=lambda name: (states[name].id if name in states else len(states), name),
-        )
-        text.append(" ")
-        for index, name in enumerate(names):
-            if index:
-                text.append(" ")
-            if state := states.get(name):
-                text.append(state.symbol, style=state.colour)
-            else:
-                text.append(name)
+        return Text(record.activity)
+    text = scheduler_icons(record)
+    width = max(context.status_icon_width, text.cell_len)
+    if width:
+        text.append(" " * (width - text.cell_len + 1))
+    text.append(record.activity)
     return text
 
 
@@ -371,6 +380,10 @@ def prepare_context(
             display_timezone if display_timezone is not None else resolve_timezone()
         ),
     )
+    if "status" in columns and not list_only:
+        context.status_icon_width = max(
+            (scheduler_icons(record).cell_len for record in records), default=0
+        )
     if full and "actions" in columns:
         context.action_widths = action_column_widths(
             [

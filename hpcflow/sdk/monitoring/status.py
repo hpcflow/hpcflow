@@ -10,7 +10,8 @@ import json
 from pathlib import Path
 import socket
 
-from .cache import read_cache, refresh_actions, run_ids, snapshot
+from .cache import cache_path, read_cache, refresh_actions, run_ids, snapshot, write_cache
+from .availability import existing_records
 from .references import resolve_records
 from .filtering import filter_templates, metadata_template_name
 from .settings import get_limit
@@ -410,12 +411,16 @@ def collect(
     include_summary: bool = True,
     template_names: Sequence[str] | str | None = None,
     progress: Callable[[str], None] | None = None,
+    include_missing: bool = False,
 ) -> list[SubmissionRecord]:
     """Collect active submissions and a limited recent inactive history.
 
     Resolve an optional workflow ID, registered name, or path, then apply exact
     template-name filtering before scheduler queries and the inactive-history limit.
-    An explicit unregistered path can recover submission parts from its workflow.
+    Missing workflow paths are hidden before querying schedulers or applying
+    history limits unless ``include_missing`` is True. Their registry references
+    remain available for inspection and cancellation. An explicit unregistered
+    path can recover submission parts from its workflow.
     Active and unknown records precede inactive records and do not consume
     ``max_recent`` slots. None uses ``show_max_recent`` for the general overview,
     but includes all matching history when a workflow reference is supplied.
@@ -439,7 +444,12 @@ def collect(
         path = str(Path(workflow_ref).resolve())
         if progress:
             progress(f"Loading workflow: {path}")
-        workflow = app.Workflow(path)
+        try:
+            workflow = app.Workflow(path)
+        except FileNotFoundError:
+            if not include_missing:
+                return []
+            raise
         for sub in workflow.submissions:
             for part in sub._submission_parts:
                 record = new_record(
@@ -454,6 +464,7 @@ def collect(
                 record.legacy = True
                 records.append(record)
         loaded[WorkflowKey(path, workflow.id_)] = workflow
+    records = existing_records(records, include_missing)
     records = filter_templates(records, template_names)
     for record in records:
         if record.legacy and record.activity != "inactive":
@@ -489,6 +500,15 @@ def collect(
                 summary = snapshot(cache.terminal_states, ids)
                 summary.complete = True
                 summary.observed_at = cache.observed_at or "unknown"
+                if (
+                    not no_update
+                    and not is_archive(record.workflow_path)
+                    and not cache_path(record).exists()
+                ):
+                    try:
+                        write_cache(record, cache)
+                    except OSError as error:
+                        summary.cache_error = str(error)
             else:
                 workflow = load_workflow(app, record, loaded, progress)
                 with workflow._store.cache_ctx():

@@ -12,17 +12,22 @@ def is_archive(path: str) -> bool:
     return Path(path).suffix.lower() == ".zip"
 
 
-def read_text(path: str, member: str) -> str:
-    """Read a workflow-relative file, preserving ZIP archives unchanged."""
+def read_bytes(path: str, member: str) -> bytes:
+    """Read a binary workflow-relative file, preserving ZIP archives unchanged."""
     if is_archive(path):
         try:
             with ZipFile(path) as archive:
-                return archive.read(member).decode("utf-8")
+                return archive.read(member)
         except KeyError as error:
             raise FileNotFoundError(member) from error
         except BadZipFile as error:
             raise ValueError(f"Invalid workflow archive: {path}") from error
-    return (Path(path) / member).read_text(encoding="utf-8")
+    return (Path(path) / member).read_bytes()
+
+
+def read_text(path: str, member: str) -> str:
+    """Decode a workflow-relative UTF-8 file without modifying its source."""
+    return read_bytes(path, member).decode("utf-8")
 
 
 def read_header(

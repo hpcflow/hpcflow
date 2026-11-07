@@ -93,7 +93,7 @@ def test_scheduler_status_icons_keep_colours_order_and_unique_states():
     r.activity = "active"
     r.scheduler_states = ["running", "pending", "running", "errored"]
     cell = status_cell(r, RenderContext())
-    assert cell.plain == "active ○ ● E"
+    assert cell.plain == "○ ● E active"
     for state in (
         JobscriptElementState.pending,
         JobscriptElementState.running,
@@ -112,7 +112,7 @@ def test_scheduler_icons_remain_visible_for_inaccessible_workflows():
     r.accessibility = "missing"
     r.scheduler_states = ["running", "unrecognised"]
     r.scheduler_error = "Another scheduler failed"
-    assert status_cell(r, RenderContext()).plain == "active ● unrecognised"
+    assert status_cell(r, RenderContext()).plain == "● unrecognised active"
     assert (
         availability_cell(r, RenderContext()).plain == "missing / scheduler unavailable"
     )
@@ -423,7 +423,7 @@ def test_additional_state_columns_do_not_add_scheduler_queries(registry_app, tmp
             {"creation_info": {"id": r.workflow_id}, "name": r.workflow_name},
         )
         atomic_json(
-            cache_path(r),
+            cache_path(r).with_suffix(""),
             to_json(
                 TerminalStateCache(
                     r.workflow_id,
@@ -469,7 +469,7 @@ def test_list_with_state_and_time_columns_remains_read_only(tmp_path, monkeypatc
     monkeypatch.setattr(status, "collect", forbidden)
     result = CliRunner().invoke(
         _make_show_CLI(hf),
-        ["--list", "--columns", "name,elements,times"],
+        ["--list", "--include-missing", "--columns", "name,elements,times"],
         env={"COLUMNS": "180"},
     )
     assert result.exit_code == 0, result.output

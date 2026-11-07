@@ -48,7 +48,15 @@ Monitor submissions
     Use ``{{ app_package_name }} show`` to list active submissions first, followed by
     recent inactive submissions. Submissions whose scheduler cannot be queried remain
     visible with unknown activity. Missing or incompatible workflow data does not imply
-    that its jobs have stopped.
+    that its jobs have stopped. Workflows with deleted or missing paths are hidden
+    by default, before the recent-history limit is applied. Include them with
+    ``--include-missing`` (also available with ``--list``). Filtering does not remove
+    their registry records or saved cancellation references:
+
+    .. code-block:: console
+
+        {{ app_package_name }} show --include-missing
+        {{ app_package_name }} show --list --include-missing
 
     .. code-block:: console
 
@@ -57,7 +65,9 @@ Monitor submissions
         {{ app_package_name }} show 42 --full
         {{ app_package_name }} show ./my-workflow --ref-type path
 
-    The Status column combines activity with compact coloured scheduler icons.
+    The Status column places compact coloured scheduler icons to the left of
+    activity text. Space is reserved across submissions so the text stays aligned,
+    including rows with no icons.
     Add ``availability`` when you need store readability and scheduler/cache
     diagnostics; it is hidden by default:
 
@@ -93,9 +103,10 @@ Monitor submissions
 
     Use ``{{ app_package_name }} show --list`` to list all registered submission
     parts, including their local ID, workflow name, submission index, submission
-    time, last recorded activity, and path. This reads only the registry: it does
-    not load workflows, query schedulers, update states, or prune history. Missing
-    and incompatible workflows remain listed. Activity in this view is the last
+    time, last recorded activity, and path. It reads the registry and checks path
+    existence without loading workflows, querying schedulers, updating states, or
+    pruning history. Incompatible workflows remain listed; missing workflows are
+    included only with ``--include-missing``. Activity in this view is the last
     recorded observation, rather than a current scheduler query.
 
     The list includes all retained inactive submissions by default. An explicit
@@ -219,8 +230,8 @@ Monitor submissions
     This shows completed iterations 0–22, running iteration 23, and pending iterations 24–63.
     Each action pattern applies separately to every iteration in its range and every
     listed element. Nonconsecutive element and iteration ranges are comma-separated,
-    using square brackets for elements (``[0–9, 20–29]``) and curly braces for
-    iterations (``{0–9, 20–29}``). Different action orders and retry attempts remain separate.
+    using square brackets for elements (``[0–9,20–29]``) and curly braces for
+    iterations (``{0–9,20–29}``). Different action orders and retry attempts remain separate.
     Element and iteration numbering are unchanged.
 
     Disable grouping independently with ``--no-group-elements`` or
@@ -253,7 +264,11 @@ Monitor submissions
     ``{{ app_package_name }} open known-subs --path`` to locate the registry.
 
     Terminal action states are cached in
-    ``artifacts/submissions/<index>/tmp/terminal_states.json`` within each workflow.
+    ``artifacts/submissions/<index>/tmp/terminal_states.json.zst`` within each workflow,
+    using zstd-compressed JSON. Legacy ``terminal_states.json`` files remain readable
+    and are migrated on a writable observation, including already-complete caches.
+    ``--no-update`` prevents migration. ZIP workflows can reuse either embedded
+    format and are never modified by cache reads.
     Subsequent queries read valid cached terminal states and refresh unresolved runs.
     Missing or corrupt caches are rebuilt when the workflow is readable. ``--no-update``
     queries current information without writing monitoring history or action caches.

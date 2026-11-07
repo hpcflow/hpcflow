@@ -31,6 +31,7 @@ def app(tmp_path):
 
 
 def submission(tmp_path, index, name):
+    (tmp_path / str(index)).mkdir(exist_ok=True)
     return SubmissionRecord(
         str(tmp_path / str(index)),
         str(index),
@@ -128,6 +129,7 @@ def test_older_records_recover_header_name_without_writing_registry(app, tmp_pat
 
 def test_missing_or_replaced_older_workflows_do_not_match(tmp_path):
     missing = submission(tmp_path, 0, None)
+    Path(missing.workflow_path).rmdir()
     replaced = submission(tmp_path, 1, None)
     atomic_json(
         Path(replaced.workflow_path) / ".zattrs",

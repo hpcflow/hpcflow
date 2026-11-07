@@ -1238,6 +1238,12 @@ def _make_show_CLI(app: BaseApp):
         help="Show loading and scheduler-query progress.",
     )
     @click.option(
+        "--include-missing",
+        is_flag=True,
+        default=False,
+        help="Include registered workflows whose paths are missing or deleted.",
+    )
+    @click.option(
         "--include-loop-skipped",
         is_flag=True,
         default=False,
@@ -1265,6 +1271,7 @@ def _make_show_CLI(app: BaseApp):
         group_iterations: bool,
         no_group: bool,
         status: bool,
+        include_missing: bool,
     ):
         """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
         app.show(
@@ -1280,6 +1287,7 @@ def _make_show_CLI(app: BaseApp):
             group_elements=group_elements and not no_group,
             group_iterations=group_iterations and not no_group,
             status=status,
+            include_missing=include_missing,
         )
 
     return show

@@ -385,7 +385,7 @@ def test_compact_status_and_optional_availability(tmp_path):
     r.accessibility = "missing"
     r.scheduler_states = ["running"]
     r.scheduler_error = "command missing"
-    assert status_cell(r, RenderContext()).plain == "active ●"
+    assert status_cell(r, RenderContext()).plain == "● active"
     assert (
         availability_cell(r, RenderContext()).plain == "missing / scheduler unavailable"
     )

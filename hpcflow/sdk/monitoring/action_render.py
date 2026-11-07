@@ -24,7 +24,7 @@ def element_ranges(elements: list[int]) -> str:
         start = end = element
     if start is not None:
         parts.append(str(start) if start == end else f"{start}–{end}")
-    return "[" + ", ".join(parts) + "]"
+    return "[" + ",".join(parts) + "]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +156,7 @@ def full_action_rows(
             iterations = Text()
             if labelled:
                 iterations.append("iters", style="italic")
-                iterations.append(f" {{{', '.join(ranges)}}}")
+                iterations.append(f" {{{','.join(ranges)}}}")
             rows.append(
                 FullActionRow(
                     task if index == 0 else "",

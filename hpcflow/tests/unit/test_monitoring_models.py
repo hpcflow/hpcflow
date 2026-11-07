@@ -109,8 +109,8 @@ def test_terminal_cache_keeps_enum_names_and_numeric_skip_reasons(tmp_path, reas
     cache = TerminalStateCache(
         record.workflow_id, record.submission_index, {10: state}, "observed"
     )
-    atomic_json(cache_path(record), to_json(cache))
-    raw = json.loads(cache_path(record).read_text())
+    atomic_json(cache_path(record).with_suffix(""), to_json(cache))
+    raw = json.loads(cache_path(record).with_suffix("").read_text())
     assert raw["schema_version"] == 1
     assert raw["terminal_states"]["10"]["state"] == "skipped"
     assert raw["terminal_states"]["10"]["skip_reason"] == reason.value
@@ -166,7 +166,7 @@ def test_public_sdk_snapshots_still_contain_plain_json_data(tmp_path, monkeypatc
         jobs=[JobRecord(jobscript_index=0, run_ids=[10])],
     )
     atomic_json(
-        cache_path(record),
+        cache_path(record).with_suffix(""),
         to_json(
             TerminalStateCache(
                 record.workflow_id,

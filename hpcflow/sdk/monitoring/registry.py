@@ -92,6 +92,25 @@ def atomic_json(path: Path, value: Any) -> None:
             os.unlink(temporary)
 
 
+def atomic_bytes(path: Path, data: bytes) -> None:
+    """Atomically replace a binary cache using a flushed temporary sibling.
+
+    Callers own locking. A failed write leaves the previous cache intact and
+    removes its temporary file, using the same guarantees as registry JSON writes.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def new_record(
     path: str,
     workflow_id: str,

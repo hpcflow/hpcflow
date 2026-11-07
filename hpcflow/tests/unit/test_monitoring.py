@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 from io import StringIO
 import json
+import zstandard as zstd
 import logging
 import re
 from pathlib import Path
@@ -127,7 +128,7 @@ def entry(state="success", element=0, iteration=0, action=0):
 
 def cache(record, entries):
     atomic_json(
-        cache_path(record),
+        cache_path(record).with_suffix(""),
         {
             "schema_version": 1,
             "workflow_id": record.workflow_id,
@@ -219,7 +220,8 @@ def test_missing_active_workflow_is_still_active_and_cancellable(app, tmp_path):
     seed(app, [r])
     scheduler = app.get_scheduler.return_value
     scheduler.get_job_state_info.return_value = {"100": JobscriptElementState.running}
-    assert collect(app)[0].activity == "active"
+    assert collect(app) == []
+    assert collect(app, include_missing=True)[0].activity == "active"
     assert cancel(app, "0", quiet=True)
     scheduler.cancel_jobs.assert_called_once_with(js_refs=["100"], quiet=True)
     app.Workflow.assert_not_called()
@@ -428,7 +430,7 @@ def test_grouping_identical_patterns_and_distinct_orders():
     assert element_ranges(grouped.groups[0].elements) == "[0–99]"
     entries["0"]["state"], entries["1"]["state"] = "running", "success"
     assert len(snapshot_from_json(entries, list(range(200))).groups) == 2
-    assert element_ranges([1, 2, 3, 5, 7, 8]) == "[1–3, 5, 7–8]"
+    assert element_ranges([1, 2, 3, 5, 7, 8]) == "[1–3,5,7–8]"
 
 
 def test_no_update_writes_neither_registry_nor_cache(app, tmp_path):
@@ -474,7 +476,10 @@ def test_bad_cache_rebuilt(app, tmp_path):
     )
     assert refresh_actions(r, workflow).counts == {"error": 1}
     assert (
-        json.loads(cache_path(r).read_text())["terminal_states"]["0"]["state"] == "error"
+        json.loads(zstd.ZstdDecompressor().decompress(cache_path(r).read_bytes()))[
+            "terminal_states"
+        ]["0"]["state"]
+        == "error"
     )
 
 
@@ -508,6 +513,7 @@ def test_cli_options_do_not_conflict_and_pass_reference():
         group_elements=True,
         group_iterations=True,
         status=True,
+        include_missing=False,
     )
     assert CliRunner().invoke(command, ["-r", "-1"]).exit_code != 0
     app.show.reset_mock()
@@ -545,7 +551,9 @@ def test_list_registered_submissions_is_complete_and_read_only(app, tmp_path):
     # may hide or remove registered records during a listing.
     app.config["show_max_recent"] = 0
     app.config["known_submissions_max_inactive"] = 0
-    assert [r.local_id for r in list_registered_submissions(app)] == [
+    assert [
+        r.local_id for r in list_registered_submissions(app, include_missing=True)
+    ] == [
         6,
         5,
         4,
@@ -645,7 +653,10 @@ def test_registered_workflow_uses_stored_name_with_configured_directory_layout(
     stored = registry.read().records[0]
     assert stored.workflow_name == workflow.name
     assert stored.workflow_name_from_metadata
-    assert list_registered_submissions(app)[0].workflow_name == workflow.name
+    assert (
+        list_registered_submissions(app, include_missing=True)[0].workflow_name
+        == workflow.name
+    )
     for renderer in (render, render_registered):
         output = StringIO()
         renderer([stored], console=Console(file=output, width=300))
@@ -683,7 +694,10 @@ def test_existing_cached_workflow_name_backfilled_from_header(
     assert registry.read().records[0].workflow_name == workflow.name
     header = Path(workflow.path) / (".zattrs" if store == "zarr" else "metadata.json")
     header.unlink()
-    assert list_registered_submissions(app)[0].workflow_name == workflow.name
+    assert (
+        list_registered_submissions(app, include_missing=True)[0].workflow_name
+        == workflow.name
+    )
     app.Workflow.assert_not_called()
 
 
@@ -699,7 +713,7 @@ def test_list_recovers_legacy_timestamp_directory_name_without_workflow_access(
     registry = seed(app, [r])
     before = registry.path.read_bytes()
     assert (
-        list_registered_submissions(app)[0].workflow_name
+        list_registered_submissions(app, include_missing=True)[0].workflow_name
         == "old-workflow_2026-10-31_224531"
     )
     assert registry.path.read_bytes() == before
@@ -823,7 +837,9 @@ def test_old_skip_cache_refreshes_only_unclassified_skipped_runs(tmp_path):
     workflow.get_EARs_from_IDs.assert_called_once_with([1])
     assert summary.without_loop_skipped.counts == {"success": 1}
     assert (
-        json.loads(cache_path(r).read_text())["terminal_states"]["1"]["skip_reason"]
+        json.loads(zstd.ZstdDecompressor().decompress(cache_path(r).read_bytes()))[
+            "terminal_states"
+        ]["1"]["skip_reason"]
         == SkipReason.LOOP_TERMINATION.value
     )
     workflow.get_EARs_from_IDs.reset_mock()
@@ -967,8 +983,8 @@ def test_full_icons_align_across_tasks_and_submissions(tmp_path, width):
     ]
     assert len(icon_columns) == 5
     assert len(set(icon_columns)) == 1
-    assert "[0–1, 5–6, 10]" in output.getvalue()
-    assert "iters {0, 2}" in output.getvalue()
+    assert "[0–1,5–6,10]" in output.getvalue()
+    assert "iters {0,2}" in output.getvalue()
     assert (
         next(line for line in lines if "short" in line).index("[0–9]") < icon_columns[0]
     )
@@ -1152,7 +1168,11 @@ def test_real_terminal_cache_avoids_reloading_workflow(app, tmp_path, store):
     app.Workflow = Mock(side_effect=hf.Workflow)
     result = collect(app)
     assert result[0].last_action_summary.counts == {"success": len(ids)}
-    assert len(json.loads(cache_path(r).read_text())["terminal_states"]) == len(ids)
+    assert len(
+        json.loads(zstd.ZstdDecompressor().decompress(cache_path(r).read_bytes()))[
+            "terminal_states"
+        ]
+    ) == len(ids)
     app.Workflow.reset_mock()
     collect(app)
     app.Workflow.assert_not_called()
@@ -1221,7 +1241,7 @@ def test_cache_write_failure_still_returns_live_action_details(tmp_path, monkeyp
         get_EARs_from_IDs=Mock(return_value=[run]),
     )
     monkeypatch.setattr(
-        cache_module, "atomic_json", Mock(side_effect=PermissionError("read only"))
+        cache_module, "atomic_bytes", Mock(side_effect=PermissionError("read only"))
     )
     result = refresh_actions(r, workflow)
     assert result.counts == {"success": 1}
