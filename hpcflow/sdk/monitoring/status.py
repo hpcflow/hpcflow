@@ -286,8 +286,10 @@ def observe_activity(
     """
     contexts: defaultdict[str, list[RegisteredJob]] = defaultdict(list)
     failed = set()
+    observed_records = []
     for record in records:
         if is_archive(record.workflow_path):
+            observed_records.append(record)
             record.submitting = False
             record.activity = "unknown"
             record.scheduler_states = []
@@ -298,6 +300,7 @@ def observe_activity(
             if any(not scheduler_is_local(app, job) for job in record.jobs):
                 record.scheduler_availability = "remote"
             continue
+        observed_records.append(record)
         local_jobs = not record.jobs or any(
             scheduler_is_local(app, job) for job in record.jobs
         )
@@ -394,7 +397,9 @@ def observe_activity(
                 record.scheduler_error = str(error)
                 record.scheduler_availability = "unavailable"
             app.submission_logger.info("Scheduler monitoring failed: %s", error)
-    for record in records:
+    # Already-inactive records were not queried. Preserve their timestamps rather
+    # than making old history appear newly inactive on each show invocation.
+    for record in observed_records:
         if record.local_id in failed and record.activity != "active":
             record.activity = "unknown"
         record.last_checked_at = timestamp()

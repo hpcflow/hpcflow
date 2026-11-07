@@ -1323,6 +1323,9 @@ def test_legacy_and_iso_times_sort_consistently():
     assert sort_timestamp("2026-10-31 12:00:00.000000") == sort_timestamp(
         "2026-10-31T12:00:00+00:00"
     )
+    assert sort_timestamp("2026-10-31T12:00:00Z") == sort_timestamp(
+        "2026-10-31T12:00:00+00:00"
+    )
     assert sort_timestamp("2026-10-31 13:00:00.000000") > sort_timestamp(
         "2026-10-31T12:00:00+00:00"
     )

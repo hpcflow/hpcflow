@@ -1,6 +1,7 @@
 """Missing-workflow visibility, compressed caches, and aligned scheduler icons."""
 
 from io import StringIO
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -75,9 +76,27 @@ def terminal_cache(record, run_ids=(0,)):
 
 @pytest.mark.parametrize("listing", [False, True])
 @pytest.mark.parametrize("include_missing", [False, True])
+@pytest.mark.parametrize("legacy_parser", [False, True])
 def test_missing_workflows_do_not_consume_recent_slots_or_erase_registry(
-    app, tmp_path, listing, include_missing
+    app, tmp_path, listing, include_missing, legacy_parser, monkeypatch
 ):
+    # Windows may return the same wall-clock timestamp for a whole observation.
+    # Inactive history must be ordered by its stored times, not this scan's clock.
+    monkeypatch.setattr(
+        "hpcflow.sdk.monitoring.status.timestamp", lambda: "2026-11-07T13:00:00+00:00"
+    )
+    if legacy_parser:
+
+        def fromisoformat(value):
+            # Reproduce Python 3.10's parser on newer test interpreters too.
+            if isinstance(value, str) and value.endswith("Z"):
+                raise ValueError("Invalid isoformat string")
+            return datetime.fromisoformat(value)
+
+        monkeypatch.setattr(
+            "hpcflow.sdk.monitoring.registry.datetime",
+            SimpleNamespace(fromisoformat=fromisoformat),
+        )
     records = [record(tmp_path, i) for i in range(4)]
     for r in records[:3]:
         header(r)
@@ -98,6 +117,26 @@ def test_missing_workflows_do_not_consume_recent_slots_or_erase_registry(
         assert result[0].accessibility == "missing"
     assert registry.path.read_bytes() == before
     app.Workflow.assert_not_called()
+    app.get_scheduler.assert_not_called()
+
+
+def test_only_new_inactive_observations_receive_current_timestamps(
+    app, tmp_path, monkeypatch
+):
+    from hpcflow.sdk.monitoring.status import observe_activity
+
+    now = "2026-11-07T13:00:00+00:00"
+    old = "2026-11-01T12:00:00+00:00"
+    monkeypatch.setattr("hpcflow.sdk.monitoring.status.timestamp", lambda: now)
+    records = [record(tmp_path, i) for i in range(3)]
+    records[0].last_checked_at = old
+    records[1].activity = "active"
+    records[2].last_checked_at = records[2].inactive_at = old
+    observe_activity(app, records)
+    assert records[0].last_checked_at == old and records[0].inactive_at == ""
+    assert records[1].activity == "inactive"
+    assert records[1].last_checked_at == records[1].inactive_at == now
+    assert records[2].last_checked_at == records[2].inactive_at == old
     app.get_scheduler.assert_not_called()
 
 

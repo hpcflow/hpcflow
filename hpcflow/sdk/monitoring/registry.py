@@ -367,6 +367,9 @@ class SubmissionRegistry:
 def sort_timestamp(value: str) -> float:
     """Convert ISO or legacy naive UTC timestamps to sortable seconds, using zero on error."""
     try:
+        # Python 3.10 does not accept the ISO UTC Z suffix directly.
+        if isinstance(value, str) and value.endswith("Z"):
+            value = value[:-1] + "+00:00"
         parsed = datetime.fromisoformat(value)
         return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).timestamp()
     except (ValueError, TypeError, OverflowError):
