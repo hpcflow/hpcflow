@@ -132,9 +132,9 @@ class PendingChanges(
             int, tuple[datetime, dict[str, Any] | None, str, int | None]
         ] = {}
         #: Keys are EAR IDs and values are tuples of end time, end dir snapshot, exit
-        #: code, and success boolean.
+        #: code, success boolean, and sampled peak memory in bytes.
         self.set_EAR_ends: dict[
-            int, tuple[datetime, dict[str, Any] | None, int, bool]
+            int, tuple[datetime, dict[str, Any] | None, int, bool, int | None]
         ] = {}
         #: Each list item is a tuple of two arrays, the first of which is a run directory
         #: indices array, and the second of which is an integer array indicating with

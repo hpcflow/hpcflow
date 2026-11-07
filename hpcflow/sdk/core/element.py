@@ -36,6 +36,7 @@ from hpcflow.sdk.core.loop_cache import LoopIndex
 from hpcflow.sdk.typing import hydrate
 from hpcflow.sdk.core.app_aware import AppAware
 from hpcflow.sdk.core.utils import (
+    validate_peak_memory_sampling_interval,
     check_valid_py_identifier,
     dict_values_process_flat,
     get_enum_by_name_or_val,
@@ -316,6 +317,10 @@ class ElementResources(JSONLike):
         Whether an app log file should be written.
     combine_jobscript_std: bool
         Whether jobscript standard output and error streams should be combined.
+    track_peak_memory: bool
+        Whether to sample peak resident memory during run execution.
+    peak_memory_sampling_interval: float
+        Seconds between memory samples; defaults to 0.5. Must be finite and positive.
     combine_scripts: bool
         Whether Python scripts should be combined.
     time_limit: str
@@ -443,7 +448,23 @@ class ElementResources(JSONLike):
     #: How many CPU cores to ask for per SLURM task.
     SLURM_num_cpus_per_task: int | None = None
 
+    #: Whether to sample peak resident memory during run execution.
+    track_peak_memory: bool = False
+    #: Seconds between memory samples.
+    peak_memory_sampling_interval: float = 0.5
+
     def __post_init__(self):
+        self.peak_memory_sampling_interval = validate_peak_memory_sampling_interval(
+            self.peak_memory_sampling_interval
+        )
+        if self.track_peak_memory and self.combine_scripts:
+            warnings.warn(
+                "Peak memory tracking is unavailable with combine_scripts=True; "
+                "track_peak_memory will be ignored for combined runs.",
+                stacklevel=2,
+            )
+            self.track_peak_memory = False
+
         if (
             self.num_cores is None
             and self.num_cores_per_node is None
@@ -509,6 +530,8 @@ class ElementResources(JSONLike):
 
         exclude = [
             "scratch",
+            "track_peak_memory",
+            "peak_memory_sampling_interval",
             "time_limit",
             "skip_downstream_on_failure",
             "random_seed",

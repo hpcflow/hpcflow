@@ -5,15 +5,24 @@ import struct
 import threading
 import time
 
+import psutil
 import zmq
 
 from hpcflow.sdk.core import ABORT_EXIT_CODE
 from hpcflow.sdk.core.app_aware import AppAware
+from hpcflow.sdk.core.utils import validate_peak_memory_sampling_interval
 from hpcflow.sdk.log import TimeIt
 
 
 class Executor(AppAware):
-    def __init__(self, cmd, env, package_name):
+    def __init__(
+        self,
+        cmd,
+        env,
+        package_name,
+        track_peak_memory=False,
+        peak_memory_sampling_interval=0.5,
+    ):
 
         # TODO: make zmq_server optional (but required if action is abortable, or if
         #       `script_data_in`/`out`` is "zeromq")
@@ -21,6 +30,11 @@ class Executor(AppAware):
         self.cmd = cmd
         self.env = env
         self.package_name = package_name
+        self.track_peak_memory = track_peak_memory
+        self.peak_memory_sampling_interval = validate_peak_memory_sampling_interval(
+            peak_memory_sampling_interval
+        )
+        self.peak_memory_bytes = None
 
         # initialise a global ZeroMQ context for use in all threads:
         zmq.Context()
@@ -156,14 +170,45 @@ class Executor(AppAware):
             if self.q.get() in ("shutdown", "abort"):
                 return
 
+    def _sample_memory(self, root):
+        """Record total RSS of accessible processes in the local run process tree."""
+        try:
+            processes = [root, *root.children(recursive=True)]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            processes = [root]
+        rss = 0
+        sampled = False
+        for process in processes:
+            try:
+                rss += process.memory_info().rss
+                sampled = True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                # Processes can disappear between enumeration and sampling.
+                continue
+        if sampled:
+            self.peak_memory_bytes = max(self.peak_memory_bytes or 0, rss)
+
+    async def _monitor_memory(self, process):
+        try:
+            root = psutil.Process(process.pid)
+        except psutil.NoSuchProcess:
+            return
+        while process.returncode is None:
+            self._sample_memory(root)
+            await asyncio.sleep(self.peak_memory_sampling_interval)
+
     async def _subprocess_runner(self):
         app_caps = self.package_name.upper()
         env = {**self.env, f"{app_caps}_RUN_PORT": str(self.port_number)}
+        process = None
+        monitor = None
         try:
             process = await asyncio.create_subprocess_exec(*self.cmd, env=env)
             self._app.logger.info(
                 f"_subprocess_runner: started subprocess: {process=!r}."
             )
+            if self.track_peak_memory:
+                monitor = asyncio.create_task(self._monitor_memory(process))
             ret_code = await process.wait()
             self._app.logger.info(
                 f"_subprocess_runner: subprocess finished with return code: {ret_code!r}."
@@ -171,7 +216,13 @@ class Executor(AppAware):
             self.return_code = ret_code
 
         except asyncio.CancelledError:
-            process.kill()
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+        finally:
+            if monitor is not None:
+                monitor.cancel()
+                await asyncio.gather(monitor, return_exceptions=True)
 
     async def _run(self):
 
@@ -200,11 +251,13 @@ class Executor(AppAware):
             # subprocess completed; need to shutdown the server
             self._app.logger.info(f"_run: subprocess completed; stopping zmq server")
             self.stop_zmq_server()
+            await subprocess_task
 
         else:
             # subprocess still running but got a stop request; need to kill subprocess:
             self._app.logger.info(f"_run: stop request; killing subprocess")
             subprocess_task.cancel()
+            await subprocess_task
             self.return_code = ABORT_EXIT_CODE
 
         if self.return_code and os.name == "nt":

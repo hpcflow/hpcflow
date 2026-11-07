@@ -158,6 +158,7 @@ class JsonStoreEAR(StoreEAR["RunMeta", None]):
             "snapshot_start": self.snapshot_start,
             "snapshot_end": self.snapshot_end,
             "exit_code": self.exit_code,
+            "peak_memory_bytes": self.peak_memory_bytes,
             "metadata": self.metadata,
             "run_hostname": self.run_hostname,
             "port_number": self.port_number,
@@ -568,15 +569,25 @@ class JSONPersistentStore(
                 md["runs"][run_id]["port_number"] = port_number
 
     def _update_EAR_end(
-        self, run_ends: dict[int, tuple[datetime, dict[str, Any] | None, int, bool]]
+        self,
+        run_ends: dict[
+            int, tuple[datetime, dict[str, Any] | None, int, bool, int | None]
+        ],
     ):
         with self.using_resource("runs", action="update") as md:
             assert "runs" in md
-            for run_id, (e_time, e_snap, ext_code, success) in run_ends.items():
+            for run_id, (
+                e_time,
+                e_snap,
+                ext_code,
+                success,
+                peak_memory_bytes,
+            ) in run_ends.items():
                 md["runs"][run_id]["end_time"] = e_time.strftime(self.ts_fmt)
                 md["runs"][run_id]["snapshot_end"] = e_snap
                 md["runs"][run_id]["exit_code"] = ext_code
                 md["runs"][run_id]["success"] = success
+                md["runs"][run_id]["peak_memory_bytes"] = peak_memory_bytes
 
     def _update_EAR_skip(self, skips: dict[int, int]):
         with self.using_resource("runs", action="update") as md:

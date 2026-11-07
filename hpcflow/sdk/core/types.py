@@ -173,6 +173,10 @@ class ResourceSpecArgs(TypedDict):
     #: If using array jobs and ``max_array_size`` is exceeded, the order in which the
     #: wrapped actions are executed by each array item: ``"element"`` or ``"action"``.
     array_wrap_order: NotRequired[str]
+    #: Whether to sample peak resident memory during run execution.
+    track_peak_memory: NotRequired[bool]
+    #: Seconds between memory samples; defaults to 0.5, finite and positive.
+    peak_memory_sampling_interval: NotRequired[float]
     #: How long to run for.
     time_limit: NotRequired[str | timedelta]
     #: Additional arguments to pass to the scheduler.

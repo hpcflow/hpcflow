@@ -176,6 +176,8 @@ class ElementActionRun(AppAware):
         Whether this EAR was skipped.
     exit_code: int
         The exit code, if known.
+    peak_memory_bytes: int
+        Sampled peak resident memory of the run and local descendants, in bytes.
     metadata: dict
         Metadata about the EAR.
     run_hostname: str
@@ -204,6 +206,7 @@ class ElementActionRun(AppAware):
         port_number: int | None,
         run_file_ID: int | None,
         run_file_idx: int | None,
+        peak_memory_bytes: int | None = None,
     ) -> None:
         self._id = id_
         self._is_pending = is_pending
@@ -220,6 +223,7 @@ class ElementActionRun(AppAware):
         self._snapshot_start = snapshot_start
         self._snapshot_end = snapshot_end
         self._exit_code = exit_code
+        self._peak_memory_bytes = peak_memory_bytes
         self._metadata = metadata
         self._run_hostname = run_hostname
         self._port_number = port_number
@@ -316,6 +320,14 @@ class ElementActionRun(AppAware):
         Indices of commands to apply.
         """
         return self._commands_idx
+
+    @property
+    def peak_memory_bytes(self) -> int | None:
+        """Sampled peak RSS of the run and its local descendants, in bytes.
+
+        None means tracking was disabled or no memory sample was available.
+        """
+        return self._peak_memory_bytes
 
     @property
     def metadata(self) -> Mapping[str, Any]:
