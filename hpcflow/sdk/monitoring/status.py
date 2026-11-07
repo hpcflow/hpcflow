@@ -420,6 +420,31 @@ def observe_activity(
             record.inactive_at = record.last_checked_at
 
 
+def _selected_records(
+    records: list[SubmissionRecord], max_recent: int | None
+) -> list[SubmissionRecord]:
+    """Order active/unknown entries first and limit inactive history consistently.
+
+    Use saved activity for initial placeholders, then fresh activity for observations
+    and the final result. Scheduler collection still inspects all matching records.
+    """
+    return (
+        sorted(
+            (record for record in records if record.activity != "inactive"),
+            key=lambda record: (
+                record.activity == "active",
+                sort_timestamp(record.submitted_at),
+            ),
+            reverse=True,
+        )
+        + sorted(
+            (record for record in records if record.activity == "inactive"),
+            key=recent_key,
+            reverse=True,
+        )[:max_recent]
+    )
+
+
 def collect(
     app: BaseApp,
     workflow_ref=None,
@@ -488,7 +513,8 @@ def collect(
     records = existing_records(records, include_missing)
     records = filter_templates(records, template_names)
     if on_update:
-        on_update(CollectionProgress(records, frozenset(map(id, records)), True))
+        initial = _selected_records(records, max_recent)
+        on_update(CollectionProgress(initial, frozenset(map(id, initial)), True))
     for record in records:
         if record.legacy and record.activity != "inactive":
             try:
@@ -499,15 +525,7 @@ def collect(
         observe_activity(app, records)
     else:
         observe_activity(app, records, progress)
-    active = sorted(
-        (r for r in records if r.activity != "inactive"),
-        key=lambda r: (r.activity == "active", sort_timestamp(r.submitted_at)),
-        reverse=True,
-    )
-    inactive = sorted(
-        (r for r in records if r.activity == "inactive"), key=recent_key, reverse=True
-    )[:max_recent]
-    selected = active + inactive
+    selected = _selected_records(records, max_recent)
     pending = {id(record) for record in selected}
     if on_update:
         on_update(CollectionProgress(selected, frozenset(pending)))
@@ -561,18 +579,7 @@ def collect(
             if on_update:
                 on_update(CollectionProgress(selected, frozenset(pending)))
     # Remote/archive completion may have changed activity while reading states.
-    selected = (
-        sorted(
-            (r for r in selected if r.activity != "inactive"),
-            key=lambda r: (r.activity == "active", sort_timestamp(r.submitted_at)),
-            reverse=True,
-        )
-        + sorted(
-            (r for r in selected if r.activity == "inactive"),
-            key=recent_key,
-            reverse=True,
-        )[:max_recent]
-    )
+    selected = _selected_records(selected, max_recent)
     if not no_update:
         retained = registry.update([r for r in records if r.local_id >= 0])
         selected = [r for r in selected if r.local_id < 0 or r.local_id in retained]

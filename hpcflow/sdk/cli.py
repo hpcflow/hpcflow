@@ -1215,12 +1215,18 @@ def _make_show_CLI(app: BaseApp):
         "--full",
         is_flag=True,
         default=False,
-        help="Show action patterns grouped by elements with identical states.",
+        help="Alias for --view auto: grouped patterns, or task summaries for large workflows.",
     )
     @click.option(
         "--group-elements/--no-group-elements",
         default=True,
         help="Group identical elements, or show each element separately (implies --full).",
+    )
+    @click.option(
+        "--view",
+        type=click.Choice(["counts", "tasks", "detail", "auto"]),
+        default=None,
+        help="Show counts, task progress, exact grouped detail, or adaptive detail. Overrides --full.",
     )
     @click.option(
         "--group-iterations/--no-group-iterations",
@@ -1272,8 +1278,20 @@ def _make_show_CLI(app: BaseApp):
         no_group: bool,
         status: bool,
         include_missing: bool,
+        view: str | None,
     ):
         """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
+        from hpcflow.sdk.monitoring.views import resolve_view
+
+        try:
+            resolve_view(
+                view,
+                full,
+                group_elements and not no_group,
+                group_iterations and not no_group,
+            )
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
         app.show(
             max_recent=max_recent,
             full=full,
@@ -1288,6 +1306,7 @@ def _make_show_CLI(app: BaseApp):
             group_iterations=group_iterations and not no_group,
             status=status,
             include_missing=include_missing,
+            view=view,
         )
 
     return show

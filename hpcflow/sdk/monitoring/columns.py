@@ -17,10 +17,13 @@ from .action_render import (
     action_text,
     display_summary,
     full_action_rows,
+    needs_compact_layout,
 )
 from .elements import element_summary
+from .compact import compact_element_text
 from .models import ActionSummary, SubmissionRecord
 from .timezones import local_now, resolve_timezone
+from .views import ShowView, resolve_view
 
 if TYPE_CHECKING:
     from ..config.config import Config
@@ -39,6 +42,7 @@ class RenderContext:
     """
 
     full: bool = False
+    view: ShowView = "counts"
     include_loop_skipped: bool = False
     group_elements: bool = True
     group_iterations: bool = True
@@ -46,6 +50,8 @@ class RenderContext:
     action_widths: ActionColumnWidths | None = None
     element_widths: ActionColumnWidths | None = None
     action_summaries: dict[int, ActionSummary] = field(default_factory=dict)
+    compact_actions: set[int] = field(default_factory=set)
+    compact_elements: set[int] = field(default_factory=set)
     element_summaries: dict[int, ActionSummary] = field(default_factory=dict)
     display_timezone: tzinfo = field(default_factory=resolve_timezone)
     current_local_time: datetime = field(default_factory=lambda: local_now())
@@ -249,6 +255,7 @@ def actions_cell(record: SubmissionRecord, context: RenderContext) -> Renderable
         include_loop_skipped=context.include_loop_skipped,
         group_elements=context.group_elements,
         group_iterations=context.group_iterations,
+        compact=id(record) in context.compact_actions,
     )
     return _cached_note(cell, record, context)
 
@@ -256,12 +263,17 @@ def actions_cell(record: SubmissionRecord, context: RenderContext) -> Renderable
 def elements_cell(record: SubmissionRecord, context: RenderContext) -> RenderableType:
     """Render one overall state per element, with a cached-observation note if needed."""
     return _cached_note(
-        action_text(
-            context.elements(record),
-            context.full,
-            context.element_widths,
-            group_elements=context.group_elements,
-            group_iterations=context.group_iterations,
+        (
+            compact_element_text(context.elements(record))
+            if id(record) in context.compact_elements
+            else action_text(
+                context.elements(record),
+                context.full,
+                context.element_widths,
+                group_elements=context.group_elements,
+                group_iterations=context.group_iterations,
+                compact=False,
+            )
         ),
         record,
         context,
@@ -375,14 +387,18 @@ def prepare_context(
     display_timezone: tzinfo | None = None,
     group_elements: bool = True,
     group_iterations: bool = True,
+    view: str | None = None,
 ) -> RenderContext:
     """Prepare one table's time reference and widths for selected full-detail columns.
 
     Only compute action/element layouts when those columns are selected. Rendering
     uses the supplied snapshots without reading workflow stores or scheduler state.
     """
+    selected_view = resolve_view(view, full, group_elements, group_iterations)
+    full = selected_view != "counts"
     context = RenderContext(
         full=full,
+        view=selected_view,
         include_loop_skipped=include_loop_skipped,
         list_only=list_only,
         group_elements=group_elements,
@@ -396,25 +412,44 @@ def prepare_context(
             (scheduler_icons(record).cell_len for record in records), default=0
         )
     if full and "actions" in columns:
-        context.action_widths = action_column_widths(
-            [
-                row
-                for record in records
-                for row in full_action_rows(
-                    context.actions(record),
-                    group_elements,
-                    group_iterations,
-                )
-            ]
-        )
+        detail_rows = []
+        for record in records:
+            if selected_view == "tasks":
+                context.compact_actions.add(id(record))
+                continue
+            rows = full_action_rows(
+                context.actions(record), group_elements, group_iterations
+            )
+            if (
+                selected_view == "auto"
+                and group_elements
+                and group_iterations
+                and needs_compact_layout(rows)
+            ):
+                context.compact_actions.add(id(record))
+            else:
+                detail_rows.extend(rows)
+        context.action_widths = action_column_widths(detail_rows)
     if full and "elements" in columns:
-        context.element_widths = action_column_widths(
-            [
-                row
-                for record in records
-                for row in full_action_rows(
-                    context.elements(record), group_elements, group_iterations
+        element_rows = []
+        for record in records:
+            if selected_view == "tasks":
+                context.compact_elements.add(id(record))
+                continue
+            rows = full_action_rows(
+                context.elements(record), group_elements, group_iterations
+            )
+            if (
+                selected_view == "auto"
+                and group_elements
+                and group_iterations
+                and (
+                    needs_compact_layout(rows)
+                    or any(len(row.elements) > 40 for row in rows)
                 )
-            ]
-        )
+            ):
+                context.compact_elements.add(id(record))
+            else:
+                element_rows.extend(rows)
+        context.element_widths = action_column_widths(element_rows)
     return context

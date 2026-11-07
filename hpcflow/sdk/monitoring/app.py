@@ -72,6 +72,7 @@ if TYPE_CHECKING:
             group_iterations: bool = True,
             status: bool = True,
             include_missing: bool = False,
+            view: str | None = None,
         ) -> None: ...
 
 
@@ -187,8 +188,14 @@ class MonitoringMixin:
             overview, or all matching inactive history when ``workflow_ref`` is
             supplied or ``list_only=True``.
         full : bool, default False
-            Show aligned task/element ranges and grouped iteration action patterns
-            instead of compact counts. Elements share one state across iterations.
+            Alias for ``view='auto'`` when no explicit view is supplied.
+        view : {'counts', 'tasks', 'detail', 'auto'}, optional
+            Select overall state counts, task progress summaries, exact grouped
+            patterns, or adaptive detail for Actions and Elements. The Elements task
+            view shows per-task overall element-state totals. Defaults to counts; ``full=True`` selects
+            auto. Explicit views override full. Disabling grouping requests detail
+            and cannot be combined with explicit counts or tasks. Elements retain
+            one overall state per element across iterations.
         no_update : bool, default False
             Observe live states without writing the registry or terminal-state caches.
         include_loop_skipped : bool, default False
@@ -297,11 +304,18 @@ class MonitoringMixin:
             "applies separately to every listed element. Element and iteration ranges "
             "precede the icons in aligned columns. Iterations with identical action "
             "patterns share a row; nonconsecutive ranges are comma-separated. Each "
-            "pattern applies to every listed iteration. Runs skipped due to loop "
+            "pattern applies to every listed iteration. Large, fragmented layouts "
+            "automatically switch to a task summary with "
+            "completed iteration counts per element, run totals, and problem references. "
+            "Use --view tasks to request summaries or --view detail for exact grouped "
+            "ranges. --view counts shows totals; --view auto (also --full) chooses "
+            "between summaries and detailed patterns. Runs skipped due to loop "
             "termination are hidden by default; use --include-loop-skipped to show "
             "them. Failure and task-condition skips remain visible. The optional "
             "Elements column combines the latest action attempts into one state per "
-            "element across all iterations, retaining failures and active progress. Action state "
+            "element across all iterations, retaining failures and active progress. "
+            "Its tasks view shows per-task element-state totals; auto uses this "
+            "summary when detailed element ranges grow too large. Action state "
             "meanings are shown below.",
             width=80,
             box=box.SIMPLE,
@@ -343,6 +357,7 @@ class MonitoringMixin:
         group_iterations: bool = True,
         status: bool = True,
         include_missing: bool = False,
+        view: str | None = None,
     ) -> None:
         """Resolve display settings, collect selected submissions, and render the table.
 
@@ -352,8 +367,10 @@ class MonitoringMixin:
         """
         from hpcflow.sdk.monitoring.columns import SHOW_COLUMNS, configured_columns
         from hpcflow.sdk.monitoring.timezones import configured_timezone
+        from hpcflow.sdk.monitoring.views import resolve_view
 
-        full = full or not group_elements or not group_iterations
+        view = resolve_view(view, full, group_elements, group_iterations)
+        full = view != "counts"
         console = Console()
         selected_columns = configured_columns(
             self._monitoring_app.config, list_only, columns
@@ -379,6 +396,7 @@ class MonitoringMixin:
                 group_elements=group_elements,
                 group_iterations=group_iterations,
                 console=console,
+                view=view,
             )
             return
         from hpcflow.sdk.monitoring.render import build_table, render
@@ -408,6 +426,7 @@ class MonitoringMixin:
                             group_iterations,
                             update.pending,
                             update.checking_activity,
+                            view=view,
                         ),
                         spinner,
                     ),
@@ -427,24 +446,32 @@ class MonitoringMixin:
                 else nullcontext()
             )
         ) as live_status:
-            records = collect(
-                self._monitoring_app,
-                workflow_ref,
-                ref_type,
-                max_recent,
-                no_update,
-                template_names=template_names,
-                include_missing=include_missing,
-                progress=(
-                    update_message
-                    if live_table is not None
-                    else live_status.update if live_status is not None else None
-                ),
-                on_update=update_rows if live_table is not None else None,
-                include_summary=any(
-                    SHOW_COLUMNS[name].requires_summary for name in selected_columns
-                ),
-            )
+            try:
+                records = collect(
+                    self._monitoring_app,
+                    workflow_ref,
+                    ref_type,
+                    max_recent,
+                    no_update,
+                    template_names=template_names,
+                    include_missing=include_missing,
+                    progress=(
+                        update_message
+                        if live_table is not None
+                        else live_status.update if live_status is not None else None
+                    ),
+                    on_update=update_rows if live_table is not None else None,
+                    include_summary=any(
+                        SHOW_COLUMNS[name].requires_summary for name in selected_columns
+                    ),
+                )
+            finally:
+                # Rich Live.stop renders overflowing content at full height before
+                # clearing it. Clear the frame first to avoid leaking a partial
+                # table into scrollback, including when collection fails.
+                if live_table is not None:
+                    live_table.update(Text(), refresh=True)
+
         render(
             records,
             full=full,
@@ -454,4 +481,5 @@ class MonitoringMixin:
             group_elements=group_elements,
             group_iterations=group_iterations,
             console=console,
+            view=view,
         )

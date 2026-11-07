@@ -29,6 +29,7 @@ from .columns import (
     validate_columns,
 )
 from .models import SubmissionRecord
+from .views import resolve_view
 
 
 def build_table(
@@ -42,6 +43,7 @@ def build_table(
     group_iterations: bool,
     pending: frozenset[int] = frozenset(),
     checking_activity: bool = False,
+    view: str | None = None,
 ) -> RenderableType:
     """Build a table without output, optionally marking unfinished observations.
 
@@ -49,6 +51,7 @@ def build_table(
     mistaken for newly observed states. Completed rows retain shared alignment.
     """
     names = validate_columns(columns)
+    view = resolve_view(view, full, group_elements, group_iterations)
     if not records:
         return Text(
             "No registered submissions." if list_only else "No matching submissions."
@@ -62,12 +65,18 @@ def build_table(
         display_timezone,
         group_elements,
         group_iterations,
+        view,
     )
     selected = [SHOW_COLUMNS[name] for name in names]
+    compact_layout = view in ("tasks", "auto") or bool(
+        context.compact_actions or context.compact_elements
+    )
     table = Table(box=box.SQUARE)
     for column in selected:
         table.add_column(
-            column.list_title if list_only and column.list_title else column.title
+            column.list_title if list_only and column.list_title else column.title,
+            max_width=32 if column.name == "name" and compact_layout else None,
+            overflow=("fold" if column.name == "name" and compact_layout else "ellipsis"),
         )
     for record in records:
         table.add_row(
@@ -97,6 +106,7 @@ def _render_table(
     display_timezone: tzinfo | None,
     group_elements: bool,
     group_iterations: bool,
+    view: str | None = None,
 ) -> None:
     """Print one completed table using the same builder as progressive output."""
     (console or Console()).print(
@@ -109,6 +119,7 @@ def _render_table(
             display_timezone,
             group_elements,
             group_iterations,
+            view=view,
         )
     )
 
@@ -122,11 +133,13 @@ def render(
     display_timezone: tzinfo | None = None,
     group_elements: bool = True,
     group_iterations: bool = True,
+    view: str | None = None,
 ) -> None:
     """Print a table of collected submission snapshots to a Rich console.
 
     ``columns`` selects ordered column identifiers; None uses the live-show defaults.
     ``full`` expands grouped patterns while sharing alignment widths across records.
+    ``view`` explicitly selects counts, tasks, detail, or auto and overrides ``full``.
     ``display_timezone`` defaults to the machine's local zone. This function performs
     no workflow/scheduler reads and writes no monitoring data.
     """
@@ -140,6 +153,7 @@ def render(
         display_timezone,
         group_elements,
         group_iterations,
+        view,
     )
 
 
@@ -152,6 +166,7 @@ def render_registered(
     display_timezone: tzinfo | None = None,
     group_elements: bool = True,
     group_iterations: bool = True,
+    view: str | None = None,
 ) -> None:
     """Print registered history using cached observations and listing headings.
 
@@ -168,4 +183,5 @@ def render_registered(
         display_timezone,
         group_elements,
         group_iterations,
+        view,
     )

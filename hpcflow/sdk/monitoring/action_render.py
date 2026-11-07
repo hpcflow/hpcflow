@@ -9,6 +9,7 @@ from rich.text import Text
 
 from .states import ACTION_STATES
 from .models import ActionStatus, ActionSummary, ElementGroup, IterationActionState
+from .compact import compact_action_text
 
 
 def element_ranges(elements: list[int]) -> str:
@@ -178,6 +179,22 @@ def action_column_widths(rows: list[FullActionRow]) -> ActionColumnWidths:
     )
 
 
+def needs_compact_layout(rows: list[FullActionRow]) -> bool:
+    """Switch fragmented histories to bounded task blocks before labels hide icons.
+
+    Short workflows retain exact patterns. Long element/iteration labels also
+    trigger compaction when there are enough rows to make the layout cumbersome.
+    """
+    if len(rows) > 40:
+        return True
+    widths = action_column_widths(rows)
+    return len(rows) > 8 and (
+        widths.elements > 40
+        or widths.iterations > 48
+        or widths.task + widths.elements + widths.iterations > 100
+    )
+
+
 def display_summary(
     summary: ActionSummary | None,
     include_loop_skipped: bool = False,
@@ -234,15 +251,27 @@ def action_text(
     include_loop_skipped: bool = False,
     group_elements: bool = True,
     group_iterations: bool = True,
+    compact: bool | None = None,
 ) -> Text | Table:
     """Render compact state counts or full grouped action/element patterns.
 
     An optional shared width descriptor aligns detail icons across submissions.
     Loop-skipped runs are hidden unless explicitly included or no filtered view exists.
+    Large full-detail layouts automatically use task summaries unless either grouping
+    option is disabled. ``compact`` can supply an already computed layout decision.
     """
     summary = display_summary(summary, include_loop_skipped)
     if full:
+        if compact and group_elements and group_iterations:
+            return compact_action_text(summary)
         rows = full_action_rows(summary, group_elements, group_iterations)
+        if (
+            compact is None
+            and group_elements
+            and group_iterations
+            and needs_compact_layout(rows)
+        ):
+            return compact_action_text(summary)
         widths = column_widths or action_column_widths(rows)
         table = Table.grid(padding=(0, 1))
         table.add_column(width=widths.task)

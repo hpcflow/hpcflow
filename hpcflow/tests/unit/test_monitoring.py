@@ -576,6 +576,7 @@ def test_cli_options_do_not_conflict_and_pass_reference():
         group_iterations=True,
         status=True,
         include_missing=False,
+        view=None,
     )
     assert CliRunner().invoke(command, ["-r", "-1"]).exit_code != 0
     app.show.reset_mock()

@@ -286,6 +286,38 @@ Monitor submissions
     iterations (``{0–9,20–29}``). Different action orders and retry attempts remain separate.
     Element and iteration numbering are unchanged.
 
+    Choose the Actions and Elements views explicitly with ``--view``:
+
+    * ``counts`` shows overall run-state and element-state counts (the default for plain ``show``).
+    * ``tasks`` shows per-task iteration progress and run totals in Actions, and
+      per-task overall element-state totals in Elements, even for small workflows.
+    * ``detail`` shows exact grouped element/iteration patterns in Actions and
+      element ranges grouped by overall state in Elements, without automatic compaction.
+    * ``auto`` chooses detailed patterns or task summaries independently for each
+      column based on its layout size.
+      ``--full`` is an alias for this behavior when no explicit view is supplied.
+
+    For example, ``{{ app_package_name }} show 42 --view tasks`` requests the task
+    summary, and ``{{ app_package_name }} show 42 --view detail`` retains the exact
+    grouped patterns. Explicit views override ``--full``. The same views work with
+    ``--list`` using saved state data. The SDK equivalent is ``show(view="tasks")``.
+
+    Large ``--view auto`` (or ``--full``) Actions layouts automatically switch to a compact task summary.
+    This happens above 40 detail rows, or above eight rows when long labels would
+    crowd the icons. Each task shows its element count, completed and visible
+    iteration counts per element (a minimum–maximum range when elements differ),
+    and coloured run-state totals. For example, ``216–256 done / 486 visible`` means
+    each element has completed between 216 and 256 of its 486 visible iterations;
+    these are counts, not iteration indices. An iteration counts as done only when
+    the latest attempt of every known action succeeded. Entirely condition-skipped
+    iterations are reported separately as ``C``. Run totals include retry attempts.
+
+    Tasks remain in workflow order, regardless of their states. Up to three problem groups per task include
+    element and iteration references; an explicit count reports further omitted
+    groups. Names wrap above the icons rather than taking their space. This view
+    uses the same collected data and does not make additional scheduler queries.
+    Use ``--view detail`` to inspect exact ranges while retaining grouping.
+
     Disable grouping independently with ``--no-group-elements`` or
     ``--no-group-iterations``, or use ``--no-group`` to disable both. These options
     imply ``--full``, preserve icon alignment, and work with ``show --list`` when
@@ -297,6 +329,20 @@ Monitor submissions
         {{ app_package_name }} show 42 --no-group-iterations
 
     The SDK equivalents are ``group_elements=False`` and ``group_iterations=False``.
+    Explicit ``counts`` and ``tasks`` views cannot be combined with disabled grouping;
+    use ``detail`` or ``auto`` with those options.
+
+    The Elements task view always counts each element once across all iterations,
+    using the same latest-attempt rollup and state precedence as the other views.
+    It shows no iteration progress or run-attempt counts. Tasks remain in workflow
+    order regardless of their states. In ``auto``, large element
+    layouts and long, fragmented element ranges use this task summary so range
+    labels cannot crowd out the icons. For example:
+
+    .. code-block:: console
+
+        {{ app_package_name }} show 42 --view tasks --columns name,elements
+        {{ app_package_name }} show 42 --view tasks --columns actions,elements
 
 
     Runs skipped because a loop terminated are hidden by default in both compact and
