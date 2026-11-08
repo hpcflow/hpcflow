@@ -15,7 +15,7 @@ from importlib import resources, import_module
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkdtemp
 from typing import Any, TypeVar, Generic, cast, TYPE_CHECKING, Literal
 import warnings
 import zipfile
@@ -2290,7 +2290,7 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         each reboot, and it is not routinely used.
         """
         if not self.user_runtime_dir.exists():
-            self.user_runtime_dir.mkdir(parents=True)
+            self.user_runtime_dir.mkdir(parents=True, exist_ok=True)
             self.logger.info(
                 f"Created user runtime directory: {self.user_runtime_dir!r}."
             )
@@ -2568,32 +2568,33 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
             If False, the yielded path will be to a file without the `doc` attribute (if
             originally present).
         delete:
-            If True, remove the temporary file on exit.
+            If True, remove the temporary file and its private directory on exit,
+            including exceptions. False leaves both available to the caller.
         """
-        tmp_dir = self._ensure_user_runtime_dir()
+        runtime_dir = self._ensure_user_runtime_dir()
         builtin_path = self._get_demo_workflows()[name]
-        path = tmp_dir / builtin_path.name
-
-        if doc:
-            # copy the file to the temp location:
-            path.write_text(builtin_path.read_text())
-        else:
-            # load the file, modify, then dump to temp location:
-            if builtin_path.suffix in (".yaml", ".yml"):
-                # use round-trip loader to preserve comments:
-                data = read_YAML_file(builtin_path, typ="rt", variables={})
-                data.pop("doc", None)
-                write_YAML_file(data, path, typ="rt")
-
-            elif builtin_path.suffix in (".json", ".jsonc"):
-                data = read_JSON_file(builtin_path, variables={})
-                data.pop("doc", None)
-                write_JSON_file(data, path)
-
-        yield path
-
-        if delete:
-            path.unlink()
+        # Concurrent commands (and pytest workers) share the runtime directory.
+        # Preserve the basename but give every context ownership of its own copy.
+        temporary = (
+            TemporaryDirectory(prefix="demo-", dir=runtime_dir)
+            if delete
+            else nullcontext(mkdtemp(prefix="demo-", dir=runtime_dir))
+        )
+        with temporary as directory:
+            path = Path(directory) / builtin_path.name
+            if doc:
+                path.write_text(builtin_path.read_text())
+            else:
+                if builtin_path.suffix in (".yaml", ".yml"):
+                    # use round-trip loader to preserve comments:
+                    data = read_YAML_file(builtin_path, typ="rt", variables={})
+                    data.pop("doc", None)
+                    write_YAML_file(data, path, typ="rt")
+                elif builtin_path.suffix in (".json", ".jsonc"):
+                    data = read_JSON_file(builtin_path, variables={})
+                    data.pop("doc", None)
+                    write_JSON_file(data, path)
+            yield path
 
     def copy_demo_workflow(
         self, name: str, dst: PathLike | None = None, doc: bool = True
