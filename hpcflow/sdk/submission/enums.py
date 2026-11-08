@@ -58,7 +58,7 @@ class JobscriptElementState(_ReportableStateEnum):
     #: Resources have been allocated and are being prepared for execution.
     configuring = _ReportableStateData(
         6,
-        "G",        
+        "G",
         "yellow",
         "Allocated resources are being prepared for execution (for example, booting nodes).",
     )
