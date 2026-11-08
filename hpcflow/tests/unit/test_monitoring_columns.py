@@ -89,6 +89,37 @@ def registry_app(tmp_path):
     )
 
 
+@pytest.mark.parametrize("column", ["actions", "elements"])
+@pytest.mark.parametrize("full", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_state_read_failures_are_visible_without_availability_column(
+    column, full, cached
+):
+    r = submission(
+        ActionSummary(
+            counts={"success": 1},
+            groups=[ElementGroup("task", pattern("success"), [0])],
+            observed_at="2026-11-01T12:00:00+00:00",
+        )
+        if cached
+        else None
+    )
+    r.accessibility = "unreadable"
+    r.detail_error = "store is temporarily unavailable"
+    output = StringIO()
+    render(
+        [r],
+        columns=["id", column],
+        full=full,
+        console=Console(file=output, width=180, color_system=None),
+    )
+    text = output.getvalue()
+    assert "States unavailable: store is temporarily unavailable" in text
+    assert ("Cached:" in text) == cached
+    if cached:
+        assert "\u25a0" in text
+
+
 def test_scheduler_status_icons_keep_colours_order_and_unique_states():
     r = submission()
     r.activity = "active"

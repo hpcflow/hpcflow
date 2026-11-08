@@ -172,7 +172,9 @@ def note_failure(app: BaseApp, record: SubmissionRecord, error: Exception) -> No
     else:
         record.accessibility = "unreadable"
     record.detail_error = str(error)
-    app.submission_logger.info("Cannot inspect %s: %s", record.workflow_path, error)
+    app.submission_logger.info(
+        "Cannot inspect %s: %s", record.workflow_path, error, exc_info=True
+    )
 
 
 def context_key(job: JobRecord) -> str:

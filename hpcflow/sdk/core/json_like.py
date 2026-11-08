@@ -11,6 +11,7 @@ import copy
 from dataclasses import dataclass
 import enum
 from types import SimpleNamespace
+from threading import RLock
 from typing import overload, Protocol, cast, runtime_checkable, TYPE_CHECKING
 from typing_extensions import final, override
 
@@ -769,6 +770,7 @@ class JSONLike(BaseJSONLike, AppAware):
     """BaseJSONLike, where the class namespace is the App instance."""
 
     __sdk_classes: ClassVar[list[type[BaseJSONLike]]] = []
+    __sdk_classes_lock: ClassVar[RLock] = RLock()
 
     @classmethod
     def _class_namespace(cls) -> BaseApp:
@@ -776,15 +778,24 @@ class JSONLike(BaseJSONLike, AppAware):
 
     @classmethod
     def __get_classes(cls) -> list[type[BaseJSONLike]]:
+        """Publish the complete SDK class cache before other readers can use it.
+
+        Parent-reference removal depends on every class being present. Publishing
+        a growing list lets concurrent copies pass private parent attributes into
+        constructors, for example ``_element_set`` into ``InputValue``.
+        Keep one shared cache across JSONLike subclasses and serialize its cold
+        initialization; ordinary reads of the completed cache need no lock.
         """
-        Get the collection of actual SDK classes that conform to BaseJSONLike.
-        """
-        if not cls.__sdk_classes:
-            for cls_name in app.sdk_classes:
-                cls2 = getattr(app, cls_name)
-                if isinstance(cls2, type) and issubclass(cls2, BaseJSONLike):
-                    cls.__sdk_classes.append(cls2)
-        return cls.__sdk_classes
+        if not JSONLike.__sdk_classes:
+            with JSONLike.__sdk_classes_lock:
+                if not JSONLike.__sdk_classes:
+                    classes = []
+                    for cls_name in app.sdk_classes:
+                        cls2 = getattr(app, cls_name)
+                        if isinstance(cls2, type) and issubclass(cls2, BaseJSONLike):
+                            classes.append(cls2)
+                    JSONLike.__sdk_classes = classes
+        return JSONLike.__sdk_classes
 
     @override
     def _postprocess_to_dict(self, d: dict[str, Any]) -> dict[str, Any]:

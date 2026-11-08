@@ -231,19 +231,21 @@ def availability_cell(record: SubmissionRecord, context: RenderContext) -> Text:
 def _cached_note(
     cell: RenderableType, record: SubmissionRecord, context: RenderContext
 ) -> RenderableType:
-    """Append the observation time when a cell represents cached or inaccessible data."""
+    """Show read failures even without cached states, and timestamp stale observations."""
+    notes: list[RenderableType] = [cell]
+    if record.detail_error:
+        notes.append(Text(f"States unavailable: {record.detail_error}", style="yellow"))
     if record.last_action_summary is not None and (
         context.list_only or record.accessibility != "readable"
     ):
-        return Group(
-            cell,
+        notes.append(
             Text(
                 "Cached: "
                 + context.format_datetime(record.last_action_summary.observed_at),
                 style="dim",
             ),
         )
-    return cell
+    return Group(*notes) if len(notes) > 1 else cell
 
 
 def actions_cell(record: SubmissionRecord, context: RenderContext) -> RenderableType:
