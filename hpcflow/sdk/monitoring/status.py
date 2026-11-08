@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from queue import Queue
 from typing import TYPE_CHECKING
 from collections.abc import Callable, Mapping, Sequence
 import json
@@ -467,6 +470,148 @@ def _selected_records(
     )
 
 
+def _collect_record(
+    app: BaseApp,
+    record: SubmissionRecord,
+    loaded: dict[WorkflowKey, Workflow],
+    include_summary: bool,
+    no_update: bool,
+    progress: Callable[[str], None] | None,
+) -> None:
+    """Inspect one row using a workflow cache owned exclusively by its worker."""
+    try:
+        check_identity(record)
+        record.accessibility = "readable"
+        record.detail_error = None
+        if record.legacy:
+            hydrate(app, record, loaded, progress)
+        if not include_summary:
+            return
+        ids = run_ids(record)
+        cache = read_cache(record)
+        if ids and cache and all(i in cache.terminal_states for i in ids):
+            summary = snapshot(cache.terminal_states, ids)
+            summary.complete = True
+            summary.observed_at = cache.observed_at or "unknown"
+            if (
+                not no_update
+                and not is_archive(record.workflow_path)
+                and not cache_path(record).exists()
+            ):
+                try:
+                    write_cache(record, cache)
+                except OSError as error:
+                    summary.cache_error = str(error)
+        else:
+            selection = select_states(record, cache)
+            if not selection.unresolved:
+                summary = snapshot(selection.entries, ids)
+            else:
+                workflow = load_workflow(app, record, loaded, progress)
+                if progress:
+                    progress(f"Reading action states: {record.workflow_name}")
+                summary = refresh_actions(
+                    record,
+                    workflow,
+                    no_update or is_archive(record.workflow_path),
+                    selection=selection,
+                )
+        record.last_action_summary = summary
+        if (
+            record.scheduler_availability in ("remote", "archived")
+            and summary.complete
+            and record.activity != "active"
+        ):
+            record.activity = "inactive"
+            record.inactive_at = record.inactive_at or timestamp()
+        for field in ("started_at", "finished_at"):
+            if getattr(summary, field):
+                setattr(record, field, getattr(summary, field))
+    except Exception as error:
+        note_failure(app, record, error)
+
+
+@dataclass(slots=True)
+class ReadyRecord:
+    """Worker-owned observation ready to publish on the collecting thread."""
+
+    original: SubmissionRecord
+    observation: SubmissionRecord
+
+
+def _collect_selected(
+    app: BaseApp,
+    selected: list[SubmissionRecord],
+    loaded: dict[WorkflowKey, Workflow],
+    include_summary: bool,
+    no_update: bool,
+    progress: Callable[[str], None] | None,
+    on_update: Callable[[CollectionProgress], None] | None,
+) -> None:
+    """Read up to four workflows concurrently, publishing rows as they become ready.
+
+    Each workflow path belongs to one worker, which handles its submissions
+    sequentially and owns its workflow/store cache. Workers mutate private record
+    copies. Only the collecting thread publishes observations, invokes progress or
+    rendering callbacks, and later updates the registry. Scheduler queries have
+    already completed before this function is called.
+    """
+    groups: defaultdict[Path, list[SubmissionRecord]] = defaultdict(list)
+    for record in selected:
+        groups[Path(record.workflow_path).absolute()].append(record)
+    pending = set(map(id, selected))
+
+    def ready(record: SubmissionRecord) -> None:
+        pending.discard(id(record))
+        if on_update:
+            on_update(CollectionProgress(selected, frozenset(pending)))
+
+    if len(groups) <= 1:
+        for record in selected:
+            _collect_record(app, record, loaded, include_summary, no_update, progress)
+            ready(record)
+        return
+
+    events: Queue[str | ReadyRecord | None] = Queue()
+
+    def read_group(records: list[SubmissionRecord]) -> None:
+        try:
+            keys = {WorkflowKey(row.workflow_path, row.workflow_id) for row in records}
+            worker_loaded = {key: value for key, value in loaded.items() if key in keys}
+            for original in records:
+                observation = deepcopy(original)
+                _collect_record(
+                    app,
+                    observation,
+                    worker_loaded,
+                    include_summary,
+                    no_update,
+                    events.put if progress else None,
+                )
+                events.put(ReadyRecord(original, observation))
+        finally:
+            events.put(None)
+
+    with ThreadPoolExecutor(max_workers=min(4, len(groups))) as executor:
+        futures = [executor.submit(read_group, records) for records in groups.values()]
+        unfinished = len(futures)
+        while unfinished:
+            event = events.get()
+            if event is None:
+                unfinished -= 1
+            elif isinstance(event, str):
+                if progress:
+                    progress(event)
+            else:
+                for field in fields(SubmissionRecord):
+                    setattr(
+                        event.original, field.name, getattr(event.observation, field.name)
+                    )
+                ready(event.original)
+        for future in futures:
+            future.result()
+
+
 def collect(
     app: BaseApp,
     workflow_ref=None,
@@ -500,7 +645,9 @@ def collect(
     Otherwise merge observations with concurrent registry changes and retention.
     Return invocation-owned snapshots, without live workflow or scheduler objects.
     ``on_update`` receives initial placeholders, scheduler results, and each ready
-    row. It performs no additional collection or scheduler queries.
+    row. It performs no additional collection or scheduler queries. Read different
+    workflows with at most four workers; submissions sharing a workflow remain
+    sequential. Publish ready rows and call progress callbacks on the caller thread.
     """
     if max_recent is None and workflow_ref is None:
         max_recent = get_limit(app.config, "show_max_recent", 3)
@@ -553,61 +700,9 @@ def collect(
     pending = {id(record) for record in selected}
     if on_update:
         on_update(CollectionProgress(selected, frozenset(pending)))
-    for record in selected:
-        try:
-            check_identity(record)
-            record.accessibility = "readable"
-            record.detail_error = None
-            if record.legacy:
-                hydrate(app, record, loaded, progress)
-            if not include_summary:
-                continue
-            ids = run_ids(record)
-            cache = read_cache(record)
-            if ids and cache and all(i in cache.terminal_states for i in ids):
-                summary = snapshot(cache.terminal_states, ids)
-                summary.complete = True
-                summary.observed_at = cache.observed_at or "unknown"
-                if (
-                    not no_update
-                    and not is_archive(record.workflow_path)
-                    and not cache_path(record).exists()
-                ):
-                    try:
-                        write_cache(record, cache)
-                    except OSError as error:
-                        summary.cache_error = str(error)
-            else:
-                selection = select_states(record, cache)
-                if not selection.unresolved:
-                    summary = snapshot(selection.entries, ids)
-                else:
-                    workflow = load_workflow(app, record, loaded, progress)
-                    if progress:
-                        progress(f"Reading action states: {record.workflow_name}")
-                    summary = refresh_actions(
-                        record,
-                        workflow,
-                        no_update or is_archive(record.workflow_path),
-                        selection=selection,
-                    )
-            record.last_action_summary = summary
-            if (
-                record.scheduler_availability in ("remote", "archived")
-                and summary.complete
-                and record.activity != "active"
-            ):
-                record.activity = "inactive"
-                record.inactive_at = record.inactive_at or timestamp()
-            for field in ("started_at", "finished_at"):
-                if getattr(summary, field):
-                    setattr(record, field, getattr(summary, field))
-        except Exception as error:
-            note_failure(app, record, error)
-        finally:
-            pending.discard(id(record))
-            if on_update:
-                on_update(CollectionProgress(selected, frozenset(pending)))
+    _collect_selected(
+        app, selected, loaded, include_summary, no_update, progress, on_update
+    )
     # Remote/archive completion may have changed activity while reading states.
     selected = _selected_records(selected, max_recent)
     if not no_update:
