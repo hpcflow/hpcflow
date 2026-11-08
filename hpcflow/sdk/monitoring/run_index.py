@@ -13,6 +13,7 @@ from .headers import is_archive, read_bytes
 from .models import ActionRunState, SubmissionRecord, to_json
 from .registry import atomic_bytes, file_lock
 from .active_runs import read_activity, read_changed_runs, tracking_enabled
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -109,6 +110,7 @@ def index_path(record: SubmissionRecord) -> Path:
     return cache_path(record).with_name("run_index.json.zst")
 
 
+@TimeIt.decorator
 def read_index(record: SubmissionRecord) -> RunIndex:
     """Read an index from disk or ZIP; invalid or foreign data forces normal reads."""
     try:
@@ -135,6 +137,7 @@ def read_index(record: SubmissionRecord) -> RunIndex:
         return RunIndex(record.workflow_id, record.submission_index)
 
 
+@TimeIt.decorator
 def write_index(record: SubmissionRecord, runs: dict[int, RunMetadata]) -> None:
     """Merge new metadata under a lock and atomically write compressed JSON."""
     if not runs or is_archive(record.workflow_path):
@@ -149,6 +152,7 @@ def write_index(record: SubmissionRecord, runs: dict[int, RunMetadata]) -> None:
         atomic_bytes(path, zstd.ZstdCompressor().compress(payload))
 
 
+@TimeIt.decorator
 def parent_elements(
     record: SubmissionRecord, workflow: Workflow
 ) -> dict[int, tuple[int, int]]:
@@ -182,6 +186,7 @@ def parent_elements(
     return {key: value for key, value in result.items() if key not in ambiguous}
 
 
+@TimeIt.decorator
 def scheduler_entries(
     record: SubmissionRecord, index: RunIndex, ids: list[int]
 ) -> dict[int, ActionRunState]:

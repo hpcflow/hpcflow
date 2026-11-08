@@ -15,6 +15,7 @@ from rich.text import Text
 
 from .models import ActionSummary, IterationActionState
 from .states import ACTION_STATES
+from ..log import TimeIt
 
 PROBLEM_STATES = frozenset({"error", "aborted", "interrupted", "skipped"})
 _PROBLEM_PRIORITY = {
@@ -75,6 +76,7 @@ class TaskElementStates:
     counts: Counter[str] = field(default_factory=Counter)
 
 
+@TimeIt.decorator
 def compact_element_text(summary: ActionSummary) -> Text:
     """Render per-task totals from an already aggregated element summary.
 
@@ -107,6 +109,7 @@ def compact_element_text(summary: ActionSummary) -> Text:
     return text
 
 
+@TimeIt.decorator
 def task_progress(summary: ActionSummary) -> list[TaskProgress]:
     """Aggregate tasks without multiplying iteration patterns by element count.
 
@@ -174,6 +177,7 @@ def _ranges(indices: tuple[int, ...], brackets: str) -> str:
     return brackets[0] + label + brackets[1]
 
 
+@TimeIt.decorator
 def compact_action_text(summary: ActionSummary) -> Text:
     """Render wrapping task blocks with progress, icons, and bounded problem details.
 

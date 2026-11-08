@@ -44,6 +44,7 @@ from .registry import (
     sort_timestamp,
     timestamp,
 )
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..app import BaseApp
@@ -88,6 +89,7 @@ class SchedulerQuery:
     jobs: list[RegisteredJob]
 
 
+@TimeIt.decorator
 def check_identity(record: SubmissionRecord) -> None:
     """Verify the workflow header before trusting cached action-run identities.
 
@@ -110,6 +112,7 @@ def check_identity(record: SubmissionRecord) -> None:
     record.workflow_header_token = token
 
 
+@TimeIt.decorator
 def load_workflow(
     app: BaseApp,
     record: SubmissionRecord,
@@ -138,6 +141,7 @@ def load_workflow(
     return workflow
 
 
+@TimeIt.decorator
 def hydrate(
     app: BaseApp,
     record: SubmissionRecord,
@@ -264,6 +268,7 @@ def scheduler_for(app: BaseApp, job: JobRecord):
     return app.get_scheduler(job.scheduler_type, job.os_name, job.scheduler_args)
 
 
+@TimeIt.decorator
 def scheduler_ref(job: JobRecord) -> str | tuple[int, list[str]] | None:
     """Convert a saved reference to the adapter API and guard against reused PIDs.
 
@@ -291,6 +296,7 @@ def scheduler_ref(job: JobRecord) -> str | tuple[int, list[str]] | None:
     return reference
 
 
+@TimeIt.decorator
 def observe_activity(
     app: BaseApp,
     records: list[SubmissionRecord],
@@ -472,6 +478,7 @@ def _selected_records(
     )
 
 
+@TimeIt.decorator
 def _collect_record(
     app: BaseApp,
     record: SubmissionRecord,
@@ -541,6 +548,7 @@ class ReadyRecord:
     observation: SubmissionRecord
 
 
+@TimeIt.decorator
 def _collect_selected(
     app: BaseApp,
     selected: list[SubmissionRecord],
@@ -576,6 +584,7 @@ def _collect_selected(
 
     events: Queue[str | ReadyRecord | None] = Queue()
 
+    @TimeIt.decorator
     def read_group(records: list[SubmissionRecord]) -> None:
         try:
             keys = {WorkflowKey(row.workflow_path, row.workflow_id) for row in records}
@@ -614,6 +623,7 @@ def _collect_selected(
             future.result()
 
 
+@TimeIt.decorator
 def collect(
     app: BaseApp,
     workflow_ref=None,
@@ -714,6 +724,7 @@ def collect(
     return selected
 
 
+@TimeIt.decorator
 def cancel(app: BaseApp, workflow_ref, ref_type=None, quiet=False) -> bool:
     """Cancel saved jobs for all retained parts matching a workflow reference.
 

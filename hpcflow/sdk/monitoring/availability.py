@@ -3,8 +3,10 @@
 from pathlib import Path
 
 from .models import SubmissionRecord
+from ..log import TimeIt
 
 
+@TimeIt.decorator
 def existing_records(
     records: list[SubmissionRecord], include_missing: bool = False
 ) -> list[SubmissionRecord]:

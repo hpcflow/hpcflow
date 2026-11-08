@@ -5068,9 +5068,6 @@ class Workflow(AppAware):
         self.submissions_path.mkdir(exist_ok=True, parents=True)
         sub_obj.path.mkdir(exist_ok=True)
         sub_obj.tmp_path.mkdir(exist_ok=True)
-        from ..monitoring.active_runs import enable_tracking
-
-        enable_tracking(self, sub_obj.index, sub_obj.jobscripts)
         sub_obj.app_std_path.mkdir(exist_ok=True)
         sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
         sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
@@ -5087,6 +5084,12 @@ class Workflow(AppAware):
 
         if sub_obj.needs_script_indices_dir:
             sub_obj.js_script_indices_path.mkdir(exist_ok=True)
+
+        from ..monitoring.active_runs import enable_tracking
+
+        if status:
+            status.update("Adding new submission: enabling active-run tracking...")
+        enable_tracking(self, sub_obj.index, sub_obj.jobscripts)
 
         if status:
             status.update("Adding new submission: writing scripts and command files...")

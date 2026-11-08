@@ -1,16 +1,26 @@
 """Workflow readers are bounded, isolated, and publish ready rows on the caller."""
 
-from threading import Barrier, Event, Lock, get_ident
+from collections import defaultdict
+from threading import Barrier, Event, Lock, get_ident, local
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.monitoring import status
 from hpcflow.sdk.monitoring.models import ActionSummary, SubmissionRecord
 
 
+@pytest.mark.parametrize("profiling", [False, True])
 def test_parallel_collection_streams_rows_with_at_most_four_workers(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, profiling
 ):
+    monkeypatch.setattr(TimeIt, "active", profiling)
+    monkeypatch.setattr(TimeIt, "timers", defaultdict(list))
+    monkeypatch.setattr(TimeIt, "_worker_traces", local())
+    for name in ("trace", "trace_idx", "trace_prev", "trace_idx_prev"):
+        monkeypatch.setattr(TimeIt, name, [])
     caller = get_ident()
     rows = [
         SubmissionRecord(
@@ -114,6 +124,12 @@ def test_parallel_collection_streams_rows_with_at_most_four_workers(
     observer.assert_called_once()
     registry.update.assert_called_once()
     assert [row.workflow_name for row in result] == [f"ready-{i}" for i in range(7)]
+    if profiling:
+        assert len(TimeIt.timers[("collect",)]) == 1
+        assert len(TimeIt.timers[("_collect_selected.<locals>.read_group",)]) == 6
+        assert not TimeIt.trace
+    else:
+        assert not TimeIt.timers
 
 
 def test_parallel_read_failure_preserves_other_rows(tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from .models import SubmissionRecord, WorkflowKey
 from .headers import read_header
+from ..log import TimeIt
 
 
 def template_names(value: Sequence[str] | str | None) -> tuple[str, ...] | None:
@@ -30,6 +31,7 @@ def metadata_template_name(metadata: dict) -> str | None:
     return name if isinstance(name, str) else None
 
 
+@TimeIt.decorator
 def _read_template_name(record: SubmissionRecord) -> str | None:
     """Recover an older record's template name from a supported metadata header.
 
@@ -46,6 +48,7 @@ def _read_template_name(record: SubmissionRecord) -> str | None:
     return None
 
 
+@TimeIt.decorator
 def filter_templates(
     records: list[SubmissionRecord], names: Sequence[str] | str | None
 ) -> list[SubmissionRecord]:

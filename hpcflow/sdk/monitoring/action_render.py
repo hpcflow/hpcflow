@@ -10,6 +10,7 @@ from rich.text import Text
 from .states import ACTION_STATES
 from .models import ActionStatus, ActionSummary, ElementGroup, IterationActionState
 from .compact import compact_action_text
+from ..log import TimeIt
 
 
 def element_ranges(elements: list[int]) -> str:
@@ -112,6 +113,7 @@ def iteration_text(pattern: Sequence[IterationActionState]) -> Text:
     return text
 
 
+@TimeIt.decorator
 def full_action_rows(
     summary: ActionSummary, group_elements: bool = True, group_iterations: bool = True
 ) -> list[FullActionRow]:
@@ -195,6 +197,7 @@ def needs_compact_layout(rows: list[FullActionRow]) -> bool:
     )
 
 
+@TimeIt.decorator
 def display_summary(
     summary: ActionSummary | None,
     include_loop_skipped: bool = False,
@@ -261,6 +264,7 @@ def display_summary(
     )
 
 
+@TimeIt.decorator
 def action_text(
     summary: ActionSummary,
     full: bool,

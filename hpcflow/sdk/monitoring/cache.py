@@ -30,6 +30,7 @@ from .run_index import (
     scheduler_entries,
     write_index,
 )
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..core.workflow import Workflow
@@ -47,6 +48,7 @@ def cache_path(record: SubmissionRecord) -> Path:
     )
 
 
+@TimeIt.decorator
 def read_cache(record: SubmissionRecord) -> TerminalStateCache | None:
     """Read valid terminal states for the record's workflow and submission.
 
@@ -71,6 +73,7 @@ def read_cache(record: SubmissionRecord) -> TerminalStateCache | None:
     return None
 
 
+@TimeIt.decorator
 def _decode_cache(record: SubmissionRecord, data: dict) -> TerminalStateCache | None:
     """Validate a decoded cache independently of its compression or file container."""
     try:
@@ -109,6 +112,7 @@ def run_ids(record: SubmissionRecord) -> list[int]:
     return list(dict.fromkeys(i for job in record.jobs for i in job.run_ids))
 
 
+@TimeIt.decorator
 def _action_summary(entries: dict[int, ActionRunState], ids: list[int]) -> ActionSummary:
     """Count run states and group elements sharing an identical ordered action pattern."""
     counts: Counter[str] = Counter()
@@ -147,6 +151,7 @@ def _action_summary(entries: dict[int, ActionRunState], ids: list[int]) -> Actio
     )
 
 
+@TimeIt.decorator
 def snapshot(entries: dict[int, ActionRunState], ids: list[int]) -> ActionSummary:
     """Build a compact action summary for the requested run IDs.
 
@@ -185,6 +190,7 @@ class StateSelection:
     index: RunIndex
 
 
+@TimeIt.decorator
 def select_states(
     record: SubmissionRecord, cache: TerminalStateCache | None
 ) -> StateSelection:
@@ -204,6 +210,7 @@ def select_states(
     )
 
 
+@TimeIt.decorator
 def refresh_actions(
     record: SubmissionRecord,
     workflow: "Workflow",
@@ -304,6 +311,7 @@ def refresh_actions(
     return result
 
 
+@TimeIt.decorator
 def write_cache(record: SubmissionRecord, cache: TerminalStateCache) -> None:
     """Merge immutable states and atomically write zstd-compressed JSON.
 

@@ -10,6 +10,7 @@ from rich.table import Table, box
 from rich.text import Text
 
 from ..core.enums import EARStatus
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..core.workflow import Workflow
@@ -52,6 +53,7 @@ def resolve_run_state(state: EARStatus | str | None) -> EARStatus | None:
     )
 
 
+@TimeIt.decorator
 def collect_runs(
     workflow: Workflow, state: EARStatus | str | None = None
 ) -> list[RunRecord]:
@@ -100,6 +102,7 @@ def collect_runs(
     return sorted(records, key=lambda record: record.run_id)
 
 
+@TimeIt.decorator
 def show_runs(
     workflow: Workflow,
     state: EARStatus | str | None = None,

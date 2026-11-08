@@ -30,8 +30,10 @@ from .columns import (
 )
 from .models import SubmissionRecord
 from .views import resolve_view
+from ..log import TimeIt
 
 
+@TimeIt.decorator
 def build_table(
     records: list[SubmissionRecord],
     columns: Sequence[str],
@@ -96,6 +98,7 @@ def build_table(
     return table
 
 
+@TimeIt.decorator
 def _render_table(
     records: list[SubmissionRecord],
     columns: Sequence[str],
@@ -124,6 +127,7 @@ def _render_table(
     )
 
 
+@TimeIt.decorator
 def render(
     records: list[SubmissionRecord],
     full: bool = False,
@@ -157,6 +161,7 @@ def render(
     )
 
 
+@TimeIt.decorator
 def render_registered(
     records: list[SubmissionRecord],
     console: Console | None = None,

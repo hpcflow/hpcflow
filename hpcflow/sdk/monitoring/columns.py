@@ -24,6 +24,7 @@ from .compact import compact_element_text
 from .models import ActionSummary, SubmissionRecord
 from .timezones import local_now, resolve_timezone
 from .views import ShowView, resolve_view
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..config.config import Config
@@ -380,6 +381,7 @@ def configured_columns(
     return validate_columns(value)
 
 
+@TimeIt.decorator
 def prepare_context(
     records: list[SubmissionRecord],
     columns: Sequence[str],

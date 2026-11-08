@@ -10,11 +10,13 @@ from .availability import existing_records
 from .filtering import filter_templates
 from .models import SubmissionRecord
 from .registry import SubmissionRegistry, recent_key, sort_timestamp
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..app import BaseApp
 
 
+@TimeIt.decorator
 def list_registered_submissions(
     app: BaseApp,
     workflow_ref=None,

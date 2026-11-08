@@ -25,6 +25,7 @@ from .models import (
     to_json,
 )
 from .naming import registered_workflow_name, workflow_name_from_path
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from ..app import BaseApp
@@ -73,6 +74,7 @@ def file_lock(path: Path):
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
+@TimeIt.decorator
 def atomic_json(path: Path, value: Any) -> None:
     """Write JSON through a temporary sibling and atomically replace the destination.
 
@@ -92,6 +94,7 @@ def atomic_json(path: Path, value: Any) -> None:
             os.unlink(temporary)
 
 
+@TimeIt.decorator
 def atomic_bytes(path: Path, data: bytes) -> None:
     """Atomically replace a binary cache using a flushed temporary sibling.
 
@@ -139,6 +142,7 @@ def new_record(
     )
 
 
+@TimeIt.decorator
 def job_record(job: Jobscript, inspect_scheduler: bool = True) -> JobRecord:
     """Snapshot scheduler settings and references without retaining a live jobscript.
 
@@ -212,6 +216,7 @@ class SubmissionRegistry:
         self.app = app
         self.path = app.user_data_hostname_dir / "known_submissions_v2.json"
 
+    @TimeIt.decorator
     def read(self) -> RegistryData:
         """Read typed records, or import legacy text history in memory if JSON is absent.
 
@@ -298,6 +303,7 @@ class SubmissionRegistry:
                 ]
             atomic_json(self.path, to_json(data))
 
+    @TimeIt.decorator
     def begin(self, submission: Submission, part: str) -> int:
         """Register a submission part before jobs are launched and return its local ID.
 
@@ -333,6 +339,7 @@ class SubmissionRegistry:
             data.records.append(record)
         return record.local_id
 
+    @TimeIt.decorator
     def unregister(self, local_id: int) -> SubmissionRecord:
         """Remove one submission part and make its ID explicitly reusable.
 
@@ -352,6 +359,7 @@ class SubmissionRegistry:
             data.free_local_ids[local_id] = record.revision + 1
         return record
 
+    @TimeIt.decorator
     def unregister_all(self, include_active: bool = False) -> list[SubmissionRecord]:
         """Release all inactive entries, or every entry when explicitly requested.
 
@@ -408,6 +416,7 @@ class SubmissionRegistry:
                 f"Cannot unregister submission {record.local_id} while jobs are being submitted"
             )
 
+    @TimeIt.decorator
     def add_job(self, local_id: int, job: JobRecord) -> None:
         """Append one successful job reference immediately and advance the record revision."""
         with self.transaction() as data:
@@ -417,6 +426,7 @@ class SubmissionRegistry:
             record.jobs.append(job)
             record.revision += 1
 
+    @TimeIt.decorator
     def finish(self, local_id: int) -> None:
         """Clear submission-in-progress tracking and advance the record revision.
 
@@ -432,6 +442,7 @@ class SubmissionRegistry:
             if not record.jobs:
                 data.records.remove(record)
 
+    @TimeIt.decorator
     def update(self, records: list[SubmissionRecord]) -> set[int]:
         """Merge observations only when their record revisions still match the registry.
 

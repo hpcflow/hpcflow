@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from .headers import is_archive
 from .registry import file_lock, atomic_json
+from ..log import TimeIt
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -54,6 +55,7 @@ def activity_directory(workflow_path: str, submission: int) -> Path:
     )
 
 
+@TimeIt.decorator
 def tracking_enabled(workflow_path: str, workflow_id: str, submission: int) -> bool:
     """Require the cursor protocol to have been enabled before execution began."""
     if is_archive(workflow_path):
@@ -115,6 +117,7 @@ def _plan_id(ids: tuple[int, ...]) -> str:
     return sha256(json.dumps(ids, separators=(",", ":")).encode()).hexdigest()
 
 
+@TimeIt.decorator
 def _atomic_file(path: Path, data: dict) -> None:
     """Atomically publish telemetry without a durable store write per action."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +147,7 @@ def _atomic_file(path: Path, data: dict) -> None:
             os.unlink(temporary)
 
 
+@TimeIt.decorator
 def execution_plans(job: Jobscript) -> dict[int, tuple[int, ...]]:
     """Follow generated loop order rather than numeric run-ID order.
 
@@ -176,6 +180,7 @@ def execution_plans(job: Jobscript) -> dict[int, tuple[int, ...]]:
     return plans
 
 
+@TimeIt.decorator
 def enable_tracking(
     workflow: Workflow, submission: int, jobscripts: Sequence[Jobscript] | None = None
 ) -> None:
@@ -208,6 +213,7 @@ def enable_tracking(
         )
 
 
+@TimeIt.decorator
 def _read_plan(path: Path, identity: dict) -> tuple[tuple[int, ...], str]:
     data = json.loads(path.read_bytes())
     if any(data.get(key) != value for key, value in identity.items()):
@@ -219,6 +225,7 @@ def _read_plan(path: Path, identity: dict) -> tuple[tuple[int, ...], str]:
     return ids, digest
 
 
+@TimeIt.decorator
 def _read_existing_plan(
     directory: Path, jobscript: int, item: int, identity: dict
 ) -> tuple[Path, Path, tuple[int, ...], str]:
@@ -237,6 +244,7 @@ def _read_existing_plan(
     return marker, plan, ids, digest
 
 
+@TimeIt.decorator
 def _read_cursor(
     path: Path, identity: dict, ids: tuple[int, ...], digest: str
 ) -> tuple[int, int | None]:
@@ -256,6 +264,7 @@ def _read_cursor(
     return cursor, active
 
 
+@TimeIt.decorator
 def read_activity(
     workflow_path: str, workflow_id: str, submission: int, jobscript: int, item: int
 ) -> RunActivity | None:
@@ -299,6 +308,7 @@ class ActiveRunTracker:
         self._active: set[int] = set()
 
     @classmethod
+    @TimeIt.decorator
     def for_workflow(
         cls, workflow: Workflow, submission: int, jobscript: int
     ) -> ActiveRunTracker | None:
@@ -318,6 +328,7 @@ class ActiveRunTracker:
         except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
             return None
 
+    @TimeIt.decorator
     def _update(
         self, starts: list[int] | None = None, finishes: list[int] | None = None
     ) -> None:
@@ -378,6 +389,7 @@ class ActiveRunTracker:
             _current.reset(token)
 
 
+@TimeIt.decorator
 def read_changed_runs(
     workflow_path: str, workflow_id: str, submission: int
 ) -> set[int] | None:
@@ -421,6 +433,7 @@ def track_run(
             tracker.finish([run_id])
 
 
+@TimeIt.decorator
 def note_changed_runs(workflow: Workflow, run_ids: Iterable[int]) -> None:
     """Notify show about skips that affect unvisited actions in other array items."""
     tracker = _current.get()

@@ -86,6 +86,7 @@ class MonitoringMixin:
     the host's responsibility.
     """
 
+    @TimeIt.decorator
     def clear_registry(self) -> None:
         """Delete submission registries without loading configuration or workflows.
 
@@ -136,6 +137,7 @@ class MonitoringMixin:
         """
         return self._monitoring_app._get_app_func("unregister")
 
+    @TimeIt.decorator
     def _unregister(
         self,
         local_id: int | None = None,

@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 
 from .models import ActionSummary, ElementGroup, IterationActionState
+from ..log import TimeIt
 
 # Failure-related states remain visible even while other actions are outstanding.
 _STATE_PRIORITY = (
@@ -43,6 +44,7 @@ def overall_element_state(pattern: Sequence[IterationActionState]) -> str:
     return next((state for state in _STATE_PRIORITY if state in states), "pending")
 
 
+@TimeIt.decorator
 def element_summary(summary: ActionSummary) -> ActionSummary:
     """Aggregate an action summary into counts and groups of overall element states.
 
