@@ -46,6 +46,7 @@ def build_table(
     pending: frozenset[int] = frozenset(),
     checking_activity: bool = False,
     view: str | None = None,
+    use_cache: bool = False,
 ) -> RenderableType:
     """Build a table without output, optionally marking unfinished observations.
 
@@ -68,6 +69,7 @@ def build_table(
         group_elements,
         group_iterations,
         view,
+        use_cache=use_cache,
     )
     selected = [SHOW_COLUMNS[name] for name in names]
     compact_layout = view in ("tasks", "auto") or bool(
@@ -75,8 +77,11 @@ def build_table(
     )
     table = Table(box=box.SQUARE)
     for column in selected:
+        title = column.list_title if list_only and column.list_title else column.title
+        if use_cache and column.name == "status":
+            title += " (cached)"
         table.add_column(
-            column.list_title if list_only and column.list_title else column.title,
+            title,
             max_width=32 if column.name == "name" and compact_layout else None,
             overflow=("fold" if column.name == "name" and compact_layout else "ellipsis"),
         )
@@ -110,6 +115,7 @@ def _render_table(
     group_elements: bool,
     group_iterations: bool,
     view: str | None = None,
+    use_cache: bool = False,
 ) -> None:
     """Print one completed table using the same builder as progressive output."""
     (console or Console()).print(
@@ -123,6 +129,7 @@ def _render_table(
             group_elements,
             group_iterations,
             view=view,
+            use_cache=use_cache,
         )
     )
 
@@ -138,6 +145,7 @@ def render(
     group_elements: bool = True,
     group_iterations: bool = True,
     view: str | None = None,
+    use_cache: bool = False,
 ) -> None:
     """Print a table of collected submission snapshots to a Rich console.
 
@@ -146,6 +154,8 @@ def render(
     ``view`` explicitly selects counts, tasks, detail, or auto and overrides ``full``.
     ``display_timezone`` defaults to the machine's local zone. This function performs
     no workflow/scheduler reads and writes no monitoring data.
+    ``use_cache`` labels saved observations while retaining normal table columns
+    and scheduler icons; it does not change the supplied snapshots.
     """
     _render_table(
         records,
@@ -158,6 +168,7 @@ def render(
         group_elements,
         group_iterations,
         view,
+        use_cache=use_cache,
     )
 
 

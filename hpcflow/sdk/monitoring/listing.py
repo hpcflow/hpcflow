@@ -24,6 +24,7 @@ def list_registered_submissions(
     max_recent: int | None = None,
     template_names: Sequence[str] | str | None = None,
     include_missing: bool = False,
+    use_cache: bool = False,
 ) -> list[SubmissionRecord]:
     """Return registered active/unknown records followed by recent inactive history.
 
@@ -36,14 +37,24 @@ def list_registered_submissions(
     Never prune or write the registry, query schedulers, or construct workflow objects.
     A template filter may read metadata headers to recover names absent from older
     records; saved names remain usable when workflow data is missing.
+    ``use_cache`` avoids workflow-file reads entirely: availability and template
+    names come only from the registry, with no existence checks or header recovery.
     """
     if max_recent is not None and (type(max_recent) is not int or max_recent < 0):
         raise ValueError("max_recent must be a non-negative integer")
     records = resolve_records(
         SubmissionRegistry(app).read().records, workflow_ref, ref_type
     )
-    records = existing_records(records, include_missing)
-    records = filter_templates(records, template_names)
+    if use_cache:
+        records = [
+            record
+            for record in records
+            if include_missing or record.accessibility != "missing"
+        ]
+        records = filter_templates(records, template_names, cached_only=True)
+    else:
+        records = existing_records(records, include_missing)
+        records = filter_templates(records, template_names)
     active = sorted(
         (record for record in records if record.activity != "inactive"),
         key=lambda record: (

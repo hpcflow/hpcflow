@@ -48,6 +48,7 @@ class RenderContext:
     group_elements: bool = True
     group_iterations: bool = True
     list_only: bool = False
+    use_cache: bool = False
     action_widths: ActionColumnWidths | None = None
     element_widths: ActionColumnWidths | None = None
     action_summaries: dict[int, ActionSummary] = field(default_factory=dict)
@@ -234,10 +235,12 @@ def _cached_note(
 ) -> RenderableType:
     """Show read failures even without cached states, and timestamp stale observations."""
     notes: list[RenderableType] = [cell]
+    if (context.list_only or context.use_cache) and record.last_action_summary is None:
+        notes = [Text("No cached action states. Run show to refresh.", style="dim")]
     if record.detail_error:
         notes.append(Text(f"States unavailable: {record.detail_error}", style="yellow"))
     if record.last_action_summary is not None and (
-        context.list_only or record.accessibility != "readable"
+        context.list_only or context.use_cache or record.accessibility != "readable"
     ):
         notes.append(
             Text(
@@ -246,7 +249,7 @@ def _cached_note(
                 style="dim",
             ),
         )
-    return Group(*notes) if len(notes) > 1 else cell
+    return Group(*notes) if len(notes) > 1 else notes[0]
 
 
 def actions_cell(record: SubmissionRecord, context: RenderContext) -> RenderableType:
@@ -392,6 +395,7 @@ def prepare_context(
     group_elements: bool = True,
     group_iterations: bool = True,
     view: str | None = None,
+    use_cache: bool = False,
 ) -> RenderContext:
     """Prepare one table's time reference and widths for selected full-detail columns.
 
@@ -405,6 +409,7 @@ def prepare_context(
         view=selected_view,
         include_loop_skipped=include_loop_skipped,
         list_only=list_only,
+        use_cache=use_cache,
         group_elements=group_elements,
         group_iterations=group_iterations,
         display_timezone=(

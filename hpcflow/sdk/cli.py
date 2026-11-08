@@ -1205,6 +1205,12 @@ def _make_show_CLI(app: BaseApp):
         help="Maximum inactive submissions to show (default: show_max_recent; WORKFLOW_REF or --list: all).",
     )
     @click.option(
+        "--use-cache",
+        is_flag=True,
+        default=False,
+        help="Reformat saved observations without querying schedulers or reading workflow files.",
+    )
+    @click.option(
         "--no-update",
         is_flag=True,
         default=False,
@@ -1271,6 +1277,7 @@ def _make_show_CLI(app: BaseApp):
         no_update: bool,
         include_loop_skipped: bool,
         list_only: bool,
+        use_cache: bool,
         columns: tuple[str, ...] | None,
         template_names: tuple[str, ...] | None,
         group_elements: bool,
@@ -1300,6 +1307,7 @@ def _make_show_CLI(app: BaseApp):
             ref_type=ref_type,
             include_loop_skipped=include_loop_skipped,
             list_only=list_only,
+            use_cache=use_cache,
             columns=columns,
             template_names=template_names,
             group_elements=group_elements and not no_group,

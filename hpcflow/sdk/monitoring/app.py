@@ -73,6 +73,7 @@ if TYPE_CHECKING:
             status: bool = True,
             include_missing: bool = False,
             view: str | None = None,
+            use_cache: bool = False,
         ) -> None: ...
 
 
@@ -200,6 +201,13 @@ class MonitoringMixin:
             one overall state per element across iterations.
         no_update : bool, default False
             Observe live states without writing the registry or terminal-state caches.
+        use_cache : bool, default False
+            Reformat saved observations without scheduler queries, workflow-file
+            reads, or registry/cache writes. Use normal show columns and history
+            limits, and label observations as cached. Missing-path filtering uses
+            saved availability; template filters use saved names only. Workflows
+            absent from the registry cannot be recovered in this mode. Run show
+            without this option first to populate missing action summaries.
         include_loop_skipped : bool, default False
             Include runs skipped because a loop terminated. Task-condition skips
             remain distinct from loop skips and upstream-failure skips.
@@ -239,6 +247,7 @@ class MonitoringMixin:
         >>> app.show(template_names=["simulation", "analysis"])
         >>> app.show(workflow_ref=42, full=True, columns=["name", "elements", "times"])
         >>> app.show(list_only=True, template_names="simulation,analysis")
+        >>> app.show(use_cache=True, columns=["name", "elements", "times"])
         """
         return self._monitoring_app._get_app_func("show")
 
@@ -365,6 +374,7 @@ class MonitoringMixin:
         status: bool = True,
         include_missing: bool = False,
         view: str | None = None,
+        use_cache: bool = False,
     ) -> None:
         """Resolve display settings, collect selected submissions, and render the table.
 
@@ -383,11 +393,23 @@ class MonitoringMixin:
             self._monitoring_app.config, list_only, columns
         )
         display_timezone = configured_timezone(self._monitoring_app.config)
-        if list_only:
+        if list_only or use_cache:
+            from functools import partial
             from hpcflow.sdk.monitoring.listing import list_registered_submissions
-            from hpcflow.sdk.monitoring.render import render_registered
+            from hpcflow.sdk.monitoring.render import render, render_registered
 
-            render_registered(
+            if (
+                use_cache
+                and not list_only
+                and max_recent is None
+                and workflow_ref is None
+            ):
+                from .settings import get_limit
+
+                max_recent = get_limit(self._monitoring_app.config, "show_max_recent", 3)
+            cached_options = {"use_cache": True} if use_cache else {}
+            renderer = render_registered if list_only else partial(render, use_cache=True)
+            renderer(
                 list_registered_submissions(
                     self._monitoring_app,
                     workflow_ref,
@@ -395,6 +417,7 @@ class MonitoringMixin:
                     max_recent,
                     template_names,
                     include_missing=include_missing,
+                    **cached_options,
                 ),
                 columns=selected_columns,
                 display_timezone=display_timezone,

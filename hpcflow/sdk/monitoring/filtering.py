@@ -50,7 +50,10 @@ def _read_template_name(record: SubmissionRecord) -> str | None:
 
 @TimeIt.decorator
 def filter_templates(
-    records: list[SubmissionRecord], names: Sequence[str] | str | None
+    records: list[SubmissionRecord],
+    names: Sequence[str] | str | None,
+    *,
+    cached_only: bool = False,
 ) -> list[SubmissionRecord]:
     """Select records whose original template name exactly matches any supplied name.
 
@@ -59,6 +62,8 @@ def filter_templates(
     ``template_name`` on the supplied records in memory. This function does not
     persist those changes. Unknown names do not match; None returns all records.
     Apply this filter before selecting recent history or observing scheduler jobs.
+    ``cached_only`` disables metadata recovery for registry-only cached views;
+    records with unknown saved template names do not match an explicit filter.
     """
     selected_names = template_names(names)
     if selected_names is None:
@@ -67,7 +72,7 @@ def filter_templates(
     recovered: dict[WorkflowKey, str | None] = {}
     selected = []
     for record in records:
-        if record.template_name is None:
+        if record.template_name is None and not cached_only:
             key = WorkflowKey(record.workflow_path, record.workflow_id)
             if key not in recovered:
                 recovered[key] = _read_template_name(record)
