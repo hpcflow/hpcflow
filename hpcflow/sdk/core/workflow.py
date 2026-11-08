@@ -3811,6 +3811,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
 
         with self._store.cached_load(), self.batch_update():
             success = exit_code == 0  # TODO  more sophisticated success heuristics
@@ -3851,6 +3852,7 @@ class Workflow(AppAware):
                     self._store.set_EAR_skip(
                         {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                     )
+                    upstream_skips.add(EAR_dep_ID)
 
             new_run_skips.update(self.__apply_task_conditions(run))
 
@@ -3858,6 +3860,9 @@ class Workflow(AppAware):
                 run.id_, exit_code, success, run.action.requires_dir and not run.skip
             )
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         self._clean_up_execute_dirs(run, success)
         return new_run_skips
 
@@ -4036,6 +4041,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
         completed_runs: list[tuple[ElementActionRun, bool]] = []
 
         with self._store.cached_load(), self.batch_update():
@@ -4109,6 +4115,7 @@ class Workflow(AppAware):
                             self._store.set_EAR_skip(
                                 {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                             )
+                            upstream_skips.add(EAR_dep_ID)
                     else:
                         self._app.logger.info(
                             "`skip_downstream_on_failure` is False, run was "
@@ -4125,6 +4132,9 @@ class Workflow(AppAware):
 
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         for run, success in completed_runs:
             self._clean_up_execute_dirs(run, success)
         return new_run_skips
@@ -4136,6 +4146,9 @@ class Workflow(AppAware):
         """
         with self._store.cached_load(), self.batch_update():
             self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, skip_reasons)
 
     def get_EAR_skipped(self, EAR_ID: int) -> int:
         """Check if an EAR is to be skipped."""
@@ -5055,6 +5068,9 @@ class Workflow(AppAware):
         self.submissions_path.mkdir(exist_ok=True, parents=True)
         sub_obj.path.mkdir(exist_ok=True)
         sub_obj.tmp_path.mkdir(exist_ok=True)
+        from ..monitoring.active_runs import enable_tracking
+
+        enable_tracking(self, sub_obj.index, sub_obj.jobscripts)
         sub_obj.app_std_path.mkdir(exist_ok=True)
         sub_obj.js_path.mkdir(exist_ok=True)  # for jobscripts
         sub_obj.js_std_path.mkdir(exist_ok=True)  # for stdout/err stream files
@@ -5326,8 +5342,13 @@ class Workflow(AppAware):
     ) -> None:
         """Execute commands of a run via a subprocess, using the parameter metadata
         cache."""
+        from ..monitoring.active_runs import track_run
+
         # parameter sources do not change during execution:
-        with self._store.parameters_metadata_cache():
+        with (
+            self._store.parameters_metadata_cache(),
+            track_run(self, submission_idx, int(block_act_key[0]), run_ID),
+        ):
             return self._execute_run(submission_idx, block_act_key, run_ID)
 
     @TimeIt.decorator

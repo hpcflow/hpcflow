@@ -376,8 +376,9 @@ Monitor submissions
     The first observation builds this index from the jobscript block arrays and
     inspected runs. Later observations reuse confirmed terminal states and skip
     store lookups for indexed runs whose parent jobscript element is queued or
-    waiting. Uncached runs in running elements are read from the store, showing
-    their actual individual states and progress within sequential jobscripts.
+    waiting. Running items use active-run markers to inspect only current and
+    preceding uncached runs, showing their actual individual states and
+    progress within sequential jobscripts without loading every future action.
     Runs whose parent is no longer reported are also read to capture their actual
     results, including skip reasons. If every unresolved run is queued or waiting,
     no workflow load is needed. Scheduler queries remain batched across submissions.
@@ -387,6 +388,40 @@ Monitor submissions
     state. Confirmed terminal states take precedence. ``Q`` observations never
     become terminal-cache entries or invent finish times. Running elements use
     ordinary action-state icons based on store reads; there is no ``R`` state.
+
+    Executing jobs maintain one small marker per jobscript array item in
+    ``artifacts/submissions/<index>/tmp/active_runs/jobs/<job-tree>/items/<shard-tree>/markers/js_<jobscript>_item_<item>.json``.
+    Array items are grouped into shards of 500. Plans, locks, and temporary files
+    live in separate sibling directories, so each directory has at most 500 files,
+    including during concurrent marker updates. Parent trees use radix-256 branches
+    to keep directory fanout bounded for very large workflows. Existing flat-layout
+    cursors remain supported without relocating files used by running jobs.
+    Each item executes sequentially and records its current run ID and last-started
+    cursor position. Combined scripts advance the cursor one run at a time too.
+    Serial/direct jobs use item zero. Markers are replaced atomically; finishing a
+    run clears its active ID but retains the cursor, including on exceptions.
+
+    Immutable execution plans in each shard's ``plans`` directory record the actual run order
+    once when the submission is created. ``show`` reads uncached runs at or before
+    the cursor and adds confirmed results to the terminal cache; runs after it
+    remain submitted without store lookups. Numeric run IDs are never sorted to
+    infer execution order. The marker remains small and no visited-ID history is
+    maintained or appended to. A fingerprint binds each cursor to its plan.
+    Cross-item loop, task-condition, and upstream-failure skip notifications ensure
+    affected future runs are inspected even if their parent is still queued.
+
+    Marker reads are used alongside a fresh running scheduler observation or a
+    confirmed inactive submission. Inactive tracked items also avoid repeatedly
+    reading future actions that never started; preceding unfinished runs are still
+    inspected and retain the interrupted-state behavior.
+    Missing, corrupt, mismatched, or incomplete markers fall back to the existing
+    store-read path. New submissions receive an ``active_runs/enabled.json``
+    capability record before execution can start. Older submissions keep the
+    existing fallback; tracking is never enabled halfway through an older job,
+    because its execution position cannot be established safely. The older history
+    protocol also falls back rather than being reinterpreted as a cursor. Submit a new workflow submission
+    to use these hooks, including regenerated combined scripts. This changes
+    execution telemetry, not the store format.
 
     Missing mappings, unavailable schedulers, foreign machines without shared
     scheduler configuration, and ZIP workflows

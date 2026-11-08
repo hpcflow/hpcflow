@@ -12,6 +12,7 @@ from ..core.enums import EARStatus
 from .headers import is_archive, read_bytes
 from .models import ActionRunState, SubmissionRecord, to_json
 from .registry import atomic_bytes, file_lock
+from .active_runs import read_activity, read_changed_runs, tracking_enabled
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,7 +73,7 @@ class RunMetadata:
             started_at=value.get("started_at", ""),
         )
 
-    def scheduler_state(self, name: str) -> ActionRunState:
+    def scheduler_state(self, name: str | None) -> ActionRunState:
         """Construct a nonterminal, explicitly scheduler-derived display observation.
 
         Submitted is the only engine-level assertion: the parent job is scheduled.
@@ -184,12 +185,27 @@ def parent_elements(
 def scheduler_entries(
     record: SubmissionRecord, index: RunIndex, ids: list[int]
 ) -> dict[int, ActionRunState]:
-    """Skip reads only for fresh queued/waiting parents; inspect running elements."""
+    """Use queued states and runtime markers to avoid inspecting future actions.
+
+    Runs at or before the cursor need actual store states unless already terminal
+    cached. Missing markers retain the ordinary running-element fallback. Skip
+    notifications override both queued and future-run inference across array items.
+    """
     wanted = set(ids)
-    result = {}
+    result: dict[int, ActionRunState] = {}
+    changed = read_changed_runs(
+        record.workflow_path, record.workflow_id, record.submission_index
+    )
+    if changed is None:
+        return result
+    activities = {}
+    enabled = tracking_enabled(
+        record.workflow_path, record.workflow_id, record.submission_index
+    )
     for job in record.jobs:
-        if job.observation is None:
+        if job.observation is None and not (enabled and record.activity == "inactive"):
             continue
+        owned = set(job.run_ids)
         for run_id in job.run_ids:
             metadata = index.runs.get(run_id)
             if (
@@ -198,9 +214,33 @@ def scheduler_entries(
                 or metadata.jobscript_index != job.jobscript_index
             ):
                 continue
-            state = job.observation.state or job.observation.elements.get(
-                metadata.jobscript_element
+            if run_id in changed:
+                continue
+            state = (
+                (
+                    job.observation.state
+                    or job.observation.elements.get(metadata.jobscript_element)
+                )
+                if job.observation is not None
+                else None
             )
             if state in ("pending", "waiting"):
                 result[run_id] = metadata.scheduler_state("scheduler_pending")
+            elif enabled and (state == "running" or record.activity == "inactive"):
+                item = metadata.jobscript_element if job.is_array else 0
+                key = job.jobscript_index, item
+                if key not in activities:
+                    activity = read_activity(
+                        record.workflow_path,
+                        record.workflow_id,
+                        record.submission_index,
+                        job.jobscript_index,
+                        item,
+                    )
+                    if activity is not None and not set(activity.run_ids) <= owned:
+                        activity = None
+                    activities[key] = activity
+                activity = activities[key]
+                if activity is not None and activity.is_future(run_id):
+                    result[run_id] = metadata.scheduler_state(None)
     return result

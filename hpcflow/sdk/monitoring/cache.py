@@ -212,8 +212,9 @@ def refresh_actions(
 ) -> ActionSummary:
     """Refresh unresolved runs and reuse immutable terminal states from disk.
 
-    Query only runs absent from both the terminal cache and a fresh queued parent
-    observation with indexed coordinates. Bootstrap the parent index once using
+    Query only runs absent from the terminal cache and not covered by fresh queued
+    parent observations or an execution cursor proving they are still in the future.
+    Bootstrap the parent index once using
     jobscript block arrays and the runs read here. Merge newly terminal states under
     a lock and write atomically. ``no_update`` performs no cache or index writes.
     A write failure is reported on the summary without losing collected states;
