@@ -112,6 +112,61 @@ def source(tmp_path):
     return record, workflow, states
 
 
+@pytest.mark.parametrize("indexed", [False, True])
+@pytest.mark.parametrize("array", [False, True])
+@pytest.mark.parametrize(
+    "parent_state,interrupted",
+    [
+        (None, True),
+        ("finished", True),
+        ("cancelled", True),
+        ("errored", True),
+        ("running", False),
+        ("pending", False),
+        ("waiting", False),
+        ("unavailable", False),
+    ],
+)
+def test_interrupted_parent_in_active_submission(
+    source, indexed, array, parent_state, interrupted
+):
+    record, workflow, _ = source
+    if indexed:
+        refresh_actions(record, workflow)
+    job = record.jobs[0]
+    job.is_array = array
+    job.observation = (
+        None
+        if parent_state == "unavailable"
+        else (
+            JobObservation(
+                elements={
+                    0: "running",
+                    1: "pending",
+                    **({2: parent_state} if parent_state else {}),
+                }
+            )
+            if array
+            else JobObservation(state=parent_state)
+        )
+    )
+
+    summary = refresh_actions(record, workflow)
+
+    assert record.activity == "active"
+    # Once indexed, pending parents derive Q without reading individual states.
+    expected = (
+        "scheduler_pending"
+        if indexed and parent_state in ("pending", "waiting")
+        else ("interrupted" if interrupted else "running")
+    )
+    assert summary.display_counts.get(expected, 0) >= 1
+    assert summary.display_counts.get("interrupted", 0) == int(interrupted)
+    assert 5 not in read_cache(record).terminal_states
+    assert not summary.complete
+    assert not summary.finished_at
+
+
 def test_first_scan_then_running_and_finished_parent_elements_are_read(source):
     record, workflow, states = source
     refresh_actions(record, workflow)
@@ -287,6 +342,7 @@ def test_old_scheduler_summary_is_unknown_when_parent_activity_is_not_current(
     from hpcflow.sdk.monitoring.action_render import display_summary
 
     record, workflow, states = source
+    record.jobs[0].observation.elements[2] = "running"
     refresh_actions(record, workflow)
     result = refresh_actions(record, workflow)
     assert result.display_counts["scheduler_pending"] == 2

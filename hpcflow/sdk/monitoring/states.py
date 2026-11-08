@@ -50,7 +50,7 @@ ACTION_STATES["interrupted"] = ActionDisplayState(
     "I",
     "dark_orange",
     (EARStatus.aborted.id, 1),
-    "Last recorded as running, but the submission is inactive; exit outcome unknown.",
+    "Last recorded as running, but its jobscript element or submission is inactive; exit outcome unknown.",
 )
 ACTION_STATES["unknown"] = ActionDisplayState(
     "unknown",

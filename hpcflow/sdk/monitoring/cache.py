@@ -1,7 +1,7 @@
 """Incremental terminal action state cache and compact display snapshots."""
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -219,12 +219,16 @@ def refresh_actions(
     a lock and write atomically. ``no_update`` performs no cache or index writes.
     A write failure is reported on the summary without losing collected states;
     store-read failures propagate to the collection layer.
+    Fresh scheduler evidence for an inactive parent marks recorded running runs as
+    interrupted, even while other jobs keep the submission active. This display
+    inference does not alter engine states or enter the terminal cache.
     """
     ids = run_ids(record)
     selection = selection or select_states(record, read_cache(record))
     entries = selection.entries
     unresolved = selection.unresolved
     new_metadata = {}
+    jobs = {job.jobscript_index: job for job in record.jobs}
     with workflow._store.cache_ctx():
         expected_jobs = {
             run_id: job.jobscript_index for job in record.jobs for run_id in job.run_ids
@@ -260,6 +264,15 @@ def refresh_actions(
                 metadata = RunMetadata.from_state(state, *parent)
                 if selection.index.runs.get(run_id) != metadata:
                     new_metadata[run_id] = metadata
+            if parent is not None and state.state is EARStatus.running:
+                job = jobs[parent[0]]
+                observation = job.observation
+                if observation is not None:
+                    parent_state = observation.state or observation.elements.get(
+                        parent[1]
+                    )
+                    if parent_state in (None, "finished", "cancelled", "errored"):
+                        entries[run_id] = replace(state, display_state="interrupted")
     result = snapshot(entries, ids)
     if not no_update and not is_archive(record.workflow_path):
         try:
