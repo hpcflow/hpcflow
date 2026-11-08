@@ -501,14 +501,16 @@ class SlurmPosix(QueuedScheduler):
         return base_job_ID, _arr_idx
 
     def __parse_job_states(
-        self, stdout: str
+        self, stdout: str, wanted: set[str] | None = None
     ) -> dict[str, JobscriptElementState | dict[int, JobscriptElementState]]:
-        """Parse output from Slurm `squeue` command with a simple format."""
+        """Parse requested jobs, skipping unrelated array ranges before expansion."""
         info: dict[str, JobscriptElementState | dict[int, JobscriptElementState]] = {}
         for ln in stdout.split("\n"):
             if not ln:
                 continue
             job_id, job_state, *_ = ln.split()
+            if wanted is not None and job_id.split("_", 1)[0] not in wanted:
+                continue
             base_job_ID, arr_idx = self._parse_job_IDs(job_id)
             state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
@@ -529,7 +531,8 @@ class SlurmPosix(QueuedScheduler):
     ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
         """Read one queue snapshot and optionally select the requested job IDs.
 
-        Query the configured queue command once, then filter parsed states locally.
+        Query the configured queue command once, then filter locally before expanding
+        array ranges, so unrelated large arrays do not allocate per-element states.
         Finished or unknown IDs are simply absent from the snapshot; they do not
         trigger Slurm's invalid-ID error, a second discovery query, or retries.
         An explicitly empty reference list performs no query.
@@ -540,11 +543,9 @@ class SlurmPosix(QueuedScheduler):
         stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
         if stderr:
             raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
-        states = self.__parse_job_states(stdout)
-        if js_refs is None:
-            return states
-        wanted = set(js_refs)
-        return {job_id: state for job_id, state in states.items() if job_id in wanted}
+        return self.__parse_job_states(
+            stdout, wanted=set(js_refs) if js_refs is not None else None
+        )
 
     @override
     def cancel_jobs(

@@ -182,3 +182,19 @@ def test_slurm_filters_a_single_snapshot_without_invalid_id_retries(
     states = hf.get_scheduler("slurm", "posix").get_job_state_info(js_refs=refs)
     assert set(states) == expected
     assert command.call_count == (0 if refs == [] else 1)
+
+
+def test_slurm_does_not_expand_unrelated_large_arrays(monkeypatch):
+    command = Mock(return_value=("100_[1-2] PENDING\n999_[1-1000000] RUNNING\n", ""))
+    monkeypatch.setattr(slurm, "run_cmd", command)
+    scheduler = hf.get_scheduler("slurm", "posix")
+    parse_ids = Mock(wraps=scheduler._parse_job_IDs)
+    monkeypatch.setattr(scheduler, "_parse_job_IDs", parse_ids)
+
+    states = scheduler.get_job_state_info(js_refs=["100", "finished-id"])
+
+    command.assert_called_once()
+    parse_ids.assert_called_once_with("100_[1-2]")
+    assert states == {
+        "100": {0: JobscriptElementState.pending, 1: JobscriptElementState.pending}
+    }
