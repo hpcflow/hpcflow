@@ -224,7 +224,7 @@ def scheduler_entries(
                 if job.observation is not None
                 else None
             )
-            if state in ("pending", "waiting"):
+            if state in ("pending", "waiting", "configuring"):
                 result[run_id] = metadata.scheduler_state("scheduler_pending")
             elif enabled and (state == "running" or record.activity == "inactive"):
                 item = metadata.jobscript_element if job.is_array else 0

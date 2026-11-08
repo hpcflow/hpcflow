@@ -310,7 +310,7 @@ class MonitoringMixin:
             "Use --view tasks to request summaries or --view detail for exact grouped "
             "ranges. --view counts shows totals; --view auto (also --full) chooses "
             "between summaries and detailed patterns. Q is scheduler-derived: "
-            "the parent jobscript element is queued/waiting. It does not assert "
+            "the parent jobscript element is queued/waiting/configuring. It does not assert "
             "an individual action's state; confirmed terminal states take precedence. "
             "Active-run cursors restrict running-item reads to current and preceding "
             "uncached runs; missing markers use the workflow-store fallback. "

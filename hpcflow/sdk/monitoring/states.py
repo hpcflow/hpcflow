@@ -64,7 +64,7 @@ ACTION_STATES["scheduler_pending"] = ActionDisplayState(
     "Q",
     EARStatus.pending.colour,
     (EARStatus.submitted.id, 1),
-    "Parent jobscript element is queued or waiting; this run's individual state has not been read.",
+    "Parent jobscript element is queued, waiting, or configuring; this run's individual state has not been read.",
 )
 
 

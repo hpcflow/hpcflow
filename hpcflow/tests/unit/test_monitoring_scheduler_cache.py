@@ -124,6 +124,7 @@ def source(tmp_path):
         ("running", False),
         ("pending", False),
         ("waiting", False),
+        ("configuring", False),
         ("unavailable", False),
     ],
 )
@@ -157,7 +158,7 @@ def test_interrupted_parent_in_active_submission(
     # Once indexed, pending parents derive Q without reading individual states.
     expected = (
         "scheduler_pending"
-        if indexed and parent_state in ("pending", "waiting")
+        if indexed and parent_state in ("pending", "waiting", "configuring")
         else ("interrupted" if interrupted else "running")
     )
     assert summary.display_counts.get(expected, 0) >= 1

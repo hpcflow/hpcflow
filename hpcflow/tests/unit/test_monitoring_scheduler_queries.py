@@ -184,6 +184,25 @@ def test_slurm_filters_a_single_snapshot_without_invalid_id_retries(
     assert command.call_count == (0 if refs == [] else 1)
 
 
+@pytest.mark.parametrize("reference", ["100", "100_[1-2]"])
+def test_configuring_jobs_are_active_and_have_their_own_icon(
+    app, tmp_path, monkeypatch, reference
+):
+    from hpcflow.sdk.monitoring.columns import scheduler_icons
+
+    record = submission(tmp_path, 0)
+    command = Mock(return_value=(f"{reference} CONFIGURING\n", ""))
+    monkeypatch.setattr(slurm, "run_cmd", command)
+
+    observe_activity(app, [record])
+
+    command.assert_called_once()
+    assert record.activity == "active"
+    assert set(record.scheduler_states) == {"configuring"}
+    assert scheduler_icons(record).plain == JobscriptElementState.configuring.symbol
+    assert record.scheduler_error is None
+
+
 def test_slurm_does_not_expand_unrelated_large_arrays(monkeypatch):
     command = Mock(return_value=("100_[1-2] PENDING\n999_[1-1000000] RUNNING\n", ""))
     monkeypatch.setattr(slurm, "run_cmd", command)

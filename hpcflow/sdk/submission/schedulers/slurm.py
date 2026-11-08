@@ -72,6 +72,7 @@ class SlurmPosix(QueuedScheduler):
     #: Maps scheduler state codes to :py:class:`JobscriptElementState` values.
     state_lookup: ClassVar[Mapping[str, JobscriptElementState]] = {
         "PENDING": JobscriptElementState.pending,
+        "CONFIGURING": JobscriptElementState.configuring,
         "RUNNING": JobscriptElementState.running,
         "COMPLETING": JobscriptElementState.running,
         "CANCELLED": JobscriptElementState.cancelled,
