@@ -1258,6 +1258,7 @@ class Workflow(AppAware):
         A path to a persistent workflow, a registered workflow name, or a local
         submission ID reported by the app `show` command. Path objects and explicit
         path strings are always interpreted as paths.
+        The ID ``-1`` selects the most recently submitted registered workflow.
     store_fmt:
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:

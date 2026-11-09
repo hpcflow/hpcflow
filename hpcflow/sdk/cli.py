@@ -108,7 +108,7 @@ workflow_ref_type_opt = click.option(
     "-r",
     type=click.Choice(("assume-id", "id", "name", "path")),
     default="assume-id",
-    help="Interpret a reference as a registered ID, workflow name, path, or guess.",
+    help="Interpret a reference as a registered ID, workflow name, path, or guess. Use -- -1 for the latest submitted workflow.",
 )
 
 #: Get the current workflow from the context.
@@ -1174,6 +1174,12 @@ def _make_show_CLI(app: BaseApp):
     @click.command()
     @click.argument("workflow_ref", required=False)
     @click.option(
+        "-1",
+        "latest_submission",
+        is_flag=True,
+        help="Select the workflow of the most recently submitted registered submission.",
+    )
+    @click.option(
         "--tname",
         "template_names",
         callback=template_names_callback,
@@ -1276,6 +1282,7 @@ def _make_show_CLI(app: BaseApp):
     )
     def show(
         workflow_ref,
+        latest_submission: bool,
         ref_type,
         max_recent: int | None,
         full: bool,
@@ -1293,9 +1300,16 @@ def _make_show_CLI(app: BaseApp):
         include_missing: bool,
         view: str | None,
     ):
-        """Show active and recent submissions for WORKFLOW_REF (ID, name, or path)."""
+        """Show active and recent submissions for WORKFLOW_REF (ID, name, or path).
+
+        Use -1 for the most recently submitted registered workflow.
+        """
         from hpcflow.sdk.monitoring.views import resolve_view
 
+        if latest_submission:
+            if workflow_ref is not None:
+                raise click.UsageError("Specify WORKFLOW_REF or -1, not both.")
+            workflow_ref = "-1"
         try:
             resolve_view(
                 view,

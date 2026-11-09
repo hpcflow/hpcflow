@@ -3794,11 +3794,12 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         return shell.get_version_info(exclude_os)
 
     def _get_workflow_path_from_local_ID(self, local_ID: int) -> Path:
+        from hpcflow.sdk.monitoring.references import resolve_submission_id
         from hpcflow.sdk.monitoring.registry import SubmissionRegistry
 
-        for record in SubmissionRegistry(self).read().records:
-            if record.local_id == local_ID:
-                return Path(record.workflow_path)
+        record = resolve_submission_id(SubmissionRegistry(self).read().records, local_ID)
+        if record is not None:
+            return Path(record.workflow_path)
         raise ValueError(f"Specified local ID is not valid: {local_ID}.")
 
     def _resolve_workflow_reference(

@@ -5,6 +5,26 @@ from pathlib import Path
 from .models import SubmissionRecord
 
 from .naming import registered_workflow_name
+from .registry import sort_timestamp
+
+
+def resolve_submission_id(
+    records: list[SubmissionRecord], local_id: int
+) -> SubmissionRecord | None:
+    """Find a saved ID, or the latest submitted record for the special ID ``-1``.
+
+    Use submission timestamps, with registry insertion order breaking ties. Local
+    IDs may be reused and activity/finish times do not determine submission order.
+    Reject an empty registry for ``-1`` rather than interpreting it as a path.
+    """
+    if local_id == -1:
+        if not records:
+            raise ValueError("No registered submissions are available for reference -1.")
+        return max(
+            enumerate(records),
+            key=lambda item: (sort_timestamp(item[1].submitted_at), item[0]),
+        )[1]
+    return next((record for record in records if record.local_id == local_id), None)
 
 
 def is_path_reference(reference) -> bool:
@@ -53,6 +73,8 @@ def resolve_records(
     for an ID/name match, or all records at the resolved path. Reject ambiguous
     names and name/path collisions; explicit reference types bypass interpretation.
     An unmatched path returns an empty list for callers that support store fallback.
+    ``-1`` aliases the latest submitted record's local ID, selecting all registered
+    parts of its workflow just like a normal ID. Explicit names/paths stay literal.
     """
     if reference is None:
         return records
@@ -67,7 +89,7 @@ def resolve_records(
             if ref_type == "id":
                 raise ValueError(f"Invalid submission ID: {reference}") from None
         else:
-            match = next((r for r in records if r.local_id == local_id), None)
+            match = resolve_submission_id(records, local_id)
             if match:
                 return [r for r in records if r.workflow_id == match.workflow_id]
             if ref_type == "id":
@@ -108,9 +130,7 @@ def resolve_workflow_path(
         except (TypeError, ValueError):
             pass
         else:
-            match = next(
-                (record for record in records if record.local_id == local_id), None
-            )
+            match = resolve_submission_id(records, local_id)
             if match:
                 return Path(match.workflow_path).resolve()
     matches = resolve_records(records, reference, ref_type)

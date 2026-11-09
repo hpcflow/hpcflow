@@ -179,6 +179,7 @@ class MonitoringMixin:
         workflow_ref : int, str, Path, optional
             Select all retained parts of one workflow by local ID, exact registered
             workflow name, or path. An explicit path can recover pruned history.
+            ``-1`` selects the workflow of the latest submitted registry entry.
         ref_type : str, optional
             Interpret the reference as ``id``, ``name``, or ``path``. Automatic
             interpretation prefers registered local IDs, then names, then paths.
