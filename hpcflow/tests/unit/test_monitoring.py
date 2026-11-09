@@ -571,6 +571,7 @@ def test_cli_options_do_not_conflict_and_pass_reference():
         include_loop_skipped=False,
         list_only=False,
         use_cache=False,
+        ignore_scheduler_interval=False,
         columns=None,
         template_names=None,
         group_elements=True,

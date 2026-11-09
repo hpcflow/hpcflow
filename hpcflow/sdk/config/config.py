@@ -113,6 +113,7 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "known_submissions_max_inactive": 100,
         "known_submissions_max_unknown": 10,
         "show_max_recent": 3,
+        "show_scheduler_min_interval": 20,
         "show_timezone": "local",
         "show_columns": ["id", "name", "status", "actions"],
         "show_list_columns": ["id", "name", "submission", "submit", "status", "path"],

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from queue import Queue
@@ -45,6 +45,7 @@ from .registry import (
     timestamp,
 )
 from ..log import TimeIt
+from .scheduler_cache import query_snapshot, reference_key
 
 if TYPE_CHECKING:
     from ..app import BaseApp
@@ -301,6 +302,10 @@ def observe_activity(
     app: BaseApp,
     records: list[SubmissionRecord],
     progress: Callable[[str], None] | None = None,
+    *,
+    min_interval: int = 0,
+    ignore_scheduler_interval: bool = False,
+    no_update: bool = False,
 ) -> None:
     """Update records using one snapshot per compatible scheduler query target.
 
@@ -315,12 +320,17 @@ def observe_activity(
     Foreign jobs without a shared configured machine remain remotely unavailable;
     archives use saved observations only. Neither case inspects local PIDs or
     makes the workflow unreadable. ``progress`` receives transient query messages.
-    This function updates observations in memory; its caller controls persistence.
+    Update submission records in memory; the caller controls registry persistence.
+    Rate-limit snapshots are saved separately unless ``no_update`` is True.
+    ``min_interval`` enables persistent rate limiting per query target. Cached
+    snapshots retain their observation time and do not supply fresh queued/terminal
+    parent evidence. New references absent from a cached snapshot remain unknown.
     """
     contexts: defaultdict[str, list[RegisteredJob]] = defaultdict(list)
     failed = set()
     observed_records = []
     for record in records:
+        record.scheduler_cached = False
         for job in record.jobs:
             job.observation = None
     for record in records:
@@ -388,7 +398,7 @@ def observe_activity(
                 record.scheduler_error = str(error)
                 record.scheduler_availability = "unavailable"
             app.submission_logger.info("Scheduler monitoring failed: %s", error)
-    for query in queries.values():
+    for query_key, query in queries.items():
         items = query.jobs
         try:
             refs = []
@@ -407,34 +417,54 @@ def observe_activity(
                     if item.reference is not None
                 }.values()
             )
-            if progress and valid:
-                progress(
-                    f"Querying {items[0].job.scheduler_type} scheduler ({len(valid)} jobs)"
+            result = (
+                query_snapshot(
+                    app,
+                    query_key,
+                    valid,
+                    lambda: query.scheduler.get_job_state_info(js_refs=valid),
+                    min_interval,
+                    ignore_scheduler_interval,
+                    progress,
+                    items[0].job.scheduler_type,
+                    no_update=no_update,
                 )
-            states = query.scheduler.get_job_state_info(js_refs=valid) if valid else {}
+                if valid
+                else None
+            )
             for resolved in refs:
                 record, job = resolved.registration.submission, resolved.registration.job
                 ref = resolved.reference
                 key = str(ref[0]) if isinstance(ref, tuple) else ref
-                observed = states.get(key) if key is not None else None
-                job.observation = (
-                    JobObservation(
-                        elements={
-                            int(index): state.name for index, state in observed.items()
-                        }
-                    )
-                    if isinstance(observed, Mapping)
-                    else JobObservation(state=observed.name if observed else None)
+                cached = result is not None and result.cached and ref is not None
+                record.scheduler_cached |= cached
+                job.last_checked_at = result.observed_at if result else timestamp()
+                if (
+                    result
+                    and ref is not None
+                    and reference_key(ref) not in result.references
+                ):
+                    failed.add(record.local_id)
+                    job.observation = None
+                    job.last_observed_state = []
+                    continue
+                observed = (
+                    result.states.get(key, JobObservation())
+                    if result and key is not None
+                    else JobObservation()
                 )
-                job.last_checked_at = timestamp()
+                job.observation = replace(observed, fresh=not cached)
                 job.last_observed_state = (
-                    [state.name for state in observed.values()]
-                    if isinstance(observed, Mapping)
-                    else [observed.name] if observed else []
+                    list(observed.elements.values())
+                    if observed.elements
+                    else [observed.state] if observed.state else []
                 )
-                if observed:
+                if job.last_observed_state:
                     record.activity = "active"
                     record.scheduler_states.extend(job.last_observed_state)
+                elif cached:
+                    # An older absence cannot establish current inactivity.
+                    failed.add(record.local_id)
         except Exception as error:
             for item in items:
                 record = item.submission
@@ -635,6 +665,7 @@ def collect(
     progress: Callable[[str], None] | None = None,
     include_missing: bool = False,
     on_update: Callable[[CollectionProgress], None] | None = None,
+    ignore_scheduler_interval: bool = False,
 ) -> list[SubmissionRecord]:
     """Collect active submissions and a limited recent inactive history.
 
@@ -653,7 +684,9 @@ def collect(
     queued/waiting observations can supply nonterminal states without loading EARs
     or workflows; running and missing/unknown parents use store reads. Inspection failures remain
     visible as accessibility information rather than hiding the submission.
-    ``no_update`` prevents registry/cache writes but still observes live states.
+    ``no_update`` prevents all registry/cache writes, including new scheduler
+    snapshots. Existing scheduler snapshots may still be reused. Scheduler snapshots
+    use ``show_scheduler_min_interval`` (20 seconds) unless explicitly bypassed.
     Otherwise merge observations with concurrent registry changes and retention.
     Return invocation-owned snapshots, without live workflow or scheduler objects.
     ``on_update`` receives initial placeholders, scheduler results, and each ready
@@ -704,10 +737,24 @@ def collect(
                 hydrate(app, record, loaded, progress)
             except Exception as error:
                 note_failure(app, record, error)
+    min_interval = get_limit(app.config, "show_scheduler_min_interval", 20)
     if progress is None:
-        observe_activity(app, records)
+        observe_activity(
+            app,
+            records,
+            min_interval=min_interval,
+            ignore_scheduler_interval=ignore_scheduler_interval,
+            no_update=no_update,
+        )
     else:
-        observe_activity(app, records, progress)
+        observe_activity(
+            app,
+            records,
+            progress,
+            min_interval=min_interval,
+            ignore_scheduler_interval=ignore_scheduler_interval,
+            no_update=no_update,
+        )
     selected = _selected_records(records, max_recent)
     pending = {id(record) for record in selected}
     if on_update:

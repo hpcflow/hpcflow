@@ -119,6 +119,25 @@ def test_reads_current_and_newly_completed_runs_without_polling_future_runs(sour
     workflow.get_EARs_from_IDs.assert_called_once_with([2])
 
 
+@pytest.mark.parametrize("cached_state", ["running", "pending", "errored", None])
+def test_cached_scheduler_uses_fresh_cursors_without_reading_future_runs(
+    source, cached_state
+):
+    record, workflow, states, tracker = source
+    record.jobs[0].observation = JobObservation(state=cached_state, fresh=False)
+    result = refresh_actions(record, workflow)
+    workflow.get_EARs_from_IDs.assert_called_once_with([1])
+    assert result.display_counts == {"success": 1, "running": 1, "submitted": 10}
+    states[1] = EARStatus.success
+    tracker.finish([1])
+    states[2] = EARStatus.running
+    tracker.start([2])
+    workflow.get_EARs_from_IDs.reset_mock()
+    result = refresh_actions(record, workflow)
+    workflow.get_EARs_from_IDs.assert_called_once_with([1, 2])
+    assert result.display_counts == {"success": 2, "running": 1, "submitted": 9}
+
+
 def test_idle_item_still_inspects_uncached_visited_runs(source):
     record, workflow, states, tracker = source
     tracker.finish([1])

@@ -1205,6 +1205,11 @@ def _make_show_CLI(app: BaseApp):
         help="Maximum inactive submissions to show (default: show_max_recent; WORKFLOW_REF or --list: all).",
     )
     @click.option(
+        "--ignore-scheduler-interval",
+        is_flag=True,
+        help="Force a scheduler query, bypassing show_scheduler_min_interval (default: 20 seconds).",
+    )
+    @click.option(
         "--use-cache",
         is_flag=True,
         default=False,
@@ -1214,7 +1219,7 @@ def _make_show_CLI(app: BaseApp):
         "--no-update",
         is_flag=True,
         default=False,
-        help=("Query current states without writing submission history or caches."),
+        help=("Query states without writing submission history or caches."),
     )
     @click.option(
         "-f",
@@ -1278,6 +1283,7 @@ def _make_show_CLI(app: BaseApp):
         include_loop_skipped: bool,
         list_only: bool,
         use_cache: bool,
+        ignore_scheduler_interval: bool,
         columns: tuple[str, ...] | None,
         template_names: tuple[str, ...] | None,
         group_elements: bool,
@@ -1308,6 +1314,7 @@ def _make_show_CLI(app: BaseApp):
             include_loop_skipped=include_loop_skipped,
             list_only=list_only,
             use_cache=use_cache,
+            ignore_scheduler_interval=ignore_scheduler_interval,
             columns=columns,
             template_names=template_names,
             group_elements=group_elements and not no_group,

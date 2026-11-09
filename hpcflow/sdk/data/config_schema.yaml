@@ -33,6 +33,7 @@ rules:
         - known_submissions_max_inactive
         - known_submissions_max_unknown
         - show_max_recent
+        - show_scheduler_min_interval
         - show_timezone
         - show_columns
         - show_list_columns
@@ -363,6 +364,13 @@ rules:
   - path: [show_list_columns, { type: list_value }]
     condition:
       value.in: [id, name, status, availability, actions, elements, submit, start, end, times, submission, path]
+
+  - path: [show_scheduler_min_interval]
+    doc: Minimum seconds between show scheduler queries per query target. Defaults to 20; zero disables caching. Override once with --ignore-scheduler-interval.
+    condition:
+      and:
+        - value.type.equal_to: int
+        - value.greater_than_or_equal_to: 0
 
   - path: [show_timezone]
     doc: Timezone for show datetime display. Use local, UTC, or an IANA timezone name.

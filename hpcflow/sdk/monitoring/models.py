@@ -115,14 +115,17 @@ class WorkflowKey:
 
 @dataclass(slots=True)
 class JobObservation:
-    """Fresh scheduler state for a whole job or individual zero-based array elements.
+    """Scheduler state for a whole job or individual zero-based array elements.
 
-    Invocation-only evidence: never reuse a saved scheduler observation to skip
-    reading run data after a scheduler failure, on another machine, or in an archive.
+    Invocation-only evidence. Rate-limited snapshots have ``fresh=False`` and
+    cannot prove a run is still queued or that an apparently running run stopped.
+    Do not reuse observations after scheduler failures, on another machine, or in
+    an archive. Fresh runtime cursors may independently identify future runs.
     """
 
     state: str | None = None
     elements: dict[int, str] = field(default_factory=dict)
+    fresh: bool = True
 
 
 @dataclass(slots=True)
@@ -329,6 +332,7 @@ class SubmissionRecord:
     scheduler_states: list[str] = field(default_factory=list)
     scheduler_error: str | None = None
     scheduler_availability: str = ""
+    scheduler_cached: bool = field(default=False, metadata={"transient": True})
     detail_error: str | None = None
     inactive_at: str = ""
     cancel_requested_at: str = ""

@@ -57,7 +57,7 @@ def test_parallel_collection_streams_rows_with_at_most_four_workers(
     monkeypatch.setattr(status, "existing_records", lambda rows, missing: rows)
     queried = Event()
 
-    def observe(*args):
+    def observe(*args, **kwargs):
         assert get_ident() == caller
         queried.set()
 

@@ -195,6 +195,8 @@ def scheduler_entries(
     Runs at or before the cursor need actual store states unless already terminal
     cached. Missing markers retain the ordinary running-element fallback. Skip
     notifications override both queued and future-run inference across array items.
+    Cached scheduler observations cannot supply Q states; fresh runtime cursors
+    can still identify future runs independently of the scheduler snapshot's age.
     """
     wanted = set(ids)
     result: dict[int, ActionRunState] = {}
@@ -229,9 +231,12 @@ def scheduler_entries(
                 if job.observation is not None
                 else None
             )
-            if state in ("pending", "waiting", "configuring"):
+            fresh = job.observation is not None and job.observation.fresh
+            if fresh and state in ("pending", "waiting", "configuring"):
                 result[run_id] = metadata.scheduler_state("scheduler_pending")
-            elif enabled and (state == "running" or record.activity == "inactive"):
+            elif enabled and (
+                state == "running" or record.activity == "inactive" or not fresh
+            ):
                 item = metadata.jobscript_element if job.is_array else 0
                 key = job.jobscript_index, item
                 if key not in activities:

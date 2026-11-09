@@ -213,6 +213,8 @@ def status_cell(record: SubmissionRecord, context: RenderContext) -> Text:
     if width:
         text.append(" " * (width - text.cell_len + 1))
     text.append(record.activity)
+    if record.scheduler_cached and not context.use_cache:
+        text.append(" (cached)", style="dim")
     return text
 
 

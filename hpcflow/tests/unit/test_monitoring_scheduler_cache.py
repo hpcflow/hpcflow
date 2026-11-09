@@ -168,6 +168,21 @@ def test_interrupted_parent_in_active_submission(
     assert not summary.finished_at
 
 
+@pytest.mark.parametrize("parent_state", [None, "finished", "running", "pending"])
+def test_cached_parent_requires_actual_run_reads_without_interruption(
+    source, parent_state
+):
+    record, workflow, _ = source
+    refresh_actions(record, workflow)
+    record.jobs[0].observation = JobObservation(state=parent_state, fresh=False)
+    workflow.get_EARs_from_IDs.reset_mock()
+    summary = refresh_actions(record, workflow)
+    workflow.get_EARs_from_IDs.assert_called_once_with([1, 2, 3, 5])
+    assert summary.display_counts.get("running") == 1
+    assert "scheduler_pending" not in summary.display_counts
+    assert "interrupted" not in summary.display_counts
+
+
 def test_first_scan_then_running_and_finished_parent_elements_are_read(source):
     record, workflow, states = source
     refresh_actions(record, workflow)

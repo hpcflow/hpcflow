@@ -109,6 +109,8 @@ class ConfigDescriptor(TypedDict):
     known_submissions_max_unknown: NotRequired[int]
     #: Default number of inactive submission records displayed by show.
     show_max_recent: NotRequired[int]
+    #: Minimum seconds between show scheduler queries per compatible query target.
+    show_scheduler_min_interval: NotRequired[int]
     #: Display timezone for show: local, UTC, or an IANA timezone name.
     show_timezone: NotRequired[str]
     #: Ordered columns included in the show table.

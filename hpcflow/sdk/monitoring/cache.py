@@ -274,7 +274,7 @@ def refresh_actions(
             if parent is not None and state.state is EARStatus.running:
                 job = jobs[parent[0]]
                 observation = job.observation
-                if observation is not None:
+                if observation is not None and observation.fresh:
                     parent_state = observation.state or observation.elements.get(
                         parent[1]
                     )

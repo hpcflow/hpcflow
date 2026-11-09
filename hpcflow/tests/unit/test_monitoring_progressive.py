@@ -161,7 +161,7 @@ def test_initial_placeholders_apply_history_limit_but_query_all_candidates(monke
     monkeypatch.setattr(status, "existing_records", lambda rows, include_missing: rows)
     monkeypatch.setattr(status, "check_identity", lambda record: None)
 
-    def observe(app, observed):
+    def observe(app, observed, **kwargs):
         assert len(observed) == 5
         observed[0].activity = "active"
 

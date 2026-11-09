@@ -74,6 +74,7 @@ if TYPE_CHECKING:
             include_missing: bool = False,
             view: str | None = None,
             use_cache: bool = False,
+            ignore_scheduler_interval: bool = False,
         ) -> None: ...
 
 
@@ -201,6 +202,13 @@ class MonitoringMixin:
             one overall state per element across iterations.
         no_update : bool, default False
             Observe live states without writing the registry or terminal-state caches.
+            Existing scheduler snapshots may be reused, but fresh ones are not
+            saved, so read-only queries cannot refresh the shared interval.
+        ignore_scheduler_interval : bool, default False
+            Query the scheduler even within ``show_scheduler_min_interval`` seconds
+            of its previous query (20 by default). Otherwise reuse recent scheduler
+            observations while still refreshing workflow states. A zero interval
+            disables scheduler caching. This option affects live collection only.
         use_cache : bool, default False
             Reformat saved observations without scheduler queries, workflow-file
             reads, or registry/cache writes. Use normal show columns and history
@@ -296,7 +304,9 @@ class MonitoringMixin:
             "unknown) and compact coloured jobscript-state icons. The optional "
             "Availability column shows workflow readability and scheduler/cache access. "
             "Workflow readability and scheduler activity are independent. Jobscript element "
-            "state meanings are shown below.",
+            "state meanings are shown below. A '(cached)' status uses a recent scheduler "
+            "snapshot; workflow states may be newer. Use --ignore-scheduler-interval "
+            "to force a fresh scheduler query.",
             width=80,
             box=box.SIMPLE,
         )
@@ -375,6 +385,7 @@ class MonitoringMixin:
         include_missing: bool = False,
         view: str | None = None,
         use_cache: bool = False,
+        ignore_scheduler_interval: bool = False,
     ) -> None:
         """Resolve display settings, collect selected submissions, and render the table.
 
@@ -494,6 +505,7 @@ class MonitoringMixin:
                     include_summary=any(
                         SHOW_COLUMNS[name].requires_summary for name in selected_columns
                     ),
+                    ignore_scheduler_interval=ignore_scheduler_interval,
                 )
             finally:
                 # Rich Live.stop renders overflowing content at full height before
