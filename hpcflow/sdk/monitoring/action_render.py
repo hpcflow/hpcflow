@@ -6,6 +6,8 @@ from itertools import groupby
 
 from rich.table import Table
 from rich.text import Text
+from rich.measure import Measurement
+from rich.console import Console, ConsoleOptions, RenderResult
 
 from .states import ACTION_STATES
 from .models import ActionStatus, ActionSummary, ElementGroup, IterationActionState
@@ -62,6 +64,78 @@ class ActionColumnWidths:
     task: int
     elements: int
     iterations: int
+    icons: int = 0
+
+
+class _DetailTable(Table):
+    """Fit shared detail labels to the actual cell width, reserving space for icons.
+
+    Element ranges surrender space first, followed by iteration/task labels on
+    narrow terminals. Icons wrap when necessary rather than being truncated.
+    Building a fresh grid for each render preserves cached rows and Rich styles.
+    """
+
+    def __init__(self, rows: list[FullActionRow], widths: ActionColumnWidths):
+        super().__init__(show_header=False)
+        self._detail_rows = rows
+        if not widths.icons:
+            widths = replace(
+                widths, icons=max((row.icons.cell_len for row in rows), default=0)
+            )
+        self._detail_widths = widths
+
+    def __rich_measure__(self, console: Console, options: ConsoleOptions) -> Measurement:
+        if not self._detail_rows:
+            return Measurement(0, 0)
+        widths = self._detail_widths
+        maximum = min(
+            options.max_width,
+            widths.task + widths.elements + widths.iterations + widths.icons + 3,
+        )
+        minimum = min(
+            maximum,
+            min(widths.task, 8)
+            + min(widths.elements, 3)
+            + min(widths.iterations, 5)
+            + min(widths.icons, 1)
+            + 3,
+        )
+        return Measurement(minimum, maximum)
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        if not self._detail_rows:
+            return
+        if options.max_width <= 3:
+            for row in self._detail_rows:
+                yield row.icons
+            return
+        shared = self._detail_widths
+        budget = options.max_width - 3  # Three inter-column spaces.
+        labels = [shared.task, shared.elements, shared.iterations]
+        floors = [min(labels[0], 8), min(labels[1], 3), min(labels[2], 5)]
+        icons = min(shared.icons, max(1, budget - sum(floors)))
+        excess = max(0, sum(labels) + icons - budget)
+        for index in (1, 2, 0):
+            shrink = min(excess, labels[index] - floors[index])
+            labels[index] -= shrink
+            excess -= shrink
+        # At very narrow widths even the minimal labels may need truncation.
+        for index in (1, 2, 0):
+            shrink = min(excess, labels[index])
+            labels[index] -= shrink
+            excess -= shrink
+        grid = Table.grid(padding=(0, 1))
+        for width in labels:
+            grid.add_column(width=width, no_wrap=True, overflow="ellipsis")
+        grid.add_column(width=icons, overflow="fold")
+        for row in self._detail_rows:
+            elements = Text(row.elements)
+            if elements.cell_len > labels[1] and labels[1] >= 3:
+                elements = Text(row.elements[1:-1])
+                elements.truncate(labels[1] - 2, overflow="ellipsis")
+                elements = Text.assemble("[", elements, "]")
+            grid.add_row(Text(row.task), elements, row.iterations, row.icons)
+        yield grid
 
 
 def iteration_runs(pattern: Sequence[IterationActionState]) -> Iterator[IterationRange]:
@@ -178,6 +252,7 @@ def action_column_widths(rows: list[FullActionRow]) -> ActionColumnWidths:
         max((Text(row.task).cell_len for row in rows), default=0),
         max((Text(row.elements).cell_len for row in rows), default=0),
         max((row.iterations.cell_len for row in rows), default=0),
+        max((row.icons.cell_len for row in rows), default=0),
     )
 
 
@@ -294,14 +369,7 @@ def action_text(
         ):
             return compact_action_text(summary)
         widths = column_widths or action_column_widths(rows)
-        table = Table.grid(padding=(0, 1))
-        table.add_column(width=widths.task)
-        table.add_column(width=widths.elements)
-        table.add_column(width=widths.iterations)
-        table.add_column()
-        for row in rows:
-            table.add_row(Text(row.task), Text(row.elements), row.iterations, row.icons)
-        return table
+        return _DetailTable(rows, widths)
     text = Text()
     counts = (
         summary.display_counts if summary.display_counts is not None else summary.counts
