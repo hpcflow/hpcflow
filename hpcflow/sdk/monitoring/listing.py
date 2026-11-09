@@ -30,6 +30,7 @@ def list_registered_submissions(
 
     Resolve an optional workflow reference and exact template-name filter before
     applying ``max_recent`` to inactive records; None lists all retained history.
+    Comma-separated IDs select multiple workflows, including the ``-1`` latest alias.
     Activity is the last recorded observation, not a live scheduler query. Missing
     paths are excluded before history limits unless ``include_missing`` is True;
     checking existence does not change or remove registry entries.
@@ -43,7 +44,10 @@ def list_registered_submissions(
     if max_recent is not None and (type(max_recent) is not int or max_recent < 0):
         raise ValueError("max_recent must be a non-negative integer")
     records = resolve_records(
-        SubmissionRegistry(app).read().records, workflow_ref, ref_type
+        SubmissionRegistry(app).read().records,
+        workflow_ref,
+        ref_type,
+        allow_multiple=True,
     )
     if use_cache:
         records = [

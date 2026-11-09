@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
         def __call__(
             self,
-            local_id: int | None = None,
+            local_id: int | str | Sequence[int] | None = None,
             *,
             all_submissions: bool = False,
             include_active: bool = False,
@@ -132,6 +132,9 @@ class MonitoringMixin:
         records. With bulk removal, ``include_active=True`` also selects active and
         unknown records, using their last recorded activity. Bulk calls return the
         removed IDs; a single-entry call returns None.
+        A comma-separated ID string or sequence of IDs removes those entries in
+        one transaction and returns their IDs. ``-1`` selects the latest registry
+        entry. Explicit selections include inactive, active, and unknown entries.
 
         Free IDs without cancelling jobs or deleting workflow files. Automatic
         pruning does not free IDs. If a selected submission is still registering
@@ -142,7 +145,7 @@ class MonitoringMixin:
     @TimeIt.decorator
     def _unregister(
         self,
-        local_id: int | None = None,
+        local_id: int | str | Sequence[int] | None = None,
         *,
         all_submissions: bool = False,
         include_active: bool = False,
@@ -167,6 +170,11 @@ class MonitoringMixin:
             raise ValueError("Specify a submission ID or all_submissions=True")
         if include_active:
             raise ValueError("include_active requires all_submissions=True")
+        if type(local_id) is not int or local_id == -1:
+            removed = registry.unregister_many(local_id)
+            if (isinstance(local_id, str) and "," not in local_id) or local_id == -1:
+                return None
+            return [record.local_id for record in removed]
         registry.unregister(local_id)
         return None
 
@@ -180,6 +188,9 @@ class MonitoringMixin:
             Select all retained parts of one workflow by local ID, exact registered
             workflow name, or path. An explicit path can recover pruned history.
             ``-1`` selects the workflow of the latest submitted registry entry.
+            A comma-separated string selects multiple IDs, including ``-1``.
+            Each ID selects all registered parts of its workflow; overlaps are
+            deduplicated. Use an explicit name type for names that look like ID lists.
         ref_type : str, optional
             Interpret the reference as ``id``, ``name``, or ``path``. Automatic
             interpretation prefers registered local IDs, then names, then paths.

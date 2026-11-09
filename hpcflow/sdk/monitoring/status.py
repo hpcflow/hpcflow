@@ -671,6 +671,7 @@ def collect(
 
     Resolve an optional workflow ID, registered name, or path, then apply exact
     template-name filtering before scheduler queries and the inactive-history limit.
+    Comma-separated IDs select multiple workflows and are validated before queries.
     Missing workflow paths are hidden before querying schedulers or applying
     history limits unless ``include_missing`` is True. Their registry references
     remain available for inspection and cancellation. An explicit unregistered
@@ -699,7 +700,9 @@ def collect(
     if max_recent is not None and (type(max_recent) is not int or max_recent < 0):
         raise ValueError("max_recent must be a non-negative integer")
     registry = SubmissionRegistry(app)
-    records = resolve_records(registry.read().records, workflow_ref, ref_type)
+    records = resolve_records(
+        registry.read().records, workflow_ref, ref_type, allow_multiple=True
+    )
     loaded: dict[WorkflowKey, Workflow] = {}
     if workflow_ref is not None and not records:
         # An explicit path may refer to history that has already been pruned.
@@ -779,6 +782,8 @@ def cancel(app: BaseApp, workflow_ref, ref_type=None, quiet=False) -> bool:
     may first require hydration. Batch requests by scheduler context and deduplicate
     references within each context. Persist cancellation requests as unknown activity
     pending a subsequent observation.
+    Comma-separated IDs select multiple workflows; reject unknown IDs before issuing
+    any cancellation requests. Overlapping workflow selections are deduplicated.
 
     Return False only when no registry record matches, allowing a caller fallback.
     Return True for handled records, including those with no active jobs. If some
@@ -786,7 +791,9 @@ def cancel(app: BaseApp, workflow_ref, ref_type=None, quiet=False) -> bool:
     the collected errors.
     """
     registry = SubmissionRegistry(app)
-    records = resolve_records(registry.read().records, workflow_ref, ref_type)
+    records = resolve_records(
+        registry.read().records, workflow_ref, ref_type, allow_multiple=True
+    )
     if not records:
         return False
     contexts: defaultdict[str, list[RegisteredJob]] = defaultdict(list)

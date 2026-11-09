@@ -1302,7 +1302,8 @@ def _make_show_CLI(app: BaseApp):
     ):
         """Show active and recent submissions for WORKFLOW_REF (ID, name, or path).
 
-        Use -1 for the most recently submitted registered workflow.
+        IDs may be comma-separated. Use -1 for the most recently submitted
+        registered workflow, or -- -1,42 to include it in an ID list.
         """
         from hpcflow.sdk.monitoring.views import resolve_view
 
@@ -1344,8 +1345,19 @@ def _make_show_CLI(app: BaseApp):
 def _make_unregister_CLI(app: BaseApp):
     """Generate the explicit registry-entry removal command."""
 
+    def ids_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.references import parse_submission_ids
+
+        try:
+            ids = parse_submission_ids(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+        return ",".join(map(str, ids)) if "," in value else ids[0]
+
     @click.command(name="unregister")
-    @click.argument("submission_id", required=False, type=click.IntRange(min=0))
+    @click.argument("submission_id", required=False, callback=ids_callback)
     @click.option(
         "--all",
         "all_submissions",
@@ -1358,9 +1370,12 @@ def _make_unregister_CLI(app: BaseApp):
         help="With --all, include active and unknown submissions too.",
     )
     def unregister(
-        submission_id: int | None, all_submissions: bool, include_active: bool
+        submission_id: int | str | None, all_submissions: bool, include_active: bool
     ):
-        """Unregister one submission or all inactive submissions, without cancelling jobs or deleting files."""
+        """Unregister IDs (comma-separated) or all inactive submissions.
+
+        Jobs and workflow files are unaffected. Use -- -1 for the latest entry.
+        """
         if all_submissions and submission_id is not None:
             raise click.UsageError("Specify SUBMISSION_ID or --all, not both.")
         if not all_submissions and submission_id is None:
@@ -1376,8 +1391,18 @@ def _make_unregister_CLI(app: BaseApp):
                 label = "submissions" if include_active else "inactive submissions"
                 click.echo(f"Unregistered {count} {label}.")
             else:
-                app.unregister(submission_id)
-                click.echo(f"Unregistered submission {submission_id}.")
+                removed = app.unregister(submission_id)
+                if isinstance(submission_id, str):
+                    label = (
+                        ",".join(map(str, removed))
+                        if isinstance(removed, list)
+                        else submission_id
+                    )
+                    click.echo(f"Unregistered submissions {label}.")
+                elif submission_id == -1:
+                    click.echo("Unregistered latest submission.")
+                else:
+                    click.echo(f"Unregistered submission {submission_id}.")
         except ValueError as error:
             raise click.ClickException(str(error)) from error
 
@@ -1456,6 +1481,7 @@ def _make_cancel_CLI(app: BaseApp):
         """Stop all running jobscripts of the specified workflow.
 
         WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
+        IDs may be comma-separated. Use -- -1,42 to include the latest submission.
 
         """
         app.cancel(

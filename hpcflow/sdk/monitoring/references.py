@@ -1,11 +1,38 @@
 """Resolve workflow references without opening workflow stores."""
 
 from pathlib import Path
+from collections.abc import Sequence
+from typing import cast
 
 from .models import SubmissionRecord
 
 from .naming import registered_workflow_name
 from .registry import sort_timestamp
+
+
+def parse_submission_ids(value: int | str | Sequence[int]) -> list[int]:
+    """Validate and deduplicate explicit IDs, allowing -1 as the latest alias."""
+    if isinstance(value, str):
+        parts = value.split(",")
+        if any(not part.strip() for part in parts):
+            raise ValueError("Submission ID lists must not contain empty entries.")
+        try:
+            ids = [int(part.strip()) for part in parts]
+        except ValueError:
+            raise ValueError(
+                "Submission IDs must be integers separated by commas."
+            ) from None
+    elif type(value) is int:
+        ids = [value]
+    elif isinstance(value, Sequence):
+        ids = list(cast(Sequence[int], value))
+    else:
+        raise ValueError("Submission IDs must be integers or a comma-separated list.")
+    if not ids or any(type(local_id) is not int or local_id < -1 for local_id in ids):
+        raise ValueError(
+            "Submission IDs must be non-negative integers, or -1 for latest."
+        )
+    return list(dict.fromkeys(ids))
 
 
 def resolve_submission_id(
@@ -64,7 +91,11 @@ def _named_records(records: list[SubmissionRecord], name: str) -> list[Submissio
 
 
 def resolve_records(
-    records: list[SubmissionRecord], reference, ref_type=None
+    records: list[SubmissionRecord],
+    reference,
+    ref_type=None,
+    *,
+    allow_multiple: bool = False,
 ) -> list[SubmissionRecord]:
     """Resolve a registry reference without constructing workflow objects.
 
@@ -75,11 +106,37 @@ def resolve_records(
     An unmatched path returns an empty list for callers that support store fallback.
     ``-1`` aliases the latest submitted record's local ID, selecting all registered
     parts of its workflow just like a normal ID. Explicit names/paths stay literal.
+    ``allow_multiple`` enables strict comma-separated ID lists for show/cancel.
+    Validate the entire list before returning any matches and deduplicate workflows.
     """
     if reference is None:
         return records
     if ref_type not in (None, "assume-id", "id", "name", "path"):
         raise ValueError(f"Unknown workflow reference type: {ref_type}")
+    if (
+        allow_multiple
+        and isinstance(reference, str)
+        and "," in reference
+        and (
+            ref_type == "id"
+            or (ref_type in (None, "assume-id") and not is_path_reference(reference))
+        )
+    ):
+        workflow_ids = set()
+        try:
+            requested = parse_submission_ids(reference)
+        except ValueError:
+            if ref_type in (None, "assume-id") and any(
+                registered_workflow_name(record) == reference for record in records
+            ):
+                return resolve_records(records, reference, ref_type)
+            raise
+        for local_id in requested:
+            match = resolve_submission_id(records, local_id)
+            if match is None:
+                raise ValueError(f"Unknown submission ID: {local_id}")
+            workflow_ids.add(match.workflow_id)
+        return [record for record in records if record.workflow_id in workflow_ids]
     if ref_type == "id" or (
         ref_type in (None, "assume-id") and not is_path_reference(reference)
     ):

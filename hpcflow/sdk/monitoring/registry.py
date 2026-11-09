@@ -28,6 +28,7 @@ from .naming import registered_workflow_name, workflow_name_from_path
 from ..log import TimeIt
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from ..app import BaseApp
     from ..submission.jobscript import Jobscript
     from ..submission.submission import Submission
@@ -358,6 +359,35 @@ class SubmissionRegistry:
             data.records.remove(record)
             data.free_local_ids[local_id] = record.revision + 1
         return record
+
+    @TimeIt.decorator
+    def unregister_many(
+        self, local_ids: int | str | Sequence[int]
+    ) -> list[SubmissionRecord]:
+        """Validate and remove explicit IDs atomically, resolving -1 under the lock.
+
+        Only the named submission parts are removed. Unknown IDs and submitting
+        records reject the entire selection before any IDs are released.
+        """
+        from .references import parse_submission_ids, resolve_submission_id
+
+        requested = parse_submission_ids(local_ids)
+        with self.transaction(prune=False) as data:
+            selected: dict[int, SubmissionRecord] = {}
+            for local_id in requested:
+                record = resolve_submission_id(data.records, local_id)
+                if record is None:
+                    raise ValueError(f"Unknown registered submission ID: {local_id}")
+                selected[record.local_id] = record
+            for record in selected.values():
+                self._ensure_unregisterable(record)
+            data.records = [
+                record for record in data.records if record.local_id not in selected
+            ]
+            data.free_local_ids.update(
+                {record.local_id: record.revision + 1 for record in selected.values()}
+            )
+        return list(selected.values())
 
     @TimeIt.decorator
     def unregister_all(self, include_active: bool = False) -> list[SubmissionRecord]:

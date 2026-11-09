@@ -1779,6 +1779,8 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         ----------
         workflow_ref: int | str | Path
             Which workflow to cancel, by registered ID, name, or path.
+            A comma-separated ID string selects multiple workflows. ``-1`` means
+            the latest submitted registry entry. Validate all IDs before cancelling.
         ref_is_path: str
             One of "``id``", "``name``", "``path``" or "``assume-id``" (the default)
         status: bool
