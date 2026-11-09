@@ -208,8 +208,9 @@ class MonitoringMixin:
         view : {'counts', 'tasks', 'detail', 'auto'}, optional
             Select overall state counts, task progress summaries, exact grouped
             patterns, or adaptive detail for Actions and Elements. The Elements task
-            view shows per-task overall element-state totals. Defaults to counts; ``full=True`` selects
-            auto. Explicit views override full. Disabling grouping requests detail
+            view shows per-task overall element-state totals. Defaults to auto when
+            a workflow reference is supplied, and counts for the general overview.
+            ``full=True`` selects auto. Explicit views override full. Disabling grouping requests detail
             and cannot be combined with explicit counts or tasks. Elements retain
             one overall state per element across iterations.
         no_update : bool, default False
@@ -409,6 +410,8 @@ class MonitoringMixin:
         from hpcflow.sdk.monitoring.timezones import configured_timezone
         from hpcflow.sdk.monitoring.views import resolve_view
 
+        if view is None and workflow_ref is not None:
+            view = "auto"
         view = resolve_view(view, full, group_elements, group_iterations)
         full = view != "counts"
         console = Console()

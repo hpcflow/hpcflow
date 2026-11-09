@@ -9,7 +9,7 @@ from rich.console import Console
 
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import _make_show_CLI
-from hpcflow.sdk.monitoring import listing, status
+from hpcflow.sdk.monitoring import app as monitoring_app, listing, status
 from hpcflow.sdk.monitoring.models import (
     ActionSummary,
     ElementGroup,
@@ -82,6 +82,48 @@ def test_defaults_and_legacy_options():
     assert resolve_view(group_iterations=False) == "detail"
     assert resolve_view("counts", full=True) == "counts"
     assert resolve_view("detail", full=True) == "detail"
+
+
+@pytest.mark.parametrize("reference", [None, 0, "1,2", "-1"])
+@pytest.mark.parametrize("use_cache", [False, True])
+def test_default_view_depends_on_workflow_reference(monkeypatch, reference, use_cache):
+    output = StringIO()
+    monkeypatch.setattr(
+        monitoring_app, "Console", lambda: Console(file=output, width=120)
+    )
+    monkeypatch.setattr(status, "collect", Mock(return_value=[submission(large=True)]))
+    monkeypatch.setattr(
+        listing,
+        "list_registered_submissions",
+        Mock(return_value=[submission(large=True)]),
+    )
+    hf.show(
+        workflow_ref=reference, use_cache=use_cache, columns=["actions"], status=False
+    )
+    text = output.getvalue()
+    assert ("Task summary" in text) == (reference is not None)
+    if reference is None:
+        assert "\u25a0:50" in text
+
+
+@pytest.mark.parametrize("args", [["0"], ["-1"], ["1,2"], ["0", "--use-cache"]])
+def test_cli_reference_defaults_to_auto_with_explicit_counts_override(monkeypatch, args):
+    monkeypatch.setattr(status, "collect", Mock(return_value=[submission(large=True)]))
+    monkeypatch.setattr(
+        listing,
+        "list_registered_submissions",
+        Mock(return_value=[submission(large=True)]),
+    )
+    command = _make_show_CLI(hf)
+    result = CliRunner().invoke(command, [*args, "--columns", "actions", "--no-status"])
+    assert result.exit_code == 0, result.output
+    assert "Task summary" in result.output
+    result = CliRunner().invoke(
+        command, [*args, "--columns", "actions", "--view", "counts", "--no-status"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Task summary" not in result.output
+    assert "\u25a0:50" in result.output
 
 
 @pytest.mark.parametrize(

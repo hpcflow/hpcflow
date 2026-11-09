@@ -1243,7 +1243,7 @@ def _make_show_CLI(app: BaseApp):
         "--view",
         type=click.Choice(["counts", "tasks", "detail", "auto"]),
         default=None,
-        help="Show counts, task progress, exact grouped detail, or adaptive detail. Overrides --full.",
+        help="Show counts, task progress, exact grouped detail, or adaptive detail. Defaults to auto with WORKFLOW_REF, otherwise counts. Overrides --full.",
     )
     @click.option(
         "--group-iterations/--no-group-iterations",
