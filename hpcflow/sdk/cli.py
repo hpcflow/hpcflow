@@ -561,6 +561,41 @@ def _make_workflow_submission_CLI(app: BaseApp):
 def _make_workflow_CLI(app: BaseApp):
     """Generate the CLI for interacting with existing workflows."""
 
+    def coordinate_option(*names, help):
+        def callback(ctx, param, value):
+            from hpcflow.sdk.monitoring.run_filters import index_selection
+
+            try:
+                index_selection(value, param.name or "Coordinates")
+            except ValueError as error:
+                raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+            return value
+
+        return click.option(
+            *names,
+            callback=callback,
+            help=help + " Accepts comma-separated values and inclusive ranges (0,2-5).",
+        )
+
+    def run_columns_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.run_columns import run_columns
+
+        try:
+            return run_columns(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
+    def task_names_callback(ctx, param, value):
+        from hpcflow.sdk.monitoring.run_filters import task_names
+
+        try:
+            task_names(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+        return value
+
     @click.group()
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
@@ -790,15 +825,83 @@ def _make_workflow_CLI(app: BaseApp):
         click.echo(wf.is_parameter_set(index))
 
     @workflow.command(name="show-runs")
+    @coordinate_option(
+        "--task",
+        "--task-idx",
+        "task_idx",
+        help="Filter zero-based task indices in workflow order.",
+    )
+    @coordinate_option("--task-id", help="Filter stable task insertion IDs.")
+    @click.option(
+        "--task-name",
+        callback=task_names_callback,
+        help="Filter exact task unique names, comma-separated.",
+    )
+    @coordinate_option(
+        "--element",
+        "--element-idx",
+        "element_idx",
+        help="Filter element indices within their tasks.",
+    )
+    @coordinate_option(
+        "--iteration",
+        "--iteration-idx",
+        "iteration_idx",
+        help="Filter iteration indices within their elements.",
+    )
+    @coordinate_option(
+        "--action", "--action-idx", "action_idx", help="Filter action indices."
+    )
+    @coordinate_option("--run-id", "--run-ids", "run_id", help="Filter global run IDs.")
+    @coordinate_option(
+        "--run-idx", "--attempt", "run_idx", help="Filter per-action attempt indices."
+    )
+    @click.option(
+        "-c",
+        "--columns",
+        callback=run_columns_callback,
+        help="Comma-separated columns in display order, or all: run_id,task,task_id,task_idx,task_name,element,iteration,action,action_idx,action_name,run_idx,submission,jobscript,array_idx,state,exit_code,host,start,end,duration,end_size,end_size_bytes. End sizes sum recorded regular-file sizes from snapshot_end without scanning the directory.",
+    )
     @click.option(
         "--state",
         type=click.Choice(list(EARStatus.__members__), case_sensitive=False),
         help="Show only action runs in this state; omit to show all runs.",
     )
     @_pass_workflow
-    def show_runs(wf: Workflow, state: str | None):
-        """List individual action attempts, their locations, states, and exit codes."""
-        wf.show_runs(state=state)
+    def show_runs(
+        wf: Workflow,
+        state: str | None,
+        task_idx,
+        task_id,
+        task_name,
+        element_idx,
+        iteration_idx,
+        action_idx,
+        run_id,
+        run_idx,
+        columns,
+    ):
+        """List action attempts with coordinate filters and selectable execution data.
+
+        Coordinate filters are combined with AND. Run IDs are global; run indices
+        identify per-action attempts. Array indices are zero-based, and serial jobs
+        have no array index. No scheduler queries are made.
+        """
+        options = {
+            "task_idx": task_idx,
+            "task_id": task_id,
+            "task_name": task_name,
+            "element_idx": element_idx,
+            "iteration_idx": iteration_idx,
+            "action_idx": action_idx,
+            "run_id": run_id,
+            "run_idx": run_idx,
+            "columns": columns,
+        }
+        wf.show_runs(
+            state=state,
+            **{name: value for name, value in options.items() if value is not None},
+        )
 
     @workflow.command(name="show-all-status")
     @_pass_workflow

@@ -2,6 +2,8 @@
 
 from contextlib import nullcontext
 from io import StringIO
+import socket
+import stat
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -140,7 +142,8 @@ def test_unassigned_run_has_no_jobscript(workflow):
 
 
 @pytest.mark.parametrize("store", ["json", "zarr"])
-def test_real_workflow_runs_and_full_cli(tmp_path, store, monkeypatch):
+@pytest.mark.parametrize("force_array", [False, True])
+def test_real_workflow_runs_and_full_cli(tmp_path, store, force_array, monkeypatch):
     task = hf.Task(
         schema=hf.task_schemas.test_t1_conditional_OS,
         inputs={"p1": 100},
@@ -149,12 +152,21 @@ def test_real_workflow_runs_and_full_cli(tmp_path, store, monkeypatch):
     wf = hf.Workflow.from_template_data(
         template_name="inspect-runs", path=tmp_path, tasks=[task], store=store
     )
-    sub = wf.add_submission(status=False)
+    sub = wf.add_submission(status=False, force_array=force_array)
     ids = list(sub.all_EAR_IDs)
     assert len(ids) >= 2
+    snapshot = {
+        "use_strings": True,
+        "data": {
+            "result.dat": [
+                str(value) for value in (stat.S_IFREG, 1, 1, 1, 0, 0, 1300, 0, 0, 0, 1, 1)
+            ]
+        },
+    }
+    monkeypatch.setattr(hf.RunDirAppFiles, "take_snapshot", Mock(return_value=snapshot))
     for i, run_id in enumerate(ids):
         wf._store.set_EAR_start(run_id, None, None)
-        wf._store.set_EAR_end(run_id, 17 if i == 0 else 0, i != 0, False)
+        wf._store.set_EAR_end(run_id, 17 if i == 0 else 0, i != 0, True)
     # Reload from disk to exercise the CLI's ordinary workflow construction path.
     loaded = hf.Workflow(wf.path)
     records = collect_runs(loaded, "error")
@@ -164,6 +176,8 @@ def test_real_workflow_runs_and_full_cli(tmp_path, store, monkeypatch):
         job.index for job in sub.jobscripts if ids[0] in job.all_EAR_IDs
     )
     assert records[0].jobscript == expected_jobscript
+    assert records[0].array_idx == (0 if force_array else None)
+    assert records[0].end_size_bytes == 1300
     assert records[0].action_name == loaded.get_EARs_from_IDs(ids[0]).action.short_name()
     scheduler = Mock(
         side_effect=AssertionError("Run inspection must not query schedulers")
@@ -178,4 +192,38 @@ def test_real_workflow_runs_and_full_cli(tmp_path, store, monkeypatch):
     assert "E error" in result.output and "17" in result.output
     assert "Jobscript" in result.output
     assert "success" not in result.output
+    scheduler.assert_not_called()
+    # The explicit ID path must not enumerate unrelated runs. Execution metadata
+    # and parent coordinates still come from the reloaded JSON/Zarr workflow.
+    monkeypatch.setattr(
+        Workflow,
+        "get_all_EARs",
+        Mock(side_effect=AssertionError("Do not enumerate all runs for an ID filter")),
+    )
+    result = CliRunner().invoke(
+        _make_workflow_CLI(hf),
+        [
+            str(wf.path),
+            "show-runs",
+            "--run-id",
+            str(ids[0]),
+            "--task",
+            str(records[0].task_idx),
+            "--element",
+            str(records[0].element),
+            "--iteration",
+            str(records[0].iteration),
+            "--action-idx",
+            str(records[0].action),
+            "--run-idx",
+            str(records[0].attempt),
+            "-c",
+            "run_id,task_idx,host,start,end,duration,jobscript,array_idx,end_size_bytes",
+        ],
+        env={"COLUMNS": "240"},
+    )
+    assert result.exit_code == 0, result.output
+    assert socket.gethostname() in result.output
+    assert "Duration" in result.output and "Array index" in result.output
+    assert "1300" in result.output
     scheduler.assert_not_called()

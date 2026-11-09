@@ -130,6 +130,7 @@ from hpcflow.sdk.core.errors import (
 )
 
 if TYPE_CHECKING:
+    from ..monitoring.run_filters import IndexFilter
     from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
@@ -6736,7 +6737,20 @@ class Workflow(AppAware):
             )
         return _ArrayOutputArchive(data=data, **arrays, shape=shapes, member_idx=members)
 
-    def show_runs(self, state: EARStatus | str | None = None) -> None:
+    def show_runs(
+        self,
+        state: EARStatus | str | None = None,
+        *,
+        task_idx: IndexFilter = None,
+        task_id: IndexFilter = None,
+        task_name: str | Sequence[str] | None = None,
+        element_idx: IndexFilter = None,
+        iteration_idx: IndexFilter = None,
+        action_idx: IndexFilter = None,
+        run_id: IndexFilter = None,
+        run_idx: IndexFilter = None,
+        columns: str | Sequence[str] | None = None,
+    ) -> None:
         """Print individual action runs, optionally filtered by engine state.
 
         Parameters
@@ -6744,6 +6758,21 @@ class Workflow(AppAware):
         state : EARStatus or str, optional
             An engine state or its case-insensitive name, such as ``error``.
             Omit to show all runs. Invalid names raise ValueError.
+        task_idx, task_id, element_idx, iteration_idx, action_idx, run_id, run_idx
+            Optional non-negative index/ID selections: an integer, integer sequence,
+            or comma-separated indices and inclusive ranges such as ``0,2-5``.
+            Combine coordinates with AND. Task indices are positions in workflow
+            order; task IDs are stable insertion IDs. Run IDs are global, while
+            run indices identify per-action attempts. Other indices are zero-based.
+        task_name
+            Exact task unique name(s), comma-separated or a sequence.
+        columns
+            Ordered column identifiers, comma-separated or a sequence. ``all``
+            selects every column. Optional fields include host, start, end, duration,
+            and array_idx (zero-based scheduler array item; absent for serial jobs).
+            end_size and end_size_bytes sum regular-file sizes in snapshot_end,
+            using readable units or exact bytes without scanning the run directory.
+            Datetimes use show_timezone. Running durations use the current time.
 
         Notes
         -----
@@ -6755,7 +6784,19 @@ class Workflow(AppAware):
         """
         from ..monitoring.runs import show_runs
 
-        show_runs(self, state)
+        show_runs(
+            self,
+            state,
+            task_idx=task_idx,
+            task_id=task_id,
+            task_name=task_name,
+            element_idx=element_idx,
+            iteration_idx=iteration_idx,
+            action_idx=action_idx,
+            run_id=run_id,
+            run_idx=run_idx,
+            columns=columns,
+        )
 
     def show_all_EAR_statuses(self) -> None:
         """
