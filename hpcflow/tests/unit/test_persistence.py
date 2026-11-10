@@ -20,6 +20,10 @@ from hpcflow.sdk.persistence.json import (
     JsonStoreEAR,
 )
 from hpcflow.sdk.persistence.zarr import ZarrPersistentStore, ZarrStoreParameter
+from hpcflow.sdk.persistence.member_array_outputs import (
+    read_member_array_output_index,
+    write_member_array_output_archive,
+)
 from hpcflow.sdk.core.parameters import NullDefault
 
 from hpcflow.app import app as hf
@@ -53,6 +57,7 @@ def zarr_array_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tupl
     assert len(runs) == 1
     run = runs[0]
     monkeypatch.setattr(run, "_run_file_ID", 6)
+    monkeypatch.setattr(run, "_submission_idx", 0)
     original_get_runs = workflow.get_EARs_from_IDs
     monkeypatch.setattr(
         workflow,
@@ -135,7 +140,7 @@ def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> N
         "p1.sequence.0": sequence_array,
     }.items():
         archive = workflow._read_array_output_archive(
-            workflow._get_array_output_archive_path(name, 6)
+            workflow._get_array_output_archive_path(name, 0, 6)
         )
         assert len(archive.run_ID) == 1
         np.testing.assert_array_equal(archive.data[0], expected)
@@ -159,16 +164,18 @@ def test_zarr_output_arrays_written_only_to_npz(zarr_array_workflow: tuple) -> N
     root_array = np.arange(4, dtype="float64")
     workflow.set_parameter_value(param_ID, root_array)
     archive = workflow._read_array_output_archive(
-        workflow._get_array_output_archive_path("p1", 6)
+        workflow._get_array_output_archive_path("p1", 0, 6)
     )
     np.testing.assert_array_equal(archive.data, root_array[np.newaxis, ...])
     assert parameter_name not in inner_group
-    original_bytes = workflow._get_array_output_archive_path("p1", 6).read_bytes()
+    original_bytes = workflow._get_array_output_archive_path("p1", 0, 6).read_bytes()
     with pytest.raises(TypeError, match="dtype int32.*dtype float64"):
         workflow._store._set_parameter_values(
             {param_ID: (np.arange(4, dtype="int32"), False)}
         )
-    assert workflow._get_array_output_archive_path("p1", 6).read_bytes() == original_bytes
+    assert (
+        workflow._get_array_output_archive_path("p1", 0, 6).read_bytes() == original_bytes
+    )
     assert parameter_name not in inner_group
 
 
@@ -206,8 +213,8 @@ def test_zarr_output_members_share_array_archives(
         store="zarr",
     )
     workflow.add_submission()
-    write = Mock(wraps=workflow._save_array_output_entries)
-    monkeypatch.setattr(workflow, "_save_array_output_entries", write)
+    write = Mock(wraps=workflow._save_member_array_output)
+    monkeypatch.setattr(workflow, "_save_member_array_output", write)
     expected: list[dict[str, Any]] = []
     runs = list(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID]))
     for run, count in zip(runs, [1, 7]):
@@ -234,10 +241,12 @@ def test_zarr_output_members_share_array_archives(
     if not disabled:
         names.append("p1.steps.1.stress")
     assert workflow.list_array_outputs() == sorted(names)
-    assert write.call_count == (8 if disabled else 10)
+    assert write.call_count == 2
     root = Path(workflow.path) / "parameters" / "array_outputs"
-    assert len(list(root.iterdir())) == (5 if disabled else 7)
-    assert len(list(root.rglob("*.npz.zst"))) <= write.call_count
+    expected_shards = {run.run_file_ID for run in runs}
+    assert None not in expected_shards
+    assert len(list(root.rglob("*.zip"))) == len(expected_shards)
+    assert not list(root.rglob("*.npz.zst"))
     data = workflow.get_array_output("p1.orientations.data", runs[1].id_)
     assert data.member_idx is not None
     np.testing.assert_array_equal(data.member_idx, np.arange(7))
@@ -291,19 +300,45 @@ def test_zarr_output_member_arrays_written_once(
     workflow, run = zarr_array_workflow
     run.task.template.all_schema_outputs[0].multiplicity = 1000
     values = [{"data": np.array([idx], dtype=np.int64)} for idx in range(1000)]
-    write = Mock(wraps=workflow._save_array_output_entries)
-    monkeypatch.setattr(workflow, "_save_array_output_entries", write)
+    write = Mock(wraps=workflow._save_member_array_output)
+    monkeypatch.setattr(workflow, "_save_member_array_output", write)
     workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
     write.assert_called_once()
     root = Path(workflow.path) / "parameters" / "array_outputs"
-    assert [path.name for path in root.iterdir()] == ["p1.data"]
-    assert len(list(root.rglob("*.npz.zst"))) == 1
+    assert [path.name for path in root.iterdir()] == ["p1"]
+    archives = list(root.rglob("*.zip"))
+    assert len(archives) == 1
+    assert archives[0] == root / "p1" / ".members" / "0" / "0" / "6.zip"
+    assert not list(root.rglob("*.npz.zst"))
+    index = read_member_array_output_index(
+        workflow._array_output_fs, archives[0].as_posix()
+    )
+    assert len(index["records"]) == 1000
+    assert len(index["schemas"]) == 1
     saved = workflow.get_array_output("p1.data", run.id_)
     np.testing.assert_array_equal(saved.member_idx, np.arange(1000))
     np.testing.assert_array_equal(saved.data, np.arange(1000).reshape(-1, 1))
     destination = root.parent / "members.npy"
     workflow.export_array_output("p1.data", run.id_, destination)
     np.testing.assert_array_equal(np.load(destination), saved.data)
+
+    assert run.run_file_ID is not None
+    write_member_array_output_archive(
+        archives[0],
+        "p1",
+        run.id_ + 1,
+        run.run_file_ID,
+        index["records"][0]["metadata"],
+        {0: {"data": np.array([1000], dtype=np.int64)}},
+    )
+    index = read_member_array_output_index(
+        workflow._array_output_fs, archives[0].as_posix()
+    )
+    assert len(index["records"]) == 1001
+    assert {record["run_ID"] for record in index["records"]} == {
+        run.id_,
+        run.id_ + 1,
+    }
 
 
 def test_bulk_decoders_called_once_per_parameter(
@@ -410,14 +445,14 @@ def test_output_member_read_decodes_only_selected_member(
     monkeypatch.setitem(ZarrStoreParameter._all_decoders, "masked_arrays", decoder)
     get_run = Mock(wraps=restored.get_EARs_from_IDs)
     monkeypatch.setattr(restored, "get_EARs_from_IDs", get_run)
-    read = Mock(wraps=restored._read_array_output_archive)
-    monkeypatch.setattr(restored, "_read_array_output_archive", read)
+    read = Mock(wraps=restored._read_member_array_output_record)
+    monkeypatch.setattr(restored, "_read_member_array_output_record", read)
     param = restored.get_parameter(member_ids[1])
     assert isinstance(param.data, dict)
     decoder.assert_called_once()
     assert decoder.call_args.kwargs["path"] == [1]
     get_run.assert_called_once()
-    assert read.call_count == (0 if storage == "legacy" else 5)
+    assert read.call_count == (0 if storage == "legacy" else 1)
     assert parent_id not in restored._store.parameter_cache
     np.testing.assert_array_equal(param.data["data"], values[1]["data"])
     assert len(param.data["steps"]) == 2
@@ -462,6 +497,69 @@ def test_output_member_read_decodes_only_selected_member(
         cached_whole = restored.get_parameter(parent_id).data
         assert isinstance(cached_whole, (list, tuple))
         assert len(cached_whole) == 3
+
+
+def test_zarr_member_record_bundles_load_case_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    producer = hf.TaskSchema(
+        "load_case_producer",
+        outputs=[hf.SchemaOutput("load_case", multiplicity=1)],
+        actions=[
+            hf.Action(
+                commands=[hf.Command("echo values", stdout="<<parameter:load_case>>")]
+            )
+        ],
+    )
+    consumer = hf.TaskSchema(
+        "load_case_consumer",
+        inputs=[hf.SchemaInput("load_case")],
+        actions=[hf.Action(commands=[hf.Command("echo <<parameter:load_case>>")])],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="bundled_load_case",
+        tasks=[hf.Task(producer), hf.Task(consumer)],
+        path=tmp_path,
+        store="zarr",
+    )
+    workflow.add_submission()
+    steps = [
+        {
+            "stress": np.ma.array(
+                np.full((3, 3), step, dtype=np.float64),
+                mask=np.eye(3, dtype=bool),
+                fill_value=-1.0,
+            )
+        }
+        for step in range(500)
+    ]
+    parent_id = workflow.tasks[0].elements[0].get_data_idx()["outputs.load_case"]
+    assert isinstance(parent_id, int)
+    workflow.set_parameter_value(parent_id, [{"steps": steps}], commit=True)
+    restored = hf.Workflow(workflow.path)
+    root = Path(restored.path) / "parameters" / "array_outputs"
+    archives = list(root.rglob("*.zip"))
+    assert len(archives) == 1
+    index = read_member_array_output_index(
+        restored._array_output_fs, archives[0].as_posix()
+    )
+    assert len(index["records"]) == 1
+    assert len(next(iter(index["schemas"].values()))) == 1000
+    member_id = restored.tasks[1].elements[0].get_data_idx()["inputs.load_case"]
+    assert isinstance(member_id, int)
+    read = Mock(wraps=restored._read_member_array_output_record)
+    monkeypatch.setattr(restored, "_read_member_array_output_record", read)
+    load_case = restored.get_parameter(member_id).data
+    read.assert_called_once()
+    assert isinstance(load_case, dict)
+    assert len(load_case["steps"]) == 500
+    np.testing.assert_array_equal(load_case["steps"][0]["stress"].data, np.zeros((3, 3)))
+    np.testing.assert_array_equal(
+        load_case["steps"][-1]["stress"].data, np.full((3, 3), 499)
+    )
+    np.testing.assert_array_equal(
+        load_case["steps"][-1]["stress"].mask, np.eye(3, dtype=bool)
+    )
 
 
 @pytest.mark.parametrize("multiplicity", [None, 1, 3])
@@ -524,7 +622,7 @@ def test_zarr_array_output_zstandard_compression(
     monkeypatch.setattr(run, "_run_file_ID", run_file_ID)
     value = np.zeros((100, 100), dtype="float64")
     workflow.save_parameter("outputs.p1", value, EAR_ID=run.id_)
-    path = workflow._get_array_output_archive_path("p1", run_file_ID)
+    path = workflow._get_array_output_archive_path("p1", 0, run_file_ID)
     compressed = path.read_bytes()
     uncompressed = zstd.ZstdDecompressor().decompress(compressed)
     assert uncompressed.startswith(b"PK")
@@ -686,6 +784,7 @@ def test_zarr_zip_reads_array_outputs(
     zip_workflow = hf.Workflow(workflow.zip(path=tmp_path, status=False))
     zip_run = cast(Any, zip_workflow.get_EARs_from_IDs(run.id_))
     monkeypatch.setattr(zip_run, "_run_file_ID", 6)
+    monkeypatch.setattr(zip_run, "_submission_idx", 0)
     original_get_runs = zip_workflow.get_EARs_from_IDs
     monkeypatch.setattr(
         zip_workflow,
@@ -852,6 +951,7 @@ def test_zarr_legacy_shard_groups_created_only_when_needed(
 
     run = list(workflow.get_EARs_of_tasks([workflow.tasks[0].insert_ID]))[0]
     monkeypatch.setattr(run, "_run_file_ID", 6)
+    monkeypatch.setattr(run, "_submission_idx", 0)
     original_get_runs = workflow.get_EARs_from_IDs
     monkeypatch.setattr(
         workflow,
@@ -995,7 +1095,7 @@ def test_zarr_npz_only_output_missing_archive_raises(
 ) -> None:
     workflow, run = zarr_array_workflow
     workflow.save_parameter("outputs.p1", np.arange(3), EAR_ID=run.id_)
-    path = workflow._get_array_output_archive_path("p1", 6)
+    path = workflow._get_array_output_archive_path("p1", 0, 6)
     path.unlink()
     if remove_directory:
         path.parent.rmdir()
@@ -1017,7 +1117,7 @@ def test_zarr_array_output_decode_rejects_corrupt_archive(
 ) -> None:
     workflow, run = zarr_array_workflow
     workflow.save_parameter("outputs.p1", np.arange(3), EAR_ID=run.id_)
-    path = workflow._get_array_output_archive_path("p1", 6)
+    path = workflow._get_array_output_archive_path("p1", 0, 6)
     corrupt_data = b"not an npz archive"
     path.write_bytes(
         zstd.ZstdCompressor(level=1).compress(corrupt_data)

@@ -22,6 +22,8 @@ ARRAY_OUTPUT_MASK_SUFFIX = "__mask__"
 #: File name of a consolidated (single-file) array-output archive.
 ARRAY_OUTPUT_CONSOLIDATED_NAME = "consolidated.zip"
 ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME = "consolidated.npz.zst"
+#: Directory grouping array-output shards by submission index.
+ARRAY_OUTPUT_SUBMISSIONS_DIR = ".submissions"
 
 
 def ask_pw_on_auth_exc(
