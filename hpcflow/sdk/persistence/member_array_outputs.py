@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-from tempfile import SpooledTemporaryFile
 from typing import Any, Iterator, TYPE_CHECKING
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
@@ -20,6 +19,7 @@ import zstandard as zstd
 from fsspec.implementations.local import LocalFileSystem  # type: ignore
 
 from hpcflow.sdk.persistence.array_outputs import _open_archive
+from hpcflow.sdk.persistence.array_output_sources import ArrayOutputBuffer
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem  # type: ignore
@@ -191,7 +191,7 @@ def read_member_array_output_record(
             raise ValueError(
                 f"Missing member-array record {record['entry']!r} in {path}."
             ) from None
-        with source, SpooledTemporaryFile(max_size=_SPOOL_LIMIT) as buffer:
+        with source, ArrayOutputBuffer(max_size=_SPOOL_LIMIT) as buffer:
             zstd.ZstdDecompressor().copy_stream(source, buffer)
             buffer.seek(0)
             with np.load(buffer, allow_pickle=False) as arrays:
@@ -270,8 +270,8 @@ def write_member_array_output_archive(
                         f"Member {member_idx} has no arrays for {output_name!r}."
                     )
                 entry_name = f"records/{run_ID}_{member_idx}.npz.zst"
-                with SpooledTemporaryFile(max_size=_SPOOL_LIMIT) as npz_buffer:
-                    with SpooledTemporaryFile(max_size=_SPOOL_LIMIT) as zstd_buffer:
+                with ArrayOutputBuffer(max_size=_SPOOL_LIMIT) as npz_buffer:
+                    with ArrayOutputBuffer(max_size=_SPOOL_LIMIT) as zstd_buffer:
                         with ZipFile(npz_buffer, "w", compression=ZIP_STORED) as npz:
                             for array_idx, array_name in enumerate(array_paths):
                                 if array_name not in values:

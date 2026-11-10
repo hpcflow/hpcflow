@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+from tempfile import SpooledTemporaryFile
 from unittest.mock import Mock
 
 from typing import Any, cast, TYPE_CHECKING
@@ -20,6 +21,7 @@ from hpcflow.sdk.persistence.json import (
     JsonStoreEAR,
 )
 from hpcflow.sdk.persistence.zarr import ZarrPersistentStore, ZarrStoreParameter
+from hpcflow.sdk.persistence import member_array_outputs
 from hpcflow.sdk.persistence.member_array_outputs import (
     read_member_array_output_index,
     write_member_array_output_archive,
@@ -339,6 +341,34 @@ def test_zarr_output_member_arrays_written_once(
         run.id_,
         run.id_ + 1,
     }
+
+
+@pytest.mark.parametrize("spool_limit", [64, 1024**2])
+def test_zarr_member_records_python310_buffers(
+    zarr_array_workflow: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    spool_limit: int,
+) -> None:
+    monkeypatch.setattr(
+        SpooledTemporaryFile,
+        "seekable",
+        Mock(side_effect=AttributeError("SpooledTemporaryFile has no seekable method")),
+        raising=False,
+    )
+    monkeypatch.setattr(member_array_outputs, "_SPOOL_LIMIT", spool_limit)
+    workflow, run = zarr_array_workflow
+    run.task.template.all_schema_outputs[0].multiplicity = 2
+    values = [{"data": np.arange(128) + idx} for idx in range(2)]
+    workflow.save_parameter("outputs.p1", values, EAR_ID=run.id_)
+
+    for consolidated in (False, True):
+        if consolidated:
+            workflow.consolidate_array_outputs(status=False)
+        output = workflow.get_array_output("p1.data", run.id_)
+        np.testing.assert_array_equal(output.member_idx, [0, 1])
+        np.testing.assert_array_equal(
+            output.data, np.stack([member["data"] for member in values])
+        )
 
 
 def test_bulk_decoders_called_once_per_parameter(
