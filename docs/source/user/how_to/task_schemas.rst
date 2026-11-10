@@ -255,6 +255,15 @@ NPZ archive per logical sub-parameter and run-file shard. For example, arrays at
 metadata rather than as a directory name. Writes are batched across members.
 This also applies to an explicit multiplicity of ``1``.
 
+Reading a downstream member from a sequence-valued Zarr output decodes only that
+member, rather than reconstructing every member of the producing output first.
+The reader reuses the producing action-run context across array sub-parameters.
+Bulk type decoders run once per parameter or selected member, not once per array
+in the type lookup table. Whole-output reads still return the complete value.
+These read optimizations also apply to existing saved workflows and do not change
+their archive layout. Live ``.npz.zst`` archives are still decompressed per
+sub-parameter, so many tiny step arrays can remain costly on shared filesystems.
+
 Members may have different numbers of steps: ``load_case.steps.1.stress`` contains
 only the members that have a second step. Their original member indices are
 retained, not renumbered. Array sizes may vary within a sub-parameter; the archive

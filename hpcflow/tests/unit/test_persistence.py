@@ -19,7 +19,7 @@ from hpcflow.sdk.persistence.json import (
     JsonStoreElementIter,
     JsonStoreEAR,
 )
-from hpcflow.sdk.persistence.zarr import ZarrPersistentStore
+from hpcflow.sdk.persistence.zarr import ZarrPersistentStore, ZarrStoreParameter
 from hpcflow.sdk.core.parameters import NullDefault
 
 from hpcflow.app import app as hf
@@ -304,6 +304,164 @@ def test_zarr_output_member_arrays_written_once(
     destination = root.parent / "members.npy"
     workflow.export_array_output("p1.data", run.id_, destination)
     np.testing.assert_array_equal(np.load(destination), saved.data)
+
+
+def test_bulk_decoders_called_once_per_parameter(
+    zarr_array_workflow: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow, run = zarr_array_workflow
+    value: dict[str, Any] = {
+        "arrays": [np.arange(3) + idx for idx in range(4)],
+        "masked": [
+            np.ma.array([idx, idx + 1], mask=[False, True], fill_value=-1)
+            for idx in range(4)
+        ],
+        "tuple": (1, (2, 3)),
+        "set": {4, 5},
+    }
+    workflow.save_parameter("outputs.p1", value, EAR_ID=run.id_)
+    workflow._store._ensure_all_decoders()
+    decoders = {}
+    for name in ("arrays", "masked_arrays"):
+        decoder = Mock(wraps=ZarrStoreParameter._all_decoders[name])
+        monkeypatch.setitem(ZarrStoreParameter._all_decoders, name, decoder)
+        decoders[name] = decoder
+    monkeypatch.setattr(
+        workflow._store,
+        "_get_run_submission_metadata",
+        lambda IDs: {ID: (0, 0, 6, 0) for ID in IDs},
+    )
+    workflow._store.parameter_cache.clear()
+    decoded = workflow.get_parameter_data(run.data_idx["outputs.p1"])
+    for decoder in decoders.values():
+        decoder.assert_called_once()
+    for actual, expected in zip(decoded["arrays"], value["arrays"], strict=True):
+        np.testing.assert_array_equal(actual, expected)
+    for actual, expected in zip(decoded["masked"], value["masked"], strict=True):
+        np.testing.assert_array_equal(actual.data, expected.data)
+        np.testing.assert_array_equal(actual.mask, expected.mask)
+        assert actual.fill_value == -1
+    assert decoded["tuple"] == (1, (2, 3))
+    assert isinstance(decoded["tuple"], tuple)
+    assert isinstance(decoded["tuple"][1], tuple)
+    assert decoded["set"] == {4, 5}
+    assert isinstance(decoded["set"], set)
+
+
+@pytest.mark.parametrize("storage", ["shards", "consolidated", "zip", "legacy"])
+@pytest.mark.parametrize("as_tuple", [False, True])
+def test_output_member_read_decodes_only_selected_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, storage: str, as_tuple: bool
+) -> None:
+    producer = hf.TaskSchema(
+        "selected_member_producer",
+        outputs=[hf.SchemaOutput("p1", multiplicity=3)],
+        actions=[
+            hf.Action(commands=[hf.Command("echo values", stdout="<<parameter:p1>>")])
+        ],
+    )
+    consumer = hf.TaskSchema(
+        "selected_member_consumer",
+        inputs=[hf.SchemaInput("p1")],
+        actions=[hf.Action(commands=[hf.Command("echo <<parameter:p1>>")])],
+    )
+    workflow = hf.Workflow.from_template_data(
+        template_name="selected_members",
+        tasks=[
+            hf.Task(
+                producer, disable_array_outputs=["p1"] if storage == "legacy" else []
+            ),
+            hf.Task(consumer),
+        ],
+        path=tmp_path,
+        store="zarr",
+    )
+    workflow.add_submission()
+    values: list[dict[str, Any]] = [
+        {
+            "data": np.arange(idx + 1),
+            "steps": [
+                {"stress": np.ma.array([idx, step], mask=[False, True], fill_value=-1)}
+                for step in range(idx + 1)
+            ],
+        }
+        for idx in range(3)
+    ]
+    parent_id = workflow.tasks[0].elements[0].get_data_idx()["outputs.p1"]
+    assert isinstance(parent_id, int)
+    workflow.set_parameter_value(
+        parent_id, tuple(values) if as_tuple else values, commit=True
+    )
+    if storage == "consolidated":
+        workflow.consolidate_array_outputs(status=False)
+    saved_path = (
+        workflow.zip(path=str(tmp_path), status=False)
+        if storage == "zip"
+        else workflow.path
+    )
+    restored = hf.Workflow(saved_path)
+    member_ids = []
+    for element in restored.tasks[1].elements:
+        member_id = element.get_data_idx()["inputs.p1"]
+        assert isinstance(member_id, int)
+        member_ids.append(member_id)
+    restored._store._ensure_all_decoders()
+    decoder = Mock(wraps=ZarrStoreParameter._all_decoders["masked_arrays"])
+    monkeypatch.setitem(ZarrStoreParameter._all_decoders, "masked_arrays", decoder)
+    get_run = Mock(wraps=restored.get_EARs_from_IDs)
+    monkeypatch.setattr(restored, "get_EARs_from_IDs", get_run)
+    read = Mock(wraps=restored._read_array_output_archive)
+    monkeypatch.setattr(restored, "_read_array_output_archive", read)
+    param = restored.get_parameter(member_ids[1])
+    assert isinstance(param.data, dict)
+    decoder.assert_called_once()
+    assert decoder.call_args.kwargs["path"] == [1]
+    get_run.assert_called_once()
+    assert read.call_count == (0 if storage == "legacy" else 5)
+    assert parent_id not in restored._store.parameter_cache
+    np.testing.assert_array_equal(param.data["data"], values[1]["data"])
+    assert len(param.data["steps"]) == 2
+    assert param.source["type"] == "EAR_output"
+    assert restored.get_parameter_sources([member_ids[1]]) == [param.source]
+    assert restored.is_parameter_set(member_ids[1])
+
+    decoder.reset_mock()
+    batch = restored.get_parameters([member_ids[2], member_ids[0], member_ids[2]])
+    assert decoder.call_count == 2
+    for item, count in zip(batch, [3, 1, 3], strict=True):
+        assert isinstance(item.data, dict)
+        assert len(item.data["steps"]) == count
+    assert [item.id_ for item in batch] == [member_ids[2], member_ids[0], member_ids[2]]
+    for selected, expected in zip(batch, [values[2], values[0], values[2]], strict=True):
+        assert isinstance(selected.data, dict)
+        np.testing.assert_array_equal(selected.data["data"], expected["data"])
+        for actual_step, expected_step in zip(
+            selected.data["steps"], expected["steps"], strict=True
+        ):
+            np.testing.assert_array_equal(
+                actual_step["stress"].data, expected_step["stress"].data
+            )
+            np.testing.assert_array_equal(
+                actual_step["stress"].mask, expected_step["stress"].mask
+            )
+            assert actual_step["stress"].fill_value == -1
+
+    whole = restored.get_parameter(parent_id)
+    assert isinstance(whole.data, (list, tuple))
+    assert isinstance(whole.data, tuple if as_tuple else list)
+    assert len(whole.data) == 3
+    for actual, expected in zip(whole.data, values, strict=True):
+        np.testing.assert_array_equal(actual["data"], expected["data"])
+    with restored._store.cache_ctx():
+        restored._store.parameter_cache[parent_id] = whole
+        decoder.reset_mock()
+        cached_member = restored.get_parameter(member_ids[0])
+        decoder.assert_not_called()
+        assert isinstance(cached_member.data, dict)
+        np.testing.assert_array_equal(cached_member.data["data"], values[0]["data"])
+        cached_whole = restored.get_parameter(parent_id).data
+        assert isinstance(cached_whole, (list, tuple))
+        assert len(cached_whole) == 3
 
 
 @pytest.mark.parametrize("multiplicity", [None, 1, 3])

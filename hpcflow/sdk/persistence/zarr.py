@@ -7,7 +7,7 @@ from __future__ import annotations
 import copy
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
 import msgpack  # type: ignore[import-untyped]
@@ -174,6 +174,7 @@ class _ArrayOutputContext:
     output_name: str
     members: bool
     pending: dict[str, list[tuple[int | None, NDArray]]] = field(default_factory=dict)
+    selected_member: int | None = None
 
     def array_name(self, path: list[int]) -> tuple[str, int | None]:
         member_idx = None
@@ -293,7 +294,13 @@ def _decode_numpy_arrays(
                 if array_output_cache is None:
                     array_output_cache = {}
                 if name not in array_output_cache:
-                    output = run.workflow.get_array_output(name, run.id_)
+                    output = run.workflow._get_array_output(
+                        name,
+                        run.id_,
+                        run=run,
+                        member_idx=array_output_context.selected_member,
+                        resolved_path=archive_path,
+                    )
                     if output.member_idx is None:
                         if not isinstance(output.data, np.ndarray):
                             raise TypeError(f"Expected a single array for EAR {run.id_}.")
@@ -2876,6 +2883,63 @@ class ZarrPersistentStore(
         param_dat.update((k, None) for k in id_lst if k not in param_dat)
 
         return param_dat, src_dat
+
+    @override
+    @TimeIt.decorator
+    def get_output_members(
+        self, sources: Mapping[int, ParamSource], *, dataset_copy: bool = False, **kwargs
+    ) -> dict[int, ZarrStoreParameter]:
+        """Decode only selected members of persistent, sequence-valued outputs."""
+        self._ensure_all_decoders()
+        parent_ids = {
+            source["parameter_ID"]
+            for source in sources.values()
+            if source["parameter_ID"] not in self.parameter_cache
+            and source["parameter_ID"] not in self._pending.add_parameters
+        }
+        data, parent_sources = (
+            self._get_base_parameters(parent_ids) if parent_ids else ({}, {})
+        )
+        members: dict[int, ZarrStoreParameter] = {}
+        fallback: dict[int, ParamSource] = {}
+        contexts: dict[int, _ArrayOutputContext | None] = {}
+        decoded: dict[tuple[int, int], ZarrStoreParameter] = {}
+        for id_, source in sources.items():
+            parent_id = source["parameter_ID"]
+            encoded = data.get(parent_id)
+            if (
+                not isinstance(encoded, dict)
+                or "file" in encoded
+                or not isinstance(encoded.get("data"), (list, tuple))
+            ):
+                fallback[id_] = source
+                continue
+            self._validate_output_member(encoded["data"], source)
+            key = parent_id, source["member_idx"]
+            if key not in decoded:
+                if parent_id not in contexts:
+                    contexts[parent_id] = self._get_array_output_context(
+                        parent_id, parent_sources[parent_id]
+                    )
+                context = contexts[parent_id]
+                if context is not None:
+                    context.selected_member = source["member_idx"]
+                decoded[key] = ZarrStoreParameter.decode(
+                    id_=id_,
+                    data=encoded,
+                    source=parent_sources[parent_id],
+                    path=[source["member_idx"]],
+                    arr_group=self.get_parameter_data_array_group(parent_id),
+                    array_output_context=context,
+                    array_output_cache={},
+                    dataset_copy=dataset_copy,
+                    **kwargs,
+                )
+            members[id_] = replace(decoded[key], id_=id_)
+        members.update(
+            super().get_output_members(fallback, dataset_copy=dataset_copy, **kwargs)
+        )
+        return members
 
     @TimeIt.decorator
     def _get_persistent_parameters(

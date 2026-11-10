@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 import contextlib
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import enum
 from logging import Logger
@@ -895,7 +895,7 @@ class StoreParameter:
         data: dict[str, Any] | Literal[0] | None,
         source: ParamSource,
         *,
-        path: list[str] | None = None,
+        path: list[str | int] | None = None,
         **kwargs,
     ) -> Self:
         """Initialise from persistent store parameter data."""
@@ -936,6 +936,14 @@ class StoreParameter:
         types_ordered = {**primitives, **types_ordered}
 
         for type_, paths in types_ordered.items():
+            if type_ in cls._all_decoders and paths:
+                obj = cls._all_decoders[type_](
+                    obj=obj,
+                    type_lookup=data_["type_lookup"],
+                    path=path,
+                    **kwargs,
+                )
+                continue
             for type_path in paths:
                 if type_ == "tuples":
                     try:
@@ -959,13 +967,6 @@ class StoreParameter:
                         )
                     else:
                         obj = set(obj)
-                elif type_ in cls._all_decoders:
-                    obj = cls._all_decoders[type_](
-                        obj=obj,
-                        type_lookup=data_["type_lookup"],
-                        path=path,
-                        **kwargs,
-                    )
 
         return cls(
             id_=id_,
@@ -2756,6 +2757,40 @@ class PersistentStore(
 
         # order as requested:
         return [params[id_] for id_ in ids]
+
+    def get_output_members(
+        self, sources: Mapping[int, ParamSource], **kwargs
+    ) -> dict[int, AnySParameter]:
+        """Resolve member references; stores may select before decoding the parent."""
+        parents = {
+            parent.id_: parent
+            for parent in self.get_parameters(
+                {source["parameter_ID"] for source in sources.values()}, **kwargs
+            )
+        }
+        members = {}
+        for id_, source in sources.items():
+            parent = parents[source["parameter_ID"]]
+            value = parent.data
+            if parent.is_set:
+                self._validate_output_member(value, source)
+                value = get_in_container(value, [source["member_idx"]])
+            members[id_] = replace(parent, id_=id_, data=value)
+        return members
+
+    @staticmethod
+    def _validate_output_member(value: Any, source: ParamSource) -> None:
+        from zarr import Array as ZarrArray  # type: ignore
+
+        if (
+            not isinstance(value, (list, tuple, np.ndarray, ZarrArray))
+            or (hasattr(value, "ndim") and value.ndim == 0)
+            or len(value) != source["multiplicity"]
+        ):
+            raise ValueError(
+                f"Output parameter {source['parameter_ID']} must contain "
+                f"{source['multiplicity']} members."
+            )
 
     @abstractmethod
     def _get_persistent_parameters(

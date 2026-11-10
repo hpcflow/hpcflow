@@ -8,7 +8,7 @@ from collections.abc import Callable
 import codecs
 from contextlib import closing, contextmanager, ExitStack, nullcontext
 import copy
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields
 import errno
 from io import BytesIO
 import json
@@ -33,7 +33,6 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
-from zarr import Array as ZarrArray  # type: ignore
 import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
@@ -2992,34 +2991,19 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         parameters = self._store.get_parameters(id_lst, **kwargs)
-        parent_ids = {
-            parameter.source["parameter_ID"]
+        member_sources = {
+            parameter.id_: parameter.source
             for parameter in parameters
             if parameter.source.get("type") == "output_member"
         }
-        parents = (
-            {parent.id_: parent for parent in self.get_parameters(parent_ids, **kwargs)}
-            if parent_ids
+        members = (
+            self._store.get_output_members(member_sources, **kwargs)
+            if member_sources
             else {}
         )
         for idx, parameter in enumerate(parameters):
-            if parameter.source.get("type") != "output_member":
-                continue
-            source = parameter.source
-            parent = parents[source["parameter_ID"]]
-            data = parent.data
-            if parent.is_set:
-                if (
-                    not isinstance(data, (list, tuple, np.ndarray, ZarrArray))
-                    or (hasattr(data, "ndim") and data.ndim == 0)
-                    or len(data) != source["multiplicity"]
-                ):
-                    raise ValueError(
-                        f"Output parameter {source['parameter_ID']} must contain "
-                        f"{source['multiplicity']} members."
-                    )
-                data = data[source["member_idx"]]
-            parameters[idx] = replace(parent, id_=parameter.id_, data=data)
+            if parameter.id_ in members:
+                parameters[idx] = members[parameter.id_]
         return parameters
 
     @TimeIt.decorator
@@ -6011,6 +5995,19 @@ class Workflow(AppAware):
         With ``run_IDs=None``, include every saved run for this output, across tasks
         and iterations. With ``sort=False``, archives are visited in path order.
         """
+        return self._get_array_output(name, run_IDs, sort=sort)
+
+    def _get_array_output(
+        self,
+        name: str,
+        run_IDs: int | Iterable[int] | None = None,
+        *,
+        sort: bool = True,
+        run: ElementActionRun | None = None,
+        member_idx: int | None = None,
+        resolved_path: Path | None = None,
+    ) -> ArrayOutput:
+        """Read arrays, optionally reusing a resolved run and selecting one member."""
         loaded_archives: dict[Path, _ArrayOutputArchive] = {}
         run_files: list[tuple[int, Path]]
         if run_IDs is None:
@@ -6026,7 +6023,7 @@ class Workflow(AppAware):
         elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
-            EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
+            EAR = run if run is not None else self.get_EARs_from_IDs(requested_run_IDs[0])
             EARs: list[ElementActionRun] = [cast(ElementActionRun, EAR)]
         else:
             is_single_run = False
@@ -6047,7 +6044,16 @@ class Workflow(AppAware):
                     )
                 # the shard path; loading falls back to the consolidated archive:
                 run_files.append(
-                    (run_ID, self._get_array_output_archive_path(name, EAR.run_file_ID))
+                    (
+                        run_ID,
+                        (
+                            resolved_path
+                            if resolved_path is not None
+                            else self._get_array_output_archive_path(
+                                name, EAR.run_file_ID
+                            )
+                        ),
+                    )
                 )
         if not run_files:
             raise ValueError(f"No saved runs selected for array output {name!r}.")
@@ -6089,6 +6095,15 @@ class Workflow(AppAware):
                     )
 
                 if archive.member_idx is not None:
+                    if member_idx is not None:
+                        matching_indices = matching_indices[
+                            archive.member_idx[matching_indices] == member_idx
+                        ]
+                        if not len(matching_indices):
+                            raise ValueError(
+                                f"Missing member {member_idx} for array output {name!r} "
+                                f"of EAR {run_ID}."
+                            )
                     selected_members = archive.member_idx[matching_indices]
                     if len(np.unique(selected_members)) != len(selected_members):
                         raise ValueError(
