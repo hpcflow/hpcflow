@@ -83,6 +83,7 @@ from hpcflow.sdk.persistence.member_array_outputs import (
     member_array_output_record_has_array,
     read_member_array_output_index,
     read_member_array_output_record,
+    read_member_array_output_records,
     write_member_array_output_archive,
 )
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
@@ -5782,8 +5783,11 @@ class Workflow(AppAware):
         member_archives = self._list_member_array_output_archive_paths()
         for path in member_archives:
             index = read_member_array_output_index(fs, path.as_posix())
-            for array_paths in index["schemas"].values():
-                names.update(array_paths)
+            if index["version"] == 2:
+                names.update(index["paths"])
+            else:
+                for array_paths in index["schemas"].values():
+                    names.update(array_paths)
         names |= {
             Path(path).parent.name
             for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_CONSOLIDATED_NAME}")
@@ -6132,17 +6136,13 @@ class Workflow(AppAware):
         members: dict[int, dict[str, np.ndarray]] = defaultdict(dict)
         for name, values in entries.items():
             for member_idx, value in values:
-                if member_idx is None:
+                record_idx = -1 if member_idx is None else member_idx
+                if name in members[record_idx]:
                     raise ValueError(
-                        f"Array output {name!r} has no member index for "
-                        f"multiplicity output {output_name!r}."
-                    )
-                if name in members[member_idx]:
-                    raise ValueError(
-                        f"Duplicate array output {name!r} for member {member_idx} "
+                        f"Duplicate array output {name!r} for member {record_idx} "
                         f"of EAR {EAR.id_}."
                     )
-                members[member_idx][name] = value
+                members[record_idx][name] = value
         metadata = {
             "task_insert_ID": EAR.task.insert_ID,
             "task_idx": EAR.task.index,
@@ -6171,36 +6171,32 @@ class Workflow(AppAware):
     ) -> dict[str, np.ndarray] | None:
         """Read a member record from a live shard or consolidated archive."""
         shard = self._get_member_array_output_archive_path(output_name, *shard_key)
-        archive_path = (
-            shard
-            if self._array_output_fs.exists(shard.as_posix())
-            else self._get_member_array_output_consolidated_path(output_name)
-        )
-        if not self._array_output_fs.exists(archive_path.as_posix()):
-            return None
-        index = read_member_array_output_index(
-            self._array_output_fs, archive_path.as_posix()
-        )
-        if index["output_name"] != output_name:
-            raise ValueError(
-                f"Member-array archive {archive_path} belongs to "
-                f"{index['output_name']!r}, not {output_name!r}."
+        consolidated = self._get_member_array_output_consolidated_path(output_name)
+        paths = [
+            path
+            for path in (shard, consolidated)
+            if self._array_output_fs.exists(path.as_posix())
+        ]
+        for archive_path in paths:
+            index = read_member_array_output_index(
+                self._array_output_fs, archive_path.as_posix()
             )
-        try:
-            return read_member_array_output_record(
-                self._array_output_fs,
-                archive_path.as_posix(),
-                run_ID,
-                member_idx,
-                index=index,
-            )
-        except KeyError:
-            if archive_path == shard:
+            if index["output_name"] != output_name:
                 raise ValueError(
-                    f"Missing member {member_idx} for output {output_name!r} "
-                    f"of EAR {run_ID}."
-                ) from None
-            return None
+                    f"Member-array archive {archive_path} belongs to "
+                    f"{index['output_name']!r}, not {output_name!r}."
+                )
+            try:
+                return read_member_array_output_record(
+                    self._array_output_fs,
+                    archive_path.as_posix(),
+                    run_ID,
+                    member_idx,
+                    index=index,
+                )
+            except KeyError:
+                continue
+        return None
 
     def _get_member_array_output_rows(
         self,
@@ -6227,13 +6223,21 @@ class Workflow(AppAware):
                 )
                 if self._array_output_fs.exists(shard.as_posix()):
                     archive_paths.append(shard)
-                else:
-                    consolidated = self._get_member_array_output_consolidated_path(
-                        output_root
-                    )
-                    if self._array_output_fs.exists(consolidated.as_posix()):
-                        archive_paths.append(consolidated)
+                consolidated = self._get_member_array_output_consolidated_path(
+                    output_root
+                )
+                if self._array_output_fs.exists(consolidated.as_posix()):
+                    archive_paths.append(consolidated)
             archive_paths = list(dict.fromkeys(archive_paths))
+        archive_paths.sort(key=lambda path: path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME)
+        shadowed_run_IDs = {
+            record["run_ID"]
+            for path in archive_paths
+            if path.name != ARRAY_OUTPUT_CONSOLIDATED_NAME
+            for record in read_member_array_output_index(
+                self._array_output_fs, path.as_posix()
+            )["records"]
+        }
 
         rows_by_run: dict[int, list[tuple[np.ndarray, dict[str, int], int]]] = (
             defaultdict(list)
@@ -6241,13 +6245,22 @@ class Workflow(AppAware):
         seen: set[tuple[int, int]] = set()
         for path in archive_paths:
             index = read_member_array_output_index(self._array_output_fs, path.as_posix())
-            schema_positions = {
-                schema_id: {array_path: idx for idx, array_path in enumerate(paths)}
-                for schema_id, paths in index["schemas"].items()
-            }
+            schema_positions = (
+                {
+                    schema_id: {array_path: idx for idx, array_path in enumerate(paths)}
+                    for schema_id, paths in index["schemas"].items()
+                }
+                if index["version"] == 1
+                else None
+            )
+            matching_records = []
             for record in index["records"]:
                 if (
-                    not member_array_output_record_has_array(
+                    (
+                        path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME
+                        and record["run_ID"] in shadowed_run_IDs
+                    )
+                    or not member_array_output_record_has_array(
                         index,
                         record,
                         name,
@@ -6261,12 +6274,17 @@ class Workflow(AppAware):
                 if key in seen:
                     raise ValueError(f"Duplicate member-array record {key} for {name!r}.")
                 seen.add(key)
-                arrays = read_member_array_output_record(
-                    self._array_output_fs,
-                    path.as_posix(),
-                    *key,
-                    index=index,
-                )
+                matching_records.append(record)
+            arrays_by_key = read_member_array_output_records(
+                self._array_output_fs,
+                path.as_posix(),
+                [(record["run_ID"], record["member_idx"]) for record in matching_records],
+                index=index,
+                name=name,
+            )
+            for record in matching_records:
+                key = record["run_ID"], record["member_idx"]
+                arrays = arrays_by_key[key]
                 metadata = dict(record["metadata"])
                 metadata["run_ID"] = record["run_ID"]
                 rows_by_run[record["run_ID"]].append(
@@ -6294,11 +6312,12 @@ class Workflow(AppAware):
         and all shapes match, otherwise it is a list. Sparse sub-parameters contain
         only members that supplied that array.
 
-        Archives are Zstandard-compressed NPZ files in 500-file shard directories,
-        optionally merged into one indexed ``consolidated.zip`` per output by
-        :meth:`consolidate_array_outputs`. Single-run reads load only the matching
-        chunks. Legacy padded/grouped ``consolidated.npz.zst`` archives remain readable.
-        Earlier uncompressed NPZ archives are not supported.
+        New Zarr array outputs are stored as indexed per-run records in
+        ``.members`` archives, optionally merged into one ``consolidated.zip`` per
+        output by :meth:`consolidate_array_outputs`. Reads can select one array path
+        without loading unrelated large arrays. Existing per-path NPZ/Zstandard
+        archives and version-1 member archives remain readable and are migrated when
+        consolidated.
         With ``run_IDs=None``, include every saved run for this output, across tasks
         and iterations. With ``sort=False``, archives are visited in path order.
         """
@@ -6398,7 +6417,9 @@ class Workflow(AppAware):
         }
         output_shapes: list[tuple[int, ...]] = []
         has_shape_metadata = len({value.shape for value, _, _ in member_rows}) > 1
-        has_member_metadata = bool(member_rows)
+        has_member_metadata = any(
+            record_member_idx >= 0 for _, _, record_member_idx in member_rows
+        )
         member_indices: list[int] = []
         member_run_IDs = {record["run_ID"] for _, record, _ in member_rows}
         for value, record_metadata, record_member_idx in member_rows:
@@ -6410,6 +6431,8 @@ class Workflow(AppAware):
         with ExitStack() as readers:
             opened_archives: set[int] = set()
             for run_ID, archive_path, shard_key in run_files:
+                if run_ID in member_run_IDs:
+                    continue
                 try:
                     archive = self._load_array_output_archive(
                         name, archive_path, loaded_archives

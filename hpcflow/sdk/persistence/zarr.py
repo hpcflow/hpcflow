@@ -271,37 +271,31 @@ def _decode_numpy_arrays(
             ) or run.task._is_array_output_disabled(original_name)
             if array_output_name_suffix:
                 name = f"{name}.{array_output_name_suffix}"
-            if (
-                arr_idx is None
-                and array_output_context.members
-                and not is_disabled
-                and member_idx is not None
-            ):
-                if member_idx not in array_output_context.member_array_cache:
+            if arr_idx is None and not is_disabled:
+                record_idx = (
+                    member_idx
+                    if array_output_context.members and member_idx is not None
+                    else -1
+                )
+                if record_idx not in array_output_context.member_array_cache:
                     shard_key = run.workflow._get_array_output_shard_key(run)
                     member_arrays = (
                         run.workflow._read_member_array_output_record(
                             array_output_context.output_name,
                             run.id_,
                             shard_key,
-                            member_idx,
+                            record_idx,
                         )
                         if shard_key is not None
                         else None
                     )
-                    if member_arrays is not None:
-                        array_output_context.member_array_cache[member_idx] = (
+                    if member_arrays:
+                        array_output_context.member_array_cache[record_idx] = (
                             member_arrays
                         )
-                member_arrays = array_output_context.member_array_cache.get(member_idx)
-                if member_arrays is not None:
-                    try:
-                        dataset = member_arrays[name]
-                    except KeyError:
-                        raise ValueError(
-                            f"Missing array {name!r} for member {member_idx} of "
-                            f"EAR {run.id_}."
-                        ) from None
+                member_arrays = array_output_context.member_array_cache.get(record_idx)
+                if member_arrays is not None and name in member_arrays:
+                    dataset = member_arrays[name]
                     if rel_path:
                         set_in_container(obj_, rel_path, dataset)
                     else:
@@ -2064,30 +2058,10 @@ class ZarrPersistentStore(
                     ),
                 )
             )
-            if context is not None:
-                if context.members:
-                    # a whole-array value of a multiplicity output has no member index,
-                    # so is stored as a whole value, from which members are selected:
-                    member_entries: dict[str, list[tuple[int | None, np.ndarray]]] = {}
-                    for name, entries in context.pending.items():
-                        whole = [entry for entry in entries if entry[0] is None]
-                        if whole:
-                            self.workflow._save_array_output_entries(
-                                context.run, name, whole
-                            )
-                        if len(whole) != len(entries):
-                            member_entries[name] = [
-                                entry for entry in entries if entry[0] is not None
-                            ]
-                    if member_entries:
-                        self.workflow._save_member_array_output(
-                            context.run, context.output_name, member_entries
-                        )
-                else:
-                    for name, entries in context.pending.items():
-                        self.workflow._save_array_output_entries(
-                            context.run, name, entries
-                        )
+            if context is not None and context.pending:
+                self.workflow._save_member_array_output(
+                    context.run, context.output_name, context.pending
+                )
 
         # sub idx -> file_ID -> run_ID -> file index
         # file zero is for local inputs, hence the offset from the run metadata file IDs:
