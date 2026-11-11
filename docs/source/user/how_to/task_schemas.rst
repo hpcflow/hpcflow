@@ -270,17 +270,16 @@ Consolidation merges the shard archives into one indexed archive per output
 parameter. Reads from a zipped workflow use the same partial-read path: only the
 index and selected array entries are read from the outer zip.
 
-Outputs without positive multiplicity retain the per-logical-sub-parameter array
-archive layout described below.
-
 Reading a downstream member from a sequence-valued Zarr output decodes only that
 member, rather than reconstructing every member of the producing output first.
 The reader reuses the producing action-run context across array sub-parameters.
 Bulk type decoders run once per parameter or selected member, not once per array
 in the type lookup table. Whole-output reads still return the complete value.
 These read optimizations also apply to existing saved workflows. Existing per-path
-shards and indexed per-path archives remain readable and are migrated to the
-run-record layout during consolidation.
+shards and indexed per-path archives remain readable through the legacy per-path
+reader and are not converted to run records during consolidation. Existing
+version-1 member archives are migrated to the current run-record format when
+consolidated.
 
 Each run-record archive contains a versioned ``format.json``, a binary
 ``index.npz`` sorted by run ID and member index, and a ``paths.json`` table of
@@ -297,9 +296,9 @@ direct range reads, including on Python 3.10--3.12. Externally recompressing the
 outer ZIP can make seeking slower.
 
 Existing padded and shape-group ``consolidated.npz.zst`` archives remain readable
-through the legacy reader. Consolidation migrates them to the indexed format,
-even without new shards, trimming their padding. Older hpcflow versions cannot
-read the new indexed archives.
+through the legacy reader. Consolidation migrates them to the indexed per-path
+archive format, even without new shards, trimming their padding. Older hpcflow
+versions cannot read the new indexed archives.
 Array archives store task, element, iteration, action, and run IDs and indices as
 ``uint32`` (0 to 4,294,967,295). Writes reject values outside this range rather
 than wrapping them. Existing signed metadata remains readable and is converted
