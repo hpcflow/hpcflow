@@ -103,6 +103,20 @@ class ConfigDescriptor(TypedDict):
     use_rich_tracebacks: NotRequired[bool]
     #: Delete execution directories after successful task iterations.
     delete_execute_dir: NotRequired[bool]
+    #: Maximum retained inactive submission records; active records are always retained.
+    known_submissions_max_inactive: NotRequired[int]
+    #: Maximum unknown records, retaining the most recently submitted first.
+    known_submissions_max_unknown: NotRequired[int]
+    #: Default number of inactive submission records displayed by show.
+    show_max_recent: NotRequired[int]
+    #: Minimum seconds between show scheduler queries per compatible query target.
+    show_scheduler_min_interval: NotRequired[int]
+    #: Display timezone for show: local, UTC, or an IANA timezone name.
+    show_timezone: NotRequired[str]
+    #: Ordered columns included in the show table.
+    show_columns: NotRequired[list[str]]
+    #: Ordered columns included in the show --list table.
+    show_list_columns: NotRequired[list[str]]
     #: Move retained custom-scratch execution directories back into the workflow.
     move_scratch_to_workflow: NotRequired[bool]
 

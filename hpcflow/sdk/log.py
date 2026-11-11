@@ -11,7 +11,8 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock, current_thread, local, main_thread
 from typing import ClassVar, Literal, ParamSpec, TypeVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -37,6 +38,16 @@ class _Summary:
     children: dict[tuple[str, ...], _Summary]
 
 
+@dataclass
+class _ThreadTrace:
+    """Independent nesting state for one profiling worker."""
+
+    trace: list[str] = field(default_factory=list)
+    trace_idx: list[int] = field(default_factory=list)
+    trace_prev: list[str] = field(default_factory=list)
+    trace_idx_prev: list[int] = field(default_factory=list)
+
+
 class TimeIt:
     """
     Method execution time instrumentation.
@@ -58,6 +69,8 @@ class TimeIt:
     trace_prev: ClassVar[list[str]] = []
     #: Preceding trace indices.
     trace_idx_prev: ClassVar[list[int]] = []
+    _worker_traces: ClassVar[local] = local()
+    _timers_lock: ClassVar[Lock] = Lock()
     #: File mode for when summarising to a file
     file_mode: ClassVar[Literal["w", "a"]] = "w"
     #: ``time.perf_counter`` assigned at the CLI entry point if active.
@@ -83,6 +96,15 @@ class TimeIt:
         self._tic: float | None = None
         self._trace_key: tuple[str, ...] | None = None
 
+    @classmethod
+    def _thread_trace(cls) -> type[TimeIt] | _ThreadTrace:
+        """Keep existing main-thread traces and isolate nesting in reader workers."""
+        if current_thread() is main_thread():
+            return cls
+        if not hasattr(cls._worker_traces, "state"):
+            cls._worker_traces.state = _ThreadTrace()
+        return cls._worker_traces.state
+
     def __enter__(self):
         cls = self.__class__
 
@@ -95,15 +117,16 @@ class TimeIt:
         if not cls.active:
             return self
 
-        cls.trace.append(self.name)
-        self._trace_key = tuple(cls.trace)
+        trace = cls._thread_trace()
+        trace.trace.append(self.name)
+        self._trace_key = tuple(trace.trace)
 
-        if cls.trace_prev == cls.trace:
-            new_trace_idx = cls.trace_idx_prev[-1] + 1
+        if trace.trace_prev == trace.trace:
+            new_trace_idx = trace.trace_idx_prev[-1] + 1
         else:
             new_trace_idx = 0
 
-        cls.trace_idx.append(new_trace_idx)
+        trace.trace_idx.append(new_trace_idx)
         self._tic = time.perf_counter()
 
         return self
@@ -124,15 +147,17 @@ class TimeIt:
         if self._tic is None:
             return
 
+        trace = cls._thread_trace()
         try:
             elapsed = time.perf_counter() - self._tic
-            cls.timers[self._trace_key].append(elapsed)
+            with cls._timers_lock:
+                cls.timers[self._trace_key].append(elapsed)
         finally:
-            cls.trace_prev = list(cls.trace)
-            cls.trace_idx_prev = list(cls.trace_idx)
+            trace.trace_prev = list(trace.trace)
+            trace.trace_idx_prev = list(trace.trace_idx)
 
-            cls.trace.pop()
-            cls.trace_idx.pop()
+            trace.trace.pop()
+            trace.trace_idx.pop()
 
     @classmethod
     def decorator(cls, func: Callable[P, T]) -> Callable[P, T]:
@@ -145,30 +170,8 @@ class TimeIt:
             if not cls.active:
                 return func(*args, **kwargs)
 
-            cls.trace.append(func.__qualname__)
-            trace_key = tuple(cls.trace)
-
-            if cls.trace_prev == cls.trace:
-                new_trace_idx = cls.trace_idx_prev[-1] + 1
-            else:
-                new_trace_idx = 0
-            cls.trace_idx.append(new_trace_idx)
-
-            tic = time.perf_counter()
-
-            try:
+            with cls(func.__qualname__):
                 return func(*args, **kwargs)
-            finally:
-                toc = time.perf_counter()
-                elapsed = toc - tic
-
-                cls.timers[trace_key].append(elapsed)
-
-                cls.trace_prev = list(cls.trace)
-                cls.trace_idx_prev = list(cls.trace_idx)
-
-                cls.trace.pop()
-                cls.trace_idx.pop()
 
         return wrapper
 
@@ -478,6 +481,7 @@ class TimeIt:
         cls.trace_idx = []
         cls.trace_prev = []
         cls.trace_idx_prev = []
+        cls._worker_traces = local()
 
 
 class AppLog:

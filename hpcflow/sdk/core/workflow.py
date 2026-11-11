@@ -138,6 +138,7 @@ from hpcflow.sdk.core.errors import (
 )
 
 if TYPE_CHECKING:
+    from ..monitoring.run_filters import IndexFilter
     from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
@@ -1263,9 +1264,10 @@ class Workflow(AppAware):
     Parameters
     ----------
     workflow_ref:
-        Either the path to a persistent workflow, or an integer that will interpreted
-        as the local ID of a workflow submission, as reported by the app `show`
-        command.
+        A path to a persistent workflow, a registered workflow name, or a local
+        submission ID reported by the app `show` command. Path objects and explicit
+        path strings are always interpreted as paths.
+        The ID ``-1`` selects the most recently submitted registered workflow.
     store_fmt:
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:
@@ -1290,6 +1292,17 @@ class Workflow(AppAware):
             path = self._app._get_workflow_path_from_local_ID(workflow_ref)
         elif isinstance(workflow_ref, str):
             path = Path(workflow_ref)
+            from hpcflow.sdk.monitoring.references import (
+                is_path_reference,
+                resolve_records,
+                resolve_workflow_path,
+            )
+            from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+            if not is_path_reference(workflow_ref):
+                records = SubmissionRegistry(self._app).read().records
+                if resolve_records(records, workflow_ref):
+                    path = resolve_workflow_path(records, workflow_ref)
         else:
             path = workflow_ref
 
@@ -3793,6 +3806,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
 
         with self._store.cached_load(), self.batch_update():
             success = exit_code == 0  # TODO  more sophisticated success heuristics
@@ -3833,6 +3847,7 @@ class Workflow(AppAware):
                     self._store.set_EAR_skip(
                         {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                     )
+                    upstream_skips.add(EAR_dep_ID)
 
             new_run_skips.update(self.__apply_task_conditions(run))
 
@@ -3840,6 +3855,9 @@ class Workflow(AppAware):
                 run.id_, exit_code, success, run.action.requires_dir and not run.skip
             )
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         self._clean_up_execute_dirs(run, success)
         return new_run_skips
 
@@ -4018,6 +4036,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
         completed_runs: list[tuple[ElementActionRun, bool]] = []
 
         with self._store.cached_load(), self.batch_update():
@@ -4091,6 +4110,7 @@ class Workflow(AppAware):
                             self._store.set_EAR_skip(
                                 {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                             )
+                            upstream_skips.add(EAR_dep_ID)
                     else:
                         self._app.logger.info(
                             "`skip_downstream_on_failure` is False, run was "
@@ -4107,6 +4127,9 @@ class Workflow(AppAware):
 
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         for run, success in completed_runs:
             self._clean_up_execute_dirs(run, success)
         return new_run_skips
@@ -4118,6 +4141,9 @@ class Workflow(AppAware):
         """
         with self._store.cached_load(), self.batch_update():
             self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, skip_reasons)
 
     def get_EAR_skipped(self, EAR_ID: int) -> int:
         """Check if an EAR is to be skipped."""
@@ -5054,6 +5080,12 @@ class Workflow(AppAware):
         if sub_obj.needs_script_indices_dir:
             sub_obj.js_script_indices_path.mkdir(exist_ok=True)
 
+        from ..monitoring.active_runs import enable_tracking
+
+        if status:
+            status.update("Adding new submission: enabling active-run tracking...")
+        enable_tracking(self, sub_obj.index, sub_obj.jobscripts)
+
         if status:
             status.update("Adding new submission: writing scripts and command files...")
 
@@ -5308,8 +5340,13 @@ class Workflow(AppAware):
     ) -> None:
         """Execute commands of a run via a subprocess, using the parameter metadata
         cache."""
+        from ..monitoring.active_runs import track_run
+
         # parameter sources do not change during execution:
-        with self._store.parameters_metadata_cache():
+        with (
+            self._store.parameters_metadata_cache(),
+            track_run(self, submission_idx, int(block_act_key[0]), run_ID),
+        ):
             return self._execute_run(submission_idx, block_act_key, run_ID)
 
     @TimeIt.decorator
@@ -7145,6 +7182,67 @@ class Workflow(AppAware):
                 f"Array-output archive {path} has invalid member_idx metadata."
             )
         return _ArrayOutputArchive(data=data, **arrays, shape=shapes, member_idx=members)
+
+    def show_runs(
+        self,
+        state: EARStatus | str | None = None,
+        *,
+        task_idx: IndexFilter = None,
+        task_id: IndexFilter = None,
+        task_name: str | Sequence[str] | None = None,
+        element_idx: IndexFilter = None,
+        iteration_idx: IndexFilter = None,
+        action_idx: IndexFilter = None,
+        run_id: IndexFilter = None,
+        run_idx: IndexFilter = None,
+        columns: str | Sequence[str] | None = None,
+    ) -> None:
+        """Print individual action runs, optionally filtered by engine state.
+
+        Parameters
+        ----------
+        state : EARStatus or str, optional
+            An engine state or its case-insensitive name, such as ``error``.
+            Omit to show all runs. Invalid names raise ValueError.
+        task_idx, task_id, element_idx, iteration_idx, action_idx, run_id, run_idx
+            Optional non-negative index/ID selections: an integer, integer sequence,
+            or comma-separated indices and inclusive ranges such as ``0,2-5``.
+            Combine coordinates with AND. Task indices are positions in workflow
+            order; task IDs are stable insertion IDs. Run IDs are global, while
+            run indices identify per-action attempts. Other indices are zero-based.
+        task_name
+            Exact task unique name(s), comma-separated or a sequence.
+        columns
+            Ordered column identifiers, comma-separated or a sequence. ``all``
+            selects every column. Optional fields include host, start, end, duration,
+            and array_idx (zero-based scheduler array item; absent for serial jobs).
+            end_size and end_size_bytes sum regular-file sizes in snapshot_end,
+            using readable units or exact bytes without scanning the run directory.
+            Datetimes use show_timezone. Running durations use the current time.
+
+        Notes
+        -----
+        Include all attempts across iterations and submissions, so failed runs
+        remain inspectable after successful retries. Display run IDs, task and
+        element coordinates, action short names, attempt/submission/jobscript indices,
+        states, and exit codes.
+        Read workflow data without querying schedulers or updating monitoring files.
+        """
+        from ..monitoring.runs import show_runs
+
+        show_runs(
+            self,
+            state,
+            task_idx=task_idx,
+            task_id=task_id,
+            task_name=task_name,
+            element_idx=element_idx,
+            iteration_idx=iteration_idx,
+            action_idx=action_idx,
+            run_id=run_id,
+            run_idx=run_idx,
+            columns=columns,
+        )
 
     def show_all_EAR_statuses(self) -> None:
         """

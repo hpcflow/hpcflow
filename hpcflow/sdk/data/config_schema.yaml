@@ -30,6 +30,13 @@ rules:
         - show_tracebacks
         - use_rich_tracebacks
         - delete_execute_dir
+        - known_submissions_max_inactive
+        - known_submissions_max_unknown
+        - show_max_recent
+        - show_scheduler_min_interval
+        - show_timezone
+        - show_columns
+        - show_list_columns
         - move_scratch_to_workflow
   - path: []
     condition:
@@ -314,6 +321,63 @@ rules:
       have completed successfully.
     condition:
       value.is_instance: [bool]
+
+  - path: [known_submissions_max_inactive]
+    doc: Maximum inactive submission records to retain. Active records are always retained.
+    condition:
+      and:
+        - value.type.equal_to: int
+        - value.greater_than_or_equal_to: 0
+
+  - path: [known_submissions_max_unknown]
+    doc: Maximum unknown submission records to retain, ordered by submission time. Defaults to 10; active records are always retained.
+    condition:
+      and:
+        - value.type.equal_to: int
+        - value.greater_than_or_equal_to: 0
+
+  - path: [show_max_recent]
+    doc: Default number of recent inactive submissions displayed by show.
+    condition:
+      and:
+        - value.type.equal_to: int
+        - value.greater_than_or_equal_to: 0
+
+  - path: [show_columns]
+    doc: Ordered columns for show. Omitted columns are hidden.
+    condition:
+      and:
+        - value.type.equal_to: list
+        - value.length.greater_than: 0
+
+  - path: [show_columns, { type: list_value }]
+    condition:
+      value.in: [id, name, status, availability, actions, elements, submit, start, end, times, submission, path]
+
+  - path: [show_list_columns]
+    doc: Ordered columns for show --list. Action and element states use cached data only.
+    condition:
+      and:
+        - value.type.equal_to: list
+        - value.length.greater_than: 0
+
+  - path: [show_list_columns, { type: list_value }]
+    condition:
+      value.in: [id, name, status, availability, actions, elements, submit, start, end, times, submission, path]
+
+  - path: [show_scheduler_min_interval]
+    doc: Minimum seconds between show scheduler queries per query target. Defaults to 20; zero disables caching. Override once with --ignore-scheduler-interval.
+    condition:
+      and:
+        - value.type.equal_to: int
+        - value.greater_than_or_equal_to: 0
+
+  - path: [show_timezone]
+    doc: Timezone for show datetime display. Use local, UTC, or an IANA timezone name.
+    condition:
+      and:
+        - value.type.equal_to: str
+        - value.length.greater_than: 0
 
   - path: [move_scratch_to_workflow]
     doc: >

@@ -4,7 +4,6 @@ An interface to SLURM.
 
 from __future__ import annotations
 import subprocess
-import time
 from typing import cast, TYPE_CHECKING
 from typing_extensions import override
 from hpcflow.sdk.typing import hydrate
@@ -21,7 +20,7 @@ from hpcflow.sdk.submission.schedulers import QueuedScheduler
 from hpcflow.sdk.submission.schedulers.utils import run_cmd
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from typing import Any, ClassVar
     from ...config.types import SchedulerConfigDescriptor, SLURMPartitionsDescriptor
     from ...core.element import ElementResources
@@ -70,14 +69,10 @@ class SlurmPosix(QueuedScheduler):
     DEFAULT_ARRAY_SWITCH: ClassVar[str] = "--array"
     #: Default shell variable with array ID.
     DEFAULT_ARRAY_ITEM_VAR: ClassVar[str] = "SLURM_ARRAY_TASK_ID"
-    #: Number of times to try when querying the state.
-    NUM_STATE_QUERY_TRIES: ClassVar[int] = 5
-    #: Delay (in seconds) between attempts to query the state.
-    INTER_STATE_QUERY_DELAY: ClassVar[float] = 0.5
-
     #: Maps scheduler state codes to :py:class:`JobscriptElementState` values.
     state_lookup: ClassVar[Mapping[str, JobscriptElementState]] = {
         "PENDING": JobscriptElementState.pending,
+        "CONFIGURING": JobscriptElementState.configuring,
         "RUNNING": JobscriptElementState.running,
         "COMPLETING": JobscriptElementState.running,
         "CANCELLED": JobscriptElementState.cancelled,
@@ -507,14 +502,16 @@ class SlurmPosix(QueuedScheduler):
         return base_job_ID, _arr_idx
 
     def __parse_job_states(
-        self, stdout: str
+        self, stdout: str, wanted: set[str] | None = None
     ) -> dict[str, JobscriptElementState | dict[int, JobscriptElementState]]:
-        """Parse output from Slurm `squeue` command with a simple format."""
+        """Parse requested jobs, skipping unrelated array ranges before expansion."""
         info: dict[str, JobscriptElementState | dict[int, JobscriptElementState]] = {}
         for ln in stdout.split("\n"):
             if not ln:
                 continue
             job_id, job_state, *_ = ln.split()
+            if wanted is not None and job_id.split("_", 1)[0] not in wanted:
+                continue
             base_job_ID, arr_idx = self._parse_job_IDs(job_id)
             state = self.state_lookup.get(job_state, JobscriptElementState.errored)
 
@@ -529,71 +526,27 @@ class SlurmPosix(QueuedScheduler):
 
         return info
 
-    def __query_job_states(self, job_IDs: Iterable[str]) -> tuple[str, str]:
-        """Query the state of the specified jobs."""
-        cmd = [
-            *self.show_cmd,
-            "--noheader",
-            "--format",
-            R"%200i %30T",  # job ID (<base_job_id>_<index> for array job) and job state
-            "--jobs",
-            ",".join(job_IDs),
-        ]
-        return run_cmd(cmd, logger=self._app.submission_logger)
-
-    def __get_job_valid_IDs(self, job_IDs: Collection[str] | None = None) -> set[str]:
-        """Get a list of job IDs that are known by the scheduler, optionally filtered by
-        specified job IDs."""
-
-        cmd = [*self.show_cmd, "--noheader", "--format", r"%F"]
-        stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
-        if stderr:
-            raise ValueError(
-                f"Could not get query Slurm jobs. Command was: {cmd!r}; stderr was: "
-                f"{stderr}"
-            )
-        else:
-            known_jobs = set(i.strip() for i in stdout.split("\n") if i.strip())
-        if job_IDs is None:
-            return known_jobs
-        return known_jobs.intersection(job_IDs)
-
     @override
     def get_job_state_info(
         self, *, js_refs: Sequence[str] | None = None
     ) -> Mapping[str, JobscriptElementState | Mapping[int, JobscriptElementState]]:
-        """Query the scheduler to get the states of all of this user's jobs, optionally
-        filtering by specified job IDs.
+        """Read one queue snapshot and optionally select the requested job IDs.
 
-        Jobs that are not in the scheduler's status output will not appear in the output
-        of this method.
+        Query the configured queue command once, then filter locally before expanding
+        array ranges, so unrelated large arrays do not allocate per-element states.
+        Finished or unknown IDs are simply absent from the snapshot; they do not
+        trigger Slurm's invalid-ID error, a second discovery query, or retries.
+        An explicitly empty reference list performs no query.
         """
-
-        # if job_IDs are passed, then assume they are existant, otherwise retrieve valid
-        # jobs:
-        refs: Collection[str] = js_refs or self.__get_job_valid_IDs()
-
-        count = 0
-        while refs:
-            stdout, stderr = self.__query_job_states(refs)
-            if not stderr:
-                return self.__parse_job_states(stdout)
-            if (
-                "Invalid job id specified" not in stderr
-                or count >= self.NUM_STATE_QUERY_TRIES
-            ):
-                raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
-
-            # the job might have finished; this only seems to happen if a single
-            # non-existant job ID is specified; for multiple non-existant jobs, no
-            # error is produced;
-            self._app.submission_logger.info(
-                "A specified job ID is non-existant; refreshing known job IDs..."
-            )
-            time.sleep(self.INTER_STATE_QUERY_DELAY)
-            refs = self.__get_job_valid_IDs(refs)
-            count += 1
-        return {}
+        if js_refs is not None and not js_refs:
+            return {}
+        cmd = [*self.show_cmd, "--noheader", "--format", r"%200i %30T"]
+        stdout, stderr = run_cmd(cmd, logger=self._app.submission_logger)
+        if stderr:
+            raise ValueError(f"Could not get Slurm job states. Stderr was: {stderr}")
+        return self.__parse_job_states(
+            stdout, wanted=set(js_refs) if js_refs is not None else None
+        )
 
     @override
     def cancel_jobs(

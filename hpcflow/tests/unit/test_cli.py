@@ -461,7 +461,7 @@ def test_cli_make_demo_workflow_add_sub(tmp_path, cli_runner):
             "--add-submission",
         ]
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output or str(result.exception)
     wk_path = Path(result.stdout_bytes.decode().strip())
     assert wk_path.is_dir()
     wk = hf.Workflow(wk_path)

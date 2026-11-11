@@ -2170,6 +2170,8 @@ class Jobscript(JSONLike):
             sub_log_path = '""'
 
         py_imports = dedent("""\
+            from contextlib import ExitStack
+            from hpcflow.sdk.monitoring.active_runs import ActiveRunTracker
             import os
             from collections import defaultdict
             from pathlib import Path
@@ -2221,8 +2223,13 @@ class Jobscript(JSONLike):
             {py_imports}
             
             sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
-            with app.redirect_std_to_file(sub_std_path):
+            with app.redirect_std_to_file(sub_std_path), ExitStack() as monitoring_stack:
             {py_main_block_workflow_load}
+
+                monitoring_tracker = ActiveRunTracker.for_workflow(wk, {sub_idx}, {js_idx})
+                if monitoring_tracker is not None:
+                    monitoring_stack.enter_context(monitoring_tracker.context())
+                    monitoring_stack.callback(monitoring_tracker.clear)
 
                 with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
                     lns = fp.read().strip().split("\\n")
@@ -2343,6 +2350,9 @@ class Jobscript(JSONLike):
 
                         if run_ID == -1:                            
                             continue
+
+                        if monitoring_tracker is not None:
+                            monitoring_tracker.start([run_ID])
 
                         run = runs[run_ID]
 
@@ -2518,6 +2528,8 @@ class Jobscript(JSONLike):
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
                         new_skips = wk.set_multi_run_ends(run_end_dat)
+                        if monitoring_tracker is not None:
+                            monitoring_tracker.finish(run.id_ for values in run_end_dat.values() for run, _, _ in values)
                         run_skips.update(new_skips)
                         for run_id, skip_i in new_skips.items():
                             runs[run_id]._skip = skip_i
@@ -2547,6 +2559,7 @@ class Jobscript(JSONLike):
             run_log_name=self.submission.get_app_log_file_name(run_ID="{run_ID}"),
             js_idx=self.index,
             write_app_logs=self.resources.write_app_logs,
+            sub_idx=self.submission.index,
             sub_log_path=sub_log_path,
             skipped_exit_code=SKIPPED_EXIT_CODE,
             func_invoc_lines=indent(func_invoc_lines, tab_indent * 4),
