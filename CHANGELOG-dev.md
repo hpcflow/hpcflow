@@ -1,4 +1,25 @@
 
+<a name="v0.4.0a16"></a>
+## [v0.4.0a16](https://github.com/hpcflow/hpcflow/compare/v0.4.0a15...v0.4.0a16) - 2026.11.11
+
+### ♻ Code Refactoring
+
+* unify array output storage in indexed records
+
+### ⚡ Performance Improvements
+
+* bundle member array outputs in shard archives
+* optimise persistent output member reads
+
+### 🐛 Bug Fixes
+
+* use seekable buffers for member array outputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a15"></a>
 ## [v0.4.0a15](https://github.com/hpcflow/hpcflow/compare/v0.4.0a14...v0.4.0a15) - 2026.11.06
 
