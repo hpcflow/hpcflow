@@ -248,38 +248,57 @@ determine multiplicity.
 For a positive resolved multiplicity, the producer must write a sequence of that
 length, including a singleton sequence when the input is ``1``.
 
-With the Zarr store, array sub-parameters of output members share a compressed
-NPZ archive per logical sub-parameter and run-file shard. For example, arrays at
-``load_case.0.steps.0.stress`` and ``load_case.1.steps.0.stress`` are stored under
-``load_case.steps.0.stress``; the outer member index is recorded as ``member_idx``
-metadata rather than as a directory name. Writes are batched across members.
-This also applies to an explicit multiplicity of ``1``.
+With the Zarr store, all arrays from one output parameter are stored in indexed
+run records, whether or not the output has positive multiplicity. A record with
+member index ``-1`` represents an ordinary whole-value output; a positive
+multiplicity output has one record per member. Each record contains the enabled
+array sub-parameters for that value, including masked-array data and masks. For
+example, the stress arrays for every step of one ``load_case`` are indexed
+together. Members with different numbers of steps remain sparse: a member without
+a second step has no ``steps.1.stress`` entry. Array shapes are preserved without
+padding. This also applies to an explicit multiplicity of ``1``. If the whole
+output value is a single array, rather than a sequence of members, it is stored as
+an ordinary whole-value record and members are selected from it when read.
 
-Members may have different numbers of steps: ``load_case.steps.1.stress`` contains
-only the members that have a second step. Their original member indices are
-retained, not renumbered. Array sizes may vary within a sub-parameter; the archive
-pads to the largest shape and records each original shape, which is restored on
-reading. Arrays sharing a sub-parameter must have the same dimensionality and
-compatible dtypes. Mask data is stored in a corresponding ``.__mask__`` archive.
+During execution, records are bundled by output parameter and execution shard.
+Sequential runs assigned to the same shard share its archive, while concurrently
+writable runs use separate shards. Shards are grouped by submission index, so
+separate submissions that run at the same time also write separate archives. The
+number of live files therefore follows writable execution shards rather than
+multiplying by the number of runs, array sub-parameters, steps, or members.
+Consolidation merges the shard archives into one indexed archive per output
+parameter. Reads from a zipped workflow use the same partial-read path: only the
+index and selected array entries are read from the outer zip.
 
-Live submissions write the same per-run ``.npz.zst`` shards. Consolidation (also
-performed by default when zipping a workflow) creates one ``consolidated.zip`` per
-sub-parameter. Arrays are grouped by original shape and split into independently
-compressed chunks targeting 16 MiB uncompressed. An array larger than this target
-gets its own chunk. Small grids do not get padded to the largest grid size.
+Reading a downstream member from a sequence-valued Zarr output decodes only that
+member, rather than reconstructing every member of the producing output first.
+The reader reuses the producing action-run context across array sub-parameters.
+Bulk type decoders run once per parameter or selected member, not once per array
+in the type lookup table. Whole-output reads still return the complete value.
+These read optimizations also apply to existing saved workflows. Existing per-path
+shards and indexed per-path archives remain readable through the legacy per-path
+reader and are not converted to run records during consolidation. Existing
+version-1 member archives are migrated to the current run-record format when
+consolidated.
 
-Each archive contains a versioned ``format.json``, a ``metadata.npz`` index sorted
-by run ID and member index, and ``chunks/000000.npy``, etc. The index stores each
-entry's chunk and row as ``uint32``. Reading one run loads the index and only its
-matching chunks; a reader caches the last chunk while processing a request. Full
-output reads still load all requested data. Workflow ZIPs store these nested
-archives without outer compression, allowing direct range reads, including on
-Python 3.10--3.12. Externally recompressing the outer ZIP can make seeking slower.
+Each run-record archive contains a versioned ``format.json``, a binary
+``index.npz`` sorted by run ID and member index, and a ``paths.json`` table of
+logical array paths. Arrays larger than 64 KiB have their own independently
+Zstandard-compressed ``.npy`` entry, so reading one path does not decompress its
+sibling arrays. Smaller arrays in one record share a compressed NPZ group to avoid
+the ZIP-entry overhead of many tiny arrays. Consolidation copies these compressed
+entries without recompressing them. Reads locate records by run ID and member
+index, then use the path-presence mask to open only the requested array entries.
+Different member shapes and ragged steps remain independent.
+
+Workflow ZIPs store nested array archives without outer compression, allowing
+direct range reads, including on Python 3.10--3.12. Externally recompressing the
+outer ZIP can make seeking slower.
 
 Existing padded and shape-group ``consolidated.npz.zst`` archives remain readable
-through the legacy reader. Consolidation migrates them to the indexed format,
-even without new shards, trimming their padding. Older hpcflow versions cannot
-read the new indexed archives.
+through the legacy reader. Consolidation migrates them to the indexed per-path
+archive format, even without new shards, trimming their padding. Older hpcflow
+versions cannot read the new indexed archives.
 Array archives store task, element, iteration, action, and run IDs and indices as
 ``uint32`` (0 to 4,294,967,295). Writes reject values outside this range rather
 than wrapping them. Existing signed metadata remains readable and is converted
