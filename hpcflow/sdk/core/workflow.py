@@ -8,7 +8,7 @@ from collections.abc import Callable
 import codecs
 from contextlib import closing, contextmanager, ExitStack, nullcontext
 import copy
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields
 import errno
 from io import BytesIO
 import json
@@ -33,7 +33,6 @@ from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from fsspec.implementations.zip import ZipFileSystem  # type: ignore
 from hpcflow.sdk.core.values import ensure_seed
 import numpy as np
-from zarr import Array as ZarrArray  # type: ignore
 import zstandard as zstd
 from fsspec.core import url_to_fs  # type: ignore
 from rich import print as rich_print
@@ -79,11 +78,20 @@ from hpcflow.sdk.persistence.array_output_sources import (
     normalize_metadata,
     open_array_output_source,
 )
+from hpcflow.sdk.persistence.member_array_outputs import (
+    consolidate_member_array_output_archives,
+    member_array_output_record_has_array,
+    read_member_array_output_index,
+    read_member_array_output_record,
+    read_member_array_output_records,
+    write_member_array_output_archive,
+)
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import (
     ARRAY_OUTPUT_CONSOLIDATED_NAME,
     ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME,
     ARRAY_OUTPUT_MASK_SUFFIX,
+    ARRAY_OUTPUT_SUBMISSIONS_DIR,
     ask_pw_on_auth_exc,
     atomic_write,
     infer_store,
@@ -2992,34 +3000,19 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         parameters = self._store.get_parameters(id_lst, **kwargs)
-        parent_ids = {
-            parameter.source["parameter_ID"]
+        member_sources = {
+            parameter.id_: parameter.source
             for parameter in parameters
             if parameter.source.get("type") == "output_member"
         }
-        parents = (
-            {parent.id_: parent for parent in self.get_parameters(parent_ids, **kwargs)}
-            if parent_ids
+        members = (
+            self._store.get_output_members(member_sources, **kwargs)
+            if member_sources
             else {}
         )
         for idx, parameter in enumerate(parameters):
-            if parameter.source.get("type") != "output_member":
-                continue
-            source = parameter.source
-            parent = parents[source["parameter_ID"]]
-            data = parent.data
-            if parent.is_set:
-                if (
-                    not isinstance(data, (list, tuple, np.ndarray, ZarrArray))
-                    or (hasattr(data, "ndim") and data.ndim == 0)
-                    or len(data) != source["multiplicity"]
-                ):
-                    raise ValueError(
-                        f"Output parameter {source['parameter_ID']} must contain "
-                        f"{source['multiplicity']} members."
-                    )
-                data = data[source["member_idx"]]
-            parameters[idx] = replace(parent, id_=parameter.id_, data=data)
+            if parameter.id_ in members:
+                parameters[idx] = members[parameter.id_]
         return parameters
 
     @TimeIt.decorator
@@ -5784,6 +5777,18 @@ class Workflow(AppAware):
             Path(path).parent.parent.name for path in fs.glob(f"{root}/*/*/*.npz.zst")
         }
         names |= {
+            Path(path).parents[3].name
+            for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_SUBMISSIONS_DIR}/*/*/*.npz.zst")
+        }
+        member_archives = self._list_member_array_output_archive_paths()
+        for path in member_archives:
+            index = read_member_array_output_index(fs, path.as_posix())
+            if index["version"] == 2:
+                names.update(index["paths"])
+            else:
+                for array_paths in index["schemas"].values():
+                    names.update(array_paths)
+        names |= {
             Path(path).parent.name
             for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_CONSOLIDATED_NAME}")
         }
@@ -5798,7 +5803,8 @@ class Workflow(AppAware):
     def list_array_outputs(self) -> list[str]:
         """Return sorted names of outputs with array archives.
 
-        Both shard archives (``<shard>/<file>.npz.zst``) and consolidated archives
+        Both shard archives (``.submissions/<submission>/<shard>/<file>.npz.zst``,
+        or the legacy ``<shard>/<file>.npz.zst``) and consolidated archives
         (see :meth:`consolidate_array_outputs`) are considered. Internal ``__mask__``
         archives (masked-array masks) are excluded.
         """
@@ -5806,7 +5812,16 @@ class Workflow(AppAware):
 
     def _get_array_output_root(self, name: str) -> Path:
         """Return the directory holding all archives for one array output."""
-        return self._get_array_output_archive_path(name, 0).parent.parent
+        output_name = name.removeprefix("outputs.")
+        if not output_name or any(
+            not component
+            or component in {".", ".."}
+            or "/" in component
+            or "\\" in component
+            for component in output_name.split(".")
+        ):
+            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        return Path(self._store.path) / "parameters" / "array_outputs" / output_name
 
     def _get_array_output_consolidated_path(self, name: str) -> Path:
         """Return the path of the single-file consolidated archive for an output."""
@@ -5823,10 +5838,20 @@ class Workflow(AppAware):
         return None
 
     def _list_array_output_shard_paths(self, name: str) -> list[Path]:
-        """Return sorted shard archive paths (``<shard>/<file>.npz.zst``) for an output."""
+        """Return sorted shard archive paths for an output.
+
+        Includes submission-indexed shards and legacy shards written before shard
+        paths included the submission index.
+        """
         root = self._get_array_output_root(name).as_posix()
+        fs = self._array_output_fs
         return sorted(
-            Path(path) for path in self._array_output_fs.glob(f"{root}/*/*.npz.zst")
+            Path(path)
+            for pattern in (
+                f"{root}/{ARRAY_OUTPUT_SUBMISSIONS_DIR}/*/*/*.npz.zst",
+                f"{root}/*/*.npz.zst",
+            )
+            for path in fs.glob(pattern)
         )
 
     def _list_array_output_archive_paths(self, name: str) -> list[Path]:
@@ -5838,17 +5863,38 @@ class Workflow(AppAware):
         return paths
 
     def _resolve_array_output_archive_path(
-        self, name: str, run_file_ID: int
+        self, name: str, shard_key: tuple[int, int]
     ) -> Path | None:
-        """Return the archive that holds a run's entry, or None if neither exists.
+        """Return the archive that likely holds a run's entry, or None if none exists.
 
-        Prefer the run's shard archive; otherwise fall back to the consolidated archive.
-        Runs saved after consolidation live in new shard archives, so both may coexist.
+        Prefer the run's submission-indexed shard, then its legacy shard, then the
+        consolidated archive. Runs saved after consolidation live in new shard
+        archives, so shards and the consolidated archive may coexist. Legacy shard
+        IDs are reused across submissions, so readers must fall back to the
+        consolidated archive if a legacy shard does not contain the run.
         """
-        shard = self._get_array_output_archive_path(name, run_file_ID)
-        if self._array_output_fs.exists(shard.as_posix()):
-            return shard
-        return self._existing_array_output_consolidated_path(name)
+        return next(iter(self._list_array_output_candidate_paths(name, shard_key)), None)
+
+    def _list_array_output_candidate_paths(
+        self, name: str, shard_key: tuple[int, int] | None
+    ) -> list[Path]:
+        """Return existing archives that may hold a run's entry, in preference order.
+
+        Without a shard key, only the consolidated archive is a candidate.
+        """
+        paths: list[Path] = []
+        if shard_key is not None:
+            submission_idx, run_file_ID = shard_key
+            for shard in (
+                self._get_array_output_archive_path(name, submission_idx, run_file_ID),
+                self._get_legacy_array_output_archive_path(name, run_file_ID),
+            ):
+                if self._array_output_fs.exists(shard.as_posix()):
+                    paths.append(shard)
+        consolidated = self._existing_array_output_consolidated_path(name)
+        if consolidated is not None:
+            paths.append(consolidated)
+        return paths
 
     def _load_array_output_archive(
         self, name: str, path: Path, cache: dict[Path, _ArrayOutputArchive]
@@ -5877,26 +5923,93 @@ class Workflow(AppAware):
                 cache[path] = cache[consolidated]
         return cache[path]
 
-    def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
-        """Return a Zstandard-compressed NPZ path, sharded at 500 files per directory.
+    def _get_array_output_archive_path(
+        self, name: str, submission_idx: int, run_file_ID: int
+    ) -> Path:
+        """Return a Zstandard-compressed NPZ shard path for a run-file.
 
-        Run-file IDs use the same quotient/remainder mapping as ``base_multi``.
+        Run-file IDs are only unique within a submission, so shards are grouped by
+        submission index to keep concurrently running submissions apart. Within a
+        submission, run-file IDs use the same quotient/remainder mapping as
+        ``base_multi``, with 500 files per directory.
         """
-        output_name = name.removeprefix("outputs.")
-        if not output_name or any(
-            not component
-            or component in {".", ".."}
-            or "/" in component
-            or "\\" in component
-            for component in output_name.split(".")
-        ):
-            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        root = self._get_array_output_root(name)
+        if submission_idx < 0:
+            raise ValueError(f"Invalid array output submission index: {submission_idx}.")
         if run_file_ID < 0:
             raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
-        root = Path(self._store.path) / "parameters" / "array_outputs" / output_name
+        return get_run_multi_chunk_path(
+            run_file_ID,
+            root / ARRAY_OUTPUT_SUBMISSIONS_DIR / str(submission_idx),
+            max_per_dir=500,
+        ).with_suffix(".npz.zst")
+
+    def _get_legacy_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
+        """Return the pre-submission-index shard path; used only for reading."""
+        root = self._get_array_output_root(name)
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
         return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
             ".npz.zst"
         )
+
+    @staticmethod
+    def _get_array_output_shard_key(EAR: ElementActionRun) -> tuple[int, int] | None:
+        """Return the run's ``(submission_idx, run_file_ID)``, if submitted."""
+        if EAR.submission_idx is None or EAR.run_file_ID is None:
+            return None
+        return EAR.submission_idx, EAR.run_file_ID
+
+    def _list_member_array_output_archive_paths(
+        self, output_name: str | None = None
+    ) -> list[Path]:
+        root = (Path(self._store.path) / "parameters" / "array_outputs").as_posix()
+        if output_name is None:
+            pattern = f"{root}/*/.members/*/*/*.zip"
+            consolidated_pattern = f"{root}/*/.members/consolidated.zip"
+        else:
+            output_root = (
+                Path(self._store.path)
+                / "parameters"
+                / "array_outputs"
+                / output_name
+                / ".members"
+            ).as_posix()
+            pattern = f"{output_root}/*/*/*.zip"
+            consolidated_pattern = f"{output_root}/consolidated.zip"
+        paths = {Path(path) for path in self._array_output_fs.glob(pattern)}
+        paths.update(
+            Path(path) for path in self._array_output_fs.glob(consolidated_pattern)
+        )
+        return sorted(paths)
+
+    def _list_member_array_output_shard_paths(self, output_name: str) -> list[Path]:
+        root = (
+            Path(self._store.path)
+            / "parameters"
+            / "array_outputs"
+            / output_name
+            / ".members"
+        ).as_posix()
+        return sorted(
+            Path(path) for path in self._array_output_fs.glob(f"{root}/*/*/*.zip")
+        )
+
+    def _list_member_array_output_roots(self) -> set[str]:
+        roots = set()
+        for path in self._list_member_array_output_archive_paths():
+            index = read_member_array_output_index(self._array_output_fs, path.as_posix())
+            roots.add(index["output_name"])
+        return roots
+
+    def _get_member_array_output_root(self, name: str) -> str | None:
+        name = name.removeprefix("outputs.")
+        matches = [
+            root
+            for root in self._list_member_array_output_roots()
+            if name == root or name.startswith(f"{root}.")
+        ]
+        return max(matches, key=len) if matches else None
 
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
         """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
@@ -5911,11 +6024,13 @@ class Workflow(AppAware):
         """Append a producing run's arrays in one write per logical sub-parameter."""
         if not entries:
             raise ValueError(f"No entries supplied for array output {name!r}.")
-        if EAR.run_file_ID is None:
+        shard_key = self._get_array_output_shard_key(EAR)
+        if shard_key is None:
             raise ValueError(
-                f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
+                f"Cannot save array output {name!r}: EAR {EAR.id_} has no submission "
+                "index or run_file_ID."
             )
-        archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
+        archive_path = self._get_array_output_archive_path(name, *shard_key)
         archive_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_values = {
@@ -5985,6 +6100,200 @@ class Workflow(AppAware):
             archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
         )
 
+    def _get_member_array_output_archive_path(
+        self, output_name: str, submission_idx: int, run_file_ID: int
+    ) -> Path:
+        """Return the member-output archive for one execution shard.
+
+        Run-file IDs are only unique within a submission, so shards are grouped by
+        submission index to keep concurrently running submissions apart.
+        """
+        if submission_idx < 0:
+            raise ValueError(f"Invalid array output submission index: {submission_idx}.")
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
+        root = self._get_array_output_root(output_name) / ".members" / str(submission_idx)
+        return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
+            ".zip"
+        )
+
+    def _get_member_array_output_consolidated_path(self, output_name: str) -> Path:
+        return self._get_array_output_root(output_name) / ".members" / "consolidated.zip"
+
+    def _save_member_array_output(
+        self,
+        EAR: ElementActionRun,
+        output_name: str,
+        entries: dict[str, list[tuple[int | None, np.ndarray]]],
+    ) -> None:
+        """Store each output member in its producing run-file shard."""
+        shard_key = self._get_array_output_shard_key(EAR)
+        if shard_key is None:
+            raise ValueError(
+                f"Cannot save member arrays for EAR {EAR.id_}: it has no submission "
+                "index or run_file_ID."
+            )
+        members: dict[int, dict[str, np.ndarray]] = defaultdict(dict)
+        for name, values in entries.items():
+            for member_idx, value in values:
+                record_idx = -1 if member_idx is None else member_idx
+                if name in members[record_idx]:
+                    raise ValueError(
+                        f"Duplicate array output {name!r} for member {record_idx} "
+                        f"of EAR {EAR.id_}."
+                    )
+                members[record_idx][name] = value
+        metadata = {
+            "task_insert_ID": EAR.task.insert_ID,
+            "task_idx": EAR.task.index,
+            "element_idx": EAR.element.index,
+            "element_ID": EAR.element.id_,
+            "iteration_idx": EAR.element_iteration.index,
+            "iteration_ID": EAR.element_iteration.id_,
+            "action_idx": EAR.element_action.action_idx,
+            "run_idx": EAR.index,
+        }
+        write_member_array_output_archive(
+            self._get_member_array_output_archive_path(output_name, *shard_key),
+            output_name,
+            EAR.id_,
+            shard_key[1],
+            metadata,
+            dict(members),
+        )
+
+    def _read_member_array_output_record(
+        self,
+        output_name: str,
+        run_ID: int,
+        shard_key: tuple[int, int],
+        member_idx: int,
+    ) -> dict[str, np.ndarray] | None:
+        """Read a member record from a live shard or consolidated archive."""
+        shard = self._get_member_array_output_archive_path(output_name, *shard_key)
+        consolidated = self._get_member_array_output_consolidated_path(output_name)
+        paths = [
+            path
+            for path in (shard, consolidated)
+            if self._array_output_fs.exists(path.as_posix())
+        ]
+        for archive_path in paths:
+            index = read_member_array_output_index(
+                self._array_output_fs, archive_path.as_posix()
+            )
+            if index["output_name"] != output_name:
+                raise ValueError(
+                    f"Member-array archive {archive_path} belongs to "
+                    f"{index['output_name']!r}, not {output_name!r}."
+                )
+            try:
+                return read_member_array_output_record(
+                    self._array_output_fs,
+                    archive_path.as_posix(),
+                    run_ID,
+                    member_idx,
+                    index=index,
+                )
+            except KeyError:
+                continue
+        return None
+
+    def _get_member_array_output_rows(
+        self,
+        name: str,
+        run_IDs: Sequence[int] | None,
+        *,
+        member_idx: int | None,
+        output_shards: dict[int, tuple[str, tuple[int, int]]] | None = None,
+    ) -> list[tuple[np.ndarray, dict[str, int], int]]:
+        """Return matching array rows from member bundles, if any."""
+        name = name.removeprefix("outputs.")
+        archive_paths: list[Path]
+        if run_IDs is None:
+            archive_paths = self._list_member_array_output_archive_paths()
+        else:
+            archive_paths = []
+            for run_ID in dict.fromkeys(run_IDs):
+                output_shard = (output_shards or {}).get(run_ID)
+                if output_shard is None:
+                    continue
+                output_root, shard_key = output_shard
+                shard = self._get_member_array_output_archive_path(
+                    output_root, *shard_key
+                )
+                if self._array_output_fs.exists(shard.as_posix()):
+                    archive_paths.append(shard)
+                consolidated = self._get_member_array_output_consolidated_path(
+                    output_root
+                )
+                if self._array_output_fs.exists(consolidated.as_posix()):
+                    archive_paths.append(consolidated)
+            archive_paths = list(dict.fromkeys(archive_paths))
+        archive_paths.sort(key=lambda path: path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME)
+        shadowed_run_IDs = {
+            record["run_ID"]
+            for path in archive_paths
+            if path.name != ARRAY_OUTPUT_CONSOLIDATED_NAME
+            for record in read_member_array_output_index(
+                self._array_output_fs, path.as_posix()
+            )["records"]
+        }
+
+        rows_by_run: dict[int, list[tuple[np.ndarray, dict[str, int], int]]] = (
+            defaultdict(list)
+        )
+        seen: set[tuple[int, int]] = set()
+        for path in archive_paths:
+            index = read_member_array_output_index(self._array_output_fs, path.as_posix())
+            schema_positions = (
+                {
+                    schema_id: {array_path: idx for idx, array_path in enumerate(paths)}
+                    for schema_id, paths in index["schemas"].items()
+                }
+                if index["version"] == 1
+                else None
+            )
+            matching_records = []
+            for record in index["records"]:
+                if (
+                    (
+                        path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME
+                        and record["run_ID"] in shadowed_run_IDs
+                    )
+                    or not member_array_output_record_has_array(
+                        index,
+                        record,
+                        name,
+                        schema_positions=schema_positions,
+                    )
+                    or (run_IDs is not None and record["run_ID"] not in run_IDs)
+                    or (member_idx is not None and record["member_idx"] != member_idx)
+                ):
+                    continue
+                key = record["run_ID"], record["member_idx"]
+                if key in seen:
+                    raise ValueError(f"Duplicate member-array record {key} for {name!r}.")
+                seen.add(key)
+                matching_records.append(record)
+            arrays_by_key = read_member_array_output_records(
+                self._array_output_fs,
+                path.as_posix(),
+                [(record["run_ID"], record["member_idx"]) for record in matching_records],
+                index=index,
+                name=name,
+            )
+            for record in matching_records:
+                key = record["run_ID"], record["member_idx"]
+                arrays = arrays_by_key[key]
+                metadata = dict(record["metadata"])
+                metadata["run_ID"] = record["run_ID"]
+                rows_by_run[record["run_ID"]].append(
+                    (arrays[name], metadata, record["member_idx"])
+                )
+        if run_IDs is None:
+            return [row for run_rows in rows_by_run.values() for row in run_rows]
+        return [row for run_ID in run_IDs for row in rows_by_run.get(run_ID, [])]
+
     @TimeIt.decorator
     def get_array_output(
         self, name: str, run_IDs: int | Iterable[int] | None = None, *, sort: bool = True
@@ -6003,16 +6312,30 @@ class Workflow(AppAware):
         and all shapes match, otherwise it is a list. Sparse sub-parameters contain
         only members that supplied that array.
 
-        Archives are Zstandard-compressed NPZ files in 500-file shard directories,
-        optionally merged into one indexed ``consolidated.zip`` per output by
-        :meth:`consolidate_array_outputs`. Single-run reads load only the matching
-        chunks. Legacy padded/grouped ``consolidated.npz.zst`` archives remain readable.
-        Earlier uncompressed NPZ archives are not supported.
+        New Zarr array outputs are stored as indexed per-run records in
+        ``.members`` archives, optionally merged into one ``consolidated.zip`` per
+        output by :meth:`consolidate_array_outputs`. Reads can select one array path
+        without loading unrelated large arrays. Existing per-path NPZ/Zstandard
+        archives and version-1 member archives remain readable and are migrated when
+        consolidated.
         With ``run_IDs=None``, include every saved run for this output, across tasks
         and iterations. With ``sort=False``, archives are visited in path order.
         """
+        return self._get_array_output(name, run_IDs, sort=sort)
+
+    def _get_array_output(
+        self,
+        name: str,
+        run_IDs: int | Iterable[int] | None = None,
+        *,
+        sort: bool = True,
+        run: ElementActionRun | None = None,
+        member_idx: int | None = None,
+        resolved_path: Path | None = None,
+    ) -> ArrayOutput:
+        """Read arrays, optionally reusing a resolved run and selecting one member."""
         loaded_archives: dict[Path, _ArrayOutputArchive] = {}
-        run_files: list[tuple[int, Path]]
+        run_files: list[tuple[int, Path, tuple[int, int] | None]]
         if run_IDs is None:
             is_single_run = False
             run_files = []
@@ -6020,13 +6343,13 @@ class Workflow(AppAware):
                 archive = self._read_array_output_archive(archive_path)
                 loaded_archives[archive_path] = archive
                 run_files.extend(
-                    (int(run_ID), archive_path)
+                    (int(run_ID), archive_path, None)
                     for run_ID in dict.fromkeys(archive.run_ID)
                 )
         elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
-            EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
+            EAR = run if run is not None else self.get_EARs_from_IDs(requested_run_IDs[0])
             EARs: list[ElementActionRun] = [cast(ElementActionRun, EAR)]
         else:
             is_single_run = False
@@ -6040,16 +6363,51 @@ class Workflow(AppAware):
         if run_IDs is not None:
             run_files = []
             for run_ID, EAR in zip(requested_run_IDs, EARs):
-                if EAR.run_file_ID is None:
+                shard_key = self._get_array_output_shard_key(EAR)
+                if shard_key is None:
                     raise ValueError(
                         f"Cannot read array output {name!r}: EAR {run_ID} has no "
-                        "run_file_ID."
+                        "submission index or run_file_ID."
                     )
-                # the shard path; loading falls back to the consolidated archive:
+                # the existing shard path, or the new shard path, from which loading
+                # falls back to the consolidated archive:
                 run_files.append(
-                    (run_ID, self._get_array_output_archive_path(name, EAR.run_file_ID))
+                    (
+                        run_ID,
+                        (
+                            resolved_path
+                            or self._resolve_array_output_archive_path(name, shard_key)
+                            or self._get_array_output_archive_path(name, *shard_key)
+                        ),
+                        shard_key,
+                    )
                 )
-        if not run_files:
+        member_output_shards = {}
+        if run_IDs is not None:
+            requested_name = name.removeprefix("outputs.")
+            for EAR in EARs:
+                output_roots = []
+                for output in getattr(EAR, "data_idx", {}):
+                    if not output.startswith("outputs."):
+                        continue
+                    output_root = output.removeprefix("outputs.")
+                    if requested_name == output_root or requested_name.startswith(
+                        f"{output_root}."
+                    ):
+                        output_roots.append(output_root)
+                shard_key = self._get_array_output_shard_key(EAR)
+                if output_roots and shard_key is not None:
+                    member_output_shards[EAR.id_] = (
+                        max(output_roots, key=len),
+                        shard_key,
+                    )
+        member_rows = self._get_member_array_output_rows(
+            name,
+            None if run_IDs is None else requested_run_IDs,
+            member_idx=member_idx,
+            output_shards=member_output_shards,
+        )
+        if not run_files and not member_rows:
             raise ValueError(f"No saved runs selected for array output {name!r}.")
         output_arrays: list[np.ndarray] = []
         metadata: dict[str, list[np.ndarray]] = {
@@ -6058,15 +6416,47 @@ class Workflow(AppAware):
             if field.name not in {"name", "data", "shape", "member_idx"}
         }
         output_shapes: list[tuple[int, ...]] = []
-        has_shape_metadata = False
-        has_member_metadata = False
+        has_shape_metadata = len({value.shape for value, _, _ in member_rows}) > 1
+        has_member_metadata = any(
+            record_member_idx >= 0 for _, _, record_member_idx in member_rows
+        )
         member_indices: list[int] = []
+        member_run_IDs = {record["run_ID"] for _, record, _ in member_rows}
+        for value, record_metadata, record_member_idx in member_rows:
+            output_arrays.append(value)
+            output_shapes.append(value.shape)
+            member_indices.append(record_member_idx)
+            for key, values in metadata.items():
+                metadata[key].append(np.asarray([record_metadata[key]], dtype=np.uint32))
         with ExitStack() as readers:
             opened_archives: set[int] = set()
-            for run_ID, archive_path in run_files:
-                archive = self._load_array_output_archive(
-                    name, archive_path, loaded_archives
-                )
+            for run_ID, archive_path, shard_key in run_files:
+                if run_ID in member_run_IDs:
+                    continue
+                try:
+                    archive = self._load_array_output_archive(
+                        name, archive_path, loaded_archives
+                    )
+                except FileNotFoundError:
+                    if run_ID in member_run_IDs:
+                        continue
+                    raise
+                if not np.any(archive.run_ID == run_ID):
+                    # the run may be in another candidate archive: legacy shard IDs are
+                    # reused across submissions, and a run-file's runs may be split
+                    # between legacy and submission-indexed shards after an upgrade:
+                    for candidate in self._list_array_output_candidate_paths(
+                        name, shard_key
+                    ):
+                        if candidate == archive_path:
+                            continue
+                        archive = self._load_array_output_archive(
+                            name, candidate, loaded_archives
+                        )
+                        if np.any(archive.run_ID == run_ID):
+                            break
+                    if run_ID in member_run_IDs and not np.any(archive.run_ID == run_ID):
+                        continue
                 data, shapes = archive.data, archive.shape
                 if isinstance(data, ChunkedArray) and id(data) not in opened_archives:
                     readers.enter_context(data.reading())
@@ -6089,6 +6479,15 @@ class Workflow(AppAware):
                     )
 
                 if archive.member_idx is not None:
+                    if member_idx is not None:
+                        matching_indices = matching_indices[
+                            archive.member_idx[matching_indices] == member_idx
+                        ]
+                        if not len(matching_indices):
+                            raise ValueError(
+                                f"Missing member {member_idx} for array output {name!r} "
+                                f"of EAR {run_ID}."
+                            )
                     selected_members = archive.member_idx[matching_indices]
                     if len(np.unique(selected_members)) != len(selected_members):
                         raise ValueError(
@@ -6222,7 +6621,9 @@ class Workflow(AppAware):
     ) -> dict[str, Path]:
         """Merge each output's shard archives into one indexed ``consolidated.zip``.
 
-        For every selected output, all shard archives (``<shard>/<file>.npz.zst``) and
+        For every selected output, all shard archives
+        (``.submissions/<submission>/<shard>/<file>.npz.zst``, plus any legacy
+        ``<shard>/<file>.npz.zst``) and
         any existing consolidated archive are merged, sorted by run ID, written
         atomically to ``parameters/array_outputs/<name>/consolidated.zip``, verified
         one chunk at a time, and only then are the shard files removed. Runs saved later go to
@@ -6286,7 +6687,10 @@ class Workflow(AppAware):
             selected = []
             for name in requested:
                 name = name.removeprefix("outputs.")
-                if not self._list_array_output_archive_paths(name):
+                if (
+                    not self._list_array_output_archive_paths(name)
+                    and self._get_member_array_output_root(name) is None
+                ):
                     raise ValueError(f"No array-output archives found for {name!r}.")
                 selected.append(name)
                 mask_name = f"{name}.{ARRAY_OUTPUT_MASK_SUFFIX}"
@@ -6295,12 +6699,30 @@ class Workflow(AppAware):
             selected = list(dict.fromkeys(selected))
 
         results: dict[str, Path] = {}
+        member_roots = self._list_member_array_output_roots()
+        selected_member_roots = {
+            root
+            for root in member_roots
+            if any(name == root or name.startswith(f"{root}.") for name in selected)
+        }
         status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
             rich.console.Console().status("Consolidating array outputs...")
             if status
             else nullcontext()
         )
         with status_context as status_obj:
+            for root in sorted(selected_member_roots):
+                if status_obj is not None:
+                    status_obj.update(f"Consolidating array output {root!r}...")
+                path = self._consolidate_member_array_output(root)
+                if path is not None:
+                    results.update(
+                        {
+                            name: path
+                            for name in selected
+                            if name == root or name.startswith(f"{root}.")
+                        }
+                    )
             for name in selected:
                 if status_obj is not None:
                     status_obj.update(f"Consolidating array output {name!r}...")
@@ -6308,6 +6730,25 @@ class Workflow(AppAware):
                 if path is not None:
                     results[name] = path
         return results
+
+    def _consolidate_member_array_output(self, output_name: str) -> Path | None:
+        """Consolidate per-run member bundles for one output parameter."""
+        shards = self._list_member_array_output_shard_paths(output_name)
+        destination = self._get_member_array_output_consolidated_path(output_name)
+        existing = (
+            destination if self._array_output_fs.exists(destination.as_posix()) else None
+        )
+        if not shards and existing is None:
+            return None
+        if not shards:
+            return existing
+        sources = ([existing] if existing is not None else []) + shards
+        consolidate_member_array_output_archives(
+            self._array_output_fs, sources, destination, output_name
+        )
+        for shard in shards:
+            self._array_output_fs.rm(shard.as_posix())
+        return destination
 
     def _consolidate_array_output(
         self, name: str, *, temp_dir: str | Path | None = None
@@ -6449,12 +6890,17 @@ class Workflow(AppAware):
 
             if existing is not None and existing != consolidated_path:
                 existing.unlink()
+            output_root = self._get_array_output_root(name)
             for shard_path in shard_paths:
                 shard_path.unlink()
-                try:
-                    shard_path.parent.rmdir()  # remove the shard directory once empty
-                except OSError:
-                    pass
+                # remove shard directories (including submission groups) once empty:
+                directory = shard_path.parent
+                while directory != output_root and directory.is_relative_to(output_root):
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        break
+                    directory = directory.parent
             return consolidated_path
 
     @staticmethod
