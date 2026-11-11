@@ -1,4 +1,56 @@
 
+<a name="v0.4.0a17"></a>
+## [v0.4.0a17](https://github.com/hpcflow/hpcflow/compare/v0.4.0a16...v0.4.0a17) - 2026.11.11
+
+### Other changes
+
+* merge develop into fix/show
+
+### ⚡ Performance Improvements
+
+* one scheduler query per distinct scheduler in show
+* **show:** use up to 4 threads to populate the show table
+* **show:** discard unrelated scheduler states when parsing slurm squeue
+* **show:** track a run ID cursor to tell show where each jobscript item is
+* **show:** more selective store reads of run states
+* **show:** limit number of missing submission to 10 by default
+* **show:** add instrumentation to monitoring commands
+
+### ✨ Features
+
+* add `workflow show-runs` CLI to help with debugging
+* **show:** report Slurm "configuring" (i.e node booting) state
+* **show:** support ID lists in show, cancel and unregister
+* **show:** add -1 as an alias for the latest submitted workflow
+* **show:** add show_scheduler_min_interval to help avoid overloading the scheduler
+* **show:** add `--use-cache` to re-format the show table without scheduler or workflow queries
+* **show:** view defaults to auto when workflow refs are passed
+* **show:** add `--view` option to control verbosity of reported action/element data
+* **show:** progressive show table using Rich `Live` display
+* **show:** additional display run states: interrupted and unknown
+* **show:** improved registry management
+* **show:** hide missing workflows by default
+* **show-runs:** add filtering and useful run columns
+
+### 🐛 Bug Fixes
+
+* validate `SubmissionRecord.workflow_name`
+* multi-thread race exposed by show in loading SDK classes
+* support zip and remotely-executed workflows in show
+* accidentally committed change to demo workflow
+* parallel-worker (e.g. pytest) race
+* show all submissions if a workflow ref is provided
+* missing scheduler-state icons
+* redesign show command via new sdk/monitoring package
+* **show:** bugs windows and py3.10
+* **show:** truncate element ranges in detail view
+* **show:** timed-out jobscripts will show interrupted run states
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a16"></a>
 ## [v0.4.0a16](https://github.com/hpcflow/hpcflow/compare/v0.4.0a15...v0.4.0a16) - 2026.11.11
 
