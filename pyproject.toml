@@ -1,7 +1,7 @@
 
 [tool.poetry]
 name = "hpcflow"
-version = "0.4.0a17"
+version = "0.4.0a18"
 
 description = "Computational workflow management"
 authors = ["aplowman <adam.plowman@manchester.ac.uk>"]
@@ -107,7 +107,7 @@ hook-dirs = "hpcflow.__pyinstaller:get_hook_dirs"
 
 [tool.commitizen]
 name = "cz_customize"
-version = "0.4.0a17"
+version = "0.4.0a18"
 tag_format = "v$version"
 # Breaking changes bump the minor version while the major version is 0:
 major_version_zero = true
