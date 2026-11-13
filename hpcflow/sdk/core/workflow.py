@@ -3793,6 +3793,7 @@ class Workflow(AppAware):
         block_act_key: BlockActionKey,
         run: ElementActionRun,
         exit_code: int,
+        peak_memory_bytes: int | None = None,
     ) -> dict[int, int]:
         """Set the end time and exit code on an EAR.
 
@@ -3852,7 +3853,11 @@ class Workflow(AppAware):
             new_run_skips.update(self.__apply_task_conditions(run))
 
             self._store.set_EAR_end(
-                run.id_, exit_code, success, run.action.requires_dir and not run.skip
+                run.id_,
+                exit_code,
+                success,
+                run.action.requires_dir and not run.skip,
+                peak_memory_bytes=peak_memory_bytes,
             )
 
         from ..monitoring.active_runs import note_changed_runs
@@ -5594,7 +5599,13 @@ class Workflow(AppAware):
                             secrets_env[secret_key] = self._app.get_secret(secret_key)
                         env.update(secrets_env)
 
-                        exe = self._app.Executor(cmd, env, self._app.package_name)
+                        exe = self._app.Executor(
+                            cmd,
+                            env,
+                            self._app.package_name,
+                            track_peak_memory=run.resources.track_peak_memory,
+                            peak_memory_sampling_interval=run.resources.peak_memory_sampling_interval,
+                        )
                         port = (
                             exe.start_zmq_server()
                         )  # start the server so we know the port
@@ -5636,6 +5647,7 @@ class Workflow(AppAware):
                     block_act_key=block_act_key,
                     run=run,
                     exit_code=ret_code,
+                    peak_memory_bytes=exe.peak_memory_bytes if exe is not None else None,
                 )
 
         if TimeIt.active:

@@ -15,6 +15,7 @@ from itertools import accumulate, islice
 from importlib import resources
 import json
 import keyword
+import math
 import os
 from pathlib import Path, PurePath
 import random
@@ -56,6 +57,20 @@ T3 = TypeVar("T3")
 TList: TypeAlias = "T | list[TList]"
 TD = TypeVar("TD", bound="Mapping[str, Any]")
 E = TypeVar("E", bound=enum.Enum)
+
+
+def validate_peak_memory_sampling_interval(value: float) -> float:
+    """Validate a finite, positive memory sampling interval in seconds."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(
+            "peak_memory_sampling_interval must be a finite positive number of seconds."
+        )
+    return float(value)
 
 
 def merge_scheduler_args(
