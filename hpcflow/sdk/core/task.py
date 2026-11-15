@@ -3611,7 +3611,15 @@ class WorkflowTask(AppAware):
         path_is_multi = False
         path_is_set: bool | list[bool] = False
         all_multi_len: int | None = None
-        for path_i, data_info_i in relevant_data.items():
+        # parent data may be shared with the store's caches (and between group
+        # members), so it must be copied before any updates are applied to it:
+        parent_needs_copy = False
+        parent_is_multi = False
+        # apply parent data before (more specific) updates, regardless of the data
+        # index order:
+        for path_i, data_info_i in sorted(
+            relevant_data.items(), key=lambda item: item[0].count(".")
+        ):
             data_i = data_info_i["data"]
             if path_i == path:
                 val_cls_method = data_info_i["value_class_method"]
@@ -3659,7 +3667,17 @@ class WorkflowTask(AppAware):
                     continue
                 else:
                     assigned_from_parent = True
+                    parent_needs_copy = True
+                    parent_is_multi = data_info_i["is_multi"]
             elif path_info["type"] == "update":
+                if parent_needs_copy:
+                    # copy group items individually so they do not share objects:
+                    current_val = (
+                        [copy.deepcopy(item) for item in cast("list", current_val)]
+                        if parent_is_multi
+                        else copy.deepcopy(current_val)
+                    )
+                    parent_needs_copy = False
                 current_val = current_val or {}
                 if all_multi_len:
                     if len(path_i.split(".")) == 2:
