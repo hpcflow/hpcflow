@@ -3591,8 +3591,8 @@ class Action(JSONLike):
         for command in self.commands:
             yield from command.get_required_executables()
 
-    def compose_source(self, snip_path: Path) -> str:
-        """Generate the file contents of this source."""
+    def compose_source(self, snip_path: Path, *, debug: bool = False) -> str:
+        """Generate script source, omitting output persistence and IPC in debug mode."""
 
         script_name = snip_path.name
         with snip_path.open("rt") as fp:
@@ -3743,6 +3743,9 @@ class Action(JSONLike):
                     print(f"App import time:           {{_app_import_time:.6f}} s")                
                     TimeIt.summarise_string()
             """).format(app_caps=app_caps)
+        if debug:
+            py_main_block_outputs = ""
+            py_main_block_timing = ""
         wk_load = (
             "\n" + indent(py_main_block_workflow_load, tab_indent_2)
             if py_main_block_workflow_load

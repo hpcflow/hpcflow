@@ -7,6 +7,7 @@ import contextlib
 from datetime import datetime, timezone
 import json
 import os
+import subprocess
 import sys
 import time
 import click
@@ -661,6 +662,58 @@ def _make_workflow_CLI(app: BaseApp):
             click.echo(out)
         if ret_id:
             print_local_workflow_ids(app, wf, out)
+
+    @workflow.command(name="debug-execute-run")
+    @click.option("--run-id", type=click.IntRange(min=0), help="Global run ID to debug.")
+    @click.option(
+        "--first-failed",
+        is_flag=True,
+        help="Select the lowest-ID errored or interrupted run.",
+    )
+    @click.option(
+        "--direct", is_flag=True, help="Execute commands without the scheduler."
+    )
+    @click.option("--yes", "-y", is_flag=True, help="Execute without pausing for edits.")
+    @_pass_workflow
+    def debug_execute_run(
+        wf: Workflow, run_id: int | None, first_failed: bool, direct: bool, yes: bool
+    ) -> None:
+        """Debug a run without saving workflow outputs or changing run state.
+
+        Files are generated in a unique submission tmp directory. Edit them before
+        confirming execution. User scripts can still affect external paths/services.
+        """
+        from hpcflow.sdk.submission.debug import prepare_debug_run
+
+        if (run_id is not None) == first_failed:
+            raise click.UsageError("Specify exactly one of --run-id and --first-failed.")
+        try:
+            debug_run = prepare_debug_run(
+                wf, run_id=run_id, first_failed=first_failed, direct=direct
+            )
+        except (ValueError, OSError) as error:
+            raise click.ClickException(str(error)) from error
+        click.echo(f"Debug run {debug_run.run_id}: {debug_run.directory}")
+        click.echo(f"Jobscript: {debug_run.jobscript_path}")
+        click.echo(f"Commands: {debug_run.commands_path}")
+        if debug_run.script_path is not None:
+            click.echo(f"Script: {debug_run.script_path}")
+        click.echo(
+            "Working files are copied; workflow outputs/status will not be saved. "
+            "Script-written external paths/services are not isolated."
+        )
+        if not yes:
+            click.confirm("You may now edit these files. Execute debug run?", abort=True)
+        try:
+            result = debug_run.execute()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            raise click.ClickException(str(error)) from error
+        if isinstance(result, int):
+            click.echo(f"Debug exit code: {result}. Logs: {debug_run.directory}")
+            if result:
+                raise click.exceptions.Exit(result)
+        else:
+            click.echo(f"Submitted debug job {result}. Logs: {debug_run.directory}")
 
     @workflow.command(name="add-submission")
     @js_parallelism_option

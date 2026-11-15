@@ -18,6 +18,38 @@ from hpcflow.sdk.cli_common import BoolOrString
 from hpcflow.sdk.demo.cli import get_demo_workflow_CLI
 
 
+@pytest.mark.parametrize("args", [[], ["--run-id", "0", "--first-failed"]])
+def test_cli_debug_requires_exactly_one_selector(args: list[str]) -> None:
+    command = _make_workflow_CLI(hf).commands["debug-execute-run"]
+    result = CliRunner().invoke(command, args, obj=Mock(spec=Workflow))
+    assert result.exit_code == 2
+    assert "Specify exactly one" in result.output
+
+
+@pytest.mark.parametrize("answer", ["n\n", "y\n", None])
+def test_cli_debug_edit_confirmation(
+    answer: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hpcflow.sdk.submission import debug
+
+    prepared = Mock(run_id=7, script_path=Path("script.py"))
+    prepared.execute.return_value = 23
+    prepare = Mock(return_value=prepared)
+    monkeypatch.setattr(debug, "prepare_debug_run", prepare)
+    command = _make_workflow_CLI(hf).commands["debug-execute-run"]
+    args = ["--run-id", "7", "--direct"]
+    if answer is None:
+        args += ["--yes"]
+    result = CliRunner().invoke(command, args, input=answer, obj=Mock(spec=Workflow))
+    assert "script.py" in result.output
+    if answer == "n\n":
+        assert result.exit_code == 1
+        prepared.execute.assert_not_called()
+    else:
+        assert result.exit_code == 23
+        prepared.execute.assert_called_once_with()
+
+
 @pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
 @pytest.mark.parametrize("ret_id", [False, True])
 @pytest.mark.parametrize("print_idx", [False, True])
