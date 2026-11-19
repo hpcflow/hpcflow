@@ -4,10 +4,12 @@ from copy import deepcopy
 import os
 import time
 import pytest
+from click.testing import CliRunner
 
 import hpcflow.sdk.config.config as config_module
 from hpcflow.app import app as hf
 from hpcflow.sdk.config import ConfigOptions
+from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import (
     ConfigFileValidationError,
     ConfigItemCallbackError,
@@ -321,3 +323,87 @@ def test_dot_delimited_override(modifiable_config):
     hf.unload_config()
     hf.load_config(overrides={key: value})
     assert hf.config.get(key) == value
+
+
+@pytest.mark.parametrize(
+    "variables, expected",
+    [(None, "default_machine"), ({"machine": "my_machine"}, "my_machine")],
+)
+def test_import_from_file_variables(
+    modifiable_config, tmp_path, variables: dict[str, str] | None, expected: str
+):
+    import_file = tmp_path / "my_import.yaml"
+    import_file.write_text(
+        "config:\n  machine: <<var:machine[default=default_machine]>>\n"
+    )
+    hf.config.import_from_file(import_file, rename=False, variables=variables)
+    assert hf.config.machine == expected
+
+
+class _PosixOS:
+    """Proxy for the `os` module that reports a POSIX OS name."""
+
+    name = "posix"
+
+    def __getattr__(self, attr: str):
+        return getattr(os, attr)
+
+
+@pytest.mark.parametrize(
+    "variables, expected",
+    [(None, "DEFAULT-ACCOUNT"), ({"account": "MY-ACCOUNT"}, "MY-ACCOUNT")],
+)
+def test_import_from_file_variables_SLURM(
+    modifiable_config,
+    tmp_path,
+    monkeypatch,
+    variables: dict[str, str] | None,
+    expected: str,
+):
+    # start from a POSIX-like config, as would be the case on a real cluster:
+    with hf.config._without_callbacks("callback_supported_shells"):
+        hf.config.set("default_shell", "bash")
+        hf.config.save()
+
+    # mock a POSIX OS only within the config callbacks and scheduler lookup, so a SLURM
+    # config can be imported on any OS:
+    monkeypatch.setattr("hpcflow.sdk.config.callbacks.os", _PosixOS())
+    monkeypatch.setattr("hpcflow.sdk.app.os", _PosixOS())
+
+    import_file = tmp_path / "my_cluster.yaml"
+    import_file.write_text(
+        "invocation:\n"
+        "  environment_setup:\n"
+        "  match:\n"
+        "    hostname: login-*\n"
+        "config:\n"
+        "  machine: my_cluster\n"
+        "  default_scheduler: slurm\n"
+        "  default_shell: bash\n"
+        "  schedulers:\n"
+        "    direct:\n"
+        "      defaults: {}\n"
+        "    slurm:\n"
+        "      defaults:\n"
+        "        directives:\n"
+        "          --account: <<var:account[default=DEFAULT-ACCOUNT]>>\n"
+        "  shells:\n"
+        "    bash:\n"
+        "      defaults: {}\n"
+    )
+    hf.config.import_from_file(import_file, rename=False, variables=variables)
+    assert hf.config.default_scheduler == "slurm"
+    assert hf.config.get("schedulers.slurm.defaults.directives")["--account"] == expected
+
+
+def test_import_from_file_variables_CLI(modifiable_config, tmp_path):
+    import_file = tmp_path / "my_import.yaml"
+    import_file.write_text(
+        "config:\n  machine: <<var:machine[default=default_machine]>>\n"
+    )
+    result = CliRunner().invoke(
+        get_config_CLI(hf),
+        ["import", str(import_file), "--no-rename", "--var", "machine", "my_machine"],
+    )
+    assert result.exit_code == 0, result.output
+    assert hf.config.machine == "my_machine"

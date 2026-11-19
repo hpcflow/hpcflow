@@ -410,10 +410,7 @@ def substitute_string_vars(
         except KeyError:
             if "default" in kwargs:
                 out = kwargs["default"]
-                print(
-                    f"Using default value ({out!r}) for workflow template string "
-                    f"variable {var_name!r}."
-                )
+                print(f"Using default value ({out!r}) for string variable {var_name!r}.")
             else:
                 raise MissingVariableSubstitutionError(var_name, variables)
         if used is not None:

@@ -85,6 +85,19 @@ def get_config_CLI(app: BaseApp) -> click.Group:
 
     pass_config = click.make_pass_decorator(Config)
 
+    variables_option = click.option(
+        "-v",
+        "--var",
+        "variables",
+        type=(str, str),
+        multiple=True,
+        help=(
+            "String variable value to be substituted into the config-import file, where "
+            "it is referenced like `<<var:name>>`. Multiple variable values can be "
+            "specified."
+        ),
+    )
+
     def find_config(ctx: click.Context) -> Config:
         if (cfg := ctx.find_object(Config)) is None:
             raise RuntimeError("no configuration defined")
@@ -149,10 +162,19 @@ def get_config_CLI(app: BaseApp) -> click.Group:
             "config. If False, modify the currently loaded config."
         ),
     )
+    @variables_option
     @pass_config
-    def import_from_file(config: Config, file_path: str, rename: bool, new: bool):
+    def import_from_file(
+        config: Config,
+        file_path: str,
+        rename: bool,
+        new: bool,
+        variables: Sequence[tuple[str, str]],
+    ):
         """Update the config file with keys from a YAML file."""
-        config.import_from_file(file_path, rename=rename, make_new=new)
+        config.import_from_file(
+            file_path, rename=rename, make_new=new, variables=dict(variables)
+        )
 
     @config.command()
     @click.argument("name")
@@ -395,9 +417,15 @@ def get_config_CLI(app: BaseApp) -> click.Group:
             "files."
         ),
     )
+    @variables_option
     @pass_config
-    def init(config: Config, known_name: str, path: str | None):
-        config.init(known_name=known_name, path=path)
+    def init(
+        config: Config,
+        known_name: str,
+        path: str | None,
+        variables: Sequence[tuple[str, str]],
+    ):
+        config.init(known_name=known_name, path=path, variables=dict(variables))
 
     open.help = (open.help or "").format(package_name=app.package_name)
 
