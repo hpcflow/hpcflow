@@ -524,6 +524,29 @@ def test_element_get_unset_sub_object_group(tmp_path: Path):
     assert wk.tasks.t2.elements[0].get("inputs.p1c.sub_param") == [None, None]
 
 
+@pytest.mark.parametrize("store", ["json", "zarr"])
+def test_element_get_group_shared_parent_sub_parameter_cached(tmp_path: Path, store: str):
+    s1 = hf.TaskSchema(objective="t1", inputs=[hf.SchemaInput(parameter="p1")])
+    s2 = hf.TaskSchema(
+        objective="t2",
+        inputs=[hf.SchemaInput(parameter=hf.Parameter("p1"), group="my_group")],
+    )
+    t1 = hf.Task(
+        schema=s1,
+        inputs=[hf.InputValue("p1", value={"a": 0, "b": 0})],
+        sequences=[hf.ValueSequence("inputs.p1.b", values=[1, 2, 3])],
+        groups=[hf.ElementGroup(name="my_group")],
+    )
+    t2 = hf.Task(schema=s2, nesting_order={"inputs.p1": 0})
+    wk = hf.Workflow.from_template_data(
+        tasks=[t1, t2], template_name="w1", path=tmp_path, store=store
+    )
+    expected = [{"a": 0, "b": 1}, {"a": 0, "b": 2}, {"a": 0, "b": 3}]
+    with wk._store.cache_ctx():
+        assert wk.tasks.t2.elements[0].get("inputs.p1") == expected
+        assert wk.tasks.t2.elements[0].get("inputs.p1") == expected
+
+
 def test_iter(tmp_path: Path):
     wkt = hf.WorkflowTemplate(
         name="test",

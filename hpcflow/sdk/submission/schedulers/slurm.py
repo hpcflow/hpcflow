@@ -370,13 +370,21 @@ class SlurmPosix(QueuedScheduler):
         return f"js_{js_idx}.sh_{job_ID}{array_idx_str}.err"
 
     def __format_std_stream_file_option_lines(
-        self, is_array: bool, sub_idx: int, js_idx: int, combine_std: bool
+        self,
+        is_array: bool,
+        sub_idx: int,
+        js_idx: int,
+        combine_std: bool,
+        std_dir: str | None = None,
     ) -> Iterator[str]:
         pattern = R"%x_%A.%a" if is_array else R"%x_%j"
-        base = f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}/{pattern}"
-        yield f"{self.js_cmd} --output {base}.out"
+        directory = std_dir or f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}"
+        base = f"{directory}/{pattern}"
+        stdout = f'"{base}.out"' if std_dir is not None else f"{base}.out"
+        stderr = f'"{base}.err"' if std_dir is not None else f"{base}.err"
+        yield f"{self.js_cmd} --output {stdout}"
         if not combine_std:
-            yield f"{self.js_cmd} --error {base}.err"
+            yield f"{self.js_cmd} --error {stderr}"
 
     @override
     def format_directives(
@@ -386,6 +394,8 @@ class SlurmPosix(QueuedScheduler):
         is_array: bool,
         sub_idx: int,
         js_idx: int,
+        *,
+        std_dir: str | None = None,
     ) -> str:
         """
         Format the directives to the scheduler.
@@ -398,11 +408,24 @@ class SlurmPosix(QueuedScheduler):
 
         opts.extend(
             self.__format_std_stream_file_option_lines(
-                is_array, sub_idx, js_idx, resources.combine_jobscript_std
+                is_array, sub_idx, js_idx, resources.combine_jobscript_std, std_dir
             )
         )
 
         for opt_k, opt_v in self.directives.items():
+            if std_dir is not None and opt_k in {
+                "--output",
+                "-o",
+                "--error",
+                "-e",
+                "--chdir",
+                "-D",
+                "--array",
+                "-a",
+                "--dependency",
+                "-d",
+            }:
+                continue
             if isinstance(opt_v, list):
                 for i in opt_v:
                     opts.append(f"{self.js_cmd} {opt_k} {i}")
