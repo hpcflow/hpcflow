@@ -1369,7 +1369,12 @@ class Config:
         self.add_shell("wsl", **defaults)
 
     def import_from_file(
-        self, file_path: Path | str, *, rename=True, make_new=False
+        self,
+        file_path: Path | str,
+        *,
+        rename=True,
+        make_new=False,
+        variables: dict[str, str] | None = None,
     ) -> None:
         """
         Import config items from a (remote or local) YAML file. Existing config items
@@ -1380,6 +1385,9 @@ class Config:
         file_path:
             Local or remote path to a config import YAML file which may have top-level
             keys "invocation" and "config".
+        variables:
+            String variables to substitute into the file, where it contains references
+            like ``<<var:name>>`` or ``<<var:name[default=value]>>``.
         rename:
             If True, the current config will be renamed to the stem of the file specified
             in `file_path`. Ignored if `make_new` is True.
@@ -1392,7 +1400,9 @@ class Config:
 
         console = Console()
         with console.status(f"Importing config from file {file_path!r}...") as status:
-            file_dat: DefaultConfiguration = read_YAML_file(file_path)
+            file_dat: DefaultConfiguration = read_YAML_file(
+                file_path, variables=variables or {}
+            )
             if rename or make_new:
                 file_stem = Path(file_path).stem
                 name = file_stem
@@ -1448,8 +1458,24 @@ class Config:
 
         print(f"Config {name!r} updated.")
 
-    def init(self, known_name: str, path: str | None = None) -> None:
-        """Configure from a known importable config."""
+    def init(
+        self,
+        known_name: str,
+        path: str | None = None,
+        variables: dict[str, str] | None = None,
+    ) -> None:
+        """Configure from a known importable config.
+
+        Parameters
+        ----------
+        known_name:
+            Prefix of the names of the configuration-import files to import.
+        path:
+            An `fsspec`-compatible path in which to look for configuration-import files.
+        variables:
+            String variables to substitute into each imported file, where it contains
+            references like ``<<var:name>>`` or ``<<var:name[default=value]>>``.
+        """
         if not path:
             if not (path := self._options.default_known_configs_dir):
                 raise ValueError("Specify an `path` to search for known config files.")
@@ -1471,7 +1497,7 @@ class Config:
         print(f"Found configuration-import files: {files!r}")
         for file_i in files:
             path_i = file_i if is_local else f"{path}/{file_i}"
-            self.import_from_file(file_path=path_i, make_new=True)
+            self.import_from_file(file_path=path_i, make_new=True, variables=variables)
 
         print("imports complete")
         # if current config is named "default", rename machine to DEFAULT_CONFIG:
