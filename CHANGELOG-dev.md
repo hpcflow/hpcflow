@@ -1,4 +1,12 @@
 
+<a name="v0.4.0a20"></a>
+## [v0.4.0a20](https://github.com/hpcflow/hpcflow/compare/v0.4.0a19...v0.4.0a20) - 2026.11.19
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a19"></a>
 ## [v0.4.0a19](https://github.com/hpcflow/hpcflow/compare/v0.4.0a18...v0.4.0a19) - 2026.11.19
 
