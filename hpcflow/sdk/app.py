@@ -34,6 +34,7 @@ from hpcflow import __version__
 from hpcflow.sdk.core.utils import (
     read_YAML_str,
     read_YAML_file,
+    substitute_string_vars,
     read_JSON_file,
     write_YAML_file,
     write_JSON_file,
@@ -4141,6 +4142,67 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
 
         print(f"Saved a new environment: {env.name!r} to file: {env_source}.")
         return env_source
+
+    def import_env_from_file(
+        self,
+        file_path: str | Path,
+        name: str,
+        specifiers: Mapping[str, str] | None = None,
+        variables: dict[str, str] | None = None,
+        replace: bool = False,
+    ) -> Path:
+        """Import one environment definition from a local or remote YAML file.
+
+        The imported definition is saved to the configured environment source file.
+        Variable substitutions are applied only to the selected definition.
+        """
+        definitions = read_YAML_file(file_path, variables=False)
+        if isinstance(definitions, dict):
+            definitions = [definitions]
+        if not isinstance(definitions, list):
+            raise ValueError(
+                f"Expected an environment definition or list of definitions in "
+                f"{file_path!r}."
+            )
+
+        requested_specifiers = specifiers or {}
+        matches = [
+            definition
+            for definition in definitions
+            if isinstance(definition, dict)
+            and definition.get("name") == name
+            and isinstance(definition.get("specifiers") or {}, dict)
+            and all(
+                (definition.get("specifiers") or {}).get(key) == value
+                for key, value in requested_specifiers.items()
+            )
+        ]
+        if not matches:
+            raise ValueError(
+                f"No environment named {name!r} matching specifiers "
+                f"{requested_specifiers!r} was found in {file_path!r}."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple environments named {name!r} match specifiers "
+                f"{requested_specifiers!r} in {file_path!r}; provide more specifiers "
+                f"to select one."
+            )
+
+        def substitute(value: Any) -> Any:
+            if isinstance(value, str):
+                return substitute_string_vars(value, variables or {})
+            if isinstance(value, list):
+                return [substitute(item) for item in value]
+            if isinstance(value, dict):
+                return {key: substitute(item) for key, item in value.items()}
+            return value
+
+        selected_definition = substitute(matches[0])
+        env_list = self.EnvironmentsList.from_json_like(
+            [selected_definition], shared_data=self._shared_data
+        )
+        return self.save_env(env_list[0], replace=replace)
 
     def env_configure_python(
         self,
