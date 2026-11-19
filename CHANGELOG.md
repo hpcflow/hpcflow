@@ -1,4 +1,124 @@
 
+<a name="v0.4.0"></a>
+## [v0.4.0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0) - 2026.11.19
+
+### Other changes
+
+* merge develop into fix/show
+
+### ♻ Code Refactoring
+
+* unify array output storage in indexed records
+* centralize defaulted configuration keys
+
+### ⚡ Performance Improvements
+
+* bundle member array outputs in shard archives
+* optimise persistent output member reads
+* one scheduler query per distinct scheduler in show
+* more memory-efficient array output consolidation
+* **show:** discard unrelated scheduler states when parsing slurm squeue
+* **show:** track a run ID cursor to tell show where each jobscript item is
+* **show:** more selective store reads of run states
+* **show:** limit number of missing submission to 10 by default
+* **show:** add instrumentation to monitoring commands
+* **show:** use up to 4 threads to populate the show table
+
+### ✨ Features
+
+* support `<<var:...>>` substitution in config import
+* resolve schema output multiplicity as persistent member sources
+* allow input-driven schema output multiplicity
+* add --follow option to stream jobscript output
+* add workflow delete-on-completion option
+* add workflow-template level inputs
+* build-time workflow input references, calculations and creation info
+* add CLI option `--ret-id` to print the local workflow ID
+* add `workflow show-runs` CLI to help with debugging
+* implement `ResourceSpec.scratch`, such that we can use node-local storage for execution working dirs
+* implement `Config.move_scratch_to_workflow` which moves custom-scratch retained exec dirs to the workflow tree
+* support partial reads of array outputs
+* allow specifying resource references in input values
+* **show:** improved registry management
+* **show:** additional display run states: interrupted and unknown
+* **show:** progressive show table using Rich `Live` display
+* **show:** add `--view` option to control verbosity of reported action/element data
+* **show:** report Slurm "configuring" (i.e node booting) state
+* **show:** add `--use-cache` to re-format the show table without scheduler or workflow queries
+* **show:** add show_scheduler_min_interval to help avoid overloading the scheduler
+* **show:** add -1 as an alias for the latest submitted workflow
+* **show:** support ID lists in show, cancel and unregister
+* **show:** view defaults to auto when workflow refs are passed
+* **show:** hide missing workflows by default
+* **show-runs:** add filtering and useful run columns
+
+### 🐛 Bug Fixes
+
+* grouped sub-parameter values being shared under cache_ctx
+* use seekable buffers for member array outputs
+* un-modify changelog
+* multi-thread race exposed by show in loading SDK classes
+* un-modify changelog
+* accidentally committed change to demo workflow
+* parallel-worker (e.g. pytest) race
+* un-modify changelog
+* mark pytest_configure_node as optional
+* set a sensible default for the temp dir used during array-output consolidation
+* np.save use for numpy v1
+* use `uint32` for IDs/indices in array output metadata
+* test assumption about integer storage
+* compat py3.10 `seekable`
+* type checking
+* store multiple data groups in each array output shard, corresponding to distinct shapes
+* apply scratch relocation default to existing configs
+* validate bounds in `_values_from_latin_hypercube`
+* test on py3.10
+* scratch does not affect jobscript hash
+* validate `SubmissionRecord.workflow_name`
+* show all submissions if a workflow ref is provided
+* support zip and remotely-executed workflows in show
+* missing scheduler-state icons
+* redesign show command via new sdk/monitoring package
+* type checking
+* reading output parameters before they have a source run ID
+* demo-data references are resolvable at build time and should be allowed in workflow inputs
+* share array archives across output members
+* distinguish whole outputs from singleton output members
+* preserve independent tasks when merging jobscripts
+* **show:** bugs windows and py3.10
+* **show:** timed-out jobscripts will show interrupted run states
+* **show:** truncate element ranges in detail view
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* update binary download links file [skip ci]
+* **deps:** bump actions/add-to-project
+* **deps:** bump the pip-dependencies group with 3 updates
+* **deps:** bump the pip-dependencies group with 6 updates
+* **deps-dev:** bump types-paramiko
+* **deps-dev:** bump types-psutil
+
+
 <a name="v0.3.0"></a>
 ## [v0.3.0](https://github.com/hpcflow/hpcflow/compare/v0.2.0...v0.3.0) - 2026.10.21
 
