@@ -1,4 +1,25 @@
 
+<a name="v0.5.0a0"></a>
+## [v0.5.0a0](https://github.com/hpcflow/hpcflow/compare/v0.4.0...v0.5.0a0) - 2026.11.19
+
+### ✨ Features
+
+* add remote import directory for config and env imports
+* add environment recipe import
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0"></a>
+## [v0.4.0](https://github.com/hpcflow/hpcflow/compare/v0.4.0a21...v0.4.0) - 2026.11.19
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a21"></a>
 ## [v0.4.0a21](https://github.com/hpcflow/hpcflow/compare/v0.4.0a20...v0.4.0a21) - 2026.11.19
 
