@@ -1,4 +1,17 @@
 
+<a name="v0.4.0a19"></a>
+## [v0.4.0a19](https://github.com/hpcflow/hpcflow/compare/v0.4.0a18...v0.4.0a19) - 2026.11.19
+
+### 🐛 Bug Fixes
+
+* grouped sub-parameter values being shared under cache_ctx
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-psutil
+
+
 <a name="v0.4.0a18"></a>
 ## [v0.4.0a18](https://github.com/hpcflow/hpcflow/compare/v0.4.0a17...v0.4.0a18) - 2026.11.12
 
