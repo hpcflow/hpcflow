@@ -1,4 +1,16 @@
 
+<a name="v0.4.0a21"></a>
+## [v0.4.0a21](https://github.com/hpcflow/hpcflow/compare/v0.4.0a20...v0.4.0a21) - 2026.11.19
+
+### ✨ Features
+
+* support `<<var:...>>` substitution in config import
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.4.0a20"></a>
 ## [v0.4.0a20](https://github.com/hpcflow/hpcflow/compare/v0.4.0a19...v0.4.0a20) - 2026.11.19
 
