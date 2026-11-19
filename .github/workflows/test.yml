@@ -45,7 +45,8 @@ jobs:
       unit_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.unit_tests == 'true' }}
       integration_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.integration_tests == 'true' }}
       invocation_tests: ${{ github.event_name == 'pull_request' || github.event.inputs.invocation_tests == 'true' }}
-      unit_test_args: ${{ github.event.inputs.unit_test_args }}
+      # run unit tests in parallel (pytest-xdist) to stay within the unit test timeout:
+      unit_test_args: ${{ format('-n auto {0}', github.event.inputs.unit_test_args) }}
       integration_test_args: ${{ github.event.inputs.integration_test_args }}
       ref: ${{ github.ref }}
       head-ref: ${{ github.head_ref }}

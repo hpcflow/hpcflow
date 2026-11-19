@@ -125,6 +125,8 @@ sdk_funcs: Final[tuple[str, ...]] = (
     "get_known_submissions",
     "show",
     "show_legend",
+    "unregister",
+    "clear_registry",
     "cancel",
 )
 

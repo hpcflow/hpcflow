@@ -336,11 +336,11 @@ def merge_jobscripts_across_tasks(
 
     """
 
-    # The set of IDs of dicts that we've merged, allowing us to not keep that info in
-    # the dicts themselves.
-    merged: set[int] = set()
+    # Map discarded jobscript indices to their surviving merge targets.
+    merged: dict[int, int] = {}
 
     for js_idx, js in jobscripts.items():
+        previous_idx = merged.get(js_idx - 1, js_idx - 1)
         if not js["dependencies"]:
             if js_idx == 0 or not min_jobscripts:
                 if logger:
@@ -354,7 +354,7 @@ def merge_jobscripts_across_tasks(
                 # it has no dependency relationship; skip if not compatible (equal number
                 # of elements):
                 if not (
-                    js["EAR_ID"].shape[1] == jobscripts[js_idx - 1]["EAR_ID"].shape[1]
+                    js["EAR_ID"].shape[1] == jobscripts[previous_idx]["EAR_ID"].shape[1]
                 ):
                     if logger:
                         logger.info(
@@ -363,7 +363,7 @@ def merge_jobscripts_across_tasks(
                         )
                     continue
 
-        closest_idx = cast("int", max(js["dependencies"], default=js_idx - 1))
+        closest_idx = cast("int", max(js["dependencies"], default=previous_idx))
         closest_js = jobscripts[closest_idx]
         other_deps = {k: v for k, v in js["dependencies"].items() if k != closest_idx}
 
@@ -448,7 +448,7 @@ def merge_jobscripts_across_tasks(
                 js_j["EAR_ID"] = np.vstack((js_j["EAR_ID"], js["EAR_ID"]))
 
                 # mark this js as defunct
-                merged.add(id(js))
+                merged[js_idx] = js_j_idx
 
                 # add dependencies that were defined current jobscript (`js_idx`) but not
                 # in `js_j`:
@@ -464,7 +464,7 @@ def merge_jobscripts_across_tasks(
                 )
 
     # remove is_merged jobscripts:
-    return {k: v for k, v in jobscripts.items() if id(v) not in merged}
+    return {k: v for k, v in jobscripts.items() if k not in merged}
 
 
 @TimeIt.decorator
@@ -2170,6 +2170,8 @@ class Jobscript(JSONLike):
             sub_log_path = '""'
 
         py_imports = dedent("""\
+            from contextlib import ExitStack
+            from hpcflow.sdk.monitoring.active_runs import ActiveRunTracker
             import os
             from collections import defaultdict
             from pathlib import Path
@@ -2221,8 +2223,13 @@ class Jobscript(JSONLike):
             {py_imports}
             
             sub_std_path = Path(os.environ["{app_caps}_SUB_STD_DIR"], f"js_{js_idx}.txt")            
-            with app.redirect_std_to_file(sub_std_path):
+            with app.redirect_std_to_file(sub_std_path), ExitStack() as monitoring_stack:
             {py_main_block_workflow_load}
+
+                monitoring_tracker = ActiveRunTracker.for_workflow(wk, {sub_idx}, {js_idx})
+                if monitoring_tracker is not None:
+                    monitoring_stack.enter_context(monitoring_tracker.context())
+                    monitoring_stack.callback(monitoring_tracker.clear)
 
                 with open(os.environ["{app_caps}_RUN_ID_FILE"], mode="r") as fp:
                     lns = fp.read().strip().split("\\n")
@@ -2343,6 +2350,9 @@ class Jobscript(JSONLike):
 
                         if run_ID == -1:                            
                             continue
+
+                        if monitoring_tracker is not None:
+                            monitoring_tracker.start([run_ID])
 
                         run = runs[run_ID]
 
@@ -2518,6 +2528,8 @@ class Jobscript(JSONLike):
                         app.logger.info(f"run_ID: {{run_ID}}; setting run ends.")
                         set_multi_end_tic = time.perf_counter()
                         new_skips = wk.set_multi_run_ends(run_end_dat)
+                        if monitoring_tracker is not None:
+                            monitoring_tracker.finish(run.id_ for values in run_end_dat.values() for run, _, _ in values)
                         run_skips.update(new_skips)
                         for run_id, skip_i in new_skips.items():
                             runs[run_id]._skip = skip_i
@@ -2547,6 +2559,7 @@ class Jobscript(JSONLike):
             run_log_name=self.submission.get_app_log_file_name(run_ID="{run_ID}"),
             js_idx=self.index,
             write_app_logs=self.resources.write_app_logs,
+            sub_idx=self.submission.index,
             sub_log_path=sub_log_path,
             skipped_exit_code=SKIPPED_EXIT_CODE,
             func_invoc_lines=indent(func_invoc_lines, tab_indent * 4),

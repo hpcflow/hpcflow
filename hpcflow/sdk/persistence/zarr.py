@@ -7,7 +7,7 @@ from __future__ import annotations
 import copy
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast, TYPE_CHECKING
 import msgpack  # type: ignore[import-untyped]
@@ -45,6 +45,7 @@ from hpcflow.sdk.core.utils import (
 )
 from hpcflow.sdk.persistence.base import (
     _UNSET_PARAMETER_VALUE,
+    _FilePathUpdate,
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
@@ -167,6 +168,22 @@ _ARRAY_OUTPUT_MASK_SUFFIX = ARRAY_OUTPUT_MASK_SUFFIX
 """Suffix for the NPZ archive holding the mask of a masked-array output."""
 
 
+@dataclass
+class _ArrayOutputContext:
+    run: ElementActionRun
+    output_name: str
+    members: bool
+    pending: dict[str, list[tuple[int | None, NDArray]]] = field(default_factory=dict)
+    selected_member: int | None = None
+    member_array_cache: dict[int, dict[str, NDArray]] = field(default_factory=dict)
+
+    def array_name(self, path: list[int]) -> tuple[str, int | None]:
+        member_idx = None
+        if self.members and path and isinstance(path[0], int):
+            member_idx, *path = path
+        return ".".join((self.output_name, *(str(part) for part in path))), member_idx
+
+
 def _resolve_legacy_root_group(root_group: Group | Callable[[], Group]) -> Group:
     """Return the legacy array root group, creating shard groups on first use."""
     return root_group() if callable(root_group) else root_group
@@ -180,7 +197,7 @@ def _encode_numpy_array(
     root_group: Group | Callable[[], Group],
     arr_path: list[int],
     root_encoder: Callable,
-    array_output_context: tuple[ElementActionRun, str] | None = None,
+    array_output_context: _ArrayOutputContext | None = None,
     array_output_name_suffix: str | None = None,
 ) -> int:
     """Encode an EAR output array in NPZ, or use legacy Zarr storage.
@@ -189,12 +206,18 @@ def _encode_numpy_array(
     when an array actually needs legacy storage.
     """
     if array_output_context is not None:
-        run, output_name = array_output_context
-        name = ".".join((output_name, *(str(component) for component in path)))
-        if not run.task._is_array_output_disabled(name):
+        run = array_output_context.run
+        name, member_idx = array_output_context.array_name(path)
+        original_name = ".".join(
+            (array_output_context.output_name, *(str(part) for part in path))
+        )
+        if not (
+            run.task._is_array_output_disabled(name)
+            or run.task._is_array_output_disabled(original_name)
+        ):
             if array_output_name_suffix:
                 name = f"{name}.{array_output_name_suffix}"
-            run.workflow._save_array_output(run, name, obj)
+            array_output_context.pending.setdefault(name, []).append((member_idx, obj))
             type_lookup["arrays"].append([path, None])
             return len(type_lookup["arrays"]) - 1
 
@@ -222,8 +245,8 @@ def _decode_numpy_arrays(
     path: list[int],
     arr_group: Group | None,
     dataset_copy: bool,
-    array_output_context: tuple[ElementActionRun, str] | None = None,
-    array_output_cache: dict[str, NDArray] | None = None,
+    array_output_context: _ArrayOutputContext | None = None,
+    array_output_cache: dict[str, dict[int | None, NDArray]] | None = None,
     array_output_name_suffix: str | None = None,
 ):
     # Yuck! Type lies! Zarr's internal types are not modern Python types.
@@ -238,33 +261,99 @@ def _decode_numpy_arrays(
         dataset: NDArray
         archive_path = None
         if array_output_context is not None:
-            run, output_name = array_output_context
-            name = ".".join((output_name, *(str(component) for component in arr_path)))
-            is_disabled = run.task._is_array_output_disabled(name)
+            run = array_output_context.run
+            name, member_idx = array_output_context.array_name(arr_path)
+            original_name = ".".join(
+                (array_output_context.output_name, *(str(part) for part in arr_path))
+            )
+            is_disabled = run.task._is_array_output_disabled(
+                name
+            ) or run.task._is_array_output_disabled(original_name)
             if array_output_name_suffix:
                 name = f"{name}.{array_output_name_suffix}"
+            if arr_idx is None and not is_disabled:
+                record_idx = (
+                    member_idx
+                    if array_output_context.members and member_idx is not None
+                    else -1
+                )
+                if record_idx not in array_output_context.member_array_cache:
+                    shard_key = run.workflow._get_array_output_shard_key(run)
+                    member_arrays = (
+                        run.workflow._read_member_array_output_record(
+                            array_output_context.output_name,
+                            run.id_,
+                            shard_key,
+                            record_idx,
+                        )
+                        if shard_key is not None
+                        else None
+                    )
+                    if member_arrays:
+                        array_output_context.member_array_cache[record_idx] = (
+                            member_arrays
+                        )
+                member_arrays = array_output_context.member_array_cache.get(record_idx)
+                if member_arrays is not None and name in member_arrays:
+                    dataset = member_arrays[name]
+                    if rel_path:
+                        set_in_container(obj_, rel_path, dataset)
+                    else:
+                        obj_ = dataset
+                    continue
             # the shard archive for this run, or the consolidated archive, if either
             # exists:
+            shard_key = run.workflow._get_array_output_shard_key(run)
             archive_path = (
-                run.workflow._resolve_array_output_archive_path(name, run.run_file_ID)
-                if run.run_file_ID is not None
+                run.workflow._resolve_array_output_archive_path(name, shard_key)
+                if shard_key is not None
                 else None
             )
+            if archive_path is None and name != original_name:
+                legacy_name = original_name
+                if array_output_name_suffix:
+                    legacy_name = f"{legacy_name}.{array_output_name_suffix}"
+                archive_path = (
+                    run.workflow._resolve_array_output_archive_path(
+                        legacy_name, shard_key
+                    )
+                    if shard_key is not None
+                    else None
+                )
+                if archive_path is not None:
+                    name, member_idx = legacy_name, None
             if (arr_idx is None or not is_disabled) and archive_path is not None:
-                if array_output_cache is not None and name in array_output_cache:
-                    dataset = array_output_cache[name]
-                else:
-                    output_data = run.workflow.get_array_output(name, run.id_).data
-                    if not isinstance(output_data, np.ndarray):
-                        raise TypeError(f"Expected a single array for EAR {run.id_}.")
-                    dataset = output_data
-                    if array_output_cache is not None:
-                        array_output_cache[name] = dataset
+                if array_output_cache is None:
+                    array_output_cache = {}
+                if name not in array_output_cache:
+                    output = run.workflow._get_array_output(
+                        name,
+                        run.id_,
+                        run=run,
+                        member_idx=array_output_context.selected_member,
+                        resolved_path=archive_path,
+                    )
+                    if output.member_idx is None:
+                        if not isinstance(output.data, np.ndarray):
+                            raise TypeError(f"Expected a single array for EAR {run.id_}.")
+                        array_output_cache[name] = {None: output.data}
+                    else:
+                        array_output_cache[name] = {
+                            (None if idx == -1 else int(idx)): value
+                            for idx, value in zip(output.member_idx, output.data)
+                        }
+                try:
+                    dataset = array_output_cache[name][member_idx]
+                except KeyError:
+                    raise ValueError(
+                        f"Missing member {member_idx} for array output {name!r} "
+                        f"of EAR {run.id_}."
+                    ) from None
             else:
                 if arr_idx is None:
                     expected = (
-                        run.workflow._get_array_output_archive_path(name, run.run_file_ID)
-                        if run.run_file_ID is not None
+                        run.workflow._get_array_output_archive_path(name, *shard_key)
+                        if shard_key is not None
                         else None
                     )
                     raise FileNotFoundError(
@@ -300,7 +389,7 @@ def _encode_masked_array(
     root_group: Group | Callable[[], Group],
     arr_path: list[int],
     root_encoder: Callable,
-    array_output_context: tuple[ElementActionRun, str] | None = None,
+    array_output_context: _ArrayOutputContext | None = None,
 ):
     """Encode a masked array as two normal arrays, and return the fill value.
 
@@ -343,8 +432,8 @@ def _decode_masked_arrays(
     path: list[int],
     arr_group: Group | None,
     dataset_copy: bool,
-    array_output_context: tuple[ElementActionRun, str] | None = None,
-    array_output_cache: dict[str, NDArray] | None = None,
+    array_output_context: _ArrayOutputContext | None = None,
+    array_output_cache: dict[str, dict[int | None, NDArray]] | None = None,
 ):
     # Yuck! Type lies! Zarr's internal types are not modern Python types.
     masked_arrays = cast(
@@ -1886,14 +1975,26 @@ class ZarrPersistentStore(
 
     def _get_array_output_context(
         self, param_id: int, source: ParamSource
-    ) -> tuple[ElementActionRun, str] | None:
+    ) -> _ArrayOutputContext | None:
         """Resolve the source run and root output name for array serialization."""
         if source["type"] != "EAR_output":
             return None
         run = self.workflow.get_EARs_from_IDs(source["EAR_ID"])
         for name, index in run.data_idx.items():
             if name.startswith("outputs.") and index == param_id:
-                return run, name.removeprefix("outputs.")
+                output_name = name.removeprefix("outputs.")
+                schema_output = next(
+                    output
+                    for output in run.task.template.all_schema_outputs
+                    if output.typ == output_name.split(".")[0]
+                )
+                input_name = schema_output.multiplicity_input
+                multiplicity = schema_output.resolve_multiplicity(
+                    run.element_iteration.get(f"inputs.{input_name}", raise_on_unset=True)
+                    if input_name is not None
+                    else None
+                )
+                return _ArrayOutputContext(run, output_name, multiplicity is not None)
         return None
 
     def _set_parameter_values(self, set_parameters: dict[int, tuple[Any, bool]]):
@@ -1913,6 +2014,8 @@ class ZarrPersistentStore(
             is_unset = value is _UNSET_PARAMETER_VALUE
             if is_unset:
                 param_i = param_i.unset()
+            elif isinstance(value, _FilePathUpdate):
+                param_i = param_i.relocate_file(value.path)
             elif is_file:
                 param_i = param_i.set_file(value)
             else:
@@ -1955,6 +2058,10 @@ class ZarrPersistentStore(
                     ),
                 )
             )
+            if context is not None and context.pending:
+                self.workflow._save_member_array_output(
+                    context.run, context.output_name, context.pending
+                )
 
         # sub idx -> file_ID -> run_ID -> file index
         # file zero is for local inputs, hence the offset from the run metadata file IDs:
@@ -2759,6 +2866,11 @@ class ZarrPersistentStore(
         output_indices = {}
         for param_id, param_src in src_dat.items():
             if param_src["type"] == "EAR_output":
+                # Schema outputs are allocated before their source runs are known.
+                # Conditional or deferred actions can leave these slots unassigned;
+                # let them be filled with None below, like other unset outputs.
+                if "EAR_ID" not in param_src:
+                    continue
                 param_id_to_run_id[param_id] = param_src["EAR_ID"]
                 output_indices[param_id] = param_src["output_idx"]
             else:
@@ -2804,6 +2916,63 @@ class ZarrPersistentStore(
         param_dat.update((k, None) for k in id_lst if k not in param_dat)
 
         return param_dat, src_dat
+
+    @override
+    @TimeIt.decorator
+    def get_output_members(
+        self, sources: Mapping[int, ParamSource], *, dataset_copy: bool = False, **kwargs
+    ) -> dict[int, ZarrStoreParameter]:
+        """Decode only selected members of persistent, sequence-valued outputs."""
+        self._ensure_all_decoders()
+        parent_ids = {
+            source["parameter_ID"]
+            for source in sources.values()
+            if source["parameter_ID"] not in self.parameter_cache
+            and source["parameter_ID"] not in self._pending.add_parameters
+        }
+        data, parent_sources = (
+            self._get_base_parameters(parent_ids) if parent_ids else ({}, {})
+        )
+        members: dict[int, ZarrStoreParameter] = {}
+        fallback: dict[int, ParamSource] = {}
+        contexts: dict[int, _ArrayOutputContext | None] = {}
+        decoded: dict[tuple[int, int], ZarrStoreParameter] = {}
+        for id_, source in sources.items():
+            parent_id = source["parameter_ID"]
+            encoded = data.get(parent_id)
+            if (
+                not isinstance(encoded, dict)
+                or "file" in encoded
+                or not isinstance(encoded.get("data"), (list, tuple))
+            ):
+                fallback[id_] = source
+                continue
+            self._validate_output_member(encoded["data"], source)
+            key = parent_id, source["member_idx"]
+            if key not in decoded:
+                if parent_id not in contexts:
+                    contexts[parent_id] = self._get_array_output_context(
+                        parent_id, parent_sources[parent_id]
+                    )
+                context = contexts[parent_id]
+                if context is not None:
+                    context.selected_member = source["member_idx"]
+                decoded[key] = ZarrStoreParameter.decode(
+                    id_=id_,
+                    data=encoded,
+                    source=parent_sources[parent_id],
+                    path=[source["member_idx"]],
+                    arr_group=self.get_parameter_data_array_group(parent_id),
+                    array_output_context=context,
+                    array_output_cache={},
+                    dataset_copy=dataset_copy,
+                    **kwargs,
+                )
+            members[id_] = replace(decoded[key], id_=id_)
+        members.update(
+            super().get_output_members(fallback, dataset_copy=dataset_copy, **kwargs)
+        )
+        return members
 
     @TimeIt.decorator
     def _get_persistent_parameters(
@@ -3194,11 +3363,13 @@ class ZarrPersistentStore(
                 ZipFileSystem,
                 fo=dst_path_s,
                 mode="w",
+                compression=0,  # Preserve seeking within indexed array-output ZIPs.
                 target_options={},
                 add_pw_to="target_options",
             )
             dst_zarr_store = FSStore(url="", fs=zfs)
-            excludes = []
+            # Another consolidation may still have large temporary NPZs here.
+            excludes = [r"^parameters/array_outputs/\.tmp(?:/|$)"]
             if not include_execute:
                 excludes.append("execute")
             if not include_rechunk_backups:

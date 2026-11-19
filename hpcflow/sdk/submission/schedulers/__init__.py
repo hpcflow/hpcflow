@@ -260,6 +260,8 @@ class QueuedScheduler(Scheduler[str]):
         is_array: bool,
         sub_idx: int,
         js_idx: int,
+        *,
+        std_dir: str | None = None,
     ) -> str:
         """
         Render directives in a way that the scheduler can handle.

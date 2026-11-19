@@ -214,11 +214,20 @@ class SGEPosix(QueuedScheduler):
         return f"js_{js_idx}.sh.e{job_ID}{array_idx_str}"
 
     def __format_std_stream_file_option_lines(
-        self, is_array: bool, sub_idx: int, js_idx: int, combine_std: bool
+        self,
+        is_array: bool,
+        sub_idx: int,
+        js_idx: int,
+        combine_std: bool,
+        std_dir: str | None = None,
     ) -> Iterator[str]:
         # note: if we modify the file names, there is, I believe, no way to include the
         # job ID; so we don't modify the file names:
-        base = f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}"
+        base = (
+            f'"{std_dir}"'
+            if std_dir is not None
+            else f"./artifacts/submissions/{sub_idx}/js_std/{js_idx}"
+        )
         yield f"{self.js_cmd} -o {base}"
         if combine_std:
             yield f"{self.js_cmd} -j y"  # redirect stderr to stdout
@@ -233,6 +242,8 @@ class SGEPosix(QueuedScheduler):
         is_array: bool,
         sub_idx: int,
         js_idx: int,
+        *,
+        std_dir: str | None = None,
     ) -> str:
         """
         Format the directives to the jobscript command.
@@ -245,11 +256,22 @@ class SGEPosix(QueuedScheduler):
 
         opts.extend(
             self.__format_std_stream_file_option_lines(
-                is_array, sub_idx, js_idx, resources.combine_jobscript_std
+                is_array, sub_idx, js_idx, resources.combine_jobscript_std, std_dir
             )
         )
 
         for opt_k, opt_v in self.directives.items():
+            if std_dir is not None and opt_k in {
+                "-o",
+                "-e",
+                "-j",
+                "-wd",
+                "-t",
+                "-tc",
+                "-hold_jid",
+                "-hold_jid_ad",
+            }:
+                continue
             if opt_v is None:
                 opts.append(f"{self.js_cmd} {opt_k}")
             elif isinstance(opt_v, list):

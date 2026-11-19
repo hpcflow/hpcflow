@@ -1,4 +1,335 @@
 
+<a name="v0.4.0a21"></a>
+## [v0.4.0a21](https://github.com/hpcflow/hpcflow/compare/v0.4.0a20...v0.4.0a21) - 2026.11.19
+
+### ✨ Features
+
+* support `<<var:...>>` substitution in config import
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a20"></a>
+## [v0.4.0a20](https://github.com/hpcflow/hpcflow/compare/v0.4.0a19...v0.4.0a20) - 2026.11.19
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a19"></a>
+## [v0.4.0a19](https://github.com/hpcflow/hpcflow/compare/v0.4.0a18...v0.4.0a19) - 2026.11.19
+
+### 🐛 Bug Fixes
+
+* grouped sub-parameter values being shared under cache_ctx
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-psutil
+
+
+<a name="v0.4.0a18"></a>
+## [v0.4.0a18](https://github.com/hpcflow/hpcflow/compare/v0.4.0a17...v0.4.0a18) - 2026.11.12
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 3 updates
+* **deps:** bump actions/add-to-project
+
+
+<a name="v0.4.0a17"></a>
+## [v0.4.0a17](https://github.com/hpcflow/hpcflow/compare/v0.4.0a16...v0.4.0a17) - 2026.11.11
+
+### Other changes
+
+* merge develop into fix/show
+
+### ⚡ Performance Improvements
+
+* one scheduler query per distinct scheduler in show
+* **show:** use up to 4 threads to populate the show table
+* **show:** discard unrelated scheduler states when parsing slurm squeue
+* **show:** track a run ID cursor to tell show where each jobscript item is
+* **show:** more selective store reads of run states
+* **show:** limit number of missing submission to 10 by default
+* **show:** add instrumentation to monitoring commands
+
+### ✨ Features
+
+* add `workflow show-runs` CLI to help with debugging
+* **show:** report Slurm "configuring" (i.e node booting) state
+* **show:** support ID lists in show, cancel and unregister
+* **show:** add -1 as an alias for the latest submitted workflow
+* **show:** add show_scheduler_min_interval to help avoid overloading the scheduler
+* **show:** add `--use-cache` to re-format the show table without scheduler or workflow queries
+* **show:** view defaults to auto when workflow refs are passed
+* **show:** add `--view` option to control verbosity of reported action/element data
+* **show:** progressive show table using Rich `Live` display
+* **show:** additional display run states: interrupted and unknown
+* **show:** improved registry management
+* **show:** hide missing workflows by default
+* **show-runs:** add filtering and useful run columns
+
+### 🐛 Bug Fixes
+
+* validate `SubmissionRecord.workflow_name`
+* multi-thread race exposed by show in loading SDK classes
+* support zip and remotely-executed workflows in show
+* accidentally committed change to demo workflow
+* parallel-worker (e.g. pytest) race
+* show all submissions if a workflow ref is provided
+* missing scheduler-state icons
+* redesign show command via new sdk/monitoring package
+* **show:** bugs windows and py3.10
+* **show:** truncate element ranges in detail view
+* **show:** timed-out jobscripts will show interrupted run states
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a16"></a>
+## [v0.4.0a16](https://github.com/hpcflow/hpcflow/compare/v0.4.0a15...v0.4.0a16) - 2026.11.11
+
+### ♻ Code Refactoring
+
+* unify array output storage in indexed records
+
+### ⚡ Performance Improvements
+
+* bundle member array outputs in shard archives
+* optimise persistent output member reads
+
+### 🐛 Bug Fixes
+
+* use seekable buffers for member array outputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a15"></a>
+## [v0.4.0a15](https://github.com/hpcflow/hpcflow/compare/v0.4.0a14...v0.4.0a15) - 2026.11.06
+
+### 🐛 Bug Fixes
+
+* mark pytest_configure_node as optional
+
+
+<a name="v0.4.0a14"></a>
+## [v0.4.0a14](https://github.com/hpcflow/hpcflow/compare/v0.4.0a13...v0.4.0a14) - 2026.11.06
+
+### ⚡ Performance Improvements
+
+* more memory-efficient array output consolidation
+
+### ✨ Features
+
+* support partial reads of array outputs
+
+### 🐛 Bug Fixes
+
+* set a sensible default for the temp dir used during array-output consolidation
+* np.save use for numpy v1
+* use `uint32` for IDs/indices in array output metadata
+* test assumption about integer storage
+* compat py3.10 `seekable`
+* type checking
+* store multiple data groups in each array output shard, corresponding to distinct shapes
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a13"></a>
+## [v0.4.0a13](https://github.com/hpcflow/hpcflow/compare/v0.4.0a12...v0.4.0a13) - 2026.11.05
+
+### ♻ Code Refactoring
+
+* centralize defaulted configuration keys
+
+### ✨ Features
+
+* implement `Config.move_scratch_to_workflow` which moves custom-scratch retained exec dirs to the workflow tree
+* implement `ResourceSpec.scratch`, such that we can use node-local storage for execution working dirs
+
+### 🐛 Bug Fixes
+
+* apply scratch relocation default to existing configs
+* test on py3.10
+* scratch does not affect jobscript hash
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a12"></a>
+## [v0.4.0a12](https://github.com/hpcflow/hpcflow/compare/v0.4.0a11...v0.4.0a12) - 2026.11.04
+
+### 🐛 Bug Fixes
+
+* validate bounds in `_values_from_latin_hypercube`
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a11"></a>
+## [v0.4.0a11](https://github.com/hpcflow/hpcflow/compare/v0.4.0a10...v0.4.0a11) - 2026.11.04
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps:** bump the pip-dependencies group with 6 updates
+
+
+<a name="v0.4.0a10"></a>
+## [v0.4.0a10](https://github.com/hpcflow/hpcflow/compare/v0.4.0a9...v0.4.0a10) - 2026.10.31
+
+### ✨ Features
+
+* add CLI option `--ret-id` to print the local workflow ID
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a9"></a>
+## [v0.4.0a9](https://github.com/hpcflow/hpcflow/compare/v0.4.0a8...v0.4.0a9) - 2026.10.29
+
+### 🐛 Bug Fixes
+
+* type checking
+* reading output parameters before they have a source run ID
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a8"></a>
+## [v0.4.0a8](https://github.com/hpcflow/hpcflow/compare/v0.4.0a7...v0.4.0a8) - 2026.10.28
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+* **deps-dev:** bump types-paramiko
+
+
+<a name="v0.4.0a7"></a>
+## [v0.4.0a7](https://github.com/hpcflow/hpcflow/compare/v0.4.0a6...v0.4.0a7) - 2026.10.28
+
+### 🐛 Bug Fixes
+
+* demo-data references are resolvable at build time and should be allowed in workflow inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a6"></a>
+## [v0.4.0a6](https://github.com/hpcflow/hpcflow/compare/v0.4.0a5...v0.4.0a6) - 2026.10.27
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a5"></a>
+## [v0.4.0a5](https://github.com/hpcflow/hpcflow/compare/v0.4.0a4...v0.4.0a5) - 2026.10.27
+
+### ✨ Features
+
+* build-time workflow input references, calculations and creation info
+* add workflow-template level inputs
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a4"></a>
+## [v0.4.0a4](https://github.com/hpcflow/hpcflow/compare/v0.4.0a3...v0.4.0a4) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* share array archives across output members
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a3"></a>
+## [v0.4.0a3](https://github.com/hpcflow/hpcflow/compare/v0.4.0a2...v0.4.0a3) - 2026.10.27
+
+### 🐛 Bug Fixes
+
+* distinguish whole outputs from singleton output members
+* un-modify changelog
+* un-modify changelog
+* un-modify changelog
+* preserve independent tasks when merging jobscripts
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a2"></a>
+## [v0.4.0a2](https://github.com/hpcflow/hpcflow/compare/v0.4.0a1...v0.4.0a2) - 2026.10.26
+
+### ✨ Features
+
+* add workflow delete-on-completion option
+* add --follow option to stream jobscript output
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a1"></a>
+## [v0.4.0a1](https://github.com/hpcflow/hpcflow/compare/v0.4.0a0...v0.4.0a1) - 2026.10.26
+
+### ✨ Features
+
+* allow input-driven schema output multiplicity
+* resolve schema output multiplicity as persistent member sources
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
+<a name="v0.4.0a0"></a>
+## [v0.4.0a0](https://github.com/hpcflow/hpcflow/compare/v0.3.0...v0.4.0a0) - 2026.10.22
+
+### ✨ Features
+
+* allow specifying resource references in input values
+
+
+<a name="v0.3.0"></a>
+## [v0.3.0](https://github.com/hpcflow/hpcflow/compare/v0.3.0a20...v0.3.0) - 2026.10.21
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.3.0a20"></a>
 ## [v0.3.0a20](https://github.com/hpcflow/hpcflow/compare/v0.3.0a19...v0.3.0a20) - 2026.10.21
 

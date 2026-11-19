@@ -1,12 +1,36 @@
 """Click CLI options that are used as decorators in multiple modules."""
 
 from __future__ import annotations
+from pathlib import Path
+from typing import TYPE_CHECKING
 import click
 
 from hpcflow.sdk.core import ALL_TEMPLATE_FORMATS
 from hpcflow.sdk.core.environment import Environment
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
 from hpcflow.sdk.persistence.discovery import ALL_STORE_FORMATS
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from hpcflow.sdk.app import BaseApp
+    from hpcflow.sdk.core.workflow import Workflow
+
+
+def print_local_workflow_ids(
+    app: BaseApp, workflow: Workflow, submitted_js: Mapping[int, Sequence[int]]
+) -> None:
+    """Print the latest local ID for each submission that submitted jobscripts."""
+    if not any(submitted_js.values()):
+        return
+    known = app.read_known_submissions_file()
+    latest_ids = {
+        item["sub_idx"]: item["local_id"]
+        for item in known
+        if item["path"] == str(workflow.path) and submitted_js.get(item["sub_idx"])
+    }
+    for sub_idx in submitted_js:
+        if sub_idx in latest_ids:
+            click.echo(latest_ids[sub_idx])
 
 
 class BoolOrString(click.ParamType):
@@ -180,6 +204,29 @@ wait_option = click.option(
     default=False,
 )
 #: Standard option
+follow_option = click.option(
+    "-f",
+    "--follow",
+    help=(
+        "Follow direct jobscript stdout and stderr until execution finishes. "
+        "Non-direct schedulers are not supported. Implies --wait. "
+        "Ctrl+C stops following without cancelling execution."
+    ),
+    is_flag=True,
+    default=False,
+)
+#: Standard option
+delete_option = click.option(
+    "--delete",
+    help=(
+        "Permanently delete the workflow, without confirmation, once execution has "
+        "finished, regardless of success. Implies --wait. The workflow is not deleted "
+        "if waiting is interrupted with Ctrl+C."
+    ),
+    is_flag=True,
+    default=False,
+)
+#: Standard option
 add_to_known_opt = click.option(
     "--add-to-known/--no-add-to-known",
     default=True,
@@ -189,6 +236,16 @@ add_to_known_opt = click.option(
 print_idx_opt = click.option(
     "--print-idx",
     help="If True, print the submitted jobscript indices for each submission index.",
+    is_flag=True,
+    default=False,
+)
+#: Standard option
+ret_id_opt = click.option(
+    "--ret-id",
+    help=(
+        "Print the local workflow ID after submission (one per submitted submission). "
+        "Requires --add-to-known."
+    ),
     is_flag=True,
     default=False,
 )
@@ -303,6 +360,12 @@ zip_consolidate_opt = click.option(
         "Consolidate array-output shard archives into one file per output before "
         "zipping, which makes zipping much faster."
     ),
+)
+array_output_temp_dir_opt = click.option(
+    "--temp-dir",
+    type=click.Path(exists=True, file_okay=False, writable=True, path_type=Path),
+    default=None,
+    help="Directory for decompressed array-output buffers during consolidation (default: WORKFLOW/parameters/array_outputs/.tmp/).",
 )
 
 #: Standard option
@@ -500,8 +563,11 @@ _add_doc_from_help(
     variables_option,
     js_parallelism_option,
     wait_option,
+    follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
+    ret_id_opt,
     tasks_opt,
     cancel_opt,
     submit_status_opt,
@@ -517,6 +583,7 @@ _add_doc_from_help(
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
     zip_consolidate_opt,
+    array_output_temp_dir_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,

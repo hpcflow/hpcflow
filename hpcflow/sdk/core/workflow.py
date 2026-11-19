@@ -5,10 +5,13 @@ Main workflow model.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
+import codecs
+from contextlib import closing, contextmanager, ExitStack, nullcontext
 import copy
 from dataclasses import dataclass, field, fields
+import errno
 from io import BytesIO
+import json
 
 from datetime import datetime, timezone
 from functools import wraps
@@ -18,9 +21,10 @@ import random
 import shutil
 import string
 import sys
+from tempfile import TemporaryDirectory
 from threading import Thread
 import time
-from typing import ParamSpec, TypeVar, overload, cast, TYPE_CHECKING
+from typing import ParamSpec, SupportsIndex, TypeVar, overload, cast, TYPE_CHECKING
 from typing_extensions import Concatenate
 
 from uuid import uuid4
@@ -60,13 +64,34 @@ from hpcflow.sdk.core.cache import ObjectCache
 from hpcflow.sdk.core.loop_cache import LoopCache, LoopIndex
 from hpcflow.sdk.core.actions import ElementActionRun
 from hpcflow.sdk.core.task_schema import split_save_files_policy
+from hpcflow.sdk.core.template_expressions import resolve_workflow_input_references
 from hpcflow.sdk.log import TimeIt
 from hpcflow.sdk.persistence import store_cls_from_str
 from hpcflow.sdk.persistence.defaults import DEFAULT_STORE_FORMAT
+from hpcflow.sdk.persistence.array_outputs import (
+    ChunkedArray,
+    read_chunked_array_output,
+    write_streamed_array_output,
+)
+from hpcflow.sdk.persistence.array_output_sources import (
+    ArrayOutputBuffer as _ArrayOutputBuffer,
+    normalize_metadata,
+    open_array_output_source,
+)
+from hpcflow.sdk.persistence.member_array_outputs import (
+    consolidate_member_array_output_archives,
+    member_array_output_record_has_array,
+    read_member_array_output_index,
+    read_member_array_output_record,
+    read_member_array_output_records,
+    write_member_array_output_archive,
+)
 from hpcflow.sdk.persistence.base import TEMPLATE_COMP_TYPES
 from hpcflow.sdk.persistence.utils import (
     ARRAY_OUTPUT_CONSOLIDATED_NAME,
+    ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME,
     ARRAY_OUTPUT_MASK_SUFFIX,
+    ARRAY_OUTPUT_SUBMISSIONS_DIR,
     ask_pw_on_auth_exc,
     atomic_write,
     infer_store,
@@ -98,10 +123,12 @@ from hpcflow.sdk.core.utils import (
     normalise_timestamp,
     parse_timestamp,
     get_in_container,
+    get_duplicate_items,
     set_in_container,
 )
 from hpcflow.sdk.core.errors import (
     InvalidInputSourceTaskReference,
+    TaskTemplateMultipleInputValues,
     LoopAlreadyExistsError,
     OutputFileParserNoOutputError,
     RunNotAbortableError,
@@ -111,9 +138,11 @@ from hpcflow.sdk.core.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from ..monitoring.run_filters import IndexFilter
+    from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
     from contextlib import AbstractContextManager
     from typing import Any, ClassVar, Literal, DefaultDict, TypeAlias
+    from typing import TextIO
     from typing_extensions import Self
     from numpy.typing import NDArray
     import psutil
@@ -124,7 +153,7 @@ if TYPE_CHECKING:
     from .element import Element, ElementIteration
     from .loop import Loop, WorkflowLoop
     from .object_list import ObjectList, ResourceList, WorkflowLoopList, WorkflowTaskList
-    from .parameters import InputSource, ResourceSpec
+    from .parameters import InputSource, InputValue, ResourceSpec
     from .task import Task, WorkflowTask, InputStatus, TaskCondition
     from .imports import Import
     from .types import (
@@ -226,11 +255,22 @@ class WorkflowTemplate(JSONLike):
         template-level resources are ignored.
     merge_envs:
         Whether to merge the environments into task resources.
+    inputs:
+        Shared input values available to tasks, supplied as a list of InputValue objects
+        or a parameter-to-value mapping. Local and upstream task sources take precedence.
     """
 
     _validation_schema: ClassVar[str] = "workflow_spec_schema.yaml"
 
     _child_objects: ClassVar[tuple[ChildObjectSpec, ...]] = (
+        ChildObjectSpec(
+            name="inputs",
+            class_name="InputValue",
+            is_multiple=True,
+            dict_key_attr="parameter",
+            dict_val_attr="value",
+            parent_ref="_workflow_template",
+        ),
         ChildObjectSpec(
             name="imports",
             class_name="Import",
@@ -284,8 +324,23 @@ class WorkflowTemplate(JSONLike):
     merge_resources: bool = True
     #: Whether to merge the environments into task resources.
     merge_envs: bool = True
+    #: Shared inputs used when no local or upstream task source is available.
+    inputs: list[InputValue] | dict[str, Any] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        #: String variables passed on creation (including defaults used); not persisted
+        #: in the template itself, but recorded in the workflow creation info.
+        self._creation_variables: dict[str, Any] = {}
+        #: Results of `<<calc(...)>>` expressions, keyed by expression.
+        self._creation_calculations: dict[str, Any] = {}
+
+        self.inputs = self._app.InputValue.normalise(self.inputs)
+        if duplicates := get_duplicate_items(
+            [inp.normalised_inputs_path for inp in self.inputs]
+        ):
+            raise TaskTemplateMultipleInputValues(
+                f"Workflow inputs have multiple value definitions: {duplicates!r}."
+            )
 
         # TODO: in what scenario is the reindex required? are loops initialised?
 
@@ -357,6 +412,16 @@ class WorkflowTemplate(JSONLike):
         )
         resources.merge_other(res_defaults)
         return resources
+
+    def _postprocess_to_dict(self, dct: dict[str, Any]) -> dict[str, Any]:
+        dct.pop("_creation_variables", None)
+        dct.pop("_creation_calculations", None)
+        return dct
+
+    @property
+    def _inputs(self) -> dict[str, InputValue]:
+        assert isinstance(self.inputs, list)
+        return {inp.normalised_inputs_path: inp for inp in self.inputs}
 
     @property
     def _resources(self) -> ResourceList:
@@ -452,6 +517,8 @@ class WorkflowTemplate(JSONLike):
         updates: dict[tuple[str | int, ...], Any] | None = None,
         resources: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
+        variables: dict[str, str] | Literal[False] | None = None,
+        used_variables: dict[str, str] | None = None,
     ) -> WorkflowTemplate:
         """
         Generate a new workflow template from template data that has typically been
@@ -470,6 +537,12 @@ class WorkflowTemplate(JSONLike):
             merged into `updates`.
         config
             Any updates to template-level config items. This is merged into `updates`.
+        variables
+            The string variables passed on creation, which are recorded in the creation
+            information of any workflow generated from this template.
+        used_variables
+            Values substituted for string variables (including defaults used), which are
+            also recorded.
 
         """
         updates = updates or {}
@@ -484,6 +557,11 @@ class WorkflowTemplate(JSONLike):
                 f"Updating workflow template data: {upd_path!r} to {upd_val!r}."
             )
             set_in_container(data, upd_path, upd_val, cast_indices=True, ensure_path=True)
+
+        calculations: dict[str, Any] = {}
+        data = resolve_workflow_input_references(
+            data, input_value_cls=cls._app.InputValue, calculations=calculations
+        )
 
         def _normalise_task_parametrisation(task_lst: list[WorkflowTemplateTaskData]):
             """
@@ -694,6 +772,8 @@ class WorkflowTemplate(JSONLike):
         #     if isinstance(task.schema, cls._app.MetaTaskSchema):
         #         print(f"{task=!r}")
         #         wkt.tasks[idx] = cls._app.MetaTask(schema=task.schema, tasks=task.tasks)
+        wkt._creation_variables = {**(variables or {}), **(used_variables or {})}
+        wkt._creation_calculations = calculations
         return wkt
 
     @classmethod
@@ -727,15 +807,19 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
             read_YAML_str(
                 string,
                 variables=variables,
                 source="(from the inline workflow template definition)",
+                used_variables=used_variables,
             ),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -786,10 +870,18 @@ class WorkflowTemplate(JSONLike):
 
         """
         cls._app.logger.debug("parsing workflow template from a YAML file")
-        data = read_YAML_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_YAML_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
-        return cls._from_data(data, updates=updates, resources=resources, config=config)
+        return cls._from_data(
+            data,
+            updates=updates,
+            resources=resources,
+            config=config,
+            variables=variables,
+            used_variables=used_variables,
+        )
 
     @classmethod
     @TimeIt.decorator
@@ -822,11 +914,14 @@ class WorkflowTemplate(JSONLike):
         config
             Any updates to template-level config items. This is merged into `updates`.
         """
+        used_variables: dict[str, str] = {}
         return cls._from_data(
-            read_JSON_string(string, variables=variables),
+            read_JSON_string(string, variables=variables, used_variables=used_variables),
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -861,7 +956,8 @@ class WorkflowTemplate(JSONLike):
             Any updates to template-level config items. This is merged into `updates`.
         """
         cls._app.logger.debug("parsing workflow template from a JSON file")
-        data = read_JSON_file(path, variables=variables)
+        used_variables: dict[str, str] = {}
+        data = read_JSON_file(path, variables=variables, used_variables=used_variables)
         cls._check_name(data, path)
         data["source_file"] = str(path)
         return cls._from_data(
@@ -869,6 +965,8 @@ class WorkflowTemplate(JSONLike):
             updates=updates,
             resources=resources,
             config=config,
+            variables=variables,
+            used_variables=used_variables,
         )
 
     @classmethod
@@ -1027,6 +1125,10 @@ class ArrayOutput:
     one entry. For multiple IDs, ``data`` is stacked when no shape metadata is
     present and all shapes match, otherwise it is a list. ``shape`` is omitted
     when none of the source archives has shape metadata.
+
+    Member outputs have one row per saved member, even for a scalar run ID.
+    ``member_idx`` contains the original outer member indices, or -1 for whole-value
+    entries in mixed archives. It is None for ordinary non-member archives.
     """
 
     name: str
@@ -1041,6 +1143,7 @@ class ArrayOutput:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
     @property
     def dtype(self) -> np.dtype:
@@ -1070,10 +1173,33 @@ class ArrayOutput:
 
 
 @dataclass(frozen=True)
-class _ArrayOutputArchive:
-    """Array data and per-run metadata loaded from an array-output NPZ archive."""
+class _ShapeGroupedArray:
+    """Rectangular arrays grouped by shape, indexed in metadata order."""
 
-    data: np.ndarray
+    groups: tuple[np.ndarray, ...]
+    group_idx: np.ndarray
+    row_idx: np.ndarray
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.groups[0].dtype
+
+    @property
+    def ndim(self) -> int:
+        return self.groups[0].ndim
+
+    def __len__(self) -> int:
+        return len(self.group_idx)
+
+    def __getitem__(self, index: SupportsIndex) -> np.ndarray:
+        return self.groups[self.group_idx[index]][self.row_idx[index]]
+
+
+@dataclass(frozen=True)
+class _ArrayOutputArchive:
+    """Array data and per-run/member metadata loaded from an NPZ archive."""
+
+    data: np.ndarray | _ShapeGroupedArray | ChunkedArray
     task_insert_ID: np.ndarray
     task_idx: np.ndarray
     element_idx: np.ndarray
@@ -1084,6 +1210,7 @@ class _ArrayOutputArchive:
     run_idx: np.ndarray
     run_ID: np.ndarray
     shape: np.ndarray | None = None
+    member_idx: np.ndarray | None = None
 
 
 def _resolve_array_output_dtype(
@@ -1137,9 +1264,10 @@ class Workflow(AppAware):
     Parameters
     ----------
     workflow_ref:
-        Either the path to a persistent workflow, or an integer that will interpreted
-        as the local ID of a workflow submission, as reported by the app `show`
-        command.
+        A path to a persistent workflow, a registered workflow name, or a local
+        submission ID reported by the app `show` command. Path objects and explicit
+        path strings are always interpreted as paths.
+        The ID ``-1`` selects the most recently submitted registered workflow.
     store_fmt:
         The format of persistent store to use. Used to select the store manager class.
     fs_kwargs:
@@ -1164,6 +1292,17 @@ class Workflow(AppAware):
             path = self._app._get_workflow_path_from_local_ID(workflow_ref)
         elif isinstance(workflow_ref, str):
             path = Path(workflow_ref)
+            from hpcflow.sdk.monitoring.references import (
+                is_path_reference,
+                resolve_records,
+                resolve_workflow_path,
+            )
+            from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+            if not is_path_reference(workflow_ref):
+                records = SubmissionRegistry(self._app).read().records
+                if resolve_records(records, workflow_ref):
+                    path = resolve_workflow_path(records, workflow_ref)
         else:
             path = workflow_ref
 
@@ -1833,6 +1972,7 @@ class Workflow(AppAware):
         ts_fmt: str | None = None,
         ts_name_fmt: str | None = None,
         store_kwargs: dict[str, Any] | None = None,
+        inputs: list[InputValue] | dict[str, Any] | None = None,
     ) -> Workflow:
         """Generate from the data associated with a WorkflowTemplate object.
 
@@ -1847,6 +1987,8 @@ class Workflow(AppAware):
             List of Task objects to add to the new workflow.
         loops:
             List of Loop objects to add to the new workflow.
+        inputs:
+            Shared workflow-template input values. Task sources take precedence.
         resources:
             Mapping of action scopes to resource requirements, to be applied to all
             element sets in the workflow. `resources` specified in an element set take
@@ -1896,6 +2038,7 @@ class Workflow(AppAware):
             resources=resources,
             environments=environments,
             config=config or {},
+            inputs=inputs or [],
         )
         return cls.from_template(
             template,
@@ -2094,6 +2237,9 @@ class Workflow(AppAware):
                 "user_name": info.get("user_name"),
                 "user_orcid": info.get("user_orcid"),
                 "user_affiliations": info.get("user_affiliations"),
+                "variables": info.get("variables", {}),
+                "calculations": info.get("calculations", {}),
+                "command_line": info.get("command_line"),
             }
         return self._creation_info
 
@@ -2722,7 +2868,14 @@ class Workflow(AppAware):
         for res_i_copy in template._get_resources_copy():
             res_i_copy.make_persistent(grabber, param_src)
 
-        template_js_, template_sh = template.to_json_like(exclude={"tasks", "loops"})
+        inputs_copy = copy.deepcopy(list(template._inputs.values()))
+        for inp in inputs_copy:
+            inp.make_persistent(grabber, {"type": "workflow_input"})
+        template_data = {
+            k: v for k, v in template.to_dict().items() if k not in {"tasks", "loops"}
+        }
+        template_data["inputs"] = inputs_copy
+        template_js_, template_sh = template.to_json_like(dct=template_data)
         template_js: TemplateMeta = {
             **cast("TemplateMeta", template_js_),  # Trust me, bro!
             "tasks": [],
@@ -2746,6 +2899,13 @@ class Workflow(AppAware):
                 "user_name": cls._app.config.user_name,
                 "user_orcid": cls._app.config.user_orcid,
                 "user_affiliations": cls._app.config.user_affiliations,
+                "variables": json.loads(
+                    json.dumps(template._creation_variables, default=str)
+                ),
+                "calculations": json.loads(
+                    json.dumps(template._creation_calculations, default=str)
+                ),
+                "command_line": cls._app.run_time_info.command_line,
             },
             ts_fmt=ts_fmt,
             ts_name_fmt=ts_name_fmt,
@@ -2775,6 +2935,7 @@ class Workflow(AppAware):
         include_rechunk_backups: bool = False,
         consolidate: bool = True,
         status: bool = True,
+        temp_dir: str | Path | None = None,
     ) -> str:
         """
         Convert the workflow to a zipped form.
@@ -2789,9 +2950,14 @@ class Workflow(AppAware):
             If True (default), first consolidate array-output shard archives into a
             single file per output (see :meth:`consolidate_array_outputs`); zipping many
             small shard files is much slower than zipping one file per output.
+        temp_dir:
+            Existing directory for decompressed source buffers during consolidation.
+            Defaults to a unique subdirectory of ``parameters/array_outputs/.tmp/``.
+            Temporary subdirectories are cleaned up afterward. Replacement archives are
+            created beside their destination to preserve atomic replacement.
         """
         if consolidate and self._store._features.edit:
-            self.consolidate_array_outputs(status=status)
+            self.consolidate_array_outputs(status=status, temp_dir=temp_dir)
         return self._store.zip(
             path=path,
             log=log,
@@ -2831,6 +2997,11 @@ class Workflow(AppAware):
         """
         Get parameters known to the workflow.
 
+        Output-member references are resolved here to the indexed value from their
+        producing whole output. The member itself remains a deferred reference in
+        persistent storage, so callers should use this API rather than reading the
+        backing store directly.
+
         Parameter
         ---------
         id_lst:
@@ -2841,21 +3012,84 @@ class Workflow(AppAware):
         dataset_copy: bool
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
-        return self._store.get_parameters(id_lst, **kwargs)
+        parameters = self._store.get_parameters(id_lst, **kwargs)
+        member_sources = {
+            parameter.id_: parameter.source
+            for parameter in parameters
+            if parameter.source.get("type") == "output_member"
+        }
+        members = (
+            self._store.get_output_members(member_sources, **kwargs)
+            if member_sources
+            else {}
+        )
+        for idx, parameter in enumerate(parameters):
+            if parameter.id_ in members:
+                parameters[idx] = members[parameter.id_]
+        return parameters
 
     @TimeIt.decorator
     def get_parameter_sources(self, id_lst: Iterable[int]) -> list[ParamSource]:
         """
         Get parameter sources known to the workflow.
+
+        An output-member reference has the same source as its producing whole
+        output; its member index is metadata for value resolution, not a separate
+        producer.
         """
-        return self._store.get_parameter_sources(id_lst)
+        sources = self._store.get_parameter_sources(id_lst)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_sources(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else source
+            )
+            for source in sources
+        ]
 
     @TimeIt.decorator
     def get_parameter_set_statuses(self, id_lst: Iterable[int]) -> list[bool]:
         """
         Get whether some parameters are set.
+
+        An output-member reference is set exactly when its producing whole output
+        is set.
         """
-        return self._store.get_parameter_set_statuses(id_lst)
+        ids = list(id_lst)
+        sources = self._store.get_parameter_sources(ids)
+        statuses = self._store.get_parameter_set_statuses(ids)
+        parent_ids = list(
+            {
+                source["parameter_ID"]
+                for source in sources
+                if source.get("type") == "output_member"
+            }
+        )
+        parents = (
+            dict(zip(parent_ids, self.get_parameter_set_statuses(parent_ids)))
+            if parent_ids
+            else {}
+        )
+        return [
+            (
+                parents[source["parameter_ID"]]
+                if source.get("type") == "output_member"
+                else status
+            )
+            for source, status in zip(sources, statuses)
+        ]
 
     @TimeIt.decorator
     def get_parameter(self, index: int, **kwargs) -> StoreParameter:
@@ -2910,13 +3144,13 @@ class Workflow(AppAware):
             For Zarr stores only. If True, copy arrays as NumPy arrays.
         """
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameters(range(num_params), **kwargs)
+        return list(self.get_parameters(range(num_params), **kwargs))
 
     @TimeIt.decorator
     def get_all_parameter_sources(self, **kwargs) -> list[ParamSource]:
         """Retrieve all persistent parameters sources."""
         num_params = self._store._get_num_total_parameters()
-        return self._store.get_parameter_sources(range(num_params), **kwargs)
+        return self.get_parameter_sources(range(num_params))
 
     @TimeIt.decorator
     def get_all_parameter_data(self, **kwargs) -> dict[int, Any]:
@@ -2977,6 +3211,7 @@ class Workflow(AppAware):
         contents=None,
         filename: str | None = None,
         clean_up: bool = False,
+        execution_path: Path | None = None,
     ) -> None:
         self._store.set_file(
             param_id=cast("int", param_id),
@@ -2986,6 +3221,7 @@ class Workflow(AppAware):
             contents=contents,
             filename=filename,
             clean_up=clean_up,
+            execution_path=execution_path,
         )
 
     @staticmethod
@@ -3053,6 +3289,7 @@ class Workflow(AppAware):
                     is_input=False,
                     path=full_path,
                     clean_up=selected and clean_up,
+                    execution_path=self._get_run_execution_path(run),
                 )
         return success, exit_code
 
@@ -3162,7 +3399,11 @@ class Workflow(AppAware):
             return
 
         directories = {
-            path for path in self.get_run_directories(run_ids=run_ids) if path is not None
+            path: self._get_run_execution_path(action_run)
+            for action_run, path in zip(
+                self.get_EARs_from_IDs(run_ids), self.get_run_directories(run_ids=run_ids)
+            )
+            if path is not None
         }
         for directory in sorted(directories):
             if not directory.is_dir():
@@ -3189,6 +3430,7 @@ class Workflow(AppAware):
                         store_contents=True,
                         is_input=False,
                         path=match,
+                        execution_path=directories[directory],
                     )
 
     def _has_file_dependents_outside_iteration(
@@ -3242,6 +3484,7 @@ class Workflow(AppAware):
         is_input: bool,
         path: Path,
         clean_up: bool = False,
+        execution_path: Path | None = None,
     ) -> None:
         if (
             isinstance(param_id, int)
@@ -3259,6 +3502,7 @@ class Workflow(AppAware):
             is_input=is_input,
             path=path,
             clean_up=clean_up,
+            execution_path=execution_path,
         )
 
     @overload
@@ -3421,9 +3665,26 @@ class Workflow(AppAware):
     @property
     def execution_path(self) -> Path:
         """
-        Path to working directory path for executing.
+        Default working-directory root, used when ``scratch`` is unspecified.
         """
         return Path(self.path) / self._exec_dir_name
+
+    def _get_run_execution_path(self, run: ElementActionRun) -> Path:
+        scratch = run.resources.scratch
+        if scratch is None:
+            return self.execution_path
+        if self._get_scratch_relocation_record(run.id_).is_file():
+            return self.execution_path
+        if not scratch.strip():
+            raise ValueError("The `scratch` resource must be a non-empty directory path.")
+        scratch_path = Path(scratch).expanduser()
+        if not scratch_path.is_absolute():
+            scratch_path = Path(self.path) / scratch_path
+        return scratch_path / f"{self._app.name}_{self.id_}" / self._exec_dir_name
+
+    def _get_scratch_relocation_record(self, run_id: int) -> Path:
+        # Per-run records keep directory lookup correct after reloading the workflow.
+        return self.artifacts_path / "relocated_execute_dirs" / str(run_id)
 
     @TimeIt.decorator
     def get_task_elements(
@@ -3545,6 +3806,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
 
         with self._store.cached_load(), self.batch_update():
             success = exit_code == 0  # TODO  more sophisticated success heuristics
@@ -3585,6 +3847,7 @@ class Workflow(AppAware):
                     self._store.set_EAR_skip(
                         {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                     )
+                    upstream_skips.add(EAR_dep_ID)
 
             new_run_skips.update(self.__apply_task_conditions(run))
 
@@ -3592,38 +3855,58 @@ class Workflow(AppAware):
                 run.id_, exit_code, success, run.action.requires_dir and not run.skip
             )
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         self._clean_up_execute_dirs(run, success)
         return new_run_skips
 
     def _clean_up_execute_dirs(self, run: ElementActionRun, success: bool) -> None:
-        """Remove an iteration's working directories after its final successful run."""
+        """Delete successful working directories or relocate retained scratch."""
         delete_execute_dir = (self.template.config or {}).get("delete_execute_dir")
         if delete_execute_dir is None:
             delete_execute_dir = self._app.config.get("delete_execute_dir")
-        if delete_execute_dir is False:
-            return
-        if not success or run.skip:
-            return
-        action_runs = run.element_iteration.EAR_IDs
-        final_action = max(idx for idx, ids in action_runs.items() if ids)
-        if run.id_ != action_runs[final_action][-1]:
+        run_ids = list(run.element_iteration.EAR_IDs_flat)
+        runs = self.get_EARs_from_IDs(run_ids)
+        if any(i.end_time is None and not i.skip for i in runs):
             return
 
-        run_ids = list(run.element_iteration.EAR_IDs_flat)
-        other_runs = self.get_EARs_from_IDs([i for i in run_ids if i != run.id_])
-        if any(i.skip or not i.success for i in other_runs):
+        if (
+            delete_execute_dir is False
+            or not success
+            or any(i.skip or not i.success for i in runs)
+        ):
+            move_scratch = (self.template.config or {}).get("move_scratch_to_workflow")
+            if move_scratch is None:
+                move_scratch = self._app.config.get("move_scratch_to_workflow")
+            if move_scratch:
+                self._move_retained_scratch_dirs(runs)
             return
 
         directories = {
             path for path in self.get_run_directories(run_ids=run_ids) if path is not None
         }
         self._unset_deleted_execute_file_refs(run_ids, directories)
-        execution_path = self.execution_path.resolve()
+        execution_paths = {
+            self._get_run_execution_path(i).resolve()
+            for i in runs
+            if i.action.requires_dir
+        }
+        scratch_roots = {
+            self._get_run_execution_path(i).parent
+            for i in runs
+            if i.action.requires_dir
+            and i.resources.scratch is not None
+            and self._get_run_execution_path(i) != self.execution_path
+        }
         for directory in sorted(
             directories, key=lambda path: len(path.parts), reverse=True
         ):
             resolved = directory.resolve()
-            if not resolved.is_relative_to(execution_path) or directory.is_symlink():
+            if (
+                not any(resolved.is_relative_to(root) for root in execution_paths)
+                or directory.is_symlink()
+            ):
                 raise RuntimeError(f"Unsafe execution directory for cleanup: {directory}")
             if not directory.exists():
                 continue
@@ -3637,6 +3920,105 @@ class Workflow(AppAware):
                 f"Removing execution directory after EAR {run.id_}: {directory}."
             )
             shutil.rmtree(directory)
+            for root in scratch_roots:
+                if directory.is_relative_to(root):
+                    self._prune_empty_scratch_dirs(directory.parent, root)
+
+    def _move_retained_scratch_dirs(self, runs: Sequence[ElementActionRun]) -> None:
+        run_ids = [run.id_ for run in runs]
+        directories: dict[Path, tuple[Path, list[int]]] = {}
+        for action_run, directory in zip(runs, self.get_run_directories(run_ids=run_ids)):
+            root = self._get_run_execution_path(action_run)
+            if (
+                directory is None
+                or action_run.resources.scratch is None
+                or root == self.execution_path
+            ):
+                continue
+            if directory not in directories:
+                directories[directory] = (root, [])
+            directories[directory][1].append(action_run.id_)
+
+        for directory, (root, directory_run_ids) in directories.items():
+            if directory.is_symlink() or not directory.resolve().is_relative_to(
+                root.resolve()
+            ):
+                raise RuntimeError(f"Unsafe execution directory for move: {directory}")
+            if not directory.exists():
+                continue
+            destination = self.execution_path / directory.relative_to(root)
+            if not destination.resolve().is_relative_to(Path(self.path).resolve()):
+                raise RuntimeError(f"Unsafe destination for scratch move: {destination}")
+            if destination.is_symlink() or (
+                destination.exists()
+                and (not destination.is_dir() or any(destination.iterdir()))
+            ):
+                raise FileExistsError(
+                    f"Cannot move scratch directory {directory}: "
+                    f"destination already exists: {destination}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                destination.rmdir()
+            if Path.cwd().resolve().is_relative_to(directory.resolve()):
+                os.chdir(self.path)
+            self._app.submission_logger.debug(
+                f"Moving retained scratch directory {directory} to {destination}."
+            )
+            try:
+                directory.rename(destination)
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+                shutil.copytree(directory, destination, symlinks=True)
+                shutil.rmtree(directory)
+            self._relocate_execute_file_refs(run_ids, directory, destination)
+            for run_id in directory_run_ids:
+                record = self._get_scratch_relocation_record(run_id)
+                record.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(record, b"")
+            self._prune_empty_scratch_dirs(directory.parent, root.parent)
+
+    def _relocate_execute_file_refs(
+        self, run_ids: Sequence[int], source: Path, destination: Path
+    ) -> None:
+        parameter_ids = {
+            parameter_id
+            for run in self.get_EARs_from_IDs(run_ids)
+            for key, value in run.data_idx.items()
+            if key.startswith(("input_files.", "output_files."))
+            for parameter_id in ([value] if isinstance(value, int) else value)
+        }
+        source = Path(os.path.abspath(source))
+        with self._store.cached_load(), self.batch_update():
+            for parameter in self._store.get_parameters(parameter_ids):
+                if parameter.file is None or parameter.file["store_contents"]:
+                    continue
+                path = Path(os.path.abspath(Path(self.path) / parameter.file["path"]))
+                if path.is_relative_to(source):
+                    relocated = destination / path.relative_to(source)
+                    self._store.relocate_file_parameter(
+                        parameter.id_,
+                        path=str(relocated.relative_to(self.path)),
+                        save=False,
+                    )
+
+    @staticmethod
+    def _prune_empty_scratch_dirs(directory: Path, root: Path) -> None:
+        """Remove empty ancestors up to and including the workflow's scratch root."""
+        while directory.is_relative_to(root):
+            if directory.is_symlink():
+                raise RuntimeError(f"Unsafe scratch directory for cleanup: {directory}")
+            try:
+                directory.rmdir()
+            except FileNotFoundError:
+                # Another run may have already pruned this directory.
+                pass
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
+                break
+            directory = directory.parent
 
     def set_multi_run_ends(
         self,
@@ -3654,6 +4036,7 @@ class Workflow(AppAware):
 
         # additional run skips (set via __apply_task_conditions):
         new_run_skips: dict[int, int] = {}
+        upstream_skips: set[int] = set()
         completed_runs: list[tuple[ElementActionRun, bool]] = []
 
         with self._store.cached_load(), self.batch_update():
@@ -3727,6 +4110,7 @@ class Workflow(AppAware):
                             self._store.set_EAR_skip(
                                 {EAR_dep_ID: SkipReason.UPSTREAM_FAILURE.value}
                             )
+                            upstream_skips.add(EAR_dep_ID)
                     else:
                         self._app.logger.info(
                             "`skip_downstream_on_failure` is False, run was "
@@ -3743,6 +4127,9 @@ class Workflow(AppAware):
 
             self._store.set_multi_run_ends(run_ids, run_dirs, exit_codes, successes)
 
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, upstream_skips)
         for run, success in completed_runs:
             self._clean_up_execute_dirs(run, success)
         return new_run_skips
@@ -3754,6 +4141,9 @@ class Workflow(AppAware):
         """
         with self._store.cached_load(), self.batch_update():
             self._store.set_EAR_skip({k: v.value for k, v in skip_reasons.items()})
+        from ..monitoring.active_runs import note_changed_runs
+
+        note_changed_runs(self, skip_reasons)
 
     def get_EAR_skipped(self, EAR_ID: int) -> int:
         """Check if an EAR is to be skipped."""
@@ -3915,6 +4305,7 @@ class Workflow(AppAware):
         tasks: Sequence[int] | None = None,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
     ) -> tuple[Sequence[SubmissionFailure], Mapping[int, Sequence[int]]]:
         """Submit outstanding EARs for execution.
 
@@ -3935,6 +4326,8 @@ class Workflow(AppAware):
             If True, pause before submitting each jobscript, print the new jobscript's
             path and await confirmation before continuing submission. This allows ad hoc
             modifications to the jobscript to be made.
+        follow
+            Require direct schedulers for all outstanding jobscripts before submission.
         timeit: bool
             Time run execution function pathways as the code executes and write out a
             summary to the app-std file. Only functions decorated by `TimeIt.decorator`
@@ -3967,6 +4360,13 @@ class Workflow(AppAware):
         if status:
             status.update("Committing to the store...")
         self._store._pending.commit_all()
+
+        if follow:
+            self._validate_follow_jobscripts(
+                sub.jobscripts[js_idx]
+                for sub in pending
+                for js_idx in sub.outstanding_jobscripts
+            )
 
         # submit all pending submissions:
         exceptions: list[SubmissionFailure] = []
@@ -4006,6 +4406,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]]: ...
 
     @overload
@@ -4025,6 +4427,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> None: ...
 
     def submit(
@@ -4043,6 +4447,8 @@ class Workflow(AppAware):
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ) -> Mapping[int, Sequence[int]] | None:
         """Submit the workflow for execution.
 
@@ -4070,6 +4476,16 @@ class Workflow(AppAware):
             If True, print any jobscript submission standard output, otherwise hide it.
         wait
             If True, this command will block until the workflow execution is complete.
+        follow
+            If True, follow jobscript stdout and stderr until execution completes.
+            Implies `wait`. Ctrl+C stops following without cancelling execution.
+            Only direct schedulers are supported; other schedulers are rejected
+            before any jobscripts are submitted.
+        delete
+            If True, permanently delete the workflow, without confirmation, after
+            execution completes, whether or not it succeeded. Implies `wait`. If waiting
+            is interrupted (e.g. by Ctrl+C), the workflow is not deleted. If `cancel` is
+            also True, wait for the cancelled jobscripts to stop before deleting.
         add_to_known
             If True, add the submitted submissions to the known-submissions file, which is
             used by the `show` command to monitor current and recent submissions.
@@ -4119,16 +4535,25 @@ class Workflow(AppAware):
                     tasks=tasks,
                     quiet=quiet,
                     timeit=timeit,
+                    follow=follow,
                 )
 
         if exceptions:
             raise WorkflowSubmissionFailure(exceptions)
 
+        finished = False
         if cancel:
             self.cancel(status=status, quiet=quiet)
+            if delete:
+                finished = self.wait(submitted_js, quiet=quiet)
 
-        elif wait:
-            self.wait(submitted_js, quiet=quiet)
+        elif wait or follow or delete:
+            finished = self.wait(submitted_js, quiet=quiet, follow=follow)
+
+        if delete and finished:
+            if not quiet:
+                print(f"Deleting workflow {self.path!r}.")
+            self._delete_no_confirm()
 
         if return_idx:
             return submitted_js
@@ -4179,21 +4604,170 @@ class Workflow(AppAware):
         for thr in threads:
             thr.join()
 
+    @staticmethod
+    def _validate_follow_jobscripts(jobscripts: Iterable[Jobscript]) -> None:
+        for js in jobscripts:
+            if not isinstance(js.scheduler, DirectScheduler):
+                raise NotImplementedError(
+                    "Following jobscript output is currently supported only for direct "
+                    f"schedulers (submission {js.submission.index}, "
+                    f"jobscript {js.index} uses a non-direct scheduler)."
+                )
+
+    def _follow_jobscripts(self, jobscripts: Sequence[Jobscript], quiet: bool) -> None:
+        """Print jobscript stdout/stderr files as they are written, like ``tail -f``.
+
+        Each jobscript's output files are polled every 0.5 s and any new bytes are
+        printed. Following stops once all jobscripts have exited and their output has
+        been fully read.
+
+        Parameters
+        ----------
+        jobscripts
+            The jobscripts to follow. These must all use a direct scheduler, since
+            checking whether a job is running is done once per poll per jobscript, and
+            is not yet efficient for queued schedulers.
+        quiet
+            If True, do not print a ``==> label <==`` header when the output source
+            changes; only the raw job output is printed.
+
+        Raises
+        ------
+        NotImplementedError
+            If any jobscript does not use a direct scheduler.
+
+        Notes
+        -----
+        - Output is read from the beginning of each file, so output written before
+          following started is also printed.
+        - Separate stderr files are printed to `sys.stderr`. If
+          `resources.combine_jobscript_std` is True, the stdout and stderr paths are the
+          same, so the combined file is read once and printed to `sys.stdout`.
+        - Output files that do not exist yet are skipped until they are created.
+        - Bytes are decoded as UTF-8 incrementally, so a multi-byte character split
+          across reads is not corrupted. Invalid bytes are replaced.
+        - If a file shrinks (e.g. it was truncated or replaced), it is read again from
+          the start.
+        - The running state of each jobscript is checked *before* reading its files.
+          If it was not running, the subsequent read is guaranteed to include all of
+          its output, which is then flushed and the jobscript is no longer followed.
+        - Output is only visible once the job's program has flushed it to disk.
+        """
+        self._validate_follow_jobscripts(jobscripts)
+        # map each unique output file to the stream to print to, and its header label:
+        streams: dict[Path, tuple[TextIO, str]] = {}
+        paths_by_jobscript: list[tuple[Jobscript, list[Path]]] = []
+        for js in jobscripts:
+            paths = []
+            label = f"submission {js.submission.index}, jobscript {js.index}"
+            for path, stream, name in (
+                (js.get_stdout_path(), sys.stdout, "stdout"),
+                (js.get_stderr_path(), sys.stderr, "stderr"),
+            ):
+                if path not in streams:
+                    name = "stdout/stderr" if js.resources.combine_jobscript_std else name
+                    streams[path] = stream, f"{label}, {name}"
+                    paths.append(path)
+            paths_by_jobscript.append((js, paths))
+
+        # number of bytes already read from each file:
+        offsets = dict.fromkeys(streams, 0)
+        decoders = {
+            path: codecs.getincrementaldecoder("utf-8")(errors="replace")
+            for path in streams
+        }
+        last_path: Path | None = None
+
+        def emit(path: Path, text: str) -> None:
+            """Print text from a file, preceded by a header if the source changed."""
+            nonlocal last_path
+            if text:
+                stream, label = streams[path]
+                if not quiet and path != last_path:
+                    print(f"\n==> {label} <==", file=stream, flush=True)
+                print(text, end="", file=stream, flush=True)
+                last_path = path
+
+        while paths_by_jobscript:
+            active = []
+            for js, paths in paths_by_jobscript:
+                # Query the process, not EAR completion: scripts can still
+                # write output after their last EAR finishes.
+                running = bool(
+                    js.scheduler.get_job_state_info(js_refs=[js.scheduler_js_ref])
+                )
+                for path in paths:
+                    try:
+                        handle = path.open("rb")
+                    except FileNotFoundError:
+                        # Jobs may not have created their output files yet.
+                        continue
+                    with handle:
+                        handle.seek(0, os.SEEK_END)
+                        if handle.tell() < offsets[path]:
+                            # file was truncated; start again from the beginning:
+                            offsets[path] = 0
+                            decoders[path].reset()
+                        handle.seek(offsets[path])
+                        while data := handle.read(65536):
+                            emit(path, decoders[path].decode(data))
+                        offsets[path] = handle.tell()
+                    if not running:
+                        # flush any incomplete multi-byte sequence:
+                        emit(path, decoders[path].decode(b"", final=True))
+                if running:
+                    active.append((js, paths))
+            paths_by_jobscript = active
+            if active:
+                time.sleep(0.5)
+
     def wait(
-        self, sub_js: Mapping[int, Sequence[int]] | None = None, quiet: bool = False
-    ):
-        """Wait for the completion of specified/all submitted jobscripts."""
+        self,
+        sub_js: Mapping[int, Sequence[int]] | None = None,
+        quiet: bool = False,
+        *,
+        follow: bool = False,
+    ) -> bool:
+        """Wait for specified/all active jobscripts, optionally following their output.
+
+        With `follow=True`, print existing output from the beginning, then stream new
+        output until all selected jobscripts finish. Separate error streams are written
+        to stderr; combined streams are written once to stdout. `quiet` hides status
+        messages and stream headers, but not job output.
+        Following is supported only for direct schedulers. Selecting a non-direct
+        jobscript raises `NotImplementedError` without polling its scheduler.
+
+        Returns
+        -------
+        bool
+            True if all specified jobscripts finished (or none were running), or False
+            if waiting was interrupted by Ctrl+C.
+        """
 
         # TODO: think about how this might work with remote workflow submission (via SSH)
 
         # TODO: add a log file to the submission dir where we can log stuff (e.g starting
         # a thread...)
 
-        if not sub_js:
+        if sub_js is None:
             # find any active jobscripts first:
             sub_js_: dict[int, list[int]] = defaultdict(list)
-            for sub in self.submissions:
-                sub_js_[sub.index].extend(sub.get_active_jobscripts())
+            if follow:
+                finished_states = EARStatus.get_non_running_submitted_states()
+                candidates = [
+                    js
+                    for sub in self.submissions
+                    for js in sub.jobscripts
+                    if js.is_submitted
+                    and any(ear.status not in finished_states for ear in js.all_EARs)
+                ]
+                self._validate_follow_jobscripts(candidates)
+                for js in candidates:
+                    if js.get_active_states():
+                        sub_js_[js.submission.index].append(js.index)
+            else:
+                for sub in self.submissions:
+                    sub_js_[sub.index].extend(sub.get_active_jobscripts())
             sub_js = sub_js_
 
         js_direct: list[Jobscript] = []
@@ -4216,6 +4790,9 @@ class Workflow(AppAware):
                         f"Process ID nor scheduler job ID is set for {js!r}."
                     )
 
+        if follow:
+            self._validate_follow_jobscripts(js_direct + js_sched)
+
         if js_direct or js_sched:
             # TODO: use a rich console status? how would that appear in stdout though?
             if not quiet:
@@ -4223,9 +4800,14 @@ class Workflow(AppAware):
         else:
             if not quiet:
                 print("No running jobscripts.")
-            return
+            return True
 
         try:
+            if follow:
+                self._follow_jobscripts(js_direct + js_sched, quiet=quiet)
+                if not quiet:
+                    print("Specified submissions have finished.")
+                return True
             t_direct = Thread(
                 target=self.__wait_for_direct_jobscripts, args=(js_direct, quiet)
             )
@@ -4245,9 +4827,11 @@ class Workflow(AppAware):
         except KeyboardInterrupt:
             if not quiet:
                 print("No longer waiting (workflow execution will continue).")
+            return False
         else:
             if not quiet:
                 print("Specified submissions have finished.")
+            return True
 
     def get_running_elements(
         self,
@@ -4495,6 +5079,12 @@ class Workflow(AppAware):
 
         if sub_obj.needs_script_indices_dir:
             sub_obj.js_script_indices_path.mkdir(exist_ok=True)
+
+        from ..monitoring.active_runs import enable_tracking
+
+        if status:
+            status.update("Adding new submission: enabling active-run tracking...")
+        enable_tracking(self, sub_obj.index, sub_obj.jobscripts)
 
         if status:
             status.update("Adding new submission: writing scripts and command files...")
@@ -4750,8 +5340,13 @@ class Workflow(AppAware):
     ) -> None:
         """Execute commands of a run via a subprocess, using the parameter metadata
         cache."""
+        from ..monitoring.active_runs import track_run
+
         # parameter sources do not change during execution:
-        with self._store.parameters_metadata_cache():
+        with (
+            self._store.parameters_metadata_cache(),
+            track_run(self, submission_idx, int(block_act_key[0]), run_ID),
+        ):
             return self._execute_run(submission_idx, block_act_key, run_ID)
 
     @TimeIt.decorator
@@ -5219,8 +5814,24 @@ class Workflow(AppAware):
             Path(path).parent.parent.name for path in fs.glob(f"{root}/*/*/*.npz.zst")
         }
         names |= {
+            Path(path).parents[3].name
+            for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_SUBMISSIONS_DIR}/*/*/*.npz.zst")
+        }
+        member_archives = self._list_member_array_output_archive_paths()
+        for path in member_archives:
+            index = read_member_array_output_index(fs, path.as_posix())
+            if index["version"] == 2:
+                names.update(index["paths"])
+            else:
+                for array_paths in index["schemas"].values():
+                    names.update(array_paths)
+        names |= {
             Path(path).parent.name
             for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_CONSOLIDATED_NAME}")
+        }
+        names |= {
+            Path(path).parent.name
+            for path in fs.glob(f"{root}/*/{ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME}")
         }
         if not include_internal:
             names = {n for n in names if not n.endswith(f".{ARRAY_OUTPUT_MASK_SUFFIX}")}
@@ -5229,7 +5840,8 @@ class Workflow(AppAware):
     def list_array_outputs(self) -> list[str]:
         """Return sorted names of outputs with array archives.
 
-        Both shard archives (``<shard>/<file>.npz.zst``) and consolidated archives
+        Both shard archives (``.submissions/<submission>/<shard>/<file>.npz.zst``,
+        or the legacy ``<shard>/<file>.npz.zst``) and consolidated archives
         (see :meth:`consolidate_array_outputs`) are considered. Internal ``__mask__``
         archives (masked-array masks) are excluded.
         """
@@ -5237,42 +5849,89 @@ class Workflow(AppAware):
 
     def _get_array_output_root(self, name: str) -> Path:
         """Return the directory holding all archives for one array output."""
-        return self._get_array_output_archive_path(name, 0).parent.parent
+        output_name = name.removeprefix("outputs.")
+        if not output_name or any(
+            not component
+            or component in {".", ".."}
+            or "/" in component
+            or "\\" in component
+            for component in output_name.split(".")
+        ):
+            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        return Path(self._store.path) / "parameters" / "array_outputs" / output_name
 
     def _get_array_output_consolidated_path(self, name: str) -> Path:
         """Return the path of the single-file consolidated archive for an output."""
         return self._get_array_output_root(name) / ARRAY_OUTPUT_CONSOLIDATED_NAME
 
+    def _existing_array_output_consolidated_path(self, name: str) -> Path | None:
+        for filename in (
+            ARRAY_OUTPUT_CONSOLIDATED_NAME,
+            ARRAY_OUTPUT_LEGACY_CONSOLIDATED_NAME,
+        ):
+            path = self._get_array_output_root(name) / filename
+            if self._array_output_fs.exists(path.as_posix()):
+                return path
+        return None
+
     def _list_array_output_shard_paths(self, name: str) -> list[Path]:
-        """Return sorted shard archive paths (``<shard>/<file>.npz.zst``) for an output."""
+        """Return sorted shard archive paths for an output.
+
+        Includes submission-indexed shards and legacy shards written before shard
+        paths included the submission index.
+        """
         root = self._get_array_output_root(name).as_posix()
+        fs = self._array_output_fs
         return sorted(
-            Path(path) for path in self._array_output_fs.glob(f"{root}/*/*.npz.zst")
+            Path(path)
+            for pattern in (
+                f"{root}/{ARRAY_OUTPUT_SUBMISSIONS_DIR}/*/*/*.npz.zst",
+                f"{root}/*/*.npz.zst",
+            )
+            for path in fs.glob(pattern)
         )
 
     def _list_array_output_archive_paths(self, name: str) -> list[Path]:
         """Return all archive paths for an output: shards, then consolidated (if any)."""
         paths = self._list_array_output_shard_paths(name)
-        consolidated = self._get_array_output_consolidated_path(name)
-        if self._array_output_fs.exists(consolidated.as_posix()):
+        consolidated = self._existing_array_output_consolidated_path(name)
+        if consolidated is not None:
             paths.append(consolidated)
         return paths
 
     def _resolve_array_output_archive_path(
-        self, name: str, run_file_ID: int
+        self, name: str, shard_key: tuple[int, int]
     ) -> Path | None:
-        """Return the archive that holds a run's entry, or None if neither exists.
+        """Return the archive that likely holds a run's entry, or None if none exists.
 
-        Prefer the run's shard archive; otherwise fall back to the consolidated archive.
-        Runs saved after consolidation live in new shard archives, so both may coexist.
+        Prefer the run's submission-indexed shard, then its legacy shard, then the
+        consolidated archive. Runs saved after consolidation live in new shard
+        archives, so shards and the consolidated archive may coexist. Legacy shard
+        IDs are reused across submissions, so readers must fall back to the
+        consolidated archive if a legacy shard does not contain the run.
         """
-        shard = self._get_array_output_archive_path(name, run_file_ID)
-        if self._array_output_fs.exists(shard.as_posix()):
-            return shard
-        consolidated = self._get_array_output_consolidated_path(name)
-        if self._array_output_fs.exists(consolidated.as_posix()):
-            return consolidated
-        return None
+        return next(iter(self._list_array_output_candidate_paths(name, shard_key)), None)
+
+    def _list_array_output_candidate_paths(
+        self, name: str, shard_key: tuple[int, int] | None
+    ) -> list[Path]:
+        """Return existing archives that may hold a run's entry, in preference order.
+
+        Without a shard key, only the consolidated archive is a candidate.
+        """
+        paths: list[Path] = []
+        if shard_key is not None:
+            submission_idx, run_file_ID = shard_key
+            for shard in (
+                self._get_array_output_archive_path(name, submission_idx, run_file_ID),
+                self._get_legacy_array_output_archive_path(name, run_file_ID),
+            ):
+                if self._array_output_fs.exists(shard.as_posix()):
+                    paths.append(shard)
+        consolidated = self._existing_array_output_consolidated_path(name)
+        if consolidated is not None:
+            paths.append(consolidated)
+        return paths
 
     def _load_array_output_archive(
         self, name: str, path: Path, cache: dict[Path, _ArrayOutputArchive]
@@ -5283,7 +5942,9 @@ class Workflow(AppAware):
             try:
                 cache[path] = self._read_array_output_archive(path)
             except FileNotFoundError:
-                consolidated = self._get_array_output_consolidated_path(name)
+                consolidated = self._existing_array_output_consolidated_path(name)
+                if consolidated is None:
+                    raise
                 if path == consolidated:
                     raise
                 if consolidated not in cache:
@@ -5299,40 +5960,114 @@ class Workflow(AppAware):
                 cache[path] = cache[consolidated]
         return cache[path]
 
-    def _get_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
-        """Return a Zstandard-compressed NPZ path, sharded at 500 files per directory.
+    def _get_array_output_archive_path(
+        self, name: str, submission_idx: int, run_file_ID: int
+    ) -> Path:
+        """Return a Zstandard-compressed NPZ shard path for a run-file.
 
-        Run-file IDs use the same quotient/remainder mapping as ``base_multi``.
+        Run-file IDs are only unique within a submission, so shards are grouped by
+        submission index to keep concurrently running submissions apart. Within a
+        submission, run-file IDs use the same quotient/remainder mapping as
+        ``base_multi``, with 500 files per directory.
         """
-        output_name = name.removeprefix("outputs.")
-        if not output_name or any(
-            not component
-            or component in {".", ".."}
-            or "/" in component
-            or "\\" in component
-            for component in output_name.split(".")
-        ):
-            raise ValueError(f"Invalid dot-delimited array output path: {name!r}.")
+        root = self._get_array_output_root(name)
+        if submission_idx < 0:
+            raise ValueError(f"Invalid array output submission index: {submission_idx}.")
         if run_file_ID < 0:
             raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
-        root = Path(self._store.path) / "parameters" / "array_outputs" / output_name
+        return get_run_multi_chunk_path(
+            run_file_ID,
+            root / ARRAY_OUTPUT_SUBMISSIONS_DIR / str(submission_idx),
+            max_per_dir=500,
+        ).with_suffix(".npz.zst")
+
+    def _get_legacy_array_output_archive_path(self, name: str, run_file_ID: int) -> Path:
+        """Return the pre-submission-index shard path; used only for reading."""
+        root = self._get_array_output_root(name)
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
         return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
             ".npz.zst"
         )
 
+    @staticmethod
+    def _get_array_output_shard_key(EAR: ElementActionRun) -> tuple[int, int] | None:
+        """Return the run's ``(submission_idx, run_file_ID)``, if submitted."""
+        if EAR.submission_idx is None or EAR.run_file_ID is None:
+            return None
+        return EAR.submission_idx, EAR.run_file_ID
+
+    def _list_member_array_output_archive_paths(
+        self, output_name: str | None = None
+    ) -> list[Path]:
+        root = (Path(self._store.path) / "parameters" / "array_outputs").as_posix()
+        if output_name is None:
+            pattern = f"{root}/*/.members/*/*/*.zip"
+            consolidated_pattern = f"{root}/*/.members/consolidated.zip"
+        else:
+            output_root = (
+                Path(self._store.path)
+                / "parameters"
+                / "array_outputs"
+                / output_name
+                / ".members"
+            ).as_posix()
+            pattern = f"{output_root}/*/*/*.zip"
+            consolidated_pattern = f"{output_root}/consolidated.zip"
+        paths = {Path(path) for path in self._array_output_fs.glob(pattern)}
+        paths.update(
+            Path(path) for path in self._array_output_fs.glob(consolidated_pattern)
+        )
+        return sorted(paths)
+
+    def _list_member_array_output_shard_paths(self, output_name: str) -> list[Path]:
+        root = (
+            Path(self._store.path)
+            / "parameters"
+            / "array_outputs"
+            / output_name
+            / ".members"
+        ).as_posix()
+        return sorted(
+            Path(path) for path in self._array_output_fs.glob(f"{root}/*/*/*.zip")
+        )
+
+    def _list_member_array_output_roots(self) -> set[str]:
+        roots = set()
+        for path in self._list_member_array_output_archive_paths():
+            index = read_member_array_output_index(self._array_output_fs, path.as_posix())
+            roots.add(index["output_name"])
+        return roots
+
+    def _get_member_array_output_root(self, name: str) -> str | None:
+        name = name.removeprefix("outputs.")
+        matches = [
+            root
+            for root in self._list_member_array_output_roots()
+            if name == root or name.startswith(f"{root}.")
+        ]
+        return max(matches, key=len) if matches else None
+
     def _save_array_output(self, EAR: ElementActionRun, name: str, value: Any) -> None:
         """Append array data and EAR metadata to a Zstandard-compressed NPZ archive."""
-        value = np.asarray(value)
-        if value.dtype.hasobject:
-            raise TypeError(
-                f"Array output {name!r} has object dtype, which cannot be "
-                "stored without pickle."
-            )
-        if EAR.run_file_ID is None:
+        self._save_array_output_entries(EAR, name, [(None, np.asarray(value))])
+
+    def _save_array_output_entries(
+        self,
+        EAR: ElementActionRun,
+        name: str,
+        entries: Sequence[tuple[int | None, np.ndarray]],
+    ) -> None:
+        """Append a producing run's arrays in one write per logical sub-parameter."""
+        if not entries:
+            raise ValueError(f"No entries supplied for array output {name!r}.")
+        shard_key = self._get_array_output_shard_key(EAR)
+        if shard_key is None:
             raise ValueError(
-                f"Cannot save array output {name!r}: EAR {EAR.id_} has no run_file_ID."
+                f"Cannot save array output {name!r}: EAR {EAR.id_} has no submission "
+                "index or run_file_ID."
             )
-        archive_path = self._get_array_output_archive_path(name, EAR.run_file_ID)
+        archive_path = self._get_array_output_archive_path(name, *shard_key)
         archive_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_values = {
@@ -5347,72 +6082,254 @@ class Workflow(AppAware):
             "run_ID": EAR.id_,
         }
 
-        array_data = value[np.newaxis, ...]
-        shapes = np.asarray([value.shape], dtype=np.int32)
-        stored_metadata: dict[str, np.ndarray] = {
-            key: np.asarray([metadata_value], dtype=np.int32)
+        dtype = entries[0][1].dtype
+        ndim = entries[0][1].ndim
+        for _, value in entries:
+            if value.dtype.hasobject:
+                raise TypeError(
+                    f"Array output {name!r} has object dtype, which cannot be "
+                    "stored without pickle."
+                )
+            dtype = _resolve_array_output_dtype(
+                name, dtype, value.dtype, action="append to"
+            )
+            if value.ndim != ndim:
+                raise ValueError(
+                    f"Array output {name!r} has different dimensionality across members."
+                )
+        shapes = np.asarray([value.shape for _, value in entries], dtype=np.int32)
+        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+        data = np.zeros((len(entries), *max_shape), dtype=dtype)
+        for idx, (_, value) in enumerate(entries):
+            value_index: tuple[int | slice, ...] = (
+                idx,
+                *(slice(0, dim) for dim in value.shape),
+            )
+            data[value_index] = value
+        stored_metadata = {
+            key: np.full(len(entries), metadata_value, dtype=np.int64)
             for key, metadata_value in metadata_values.items()
         }
+        member_indices = (
+            np.asarray(
+                [idx if idx is not None else -1 for idx, _ in entries], dtype=np.int64
+            )
+            if any(idx is not None for idx, _ in entries)
+            else None
+        )
+        archive = _ArrayOutputArchive(
+            data=data,
+            shape=shapes if not np.all(shapes == shapes[0]) else None,
+            member_idx=member_indices,
+            **stored_metadata,
+        )
+        archives = [archive]
         if archive_path.exists():
-            archive = self._read_array_output_archive(archive_path)
-            previous_data = archive.data
-            # widen fixed-width strings (e.g. <U2 -> <U6); reject other mismatches:
-            stored_dtype = _resolve_array_output_dtype(
-                name, previous_data.dtype, value.dtype, action="append to"
+            previous = self._read_array_output_archive(archive_path)
+            _resolve_array_output_dtype(
+                name, previous.data.dtype, dtype, action="append to"
             )
-            if previous_data.ndim != value.ndim + 1:
-                raise ValueError(
-                    f"Array output {name!r} has {value.ndim} "
-                    f"dimensions, but existing values have "
-                    f"{previous_data.ndim - 1} dimensions."
-                )
-
-            if archive.shape is not None:
-                previous_shapes = archive.shape
-            else:
-                previous_shapes = np.broadcast_to(
-                    previous_data.shape[1:],
-                    (previous_data.shape[0], value.ndim),
-                ).copy()
-            shapes = np.concatenate((previous_shapes, shapes), axis=0)
-
-            max_shape = tuple(
-                max(previous_data.shape[axis + 1], value.shape[axis])
-                for axis in range(value.ndim)
-            )
-            expanded_data = np.zeros(
-                (previous_data.shape[0] + 1, *max_shape), dtype=stored_dtype
-            )
-            previous_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in previous_data.shape[1:]
-            )
-            previous_index: tuple[slice, ...] = (
-                slice(None, -1),
-                *previous_slices,
-            )
-            expanded_data[previous_index] = previous_data
-            value_slices: tuple[slice, ...] = tuple(
-                slice(0, size) for size in value.shape
-            )
-            value_index: tuple[int | slice, ...] = (-1, *value_slices)
-            expanded_data[value_index] = value
-            array_data = expanded_data
-
-            for key in metadata_values:
-                stored_metadata[key] = np.append(
-                    getattr(archive, key),
-                    np.asarray([metadata_values[key]], dtype=np.int64),
-                )
-
-        archive_data = {"data": array_data, **stored_metadata}
-        if not np.all(shapes == shapes[0]):
-            archive_data["shape"] = shapes
-
+            archives.insert(0, previous)
+        archive_data = self._merge_array_output_archives(name, archives)
         buffer = BytesIO()
-        np.savez(buffer, **archive_data)
+        np.savez(buffer, allow_pickle=False, **archive_data)
         atomic_write(
             archive_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
         )
+
+    def _get_member_array_output_archive_path(
+        self, output_name: str, submission_idx: int, run_file_ID: int
+    ) -> Path:
+        """Return the member-output archive for one execution shard.
+
+        Run-file IDs are only unique within a submission, so shards are grouped by
+        submission index to keep concurrently running submissions apart.
+        """
+        if submission_idx < 0:
+            raise ValueError(f"Invalid array output submission index: {submission_idx}.")
+        if run_file_ID < 0:
+            raise ValueError(f"Invalid array output run-file ID: {run_file_ID}.")
+        root = self._get_array_output_root(output_name) / ".members" / str(submission_idx)
+        return get_run_multi_chunk_path(run_file_ID, root, max_per_dir=500).with_suffix(
+            ".zip"
+        )
+
+    def _get_member_array_output_consolidated_path(self, output_name: str) -> Path:
+        return self._get_array_output_root(output_name) / ".members" / "consolidated.zip"
+
+    def _save_member_array_output(
+        self,
+        EAR: ElementActionRun,
+        output_name: str,
+        entries: dict[str, list[tuple[int | None, np.ndarray]]],
+    ) -> None:
+        """Store each output member in its producing run-file shard."""
+        shard_key = self._get_array_output_shard_key(EAR)
+        if shard_key is None:
+            raise ValueError(
+                f"Cannot save member arrays for EAR {EAR.id_}: it has no submission "
+                "index or run_file_ID."
+            )
+        members: dict[int, dict[str, np.ndarray]] = defaultdict(dict)
+        for name, values in entries.items():
+            for member_idx, value in values:
+                record_idx = -1 if member_idx is None else member_idx
+                if name in members[record_idx]:
+                    raise ValueError(
+                        f"Duplicate array output {name!r} for member {record_idx} "
+                        f"of EAR {EAR.id_}."
+                    )
+                members[record_idx][name] = value
+        metadata = {
+            "task_insert_ID": EAR.task.insert_ID,
+            "task_idx": EAR.task.index,
+            "element_idx": EAR.element.index,
+            "element_ID": EAR.element.id_,
+            "iteration_idx": EAR.element_iteration.index,
+            "iteration_ID": EAR.element_iteration.id_,
+            "action_idx": EAR.element_action.action_idx,
+            "run_idx": EAR.index,
+        }
+        write_member_array_output_archive(
+            self._get_member_array_output_archive_path(output_name, *shard_key),
+            output_name,
+            EAR.id_,
+            shard_key[1],
+            metadata,
+            dict(members),
+        )
+
+    def _read_member_array_output_record(
+        self,
+        output_name: str,
+        run_ID: int,
+        shard_key: tuple[int, int],
+        member_idx: int,
+    ) -> dict[str, np.ndarray] | None:
+        """Read a member record from a live shard or consolidated archive."""
+        shard = self._get_member_array_output_archive_path(output_name, *shard_key)
+        consolidated = self._get_member_array_output_consolidated_path(output_name)
+        paths = [
+            path
+            for path in (shard, consolidated)
+            if self._array_output_fs.exists(path.as_posix())
+        ]
+        for archive_path in paths:
+            index = read_member_array_output_index(
+                self._array_output_fs, archive_path.as_posix()
+            )
+            if index["output_name"] != output_name:
+                raise ValueError(
+                    f"Member-array archive {archive_path} belongs to "
+                    f"{index['output_name']!r}, not {output_name!r}."
+                )
+            try:
+                return read_member_array_output_record(
+                    self._array_output_fs,
+                    archive_path.as_posix(),
+                    run_ID,
+                    member_idx,
+                    index=index,
+                )
+            except KeyError:
+                continue
+        return None
+
+    def _get_member_array_output_rows(
+        self,
+        name: str,
+        run_IDs: Sequence[int] | None,
+        *,
+        member_idx: int | None,
+        output_shards: dict[int, tuple[str, tuple[int, int]]] | None = None,
+    ) -> list[tuple[np.ndarray, dict[str, int], int]]:
+        """Return matching array rows from member bundles, if any."""
+        name = name.removeprefix("outputs.")
+        archive_paths: list[Path]
+        if run_IDs is None:
+            archive_paths = self._list_member_array_output_archive_paths()
+        else:
+            archive_paths = []
+            for run_ID in dict.fromkeys(run_IDs):
+                output_shard = (output_shards or {}).get(run_ID)
+                if output_shard is None:
+                    continue
+                output_root, shard_key = output_shard
+                shard = self._get_member_array_output_archive_path(
+                    output_root, *shard_key
+                )
+                if self._array_output_fs.exists(shard.as_posix()):
+                    archive_paths.append(shard)
+                consolidated = self._get_member_array_output_consolidated_path(
+                    output_root
+                )
+                if self._array_output_fs.exists(consolidated.as_posix()):
+                    archive_paths.append(consolidated)
+            archive_paths = list(dict.fromkeys(archive_paths))
+        archive_paths.sort(key=lambda path: path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME)
+        shadowed_run_IDs = {
+            record["run_ID"]
+            for path in archive_paths
+            if path.name != ARRAY_OUTPUT_CONSOLIDATED_NAME
+            for record in read_member_array_output_index(
+                self._array_output_fs, path.as_posix()
+            )["records"]
+        }
+
+        rows_by_run: dict[int, list[tuple[np.ndarray, dict[str, int], int]]] = (
+            defaultdict(list)
+        )
+        seen: set[tuple[int, int]] = set()
+        for path in archive_paths:
+            index = read_member_array_output_index(self._array_output_fs, path.as_posix())
+            schema_positions = (
+                {
+                    schema_id: {array_path: idx for idx, array_path in enumerate(paths)}
+                    for schema_id, paths in index["schemas"].items()
+                }
+                if index["version"] == 1
+                else None
+            )
+            matching_records = []
+            for record in index["records"]:
+                if (
+                    (
+                        path.name == ARRAY_OUTPUT_CONSOLIDATED_NAME
+                        and record["run_ID"] in shadowed_run_IDs
+                    )
+                    or not member_array_output_record_has_array(
+                        index,
+                        record,
+                        name,
+                        schema_positions=schema_positions,
+                    )
+                    or (run_IDs is not None and record["run_ID"] not in run_IDs)
+                    or (member_idx is not None and record["member_idx"] != member_idx)
+                ):
+                    continue
+                key = record["run_ID"], record["member_idx"]
+                if key in seen:
+                    raise ValueError(f"Duplicate member-array record {key} for {name!r}.")
+                seen.add(key)
+                matching_records.append(record)
+            arrays_by_key = read_member_array_output_records(
+                self._array_output_fs,
+                path.as_posix(),
+                [(record["run_ID"], record["member_idx"]) for record in matching_records],
+                index=index,
+                name=name,
+            )
+            for record in matching_records:
+                key = record["run_ID"], record["member_idx"]
+                arrays = arrays_by_key[key]
+                metadata = dict(record["metadata"])
+                metadata["run_ID"] = record["run_ID"]
+                rows_by_run[record["run_ID"]].append(
+                    (arrays[name], metadata, record["member_idx"])
+                )
+        if run_IDs is None:
+            return [row for run_rows in rows_by_run.values() for row in run_rows]
+        return [row for run_ID in run_IDs for row in rows_by_run.get(run_ID, [])]
 
     @TimeIt.decorator
     def get_array_output(
@@ -5422,32 +6339,54 @@ class Workflow(AppAware):
 
         Return an :class:`ArrayOutput` with data and all per-run metadata selected
         including repeated IDs. By default, sort lexicographically by task insert ID,
-        element index, iteration index, action index, then run index. Equal keys retain
-        their requested order. With ``sort=False``, preserve the requested order. Data,
+        element index, iteration index, action index, run index, then member index.
+        Equal keys retain their requested order. With ``sort=False``, preserve the
+        requested order. Data,
         metadata, and shapes are reordered together. For a scalar ID, ``data`` is that
-        run's array. For multiple IDs it is stacked when no shape metadata is present
-        and all shapes match, otherwise it is a list.
+        run's array for ordinary outputs. Member outputs retain their leading member
+        axis even for a scalar run ID, with original indices in ``member_idx``.
+        For multiple entries, data is stacked when no shape metadata is present
+        and all shapes match, otherwise it is a list. Sparse sub-parameters contain
+        only members that supplied that array.
 
-        Archives are Zstandard-compressed NPZ files in 500-file shard directories,
-        optionally merged into one ``consolidated.npz.zst`` per output by
-        :meth:`consolidate_array_outputs`; both forms are read transparently.
-        Earlier uncompressed NPZ archives are not supported.
+        New Zarr array outputs are stored as indexed per-run records in
+        ``.members`` archives, optionally merged into one ``consolidated.zip`` per
+        output by :meth:`consolidate_array_outputs`. Reads can select one array path
+        without loading unrelated large arrays. Existing per-path NPZ/Zstandard
+        archives and version-1 member archives remain readable and are migrated when
+        consolidated.
         With ``run_IDs=None``, include every saved run for this output, across tasks
         and iterations. With ``sort=False``, archives are visited in path order.
         """
+        return self._get_array_output(name, run_IDs, sort=sort)
+
+    def _get_array_output(
+        self,
+        name: str,
+        run_IDs: int | Iterable[int] | None = None,
+        *,
+        sort: bool = True,
+        run: ElementActionRun | None = None,
+        member_idx: int | None = None,
+        resolved_path: Path | None = None,
+    ) -> ArrayOutput:
+        """Read arrays, optionally reusing a resolved run and selecting one member."""
         loaded_archives: dict[Path, _ArrayOutputArchive] = {}
-        run_files: list[tuple[int, Path]]
+        run_files: list[tuple[int, Path, tuple[int, int] | None]]
         if run_IDs is None:
             is_single_run = False
             run_files = []
             for archive_path in self._list_array_output_archive_paths(name):
                 archive = self._read_array_output_archive(archive_path)
                 loaded_archives[archive_path] = archive
-                run_files.extend((int(run_ID), archive_path) for run_ID in archive.run_ID)
+                run_files.extend(
+                    (int(run_ID), archive_path, None)
+                    for run_ID in dict.fromkeys(archive.run_ID)
+                )
         elif isinstance(run_IDs, (int, np.integer)):
             is_single_run = True
             requested_run_IDs = [int(cast(int, run_IDs))]
-            EAR = self.get_EARs_from_IDs(requested_run_IDs[0])
+            EAR = run if run is not None else self.get_EARs_from_IDs(requested_run_IDs[0])
             EARs: list[ElementActionRun] = [cast(ElementActionRun, EAR)]
         else:
             is_single_run = False
@@ -5461,55 +6400,171 @@ class Workflow(AppAware):
         if run_IDs is not None:
             run_files = []
             for run_ID, EAR in zip(requested_run_IDs, EARs):
-                if EAR.run_file_ID is None:
+                shard_key = self._get_array_output_shard_key(EAR)
+                if shard_key is None:
                     raise ValueError(
                         f"Cannot read array output {name!r}: EAR {run_ID} has no "
-                        "run_file_ID."
+                        "submission index or run_file_ID."
                     )
-                # the shard path; loading falls back to the consolidated archive:
+                # the existing shard path, or the new shard path, from which loading
+                # falls back to the consolidated archive:
                 run_files.append(
-                    (run_ID, self._get_array_output_archive_path(name, EAR.run_file_ID))
+                    (
+                        run_ID,
+                        (
+                            resolved_path
+                            or self._resolve_array_output_archive_path(name, shard_key)
+                            or self._get_array_output_archive_path(name, *shard_key)
+                        ),
+                        shard_key,
+                    )
                 )
-        if not run_files:
+        member_output_shards = {}
+        if run_IDs is not None:
+            requested_name = name.removeprefix("outputs.")
+            for EAR in EARs:
+                output_roots = []
+                for output in getattr(EAR, "data_idx", {}):
+                    if not output.startswith("outputs."):
+                        continue
+                    output_root = output.removeprefix("outputs.")
+                    if requested_name == output_root or requested_name.startswith(
+                        f"{output_root}."
+                    ):
+                        output_roots.append(output_root)
+                shard_key = self._get_array_output_shard_key(EAR)
+                if output_roots and shard_key is not None:
+                    member_output_shards[EAR.id_] = (
+                        max(output_roots, key=len),
+                        shard_key,
+                    )
+        member_rows = self._get_member_array_output_rows(
+            name,
+            None if run_IDs is None else requested_run_IDs,
+            member_idx=member_idx,
+            output_shards=member_output_shards,
+        )
+        if not run_files and not member_rows:
             raise ValueError(f"No saved runs selected for array output {name!r}.")
         output_arrays: list[np.ndarray] = []
         metadata: dict[str, list[np.ndarray]] = {
             field.name: []
             for field in fields(ArrayOutput)
-            if field.name not in {"name", "data", "shape"}
+            if field.name not in {"name", "data", "shape", "member_idx"}
         }
         output_shapes: list[tuple[int, ...]] = []
-        has_shape_metadata = False
-        for run_ID, archive_path in run_files:
-            archive = self._load_array_output_archive(name, archive_path, loaded_archives)
-            data, shapes = archive.data, archive.shape
-            has_shape_metadata |= shapes is not None
-            matching_indices = np.flatnonzero(archive.run_ID == run_ID)
-            if len(matching_indices) != 1:
-                raise ValueError(
-                    f"Expected one entry for run ID {run_ID} in array-output archive "
-                    f"for {name!r}, found {len(matching_indices)}."
-                )
-
-            archive_idx = int(matching_indices[0])
-            if shapes is None:
-                array_shape = data.shape[1:]
-            else:
-                array_shape = tuple(int(dim) for dim in shapes[archive_idx])
-            array_slices: tuple[slice, ...] = tuple(slice(0, dim) for dim in array_shape)
-            output_arrays.append(np.array(data[archive_idx][array_slices]))
-            output_shapes.append(array_shape)
+        has_shape_metadata = len({value.shape for value, _, _ in member_rows}) > 1
+        has_member_metadata = any(
+            record_member_idx >= 0 for _, _, record_member_idx in member_rows
+        )
+        member_indices: list[int] = []
+        member_run_IDs = {record["run_ID"] for _, record, _ in member_rows}
+        for value, record_metadata, record_member_idx in member_rows:
+            output_arrays.append(value)
+            output_shapes.append(value.shape)
+            member_indices.append(record_member_idx)
             for key, values in metadata.items():
-                values.append(getattr(archive, key)[archive_idx : archive_idx + 1])
+                metadata[key].append(np.asarray([record_metadata[key]], dtype=np.uint32))
+        with ExitStack() as readers:
+            opened_archives: set[int] = set()
+            for run_ID, archive_path, shard_key in run_files:
+                if run_ID in member_run_IDs:
+                    continue
+                try:
+                    archive = self._load_array_output_archive(
+                        name, archive_path, loaded_archives
+                    )
+                except FileNotFoundError:
+                    if run_ID in member_run_IDs:
+                        continue
+                    raise
+                if not np.any(archive.run_ID == run_ID):
+                    # the run may be in another candidate archive: legacy shard IDs are
+                    # reused across submissions, and a run-file's runs may be split
+                    # between legacy and submission-indexed shards after an upgrade:
+                    for candidate in self._list_array_output_candidate_paths(
+                        name, shard_key
+                    ):
+                        if candidate == archive_path:
+                            continue
+                        archive = self._load_array_output_archive(
+                            name, candidate, loaded_archives
+                        )
+                        if np.any(archive.run_ID == run_ID):
+                            break
+                    if run_ID in member_run_IDs and not np.any(archive.run_ID == run_ID):
+                        continue
+                data, shapes = archive.data, archive.shape
+                if isinstance(data, ChunkedArray) and id(data) not in opened_archives:
+                    readers.enter_context(data.reading())
+                    opened_archives.add(id(data))
+                has_shape_metadata |= shapes is not None
+                has_member_metadata |= archive.member_idx is not None
+                if isinstance(data, ChunkedArray):
+                    start, stop = np.searchsorted(
+                        archive.run_ID, run_ID, side="left"
+                    ), np.searchsorted(archive.run_ID, run_ID, side="right")
+                    matching_indices = np.arange(start, stop)
+                else:
+                    matching_indices = np.flatnonzero(archive.run_ID == run_ID)
+                if not len(matching_indices) or (
+                    archive.member_idx is None and len(matching_indices) != 1
+                ):
+                    raise ValueError(
+                        f"Expected one entry for run ID {run_ID} in array-output archive "
+                        f"for {name!r}, found {len(matching_indices)}."
+                    )
+
+                if archive.member_idx is not None:
+                    if member_idx is not None:
+                        matching_indices = matching_indices[
+                            archive.member_idx[matching_indices] == member_idx
+                        ]
+                        if not len(matching_indices):
+                            raise ValueError(
+                                f"Missing member {member_idx} for array output {name!r} "
+                                f"of EAR {run_ID}."
+                            )
+                    selected_members = archive.member_idx[matching_indices]
+                    if len(np.unique(selected_members)) != len(selected_members):
+                        raise ValueError(
+                            f"Duplicate member indices for run ID {run_ID} in "
+                            f"array output {name!r}."
+                        )
+                    matching_indices = matching_indices[
+                        np.argsort(selected_members, kind="stable")
+                    ]
+                for archive_idx in matching_indices:
+                    entry = data[archive_idx]
+                    if shapes is None:
+                        array_shape = entry.shape
+                    else:
+                        array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+                    array_slices: tuple[slice, ...] = tuple(
+                        slice(0, dim) for dim in array_shape
+                    )
+                    output_arrays.append(np.array(entry[array_slices]))
+                    output_shapes.append(array_shape)
+                    member_indices.append(
+                        int(archive.member_idx[archive_idx])
+                        if archive.member_idx is not None
+                        else -1
+                    )
+                    for key, values in metadata.items():
+                        values.append(
+                            getattr(archive, key)[archive_idx : archive_idx + 1]
+                        )
 
         combined_metadata = {
             key: np.concatenate(values) for key, values in metadata.items()
         }
+        members = np.asarray(member_indices, dtype=np.int64)
         if sort and not is_single_run:
             order = np.lexsort(
                 tuple(
-                    combined_metadata[key]
+                    members if key == "member_idx" else combined_metadata[key]
                     for key in (
+                        "member_idx",
                         "run_idx",
                         "action_idx",
                         "iteration_idx",
@@ -5520,12 +6575,13 @@ class Workflow(AppAware):
             )
             output_arrays = [output_arrays[idx] for idx in order]
             output_shapes = [output_shapes[idx] for idx in order]
+            members = members[order]
             combined_metadata = {
                 key: values[order] for key, values in combined_metadata.items()
             }
 
         result_data: np.ndarray | list[np.ndarray]
-        if is_single_run:
+        if is_single_run and not has_member_metadata:
             result_data = output_arrays[0]
         elif not has_shape_metadata and all(
             array.shape == output_arrays[0].shape for array in output_arrays[1:]
@@ -5540,6 +6596,7 @@ class Workflow(AppAware):
             shape=(
                 np.asarray(output_shapes, dtype=np.int32) if has_shape_metadata else None
             ),
+            member_idx=members if has_member_metadata else None,
         )
 
     def export_array_output(
@@ -5597,15 +6654,27 @@ class Workflow(AppAware):
         names: str | Iterable[str] | None = None,
         *,
         status: bool = True,
+        temp_dir: str | Path | None = None,
     ) -> dict[str, Path]:
-        """Merge each output's shard archives into one ``consolidated.npz.zst`` file.
+        """Merge each output's shard archives into one indexed ``consolidated.zip``.
 
-        For every selected output, all shard archives (``<shard>/<file>.npz.zst``) and
+        For every selected output, all shard archives
+        (``.submissions/<submission>/<shard>/<file>.npz.zst``, plus any legacy
+        ``<shard>/<file>.npz.zst``) and
         any existing consolidated archive are merged, sorted by run ID, written
-        atomically to ``parameters/array_outputs/<name>/consolidated.npz.zst``, verified
-        by re-reading, and only then are the shard files removed. Runs saved later go to
+        atomically to ``parameters/array_outputs/<name>/consolidated.zip``, verified
+        one chunk at a time, and only then are the shard files removed. Runs saved later go to
         new shard archives, so consolidation may be repeated to fold them in. Readers
         (:meth:`get_array_output`, parameter decoding) handle both forms transparently.
+        Mixed shapes are stored in independently compressed chunks without global
+        padding, targeting 16 MiB per chunk (larger entries get their own chunk).
+        Existing NPZ/Zstandard archives remain readable and are migrated on
+        consolidation, including when no new shards exist. A metadata pass is
+        followed by a payload pass, opening one source at a time and buffering at
+        most 32 MiB of shape chunks, plus source entries and metadata. Legacy NPZs
+        spill to temporary disk above 8 MiB; nonstandard compressed/Fortran NPYs
+        can still load one source array. Older hpcflow
+        versions cannot read the indexed format.
 
         Parameters
         ----------
@@ -5615,6 +6684,13 @@ class Workflow(AppAware):
             (``<name>.__mask__``) are consolidated with their data.
         status
             Show a live status while consolidating.
+        temp_dir
+            Existing directory for source NPZ buffers that spill to disk. ``None``
+            uses a unique subdirectory of ``parameters/array_outputs/.tmp/``.
+            Each output's temporary subdirectory is removed on success or failure;
+            the empty ``.tmp`` parent is retained for concurrent operations.
+            The replacement archive remains
+            beside its destination so the final rename stays atomic.
 
         Returns
         -------
@@ -5628,13 +6704,19 @@ class Workflow(AppAware):
             have different dtypes.
         ValueError
             If a named output has no archives, shards differ in dimensionality, or a
-            run ID appears more than once.
+            a run/member pair appears more than once.
         """
         if not self._store._features.edit:
             raise TypeError(
                 "Consolidating array outputs requires an editable workflow store; "
                 "unzip the workflow first."
             )
+        if temp_dir is not None:
+            temp_dir = Path(temp_dir).expanduser().resolve(strict=True)
+            if not temp_dir.is_dir():
+                raise NotADirectoryError(
+                    f"Temporary directory is not a directory: {temp_dir}"
+                )
         if names is None:
             selected = self._list_array_output_names(include_internal=True)
         else:
@@ -5642,7 +6724,10 @@ class Workflow(AppAware):
             selected = []
             for name in requested:
                 name = name.removeprefix("outputs.")
-                if not self._list_array_output_archive_paths(name):
+                if (
+                    not self._list_array_output_archive_paths(name)
+                    and self._get_member_array_output_root(name) is None
+                ):
                     raise ValueError(f"No array-output archives found for {name!r}.")
                 selected.append(name)
                 mask_name = f"{name}.{ARRAY_OUTPUT_MASK_SUFFIX}"
@@ -5651,63 +6736,221 @@ class Workflow(AppAware):
             selected = list(dict.fromkeys(selected))
 
         results: dict[str, Path] = {}
+        member_roots = self._list_member_array_output_roots()
+        selected_member_roots = {
+            root
+            for root in member_roots
+            if any(name == root or name.startswith(f"{root}.") for name in selected)
+        }
         status_context: AbstractContextManager[Status] | AbstractContextManager[None] = (
             rich.console.Console().status("Consolidating array outputs...")
             if status
             else nullcontext()
         )
         with status_context as status_obj:
+            for root in sorted(selected_member_roots):
+                if status_obj is not None:
+                    status_obj.update(f"Consolidating array output {root!r}...")
+                path = self._consolidate_member_array_output(root)
+                if path is not None:
+                    results.update(
+                        {
+                            name: path
+                            for name in selected
+                            if name == root or name.startswith(f"{root}.")
+                        }
+                    )
             for name in selected:
                 if status_obj is not None:
                     status_obj.update(f"Consolidating array output {name!r}...")
-                path = self._consolidate_array_output(name)
+                path = self._consolidate_array_output(name, temp_dir=temp_dir)
                 if path is not None:
                     results[name] = path
         return results
 
-    def _consolidate_array_output(self, name: str) -> Path | None:
+    def _consolidate_member_array_output(self, output_name: str) -> Path | None:
+        """Consolidate per-run member bundles for one output parameter."""
+        shards = self._list_member_array_output_shard_paths(output_name)
+        destination = self._get_member_array_output_consolidated_path(output_name)
+        existing = (
+            destination if self._array_output_fs.exists(destination.as_posix()) else None
+        )
+        if not shards and existing is None:
+            return None
+        if not shards:
+            return existing
+        sources = ([existing] if existing is not None else []) + shards
+        consolidate_member_array_output_archives(
+            self._array_output_fs, sources, destination, output_name
+        )
+        for shard in shards:
+            self._array_output_fs.rm(shard.as_posix())
+        return destination
+
+    def _consolidate_array_output(
+        self, name: str, *, temp_dir: str | Path | None = None
+    ) -> Path | None:
         """Consolidate one output; return the archive path, or None if no archives."""
         shard_paths = self._list_array_output_shard_paths(name)
         consolidated_path = self._get_array_output_consolidated_path(name)
-        has_consolidated = consolidated_path.is_file()
-        if not shard_paths:
-            return consolidated_path if has_consolidated else None
+        existing = self._existing_array_output_consolidated_path(name)
+        if not shard_paths and (existing is None or existing == consolidated_path):
+            return existing
 
-        # existing consolidated data first, then shards in path order:
-        sources = ([consolidated_path] if has_consolidated else []) + shard_paths
-        archives = [self._read_array_output_archive(path) for path in sources]
-        merged = self._merge_array_output_archives(name, archives)
-
-        buffer = BytesIO()
-        np.savez(buffer, **cast("dict[str, Any]", merged))
-        atomic_write(
-            consolidated_path, zstd.ZstdCompressor(level=1).compress(buffer.getvalue())
+        scratch_root = (
+            Path(temp_dir)
+            if temp_dir is not None
+            else Path(self._store.path) / "parameters" / "array_outputs" / ".tmp"
         )
-
-        # verify before discarding the shards:
-        expected_count = sum(len(archive.run_ID) for archive in archives)
-        verified = self._read_array_output_archive(consolidated_path)
-        if len(verified.run_ID) != expected_count:
-            raise RuntimeError(
-                f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
-                f"entries; expected {expected_count}. Shard archives were left intact."
+        if temp_dir is None:
+            scratch_root.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(
+            prefix="consolidate-", dir=str(scratch_root)
+        ) as operation_temp_dir:
+            # existing consolidated data first, then shards in path order:
+            sources = ([existing] if existing is not None else []) + shard_paths
+            plans: list[tuple[dict[str, np.ndarray], np.ndarray, np.dtype]] = []
+            merged_dtype: np.dtype | None = None
+            ndim = None
+            # Pass one keeps only metadata, shapes and dtypes, never source payloads.
+            for path in sources:
+                with open_array_output_source(
+                    self._array_output_fs, path, temp_dir=operation_temp_dir
+                ) as source:
+                    if ndim is not None and ndim != source.shapes.shape[1]:
+                        raise ValueError(
+                            f"Cannot consolidate array output {name!r}: archives have different dimensionality."
+                        )
+                    ndim = source.shapes.shape[1]
+                    merged_dtype = (
+                        source.dtype
+                        if merged_dtype is None
+                        else _resolve_array_output_dtype(
+                            name, merged_dtype, source.dtype, action="consolidate"
+                        )
+                    )
+                    plans.append(
+                        (
+                            normalize_metadata(source.metadata, name),
+                            source.shapes.copy(),
+                            source.dtype,
+                        )
+                    )
+            assert merged_dtype is not None
+            metadata = {
+                key: np.concatenate([plan[0][key] for plan in plans])
+                for key in plans[0][0]
+                if key != "member_idx"
+            }
+            has_members = any("member_idx" in plan[0] for plan in plans)
+            members = np.concatenate(
+                [
+                    plan[0].get(
+                        "member_idx", np.full(len(plan[0]["run_ID"]), -1, dtype=np.int64)
+                    )
+                    for plan in plans
+                ]
             )
-        for shard_path in shard_paths:
-            shard_path.unlink()
+            order = np.lexsort((members, metadata["run_ID"]))
+            runs = metadata["run_ID"][order]
+            sorted_members = members[order]
+            duplicate = (runs[1:] == runs[:-1]) & (
+                sorted_members[1:] == sorted_members[:-1]
+            )
+            if np.any(duplicate):
+                raise ValueError(
+                    f"Cannot consolidate array output {name!r}: run/member pairs appear more than once."
+                )
+            expected_count = len(order)
+            destination_indices = np.empty(expected_count, dtype=np.int64)
+            destination_indices[order] = np.arange(expected_count)
+            metadata = {key: values[order] for key, values in metadata.items()}
+            if has_members:
+                metadata["member_idx"] = sorted_members
+            shapes = np.concatenate([plan[1] for plan in plans], axis=0)[order]
+
+            def entries() -> Generator[tuple[int, np.ndarray], None, None]:
+                offset = 0
+                for path, (saved_metadata, saved_shapes, saved_dtype) in zip(
+                    sources, plans
+                ):
+                    with open_array_output_source(
+                        self._array_output_fs, path, temp_dir=operation_temp_dir
+                    ) as source:
+                        current = normalize_metadata(source.metadata, name)
+                        if (
+                            current.keys() != saved_metadata.keys()
+                            or source.dtype != saved_dtype
+                            or not np.array_equal(source.shapes, saved_shapes)
+                            or any(
+                                not np.array_equal(current[key], value)
+                                for key, value in saved_metadata.items()
+                            )
+                        ):
+                            raise RuntimeError(
+                                f"Array-output source {path} changed during consolidation."
+                            )
+                        for source_index in source.entry_order:
+                            index = int(source_index)
+                            yield int(destination_indices[offset + index]), source[index]
+                    offset += len(saved_shapes)
+
+            # Stream independently compressed chunks into an atomic replacement file.
+            partial_path = consolidated_path.with_name(
+                f"{consolidated_path.name}.{uuid4().hex}.partial"
+            )
             try:
-                shard_path.parent.rmdir()  # remove the shard directory once empty
-            except OSError:
-                pass
-        return consolidated_path
+                with closing(entries()) as source_entries:
+                    write_streamed_array_output(
+                        partial_path, metadata, merged_dtype, shapes, source_entries
+                    )
+                # Verify the index and every chunk before replacing an existing archive.
+                verified = self._read_array_output_archive(partial_path)
+                if len(verified.run_ID) != expected_count:
+                    raise RuntimeError(
+                        f"Consolidated archive for {name!r} holds {len(verified.run_ID)} "
+                        f"entries; expected {expected_count}. Shard archives were left intact."
+                    )
+                assert isinstance(verified.data, ChunkedArray)
+                verified.data.verify()
+                with partial_path.open("r+b") as destination:
+                    os.fsync(destination.fileno())
+                os.replace(partial_path, consolidated_path)
+                if hasattr(os, "O_DIRECTORY"):
+                    directory_fd = os.open(consolidated_path.parent, os.O_DIRECTORY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+            finally:
+                partial_path.unlink(missing_ok=True)
+
+            if existing is not None and existing != consolidated_path:
+                existing.unlink()
+            output_root = self._get_array_output_root(name)
+            for shard_path in shard_paths:
+                shard_path.unlink()
+                # remove shard directories (including submission groups) once empty:
+                directory = shard_path.parent
+                while directory != output_root and directory.is_relative_to(output_root):
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        break
+                    directory = directory.parent
+            return consolidated_path
 
     @staticmethod
     def _merge_array_output_archives(
-        name: str, archives: Sequence[_ArrayOutputArchive]
+        name: str,
+        archives: Sequence[_ArrayOutputArchive],
+        *,
+        group_by_shape: bool = False,
     ) -> dict[str, np.ndarray]:
-        """Merge archives into NPZ contents, sorted by run ID.
+        """Merge archives into NPZ contents, sorted by run ID then member index.
 
-        Entries are zero-padded to the largest shape; ``shape`` is included only when
-        entry shapes differ, matching :meth:`_save_array_output`.
+        Shards use padding. Consolidation groups entries by their original shapes,
+        trimming any padding inherited from older archives.
         """
         # widen fixed-width strings across archives; reject other dtype mismatches:
         merged_dtype = archives[0].data.dtype
@@ -5730,7 +6973,10 @@ class Workflow(AppAware):
                     archive.shape
                     if archive.shape is not None
                     else np.broadcast_to(
-                        np.asarray(archive.data.shape[1:], dtype=np.int32),
+                        np.asarray(
+                            cast("np.ndarray | ChunkedArray", archive.data).shape[1:],
+                            dtype=np.int32,
+                        ),
                         (len(archive.run_ID), ndim),
                     )
                 )
@@ -5738,86 +6984,265 @@ class Workflow(AppAware):
             ],
             axis=0,
         ).astype(np.int32)
-        max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
-        data = np.zeros((total, *max_shape), dtype=merged_dtype)
-        offset = 0
-        for archive in archives:
-            count = len(archive.run_ID)
-            region: tuple[slice, ...] = (
-                slice(offset, offset + count),
-                *(slice(0, dim) for dim in archive.data.shape[1:]),
-            )
-            data[region] = archive.data
-            offset += count
-
         metadata_names = [
             field.name
             for field in fields(_ArrayOutputArchive)
-            if field.name not in {"data", "shape"}
+            if field.name not in {"data", "shape", "member_idx"}
         ]
         metadata = {
             key: np.concatenate([getattr(archive, key) for archive in archives])
             for key in metadata_names
         }
+        # IDs and indices are nonnegative; normalize legacy signed metadata here
+        # so both shard writes and consolidation use the full uint32 range.
+        for key, values in metadata.items():
+            if values.dtype.kind not in "iu":
+                raise TypeError(
+                    f"Array output {name!r} metadata {key!r} must be integers."
+                )
+            if values.size and (
+                int(values.min()) < 0 or int(values.max()) > np.iinfo(np.uint32).max
+            ):
+                raise OverflowError(
+                    f"Array output {name!r} metadata {key!r} is outside the uint32 "
+                    "range [0, 4294967295]."
+                )
+            metadata[key] = values.astype(np.uint32, copy=False)
         run_IDs = metadata["run_ID"]
-        unique_IDs, counts = np.unique(run_IDs, return_counts=True)
+        has_members = any(archive.member_idx is not None for archive in archives)
+        member_indices = np.concatenate(
+            [
+                (
+                    archive.member_idx
+                    if archive.member_idx is not None
+                    else np.full(len(archive.run_ID), -1, dtype=np.int64)
+                )
+                for archive in archives
+            ]
+        )
+        keys = np.column_stack((run_IDs, member_indices))
+        unique_IDs, counts = np.unique(keys, axis=0, return_counts=True)
         if np.any(counts > 1):
+            duplicates = unique_IDs[counts > 1]
+            if not has_members:
+                raise ValueError(
+                    f"Cannot consolidate array output {name!r}: run IDs appear more than "
+                    f"once: {duplicates[:, 0].tolist()}."
+                )
             raise ValueError(
                 f"Cannot consolidate array output {name!r}: run IDs appear more than "
-                f"once: {unique_IDs[counts > 1].tolist()}."
+                f"once for the same member: {duplicates.tolist()}."
             )
-        order = np.argsort(run_IDs, kind="stable")
+        order = np.lexsort((member_indices, run_IDs))
         merged: dict[str, np.ndarray] = {
-            "data": data[order],
-            **{key: values[order] for key, values in metadata.items()},
+            key: values[order] for key, values in metadata.items()
         }
         shapes = shapes[order]
+        entries = [
+            (archive, index)
+            for archive in archives
+            for index in range(len(archive.run_ID))
+        ]
+        if group_by_shape and not np.all(shapes == shapes[0]):
+            group_shapes, group_indices, group_counts = np.unique(
+                shapes, axis=0, return_inverse=True, return_counts=True
+            )
+            groups = [
+                np.empty((int(count), *(int(dim) for dim in shape)), dtype=merged_dtype)
+                for shape, count in zip(group_shapes, group_counts)
+            ]
+            row_indices = np.empty(total, dtype=np.int64)
+            next_rows = np.zeros(len(groups), dtype=np.int64)
+            for dest_idx, source_idx in enumerate(order):
+                group = int(group_indices[dest_idx])
+                row = int(next_rows[group])
+                archive, index = entries[source_idx]
+                slices = tuple(slice(0, int(dim)) for dim in shapes[dest_idx])
+                groups[group][row] = archive.data[index][slices]
+                row_indices[dest_idx] = row
+                next_rows[group] += 1
+            merged.update({f"data_{index}": data for index, data in enumerate(groups)})
+            merged["group_idx"] = group_indices.astype(np.int64)
+            merged["row_idx"] = row_indices
+        else:
+            max_shape = tuple(int(dim) for dim in shapes.max(axis=0))
+            data = np.zeros((total, *max_shape), dtype=merged_dtype)
+            for dest_idx, source_idx in enumerate(order):
+                archive, index = entries[source_idx]
+                shape = shapes[dest_idx]
+                slices = tuple(slice(0, int(dim)) for dim in shape)
+                data_index: tuple[int | slice, ...] = (dest_idx, *slices)
+                data[data_index] = archive.data[index][slices]
+            merged["data"] = data
         if not np.all(shapes == shapes[0]):
             merged["shape"] = shapes
+        if has_members:
+            merged["member_idx"] = member_indices[order]
         return merged
 
     @TimeIt.decorator
     def _read_array_output_archive(self, path: Path) -> _ArrayOutputArchive:
         """Decompress, load, and validate an array-output NPZ archive."""
+        if not path.name.endswith(".npz.zst"):
+            data, arrays, shapes = read_chunked_array_output(
+                self._array_output_fs, path.as_posix()
+            )
+            return _ArrayOutputArchive(data=data, shape=shapes, **arrays)
         compressed = self._store.get_binary_file(path)
-        buffer = BytesIO(zstd.ZstdDecompressor().decompress(compressed))
-        with np.load(buffer, allow_pickle=False) as archive:
-            required_names = [
-                field.name
-                for field in fields(_ArrayOutputArchive)
-                if field.name != "shape"
-            ]
-            if not all(name in archive.files for name in required_names):
-                raise ValueError(
-                    f"Array-output archive {path} has an unsupported format."
-                )
+        with _ArrayOutputBuffer(max_size=8 * 1024**2) as buffer:
+            zstd.ZstdDecompressor().copy_stream(BytesIO(compressed), buffer)
+            del compressed
+            buffer.seek(0)
+            with np.load(buffer, allow_pickle=False) as archive:
+                return self._load_array_output_npz(path, archive)
 
-            arrays = {name: archive[name] for name in required_names}
-            data = arrays["data"]
-            run_ids = arrays["run_ID"]
-            shapes = archive["shape"] if "shape" in archive.files else None
-            if data.ndim < 1 or run_ids.ndim != 1:
-                raise ValueError(
-                    f"Array-output archive {path} has invalid data or run_ID dimensions."
-                )
-            if len(data) != len(run_ids):
-                raise ValueError(
-                    f"Array-output archive {path} has mismatched data and run_ID lengths."
-                )
-            for name, metadata in arrays.items():
-                if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
-                    raise ValueError(
-                        f"Array-output archive {path} has invalid {name} metadata."
-                    )
-            if shapes is not None and (
-                shapes.shape != (len(data), data.ndim - 1)
-                or np.any(shapes < 0)
-                or np.any(shapes > data.shape[1:])
+    @staticmethod
+    def _load_array_output_npz(path: Path, archive: Any) -> _ArrayOutputArchive:
+        """Read either legacy padded data or shape groups from an open NPZ."""
+        required_names = [
+            field.name
+            for field in fields(_ArrayOutputArchive)
+            if field.name not in {"data", "shape", "member_idx"}
+        ]
+        if not all(name in archive.files for name in required_names):
+            raise ValueError(f"Array-output archive {path} has an unsupported format.")
+
+        arrays = {name: archive[name] for name in required_names}
+        run_ids = arrays["run_ID"]
+        if run_ids.ndim != 1:
+            raise ValueError(
+                f"Array-output archive {path} has invalid data or run_ID dimensions."
+            )
+        shapes = archive["shape"] if "shape" in archive.files else None
+        members = archive["member_idx"] if "member_idx" in archive.files else None
+        data: np.ndarray | _ShapeGroupedArray
+        if "data" in archive.files:
+            data = archive["data"]
+        else:
+            group_names = [name for name in archive.files if name.startswith("data_")]
+            if (
+                not group_names
+                or set(group_names) != {f"data_{i}" for i in range(len(group_names))}
+                or "group_idx" not in archive.files
+                or "row_idx" not in archive.files
+                or shapes is None
             ):
+                raise ValueError(f"Array-output archive {path} has invalid shape groups.")
+            groups = tuple(archive[f"data_{i}"] for i in range(len(group_names)))
+            group_idx, row_idx = archive["group_idx"], archive["row_idx"]
+            if (
+                group_idx.shape != run_ids.shape
+                or row_idx.shape != run_ids.shape
+                or group_idx.dtype.kind not in "iu"
+                or row_idx.dtype.kind not in "iu"
+                or np.any(group_idx < 0)
+                or np.any(group_idx >= len(groups))
+                or any(group.ndim < 1 for group in groups)
+                or len({group.ndim for group in groups}) != 1
+                or len({group.dtype for group in groups}) != 1
+                or shapes.shape != (len(run_ids), groups[0].ndim - 1)
+            ):
+                raise ValueError(f"Array-output archive {path} has invalid shape groups.")
+            for index, group in enumerate(groups):
+                rows = row_idx[group_idx == index]
+                if (
+                    len(rows) != len(group)
+                    or not np.array_equal(np.sort(rows), np.arange(len(group)))
+                    or np.any(shapes[group_idx == index] != group.shape[1:])
+                ):
+                    raise ValueError(
+                        f"Array-output archive {path} has invalid shape groups."
+                    )
+            data = _ShapeGroupedArray(groups, group_idx, row_idx)
+        if data.ndim < 1 or run_ids.ndim != 1:
+            raise ValueError(
+                f"Array-output archive {path} has invalid data or run_ID dimensions."
+            )
+        if len(data) != len(run_ids):
+            raise ValueError(
+                f"Array-output archive {path} has mismatched data and run_ID lengths."
+            )
+        for name, metadata in arrays.items():
+            if name != "data" and (metadata.ndim != 1 or len(metadata) != len(data)):
                 raise ValueError(
-                    f"Array-output archive {path} has invalid shape metadata."
+                    f"Array-output archive {path} has invalid {name} metadata."
                 )
-            return _ArrayOutputArchive(**arrays, shape=shapes)
+        if shapes is not None and (
+            shapes.shape != (len(data), data.ndim - 1)
+            or np.any(shapes < 0)
+            or (isinstance(data, np.ndarray) and np.any(shapes > data.shape[1:]))
+        ):
+            raise ValueError(f"Array-output archive {path} has invalid shape metadata.")
+        if members is not None and (
+            members.shape != (len(data),)
+            or members.dtype.kind not in "iu"
+            or np.any(members < -1)
+        ):
+            raise ValueError(
+                f"Array-output archive {path} has invalid member_idx metadata."
+            )
+        return _ArrayOutputArchive(data=data, **arrays, shape=shapes, member_idx=members)
+
+    def show_runs(
+        self,
+        state: EARStatus | str | None = None,
+        *,
+        task_idx: IndexFilter = None,
+        task_id: IndexFilter = None,
+        task_name: str | Sequence[str] | None = None,
+        element_idx: IndexFilter = None,
+        iteration_idx: IndexFilter = None,
+        action_idx: IndexFilter = None,
+        run_id: IndexFilter = None,
+        run_idx: IndexFilter = None,
+        columns: str | Sequence[str] | None = None,
+    ) -> None:
+        """Print individual action runs, optionally filtered by engine state.
+
+        Parameters
+        ----------
+        state : EARStatus or str, optional
+            An engine state or its case-insensitive name, such as ``error``.
+            Omit to show all runs. Invalid names raise ValueError.
+        task_idx, task_id, element_idx, iteration_idx, action_idx, run_id, run_idx
+            Optional non-negative index/ID selections: an integer, integer sequence,
+            or comma-separated indices and inclusive ranges such as ``0,2-5``.
+            Combine coordinates with AND. Task indices are positions in workflow
+            order; task IDs are stable insertion IDs. Run IDs are global, while
+            run indices identify per-action attempts. Other indices are zero-based.
+        task_name
+            Exact task unique name(s), comma-separated or a sequence.
+        columns
+            Ordered column identifiers, comma-separated or a sequence. ``all``
+            selects every column. Optional fields include host, start, end, duration,
+            and array_idx (zero-based scheduler array item; absent for serial jobs).
+            end_size and end_size_bytes sum regular-file sizes in snapshot_end,
+            using readable units or exact bytes without scanning the run directory.
+            Datetimes use show_timezone. Running durations use the current time.
+
+        Notes
+        -----
+        Include all attempts across iterations and submissions, so failed runs
+        remain inspectable after successful retries. Display run IDs, task and
+        element coordinates, action short names, attempt/submission/jobscript indices,
+        states, and exit codes.
+        Read workflow data without querying schedulers or updating monitoring files.
+        """
+        from ..monitoring.runs import show_runs
+
+        show_runs(
+            self,
+            state,
+            task_idx=task_idx,
+            task_id=task_id,
+            task_name=task_name,
+            element_idx=element_idx,
+            iteration_idx=iteration_idx,
+            action_idx=action_idx,
+            run_id=run_id,
+            run_idx=run_idx,
+            columns=columns,
+        )
 
     def show_all_EAR_statuses(self) -> None:
         """
@@ -5929,7 +7354,11 @@ class Workflow(AppAware):
         run_ids: list[int] | None = None,
         dir_indices_arr: np.ndarray | None = None,
     ) -> list[Path | None]:
-        """"""
+        """Resolve working directories using each run's ``scratch`` resource.
+
+        No directories are created. If ``dir_indices_arr`` is supplied, its rows must
+        correspond to ``run_ids`` (or the first runs, if ``run_ids`` is omitted).
+        """
 
         @TimeIt.decorator
         def _get_depth_dirs(
@@ -5965,7 +7394,11 @@ class Workflow(AppAware):
         MAX_ELEMS_PER_DIR = 1000  # TODO: configurable (add `workflow_defaults` to Config)
         MAX_ITERS_PER_DIR = 1000
 
-        exec_path = self.execution_path
+        runs = self.get_EARs_from_IDs(
+            run_ids if run_ids is not None else range(len(dir_indices_arr))
+        )
+        if len(runs) != len(dir_indices_arr):
+            raise ValueError("Directory indices must have one row per run ID.")
 
         # a fill value means no sub directory should be created
         T_FILL, E_FILL, I_FILL, A_FILL, R_FILL, _, _ = RUN_DIR_ARR_FILL
@@ -5976,7 +7409,7 @@ class Workflow(AppAware):
 
         # format run directories:
         dirs = []
-        for dir_data in dir_indices_arr:
+        for run, dir_data in zip(runs, dir_indices_arr):
 
             # TODO: retrieve task,element,iteration,action,run dir formats from
             # (t_iID, act_idx) combo (cached)?
@@ -6016,10 +7449,9 @@ class Workflow(AppAware):
             if r_idx != R_FILL:
                 path_args.append(f"r_{r_idx}")
 
-            if path_args:
+            if path_args or e_depth == 1:
+                exec_path = self._get_run_execution_path(run)
                 run_dir = exec_path.joinpath(*path_args)
-            elif e_depth == 1:
-                run_dir = exec_path
             else:
                 run_dir = None
 

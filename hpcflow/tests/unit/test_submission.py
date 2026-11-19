@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 from typing_extensions import TypedDict
+import numpy as np
 import pytest
 
 from hpcflow.app import app as hf
@@ -11,12 +12,63 @@ from hpcflow.sdk.core.errors import (
     MissingEnvironmentExecutableInstanceError,
 )
 from hpcflow.sdk.core.utils import timedelta_format, timedelta_parse
-from hpcflow.sdk.submission.jobscript import group_resource_map_into_jobscripts
+from hpcflow.sdk.submission.jobscript import (
+    group_resource_map_into_jobscripts,
+    merge_jobscripts_across_tasks,
+)
+from hpcflow.sdk.submission.types import JobScriptCreationArguments
 
 
 class _Example(TypedDict):
     resources: list[list[int]]
     expected: list[dict[str, Any]]
+
+
+@pytest.mark.parametrize("min_jobscripts", [False, True])
+@pytest.mark.parametrize(
+    ("dependencies", "resource_hashes", "expected_min", "expected_parallel"),
+    [
+        ([[], [0], [], [0, 2]], ["same"] * 4, [[0, 1, 2, 3]], [[0, 1], [2], [3]]),
+        ([[], [], [], []], ["same"] * 4, [[0, 1, 2, 3]], [[0], [1], [2], [3]]),
+        (
+            [[], [0], [], [2]],
+            ["same", "same", "other", "other"],
+            [[0, 1], [2, 3]],
+            [[0, 1], [2, 3]],
+        ),
+    ],
+)
+def test_merge_jobscripts_preserves_independent_tasks(
+    min_jobscripts: bool,
+    dependencies: list[list[int]],
+    resource_hashes: list[str],
+    expected_min: list[list[int]],
+    expected_parallel: list[list[int]],
+) -> None:
+    jobscripts: dict[int, JobScriptCreationArguments] = {
+        idx: {
+            "task_insert_IDs": [idx],
+            "task_actions": [(idx, 0, 0)],
+            "task_elements": {0: [0]},
+            "EAR_ID": np.array([[idx]]),
+            "task_loop_idx": [{}],
+            "dependencies": {
+                dep: {"js_element_mapping": {0: [0]}, "is_array": True} for dep in deps
+            },
+            "resource_hash": resource_hashes[idx],
+        }
+        for idx, deps in enumerate(dependencies)
+    }
+    merged = merge_jobscripts_across_tasks(jobscripts, min_jobscripts=min_jobscripts)
+
+    expected = expected_min if min_jobscripts else expected_parallel
+    assert [js["task_insert_IDs"] for js in merged.values()] == expected
+    assert sorted(
+        run_id for js in merged.values() for run_id in js["EAR_ID"].ravel().tolist()
+    ) == list(range(4))
+    for idx, js in merged.items():
+        assert set(js["dependencies"]).issubset(merged)
+        assert idx not in js["dependencies"]
 
 
 def test_group_resource_map_into_jobscripts() -> None:

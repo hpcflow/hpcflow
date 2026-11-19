@@ -86,10 +86,16 @@ def test_task_get_array_output(
         return_value=[
             SimpleNamespace(id_=10, element_action=SimpleNamespace(action_idx=8)),
             SimpleNamespace(
-                id_=11, run_file_ID=6, element_action=SimpleNamespace(action_idx=7)
+                id_=11,
+                submission_idx=0,
+                run_file_ID=6,
+                element_action=SimpleNamespace(action_idx=7),
             ),
             SimpleNamespace(
-                id_=12, run_file_ID=6, element_action=SimpleNamespace(action_idx=7)
+                id_=12,
+                submission_idx=0,
+                run_file_ID=6,
+                element_action=SimpleNamespace(action_idx=7),
             ),
         ]
     )
@@ -135,6 +141,7 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
     runs = {
         run_ID: SimpleNamespace(
             id_=run_ID,
+            submission_idx=0,
             run_file_ID=file_ID,
             element_action=SimpleNamespace(action_idx=7 if run_ID in (10, 12) else 8),
         )
@@ -149,7 +156,7 @@ def test_task_get_array_output_uses_first_source_for_nested_outputs(
         lambda IDs: runs[IDs] if isinstance(IDs, int) else [runs[ID] for ID in IDs],
     )
     for run_ID, file_ID in [(10, 7), (12, 6)]:
-        path = workflow_w0._get_array_output_archive_path(name, file_ID)
+        path = workflow_w0._get_array_output_archive_path(name, 0, file_ID)
         path.parent.mkdir(parents=True, exist_ok=True)
         buffer = BytesIO()
         np.savez(
@@ -228,7 +235,7 @@ def test_task_list_array_outputs_checks_directories_only(
 
     assert task.list_array_outputs() == []
     for name in ["shared", "z.data", "a.data", "other_task"]:
-        directory = workflow_w0._get_array_output_archive_path(name, 0).parent
+        directory = workflow_w0._get_array_output_archive_path(name, 0, 0).parent
         directory.mkdir(parents=True)
         (directory / "0.npz.zst").touch()
     assert task.list_array_outputs() == ["shared", "z.data"]

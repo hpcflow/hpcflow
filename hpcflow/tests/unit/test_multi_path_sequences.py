@@ -199,6 +199,22 @@ def test_MPS_latin_hypercube_sequence_bounds():
     assert np.logical_and(vals_c > extent_c[0], vals_c < extent_c[1]).all()
 
 
+@pytest.mark.parametrize("unknown_paths", [["inputs.typo"], ["inputs.x", "inputs.y"]])
+def test_MPS_latin_hypercube_sequence_bounds_unknown_paths(unknown_paths):
+    bounds = {
+        "inputs.a": {"extent": [2, 3]},
+        **{path: {"extent": [4, 5]} for path in unknown_paths},
+    }
+    with pytest.raises(ValueError, match="Bounds keys must be in paths") as exc_info:
+        hf.MultiPathSequence.from_latin_hypercube(
+            paths=["inputs.a", "inputs.b"],
+            num_samples=10,
+            bounds=bounds,
+        )
+    for path in unknown_paths:
+        assert path in str(exc_info.value)
+
+
 def test_MPS_move_from_sequences_list():
     wft_yaml = dedent("""\
         name: test_latin_hypercube_sampling

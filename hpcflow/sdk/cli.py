@@ -7,6 +7,8 @@ import contextlib
 from datetime import datetime, timezone
 import json
 import os
+import subprocess
+import sys
 import time
 import click
 from colorama import init as colorama_init
@@ -18,6 +20,7 @@ from hpcflow import __version__, _app_name
 from hpcflow.sdk.config.cli import get_config_CLI
 from hpcflow.sdk.config.errors import ConfigError
 from hpcflow.sdk.core import utils
+from hpcflow.sdk.core.enums import EARStatus
 from hpcflow.sdk.core.execute import Executor
 from hpcflow.sdk.demo.cli import get_demo_software_CLI, get_demo_workflow_CLI
 from hpcflow.sdk.cli_common import (
@@ -33,8 +36,12 @@ from hpcflow.sdk.cli_common import (
     variables_option,
     js_parallelism_option,
     wait_option,
+    follow_option,
+    delete_option,
     add_to_known_opt,
     print_idx_opt,
+    ret_id_opt,
+    print_local_workflow_ids,
     tasks_opt,
     cancel_opt,
     submit_status_opt,
@@ -51,6 +58,7 @@ from hpcflow.sdk.cli_common import (
     zip_include_execute_opt,
     zip_include_rechunk_backups_opt,
     zip_consolidate_opt,
+    array_output_temp_dir_opt,
     unzip_path_opt,
     unzip_log_opt,
     rechunk_backup_opt,
@@ -99,9 +107,9 @@ string_option = click.option(
 workflow_ref_type_opt = click.option(
     "--ref-type",
     "-r",
-    type=click.Choice(("assume-id", "id", "path")),
+    type=click.Choice(("assume-id", "id", "name", "path")),
     default="assume-id",
-    help="How to interpret a reference, as an ID, a path, or to guess.",
+    help="Interpret a reference as a registered ID, workflow name, path, or guess. Use -- -1 for the latest submitted workflow.",
 )
 
 #: Get the current workflow from the context.
@@ -272,8 +280,11 @@ def _make_API_CLI(app: BaseApp):
     @js_parallelism_option
     @min_jobscripts_opt
     @wait_option
+    @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
+    @ret_id_opt
     @tasks_opt
     @cancel_opt
     @submit_status_opt
@@ -302,11 +313,14 @@ def _make_API_CLI(app: BaseApp):
         wait: bool = False,
         add_to_known: bool = True,
         print_idx: bool = False,
+        ret_id: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ):
         """Generate and submit a new {app_name} workflow.
 
@@ -315,6 +329,8 @@ def _make_API_CLI(app: BaseApp):
 
         """
         # TODO: allow submitting a persistent workflow via this command?
+        if ret_id and not add_to_known:
+            raise click.UsageError("--ret-id requires --add-to-known.")
         out = app.make_and_submit_workflow(
             template_file_or_str=template_file_or_str,
             is_string=string,
@@ -335,8 +351,10 @@ def _make_API_CLI(app: BaseApp):
             min_jobscripts=min_jobscripts,
             modify_js=modify_js,
             wait=wait,
+            follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
-            return_idx=print_idx,
+            return_idx=print_idx or ret_id,
             tasks=tasks,
             cancel=cancel,
             status=status,
@@ -346,6 +364,9 @@ def _make_API_CLI(app: BaseApp):
         if print_idx:
             assert isinstance(out, tuple)
             click.echo(out[1])
+        if ret_id:
+            assert isinstance(out, tuple)
+            print_local_workflow_ids(app, out[0], out[1])
 
     @click.command(context_settings={"ignore_unknown_options": True})
     @pytest_file_or_dir_opt
@@ -541,6 +562,41 @@ def _make_workflow_submission_CLI(app: BaseApp):
 def _make_workflow_CLI(app: BaseApp):
     """Generate the CLI for interacting with existing workflows."""
 
+    def coordinate_option(*names, help):
+        def callback(ctx, param, value):
+            from hpcflow.sdk.monitoring.run_filters import index_selection
+
+            try:
+                index_selection(value, param.name or "Coordinates")
+            except ValueError as error:
+                raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+            return value
+
+        return click.option(
+            *names,
+            callback=callback,
+            help=help + " Accepts comma-separated values and inclusive ranges (0,2-5).",
+        )
+
+    def run_columns_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.run_columns import run_columns
+
+        try:
+            return run_columns(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
+    def task_names_callback(ctx, param, value):
+        from hpcflow.sdk.monitoring.run_filters import task_names
+
+        try:
+            task_names(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+        return value
+
     @click.group()
     @click.argument("workflow_ref")
     @workflow_ref_type_opt
@@ -548,7 +604,7 @@ def _make_workflow_CLI(app: BaseApp):
     def workflow(ctx: click.Context, workflow_ref: str, ref_type: str | None):
         """Interact with existing {app_name} workflows.
 
-        WORKFLOW_REF is the path to, or local ID of, an existing workflow.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -557,8 +613,11 @@ def _make_workflow_CLI(app: BaseApp):
     @workflow.command(name="submit")
     @js_parallelism_option
     @wait_option
+    @follow_option
+    @delete_option
     @add_to_known_opt
     @print_idx_opt
+    @ret_id_opt
     @tasks_opt
     @cancel_opt
     @submit_status_opt
@@ -573,16 +632,23 @@ def _make_workflow_CLI(app: BaseApp):
         add_to_known: bool = True,
         modify_js: bool = False,
         print_idx: bool = False,
+        ret_id: bool = False,
         tasks: list[int] | None = None,
         cancel: bool = False,
         status: bool = True,
         quiet: bool = False,
         timeit: bool = False,
+        follow: bool = False,
+        delete: bool = False,
     ):
         """Submit the workflow."""
+        if ret_id and not add_to_known:
+            raise click.UsageError("--ret-id requires --add-to-known.")
         out = wf.submit(
             JS_parallelism=js_parallelism,
             wait=wait,
+            follow=follow,
+            delete=delete,
             add_to_known=add_to_known,
             modify_js=modify_js,
             return_idx=True,
@@ -594,6 +660,60 @@ def _make_workflow_CLI(app: BaseApp):
         )
         if print_idx:
             click.echo(out)
+        if ret_id:
+            print_local_workflow_ids(app, wf, out)
+
+    @workflow.command(name="debug-execute-run")
+    @click.option("--run-id", type=click.IntRange(min=0), help="Global run ID to debug.")
+    @click.option(
+        "--first-failed",
+        is_flag=True,
+        help="Select the lowest-ID errored or interrupted run.",
+    )
+    @click.option(
+        "--direct", is_flag=True, help="Execute commands without the scheduler."
+    )
+    @click.option("--yes", "-y", is_flag=True, help="Execute without pausing for edits.")
+    @_pass_workflow
+    def debug_execute_run(
+        wf: Workflow, run_id: int | None, first_failed: bool, direct: bool, yes: bool
+    ) -> None:
+        """Debug a run without saving workflow outputs or changing run state.
+
+        Files are generated in a unique submission tmp directory. Edit them before
+        confirming execution. User scripts can still affect external paths/services.
+        """
+        from hpcflow.sdk.submission.debug import prepare_debug_run
+
+        if (run_id is not None) == first_failed:
+            raise click.UsageError("Specify exactly one of --run-id and --first-failed.")
+        try:
+            debug_run = prepare_debug_run(
+                wf, run_id=run_id, first_failed=first_failed, direct=direct
+            )
+        except (ValueError, OSError) as error:
+            raise click.ClickException(str(error)) from error
+        click.echo(f"Debug run {debug_run.run_id}: {debug_run.directory}")
+        click.echo(f"Jobscript: {debug_run.jobscript_path}")
+        click.echo(f"Commands: {debug_run.commands_path}")
+        if debug_run.script_path is not None:
+            click.echo(f"Script: {debug_run.script_path}")
+        click.echo(
+            "Working files are copied; workflow outputs/status will not be saved. "
+            "Script-written external paths/services are not isolated."
+        )
+        if not yes:
+            click.confirm("You may now edit these files. Execute debug run?", abort=True)
+        try:
+            result = debug_run.execute()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            raise click.ClickException(str(error)) from error
+        if isinstance(result, int):
+            click.echo(f"Debug exit code: {result}. Logs: {debug_run.directory}")
+            if result:
+                raise click.exceptions.Exit(result)
+        else:
+            click.echo(f"Submitted debug job {result}. Logs: {debug_run.directory}")
 
     @workflow.command(name="add-submission")
     @js_parallelism_option
@@ -635,10 +755,11 @@ def _make_workflow_CLI(app: BaseApp):
         ),
     )
     @wait_quiet_opt
+    @follow_option
     @_pass_workflow
-    def wait(wf: Workflow, jobscripts: str | None, quiet: bool):
+    def wait(wf: Workflow, jobscripts: str | None, quiet: bool, follow: bool):
         js_spec = parse_jobscript_wait_spec(jobscripts) if jobscripts else None
-        wf.wait(sub_js=js_spec, quiet=quiet)
+        wf.wait(sub_js=js_spec, quiet=quiet, follow=follow)
 
     @workflow.command(name="abort-run")
     @click.option("--submission", type=click.INT, default=-1)
@@ -713,21 +834,26 @@ def _make_workflow_CLI(app: BaseApp):
 
     @workflow.command(name="consolidate-array-outputs")
     @click.argument("names", nargs=-1)
+    @array_output_temp_dir_opt
     @click.option(
         "--status/--no-status",
         default=True,
         help="If True, display a live status while consolidating.",
     )
     @_pass_workflow
-    def consolidate_array_outputs(wf: Workflow, names: tuple[str, ...], status: bool):
+    def consolidate_array_outputs(
+        wf: Workflow, names: tuple[str, ...], status: bool, temp_dir: Path | None
+    ):
         """Merge shard archives of array outputs into one file per output.
 
         Each NAME's shard archives are merged into a single
-        parameters/array_outputs/NAME/consolidated.npz.zst file and the shards are then
+        parameters/array_outputs/NAME/consolidated.zip file and the shards are then
         removed. With no NAMES, consolidate every array output. Safe to repeat: runs
         saved after an earlier consolidation are folded in.
         """
-        results = wf.consolidate_array_outputs(names or None, status=status)
+        results = wf.consolidate_array_outputs(
+            names or None, status=status, temp_dir=temp_dir
+        )
         for name, path in results.items():
             click.echo(f"{name}: {path}")
 
@@ -751,6 +877,85 @@ def _make_workflow_CLI(app: BaseApp):
         """Check if a parameter specified by data index is set."""
         click.echo(wf.is_parameter_set(index))
 
+    @workflow.command(name="show-runs")
+    @coordinate_option(
+        "--task",
+        "--task-idx",
+        "task_idx",
+        help="Filter zero-based task indices in workflow order.",
+    )
+    @coordinate_option("--task-id", help="Filter stable task insertion IDs.")
+    @click.option(
+        "--task-name",
+        callback=task_names_callback,
+        help="Filter exact task unique names, comma-separated.",
+    )
+    @coordinate_option(
+        "--element",
+        "--element-idx",
+        "element_idx",
+        help="Filter element indices within their tasks.",
+    )
+    @coordinate_option(
+        "--iteration",
+        "--iteration-idx",
+        "iteration_idx",
+        help="Filter iteration indices within their elements.",
+    )
+    @coordinate_option(
+        "--action", "--action-idx", "action_idx", help="Filter action indices."
+    )
+    @coordinate_option("--run-id", "--run-ids", "run_id", help="Filter global run IDs.")
+    @coordinate_option(
+        "--run-idx", "--attempt", "run_idx", help="Filter per-action attempt indices."
+    )
+    @click.option(
+        "-c",
+        "--columns",
+        callback=run_columns_callback,
+        help="Comma-separated columns in display order, or all: run_id,task,task_id,task_idx,task_name,element,iteration,action,action_idx,action_name,run_idx,submission,jobscript,array_idx,state,exit_code,host,start,end,duration,end_size,end_size_bytes. End sizes sum recorded regular-file sizes from snapshot_end without scanning the directory.",
+    )
+    @click.option(
+        "--state",
+        type=click.Choice(list(EARStatus.__members__), case_sensitive=False),
+        help="Show only action runs in this state; omit to show all runs.",
+    )
+    @_pass_workflow
+    def show_runs(
+        wf: Workflow,
+        state: str | None,
+        task_idx,
+        task_id,
+        task_name,
+        element_idx,
+        iteration_idx,
+        action_idx,
+        run_id,
+        run_idx,
+        columns,
+    ):
+        """List action attempts with coordinate filters and selectable execution data.
+
+        Coordinate filters are combined with AND. Run IDs are global; run indices
+        identify per-action attempts. Array indices are zero-based, and serial jobs
+        have no array index. No scheduler queries are made.
+        """
+        options = {
+            "task_idx": task_idx,
+            "task_id": task_id,
+            "task_name": task_name,
+            "element_idx": element_idx,
+            "iteration_idx": iteration_idx,
+            "action_idx": action_idx,
+            "run_id": run_id,
+            "run_idx": run_idx,
+            "columns": columns,
+        }
+        wf.show_runs(
+            state=state,
+            **{name: value for name, value in options.items() if value is not None},
+        )
+
     @workflow.command(name="show-all-status")
     @_pass_workflow
     def show_all_EAR_statuses(wf: Workflow):
@@ -764,6 +969,7 @@ def _make_workflow_CLI(app: BaseApp):
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
     @zip_consolidate_opt
+    @array_output_temp_dir_opt
     @_pass_workflow
     def zip_workflow(
         wf: Workflow,
@@ -773,6 +979,7 @@ def _make_workflow_CLI(app: BaseApp):
         include_execute: bool,
         include_rechunk_backups: bool,
         consolidate: bool,
+        temp_dir: Path | None,
     ):
         """Generate a copy of the workflow in the zip file format in the current working
         directory."""
@@ -784,6 +991,7 @@ def _make_workflow_CLI(app: BaseApp):
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
                 consolidate=consolidate,
+                temp_dir=temp_dir,
             )
         )
 
@@ -1095,6 +1303,24 @@ def _make_template_components_CLI(app: BaseApp):
 
 
 def _make_show_CLI(app: BaseApp):
+    def columns_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.columns import validate_columns
+
+        try:
+            return validate_columns([name.strip() for name in value.split(",")])
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
+    def template_names_callback(ctx, param, value):
+        from hpcflow.sdk.monitoring.filtering import template_names
+
+        try:
+            return template_names(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+
     def show_legend_callback(ctx: click.Context, param, value: bool):
         if not value or ctx.resilient_parsing:
             return
@@ -1102,27 +1328,105 @@ def _make_show_CLI(app: BaseApp):
         ctx.exit()
 
     @click.command()
+    @click.argument("workflow_ref", required=False)
+    @click.option(
+        "-1",
+        "latest_submission",
+        is_flag=True,
+        help="Select the workflow of the most recently submitted registered submission.",
+    )
+    @click.option(
+        "--tname",
+        "template_names",
+        callback=template_names_callback,
+        help="Filter by exact template name(s), separated by commas.",
+    )
+    @click.option(
+        "--columns",
+        callback=columns_callback,
+        help="Comma-separated columns in display order; overrides show_columns or show_list_columns.",
+    )
+    @click.option(
+        "--list",
+        "list_only",
+        is_flag=True,
+        default=False,
+        help="List all registered submissions without loading workflows or querying schedulers.",
+    )
+    @click.option(
+        "--ref-type",
+        type=click.Choice(["assume-id", "id", "name", "path"]),
+        default="assume-id",
+        help="Interpret WORKFLOW_REF as a local ID, registered workflow name, or path.",
+    )
     @click.option(
         "-r",
         "--max-recent",
-        default=3,
-        help="The maximum number of inactive submissions to show.",
+        type=click.IntRange(min=0),
+        default=None,
+        help="Maximum inactive submissions to show (default: show_max_recent; WORKFLOW_REF or --list: all).",
+    )
+    @click.option(
+        "--ignore-scheduler-interval",
+        is_flag=True,
+        help="Force a scheduler query, bypassing show_scheduler_min_interval (default: 20 seconds).",
+    )
+    @click.option(
+        "--use-cache",
+        is_flag=True,
+        default=False,
+        help="Reformat saved observations without querying schedulers or reading workflow files.",
     )
     @click.option(
         "--no-update",
         is_flag=True,
         default=False,
-        help=(
-            "If True, do not update the known-submissions file to remove workflows that "
-            "are no longer running."
-        ),
+        help=("Query states without writing submission history or caches."),
     )
     @click.option(
         "-f",
         "--full",
         is_flag=True,
         default=False,
-        help="Allow multiple lines per workflow submission.",
+        help="Alias for --view auto: grouped patterns, or task summaries for large workflows.",
+    )
+    @click.option(
+        "--group-elements/--no-group-elements",
+        default=True,
+        help="Group identical elements, or show each element separately (implies --full).",
+    )
+    @click.option(
+        "--view",
+        type=click.Choice(["counts", "tasks", "detail", "auto"]),
+        default=None,
+        help="Show counts, task progress, exact grouped detail, or adaptive detail. Defaults to auto with WORKFLOW_REF, otherwise counts. Overrides --full.",
+    )
+    @click.option(
+        "--group-iterations/--no-group-iterations",
+        default=True,
+        help="Group identical iterations, or show each iteration separately (implies --full).",
+    )
+    @click.option(
+        "--no-group",
+        is_flag=True,
+        help="Show each element and iteration separately (implies --full).",
+    )
+    @click.option(
+        "--status/--no-status",
+        default=True,
+        help="Show loading and scheduler-query progress.",
+    )
+    @click.option(
+        "--include-missing",
+        is_flag=True,
+        default=False,
+        help="Include registered workflows whose paths are missing or deleted.",
+    )
+    @click.option(
+        "--include-loop-skipped",
+        is_flag=True,
+        default=False,
+        help="Include runs skipped because a loop terminated (hidden by default).",
     )
     @click.option(
         "--legend",
@@ -1132,11 +1436,133 @@ def _make_show_CLI(app: BaseApp):
         expose_value=False,
         callback=show_legend_callback,
     )
-    def show(max_recent: int, full: bool, no_update: bool):
-        """Show information about running and recently active workflows."""
-        app.show(max_recent=max_recent, full=full, no_update=no_update)
+    def show(
+        workflow_ref,
+        latest_submission: bool,
+        ref_type,
+        max_recent: int | None,
+        full: bool,
+        no_update: bool,
+        include_loop_skipped: bool,
+        list_only: bool,
+        use_cache: bool,
+        ignore_scheduler_interval: bool,
+        columns: tuple[str, ...] | None,
+        template_names: tuple[str, ...] | None,
+        group_elements: bool,
+        group_iterations: bool,
+        no_group: bool,
+        status: bool,
+        include_missing: bool,
+        view: str | None,
+    ):
+        """Show active and recent submissions for WORKFLOW_REF (ID, name, or path).
+
+        IDs may be comma-separated. Use -1 for the most recently submitted
+        registered workflow, or -- -1,42 to include it in an ID list.
+        """
+        from hpcflow.sdk.monitoring.views import resolve_view
+
+        if latest_submission:
+            if workflow_ref is not None:
+                raise click.UsageError("Specify WORKFLOW_REF or -1, not both.")
+            workflow_ref = "-1"
+        try:
+            resolve_view(
+                view,
+                full,
+                group_elements and not no_group,
+                group_iterations and not no_group,
+            )
+        except ValueError as error:
+            raise click.UsageError(str(error)) from error
+        app.show(
+            max_recent=max_recent,
+            full=full,
+            no_update=no_update,
+            workflow_ref=workflow_ref,
+            ref_type=ref_type,
+            include_loop_skipped=include_loop_skipped,
+            list_only=list_only,
+            use_cache=use_cache,
+            ignore_scheduler_interval=ignore_scheduler_interval,
+            columns=columns,
+            template_names=template_names,
+            group_elements=group_elements and not no_group,
+            group_iterations=group_iterations and not no_group,
+            status=status,
+            include_missing=include_missing,
+            view=view,
+        )
 
     return show
+
+
+def _make_unregister_CLI(app: BaseApp):
+    """Generate the explicit registry-entry removal command."""
+
+    def ids_callback(ctx, param, value):
+        if value is None:
+            return None
+        from hpcflow.sdk.monitoring.references import parse_submission_ids
+
+        try:
+            ids = parse_submission_ids(value)
+        except ValueError as error:
+            raise click.BadParameter(str(error), ctx=ctx, param=param) from error
+        return ",".join(map(str, ids)) if "," in value else ids[0]
+
+    @click.command(name="unregister")
+    @click.argument("submission_id", required=False, callback=ids_callback)
+    @click.option(
+        "--all",
+        "all_submissions",
+        is_flag=True,
+        help="Unregister all inactive submissions and free their IDs.",
+    )
+    @click.option(
+        "--include-active",
+        is_flag=True,
+        help="With --all, include active and unknown submissions too.",
+    )
+    def unregister(
+        submission_id: int | str | None, all_submissions: bool, include_active: bool
+    ):
+        """Unregister IDs (comma-separated) or all inactive submissions.
+
+        Jobs and workflow files are unaffected. Use -- -1 for the latest entry.
+        """
+        if all_submissions and submission_id is not None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all, not both.")
+        if not all_submissions and submission_id is None:
+            raise click.UsageError("Specify SUBMISSION_ID or --all.")
+        if include_active and not all_submissions:
+            raise click.UsageError("--include-active requires --all.")
+        try:
+            if all_submissions:
+                removed = app.unregister(
+                    all_submissions=True, include_active=include_active
+                )
+                count = len(removed or [])
+                label = "submissions" if include_active else "inactive submissions"
+                click.echo(f"Unregistered {count} {label}.")
+            else:
+                removed = app.unregister(submission_id)
+                if isinstance(submission_id, str):
+                    label = (
+                        ",".join(map(str, removed))
+                        if isinstance(removed, list)
+                        else submission_id
+                    )
+                    click.echo(f"Unregistered submissions {label}.")
+                elif submission_id == -1:
+                    click.echo("Unregistered latest submission.")
+                else:
+                    click.echo(f"Unregistered submission {submission_id}.")
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+
+    return unregister
 
 
 def _make_zip_CLI(app: BaseApp):
@@ -1148,6 +1574,7 @@ def _make_zip_CLI(app: BaseApp):
     @zip_include_execute_opt
     @zip_include_rechunk_backups_opt
     @zip_consolidate_opt
+    @array_output_temp_dir_opt
     @workflow_ref_type_opt
     def zip_workflow(
         workflow_ref: str,
@@ -1157,13 +1584,13 @@ def _make_zip_CLI(app: BaseApp):
         include_execute: bool,
         include_rechunk_backups: bool,
         consolidate: bool,
+        temp_dir: Path | None,
         ref_type: str | None,
     ):
         """Generate a copy of the specified workflow in the zip file format in the
         current working directory.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
         wk = app.Workflow(workflow_path)
@@ -1175,6 +1602,7 @@ def _make_zip_CLI(app: BaseApp):
                 include_execute=include_execute,
                 include_rechunk_backups=include_rechunk_backups,
                 consolidate=consolidate,
+                temp_dir=temp_dir,
             )
         )
 
@@ -1208,8 +1636,8 @@ def _make_cancel_CLI(app: BaseApp):
     def cancel(workflow_ref: str, ref_type: str | None, status: bool, quiet: bool):
         """Stop all running jobscripts of the specified workflow.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
+        IDs may be comma-separated. Use -- -1,42 to include the latest submission.
 
         """
         app.cancel(
@@ -1235,8 +1663,7 @@ def _make_rechunk_CLI(app: BaseApp):
     ):
         """Rechunk metadata/runs and parameters/base arrays.
 
-        WORKFLOW_REF is the local ID (that provided by the `show` command}) or the
-        workflow path.
+        WORKFLOW_REF is a registered local ID, an exact workflow name, or a path.
 
         """
         workflow_path = app._resolve_workflow_reference(workflow_ref, ref_type)
@@ -1299,8 +1726,10 @@ def _make_open_CLI(app: BaseApp):
     @open_file.command()
     @click.option("--path", is_flag=True, default=False)
     def known_subs(path: bool = False):
-        """Open the known-submissions text file."""
-        file_path = app.known_subs_file_path
+        """Open the v2 known-submissions registry."""
+        from hpcflow.sdk.monitoring.registry import SubmissionRegistry
+
+        file_path = SubmissionRegistry(app).path
         if path:
             click.echo(file_path)
         else:
@@ -1689,9 +2118,18 @@ def _make_manage_CLI(app: BaseApp):
         """
         click.echo(app.get_config_path(config_dir))
 
+    @manage.command("clear-registry")
+    def clear_registry():
+        """Delete all submission registries without loading config or workflows.
+
+        Includes legacy records and all machine names in the app's data directory.
+        Workflow files and scheduler jobs are unaffected. Local IDs reset.
+        """
+        app.clear_registry()
+
     @manage.command("clear-known-subs")
     def clear_known_subs():
-        """Delete the contents of the known-submissions file."""
+        """Delete all submission registries (deprecated; use clear-registry)."""
         app.clear_known_submissions_file()
 
     @manage.command("clear-temp-dir")
@@ -2081,6 +2519,19 @@ def make_cli(app: BaseApp):
 
     new_CLI.context_class = ErrorPropagatingClickContext
 
+    _click_main = new_CLI.main
+
+    def main_with_command_line(args=None, *main_args, **main_kwargs):
+        # record the command line so it can be saved in the creation info of workflows:
+        cli_args = sys.argv[1:] if args is None else args
+        app.run_time_info.cli_args = [str(i) for i in cli_args]
+        try:
+            return _click_main(args, *main_args, **main_kwargs)
+        finally:
+            app.run_time_info.cli_args = None
+
+    new_CLI.main = main_with_command_line  # type: ignore[method-assign]
+
     new_CLI.__doc__ = app.description
 
     env_CLI, setup_env_CLI = _make_env_CLI(app)
@@ -2097,6 +2548,7 @@ def make_cli(app: BaseApp):
     new_CLI.add_command(_make_internal_CLI(app))
     new_CLI.add_command(_make_template_components_CLI(app))
     new_CLI.add_command(_make_show_CLI(app))
+    new_CLI.add_command(_make_unregister_CLI(app))
     new_CLI.add_command(_make_open_CLI(app))
     new_CLI.add_command(_make_cancel_CLI(app))
     new_CLI.add_command(_make_zip_CLI(app))

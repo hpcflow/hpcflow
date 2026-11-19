@@ -919,6 +919,15 @@ class TaskSchema(JSONLike):
         for act in self.actions:
             act.process_action_data_formats()
 
+        for output in self.outputs:
+            if (
+                input_name := output.multiplicity_input
+            ) is not None and input_name not in self.input_types:
+                raise ValueError(
+                    f"SchemaOutput multiplicity reference {output.multiplicity!r} "
+                    f"does not match an input of task schema {self.name!r}."
+                )
+
         if self.method:
             self.method = check_valid_py_identifier(self.method)
         if self.implementation:

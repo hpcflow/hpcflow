@@ -25,6 +25,6 @@
 
   This is usually caused by updating the {{ app_name }} version.
   Leftover submissions info causes the newer {{ app_name }} version to get confused.
-  The fix? ``{{ app_package_name }} manage clear-known-subs``.
+  The fix? ``{{ app_package_name }} manage clear-registry``.
   This will delete the known submissions file, and the next time you submit a workflow,
   {{ app_name }} will create a new one.

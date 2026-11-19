@@ -147,8 +147,8 @@ class ResourceSpecArgs(TypedDict):
 
     #: Which scope does this apply to.
     scope: NotRequired[ActionScope | str]
-    #: Which scratch space to use.
-    scratch: NotRequired[str]
+    #: Parent directory for workflow-specific execution directories, or None.
+    scratch: NotRequired[str | None]
     #: Which parallel mode to use.
     parallel_mode: NotRequired[str | ParallelMode]
     #: How many cores to request.
@@ -355,6 +355,14 @@ class CreationInfo(TypedDict):
     user_orcid: str | None  # TODO: None for backwards compat
     #: User's affiliations.
     user_affiliations: list[str] | None  # TODO: None for backwards compat
+    #: String variables passed on creation (including defaults used); empty for older
+    #: workflows.
+    variables: dict[str, Any]
+    #: Results of `<<calc(...)>>` expressions in the template, keyed by expression; empty
+    #: for older workflows.
+    calculations: dict[str, Any]
+    #: The command line used to create the workflow, if created via the CLI.
+    command_line: list[str] | None
 
 
 class WorkflowTemplateTaskData(TypedDict):

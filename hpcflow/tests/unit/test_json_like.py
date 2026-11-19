@@ -1,19 +1,67 @@
 # mypy: disable-error-code="annotation-unchecked"
 from __future__ import annotations
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+import copy
 import enum
+from threading import Event
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from hpcflow.app import app as hf
-from hpcflow.sdk.core.json_like import BaseJSONLike, ChildObjectSpec
+from hpcflow.sdk.core import json_like
+from hpcflow.sdk.core.json_like import BaseJSONLike, ChildObjectSpec, JSONLike
 from hpcflow.sdk.core.object_list import ObjectList
 
 # BE AWARE THAT MYPY CANNOT CORRECTLY TYPE-CHECK THIS FILE AT ALL.
 # It fails massively due to all the classes inside functions being passed to other functions.
 # Omitting the types makes it ignore them all, which us for the best.
+
+
+def test_concurrent_input_copies_never_see_partial_parent_reference_cache(monkeypatch):
+    value = hf.InputValue(parameter=hf.Parameter("test"), value=42)
+    value._element_set = object()
+    value._value_group_idx = None
+    parameter_class, element_set_class = hf.Parameter, hf.ElementSet
+    building = Event()
+    release = Event()
+    second_started = Event()
+
+    class SDK:
+        sdk_classes = ("Parameter", "ElementSet")
+        Parameter = parameter_class
+
+        @property
+        def ElementSet(self):
+            building.set()
+            assert release.wait(timeout=10)
+            return element_set_class
+
+    monkeypatch.setattr(json_like, "app", SDK())
+    monkeypatch.setattr(JSONLike, "_JSONLike__sdk_classes", [])
+
+    def second_copy():
+        second_started.set()
+        return copy.deepcopy(value)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(copy.deepcopy, value)
+        try:
+            assert building.wait(timeout=10)
+            second = executor.submit(second_copy)
+            assert second_started.wait(timeout=10)
+            # ElementSet declares InputValue's _element_set parent reference.
+            # Until it is loaded, none of the growing class list may be published.
+            assert JSONLike._JSONLike__sdk_classes == []
+        finally:
+            release.set()
+        for future in (first, second):
+            result = future.result(timeout=10)
+            assert result.value == 42
+            assert result._element_set is value._element_set
+    assert JSONLike._JSONLike__sdk_classes == [parameter_class, element_set_class]
 
 
 def test_json_like_name_is_name():

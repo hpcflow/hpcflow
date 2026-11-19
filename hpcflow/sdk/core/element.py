@@ -281,7 +281,8 @@ class ElementResources(JSONLike):
     Parameters
     ----------
     scratch: str
-        Which scratch space to use.
+        Parent directory for workflow-specific execution working directories. If None,
+        working directories remain inside the workflow.
     parallel_mode: ParallelMode
         Which parallel mode to use.
     num_cores: int
@@ -359,7 +360,7 @@ class ElementResources(JSONLike):
 
     # TODO: how to specify e.g. high-memory requirement?
 
-    #: Which scratch space to use.
+    #: Parent directory for workflow-specific execution working directories.
     scratch: str | None = None
     #: Which parallel mode to use.
     parallel_mode: ParallelMode | None = None
@@ -507,6 +508,7 @@ class ElementResources(JSONLike):
         """Get hash from all arguments that distinguish jobscripts."""
 
         exclude = [
+            "scratch",
             "time_limit",
             "skip_downstream_on_failure",
             "random_seed",
@@ -1066,6 +1068,8 @@ class ElementIteration(AppAware):
                         out_strs[k] = f"task.{v['task_insert_ID']}.input"
             elif v["type"] == "default_input":
                 out_strs == "default"
+            elif v["type"] == "workflow_input":
+                out_strs[k] = "workflow"
             else:
                 idx = v["task_idx"] if use_task_index else v["task_insert_ID"]
                 out_strs[k] = (

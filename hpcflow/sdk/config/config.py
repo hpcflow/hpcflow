@@ -110,8 +110,19 @@ DEFAULT_CONFIG: DefaultConfiguration = {
         "show_tracebacks": False,
         "use_rich_tracebacks": False,
         "delete_execute_dir": True,
+        "known_submissions_max_inactive": 100,
+        "known_submissions_max_unknown": 10,
+        "show_max_recent": 3,
+        "show_scheduler_min_interval": 20,
+        "show_timezone": "local",
+        "show_columns": ["id", "name", "status", "actions"],
+        "show_list_columns": ["id", "name", "submission", "submit", "status", "path"],
+        "move_scratch_to_workflow": True,
     },
 }
+
+#: Settings that use their default configuration value when omitted.
+DEFAULTED_CONFIG_KEYS = ["move_scratch_to_workflow"]
 
 
 @dataclass
@@ -135,6 +146,21 @@ class ConfigOptions:
 
     def __post_init__(self) -> None:
         self._schemas, self._configurable_keys = self.init_schemas()
+        invalid_keys = set(DEFAULTED_CONFIG_KEYS) - set(self._configurable_keys)
+        missing_defaults = set(DEFAULTED_CONFIG_KEYS) - set(DEFAULT_CONFIG["config"])
+        if invalid_keys or missing_defaults:
+            raise ValueError(
+                "Runtime-defaulted config keys must be configurable and have a "
+                f"default value; invalid keys: {sorted(invalid_keys)!r}, "
+                f"missing defaults: {sorted(missing_defaults)!r}."
+            )
+
+    def get_runtime_default(self, name: str) -> Any:
+        """Get the configured default for a setting that uses runtime defaults."""
+        defaults = cast("Mapping[str, Any]", self.default_config["config"])
+        if name not in defaults:
+            defaults = cast("Mapping[str, Any]", DEFAULT_CONFIG["config"])
+        return deepcopy(defaults[name])
 
     def init_schemas(self) -> tuple[Sequence[Schema], Sequence[str]]:
         """
@@ -725,7 +751,7 @@ class Config:
         """Get all configurable items."""
         items: dict[str, Any] = {}
         for key in self._configurable_keys:
-            if key in self._unset_keys:
+            if key in self._unset_keys and key not in DEFAULTED_CONFIG_KEYS:
                 continue
             try:
                 if as_str:
@@ -815,8 +841,9 @@ class Config:
     ):
         """Get a configuration item."""
 
-        if self._use_cache:
-            # note: we default_value is not necessarily hashable, so we can't cache on it!
+        use_cache = self._use_cache and default_value is None
+        if use_cache:
+            # Caller-specific defaults may be unhashable and must not enter the cache.
             key = (
                 name,
                 include_overrides,
@@ -860,21 +887,28 @@ class Config:
             val = root_over
 
         elif name in self._unset_keys:
-            if raise_on_missing:
+            if raise_on_missing and name not in DEFAULTED_CONFIG_KEYS:
                 raise ValueError("Not set.")
-            val = None
-            if default_value:
-                val = default_value
+            val = (
+                self._options.get_runtime_default(name)
+                if name in DEFAULTED_CONFIG_KEYS
+                else default_value
+            )
 
         elif name in self._modified_keys:
             val = cast("dict", self._modified_keys)[name]
 
         elif name in self._configurable_keys:
+            has_runtime_default = name in DEFAULTED_CONFIG_KEYS
             val = self._file.get_config_item(
                 config_key=self._config_key,
                 name=name,
-                raise_on_missing=raise_on_missing,
-                default_value=default_value,
+                raise_on_missing=raise_on_missing and not has_runtime_default,
+                default_value=(
+                    self._options.get_runtime_default(name)
+                    if has_runtime_default
+                    else default_value
+                ),
             )
 
         if callback:
@@ -886,7 +920,7 @@ class Config:
             else:
                 val = str(val)
 
-        if self._use_cache:
+        if use_cache:
             self._config_cache[key] = val
 
         return val
@@ -1099,13 +1133,23 @@ class Config:
         ----------
         path:
             The name of or path to the configuration item.
+        default:
+            Value returned when the item or nested path is missing. This does not
+            modify the configuration or replace explicitly configured values.
         """
         name, *suffix = parts = path.split(".")
-        root = deepcopy(self._get(name, callback=callback))
-        try:
-            out = get_in_container(root, suffix, cast_indices=True)
-        except KeyError:
+        root = deepcopy(
+            self._get(
+                name, callback=callback, default_value=default if not suffix else None
+            )
+        )
+        if root is None and suffix:
             out = default
+        else:
+            try:
+                out = get_in_container(root, suffix, cast_indices=True)
+            except KeyError:
+                out = default
         if copy:
             out = deepcopy(out)
         if not ret_root_and_parts:
@@ -1325,7 +1369,12 @@ class Config:
         self.add_shell("wsl", **defaults)
 
     def import_from_file(
-        self, file_path: Path | str, *, rename=True, make_new=False
+        self,
+        file_path: Path | str,
+        *,
+        rename=True,
+        make_new=False,
+        variables: dict[str, str] | None = None,
     ) -> None:
         """
         Import config items from a (remote or local) YAML file. Existing config items
@@ -1336,6 +1385,9 @@ class Config:
         file_path:
             Local or remote path to a config import YAML file which may have top-level
             keys "invocation" and "config".
+        variables:
+            String variables to substitute into the file, where it contains references
+            like ``<<var:name>>`` or ``<<var:name[default=value]>>``.
         rename:
             If True, the current config will be renamed to the stem of the file specified
             in `file_path`. Ignored if `make_new` is True.
@@ -1348,7 +1400,9 @@ class Config:
 
         console = Console()
         with console.status(f"Importing config from file {file_path!r}...") as status:
-            file_dat: DefaultConfiguration = read_YAML_file(file_path)
+            file_dat: DefaultConfiguration = read_YAML_file(
+                file_path, variables=variables or {}
+            )
             if rename or make_new:
                 file_stem = Path(file_path).stem
                 name = file_stem
@@ -1404,8 +1458,24 @@ class Config:
 
         print(f"Config {name!r} updated.")
 
-    def init(self, known_name: str, path: str | None = None) -> None:
-        """Configure from a known importable config."""
+    def init(
+        self,
+        known_name: str,
+        path: str | None = None,
+        variables: dict[str, str] | None = None,
+    ) -> None:
+        """Configure from a known importable config.
+
+        Parameters
+        ----------
+        known_name:
+            Prefix of the names of the configuration-import files to import.
+        path:
+            An `fsspec`-compatible path in which to look for configuration-import files.
+        variables:
+            String variables to substitute into each imported file, where it contains
+            references like ``<<var:name>>`` or ``<<var:name[default=value]>>``.
+        """
         if not path:
             if not (path := self._options.default_known_configs_dir):
                 raise ValueError("Specify an `path` to search for known config files.")
@@ -1427,7 +1497,7 @@ class Config:
         print(f"Found configuration-import files: {files!r}")
         for file_i in files:
             path_i = file_i if is_local else f"{path}/{file_i}"
-            self.import_from_file(file_path=path_i, make_new=True)
+            self.import_from_file(file_path=path_i, make_new=True, variables=variables)
 
         print("imports complete")
         # if current config is named "default", rename machine to DEFAULT_CONFIG:

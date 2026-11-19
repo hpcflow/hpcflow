@@ -9,11 +9,193 @@ from hpcflow import __version__
 from hpcflow.app import app as hf
 from hpcflow.sdk.cli import (
     ErrorPropagatingClickContext,
+    _make_API_CLI,
     _make_workflow_CLI,
     _make_zip_CLI,
 )
 from hpcflow.sdk.core.workflow import Workflow
 from hpcflow.sdk.cli_common import BoolOrString
+from hpcflow.sdk.demo.cli import get_demo_workflow_CLI
+
+
+@pytest.mark.parametrize("args", [[], ["--run-id", "0", "--first-failed"]])
+def test_cli_debug_requires_exactly_one_selector(args: list[str]) -> None:
+    command = _make_workflow_CLI(hf).commands["debug-execute-run"]
+    result = CliRunner().invoke(command, args, obj=Mock(spec=Workflow))
+    assert result.exit_code == 2
+    assert "Specify exactly one" in result.output
+
+
+@pytest.mark.parametrize("answer", ["n\n", "y\n", None])
+def test_cli_debug_edit_confirmation(
+    answer: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hpcflow.sdk.submission import debug
+
+    prepared = Mock(run_id=7, script_path=Path("script.py"))
+    prepared.execute.return_value = 23
+    prepare = Mock(return_value=prepared)
+    monkeypatch.setattr(debug, "prepare_debug_run", prepare)
+    command = _make_workflow_CLI(hf).commands["debug-execute-run"]
+    args = ["--run-id", "7", "--direct"]
+    if answer is None:
+        args += ["--yes"]
+    result = CliRunner().invoke(command, args, input=answer, obj=Mock(spec=Workflow))
+    assert "script.py" in result.output
+    if answer == "n\n":
+        assert result.exit_code == 1
+        prepared.execute.assert_not_called()
+    else:
+        assert result.exit_code == 23
+        prepared.execute.assert_called_once_with()
+
+
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+@pytest.mark.parametrize("ret_id", [False, True])
+@pytest.mark.parametrize("print_idx", [False, True])
+def test_cli_submission_ret_id(command_name: str, ret_id: bool, print_idx: bool):
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    workflow.path = Path("workflow")
+    submitted_js = {0: [0], 1: [1], 2: []}
+    app.read_known_submissions_file = Mock(
+        return_value=[
+            {"path": "other", "sub_idx": 0, "local_id": 99},
+            {"path": str(workflow.path), "sub_idx": 0, "local_id": 4},
+            {"path": str(workflow.path), "sub_idx": 1, "local_id": 0},
+            {"path": str(workflow.path), "sub_idx": 0, "local_id": 7},
+            {"path": str(workflow.path), "sub_idx": 2, "local_id": 8},
+        ]
+    )
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        submit.return_value = submitted_js
+        args = []
+    else:
+        if command_name == "demo-go":
+            command = get_demo_workflow_CLI(app).commands["go"]
+            submit = app.make_and_submit_demo_workflow = Mock()
+        else:
+            command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+            submit = app.make_and_submit_workflow = Mock()
+        submit.return_value = (
+            (workflow, submitted_js) if ret_id or print_idx else workflow
+        )
+        args = ["workflow.yaml"]
+    args += ["--quiet"]
+    if ret_id:
+        args.append("--ret-id")
+    if print_idx:
+        args.append("--print-idx")
+    result = CliRunner().invoke(command, args, obj=workflow)
+    assert result.exit_code == 0, result.output
+    expected = f"{submitted_js}\n" if print_idx else ""
+    if ret_id:
+        expected += "7\n0\n"
+        app.read_known_submissions_file.assert_called_once_with()
+    else:
+        app.read_known_submissions_file.assert_not_called()
+    assert result.output == expected
+    assert "ret_id" not in submit.call_args.kwargs
+
+
+@pytest.mark.parametrize("command_name", ["go", "demo-go", "submit"])
+def test_cli_ret_id_requires_known_submission(command_name: str):
+    app = Mock(wraps=hf)
+    workflow = Mock(spec=Workflow)
+    if command_name == "submit":
+        command = _make_workflow_CLI(app).commands["submit"]
+        submit = workflow.submit
+        args = []
+    elif command_name == "demo-go":
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+        args = ["workflow.yaml"]
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+        args = ["workflow.yaml"]
+    result = CliRunner().invoke(
+        command, [*args, "--ret-id", "--no-add-to-known"], obj=workflow
+    )
+    assert result.exit_code == 2
+    assert "--ret-id requires --add-to-known" in result.output
+    submit.assert_not_called()
+
+
+@pytest.mark.parametrize("submitted_js", [{}, {0: []}])
+def test_cli_ret_id_without_submitted_jobscripts(submitted_js):
+    app = Mock(wraps=hf)
+    app.read_known_submissions_file = Mock()
+    workflow = Mock(spec=Workflow)
+    workflow.submit.return_value = submitted_js
+    command = _make_workflow_CLI(app).commands["submit"]
+    result = CliRunner().invoke(command, ["--ret-id"], obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+    app.read_known_submissions_file.assert_not_called()
+
+
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_submit_follow(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize("option", [[], ["--delete"]])
+def test_cli_submit_delete(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["submit"]
+    result = CliRunner().invoke(command, option, obj=workflow)
+    assert result.exit_code == 0, result.output
+    assert workflow.submit.call_args.kwargs["delete"] == bool(option)
+
+
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_wait_follow(option: list[str]) -> None:
+    workflow = Mock(spec=Workflow)
+    command = _make_workflow_CLI(hf).commands["wait"]
+    result = CliRunner().invoke(
+        command, ["--jobscripts", "0:0,1;1:2", *option], obj=workflow
+    )
+    assert result.exit_code == 0, result.output
+    workflow.wait.assert_called_once_with(
+        sub_js={0: [0, 1], 1: [2]}, quiet=False, follow=bool(option)
+    )
+
+
+@pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("option", [[], ["--follow"], ["-f"]])
+def test_cli_go_follow(demo: bool, option: list[str]) -> None:
+    app = Mock(wraps=hf)
+    if demo:
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+    result = CliRunner().invoke(command, ["workflow.yaml", *option])
+    assert result.exit_code == 0, result.output
+    assert submit.call_args.kwargs["follow"] == bool(option)
+
+
+@pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("option", [[], ["--delete"]])
+def test_cli_go_delete(demo: bool, option: list[str]) -> None:
+    app = Mock(wraps=hf)
+    if demo:
+        command = get_demo_workflow_CLI(app).commands["go"]
+        submit = app.make_and_submit_demo_workflow = Mock()
+    else:
+        command = next(cmd for cmd in _make_API_CLI(app) if cmd.name == "go")
+        submit = app.make_and_submit_workflow = Mock()
+    result = CliRunner().invoke(command, ["workflow.yaml", *option])
+    assert result.exit_code == 0, result.output
+    assert submit.call_args.kwargs["delete"] == bool(option)
 
 
 @pytest.mark.parametrize(
@@ -96,21 +278,30 @@ def test_cli_export_array_output_invalid_options(tmp_path: Path, options: list[s
         (["p1.a", "p2", "--status"], ("p1.a", "p2"), True),
     ],
 )
+@pytest.mark.parametrize("use_temp_dir", [False, True])
 def test_cli_consolidate_array_outputs(
-    tmp_path: Path, args: list[str], names: tuple[str, ...] | None, status: bool
+    tmp_path: Path,
+    args: list[str],
+    names: tuple[str, ...] | None,
+    status: bool,
+    use_temp_dir: bool,
 ):
     workflow = Mock(spec=Workflow)
     workflow.consolidate_array_outputs.return_value = {
-        "p1.a": tmp_path / "p1.a" / "consolidated.npz.zst",
-        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.npz.zst",
+        "p1.a": tmp_path / "p1.a" / "consolidated.zip",
+        "p1.a.__mask__": tmp_path / "p1.a.__mask__" / "consolidated.zip",
     }
     command = _make_workflow_CLI(hf).commands["consolidate-array-outputs"]
+    if use_temp_dir:
+        args = [*args, "--temp-dir", str(tmp_path)]
     result = CliRunner().invoke(command, args, obj=workflow)
     assert result.exit_code == 0, result.output
-    workflow.consolidate_array_outputs.assert_called_once_with(names, status=status)
+    workflow.consolidate_array_outputs.assert_called_once_with(
+        names, status=status, temp_dir=tmp_path if use_temp_dir else None
+    )
     assert result.output.splitlines() == [
-        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.npz.zst'}",
-        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.npz.zst'}",
+        f"p1.a: {tmp_path / 'p1.a' / 'consolidated.zip'}",
+        f"p1.a.__mask__: {tmp_path / 'p1.a.__mask__' / 'consolidated.zip'}",
     ]
 
 
@@ -119,11 +310,18 @@ def test_cli_consolidate_array_outputs(
     [([], True), (["--consolidate"], True), (["--no-consolidate"], False)],
 )
 @pytest.mark.parametrize("top_level", [False, True])
+@pytest.mark.parametrize("use_temp_dir", [False, True])
 def test_cli_zip_consolidate_option(
-    tmp_path: Path, args: list[str], consolidate: bool, top_level: bool
+    tmp_path: Path,
+    args: list[str],
+    consolidate: bool,
+    top_level: bool,
+    use_temp_dir: bool,
 ):
     workflow = Mock(spec=Workflow)
     workflow.zip.return_value = str(tmp_path / "wk.zip")
+    if use_temp_dir:
+        args = [*args, "--temp-dir", str(tmp_path)]
     if top_level:
         app = Mock(wraps=hf)
         app._resolve_workflow_reference.return_value = str(tmp_path / "wk")
@@ -141,6 +339,7 @@ def test_cli_zip_consolidate_option(
         include_execute=False,
         include_rechunk_backups=False,
         consolidate=consolidate,
+        temp_dir=tmp_path if use_temp_dir else None,
     )
     assert str(tmp_path / "wk.zip") in result.output
 
@@ -294,7 +493,7 @@ def test_cli_make_demo_workflow_add_sub(tmp_path, cli_runner):
             "--add-submission",
         ]
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output or str(result.exception)
     wk_path = Path(result.stdout_bytes.decode().strip())
     assert wk_path.is_dir()
     wk = hf.Workflow(wk_path)

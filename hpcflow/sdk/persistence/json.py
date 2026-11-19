@@ -22,6 +22,7 @@ from hpcflow.sdk.core.errors import (
 )
 from hpcflow.sdk.persistence.base import (
     _UNSET_PARAMETER_VALUE,
+    _FilePathUpdate,
     PARAM_DATA_NOT_SET,
     PersistentStoreFeatures,
     PersistentStore,
@@ -618,6 +619,8 @@ class JSONPersistentStore(
                 param_i = param_objs[param_id]
                 if value is _UNSET_PARAMETER_VALUE:
                     param_i = param_i.unset()
+                elif isinstance(value, _FilePathUpdate):
+                    param_i = param_i.relocate_file(value.path)
                 elif is_file:
                     param_i = param_i.set_file(value)
                 else:
