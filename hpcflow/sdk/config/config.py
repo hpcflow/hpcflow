@@ -314,6 +314,7 @@ class Config:
             ),
             "demo_data_dir": (callback_paths, callback_deprecation_demo_data_dir),
             "data_dir": (callback_paths,),
+            "remote_import_dir": (callback_paths,),
             "program_dir": (callback_paths,),
             "data_manifest_file": (callback_paths,),
             "program_manifest_file": (callback_paths,),
@@ -335,6 +336,7 @@ class Config:
             "demo_data_manifest_file": (callback_deprecation_demo_data_manifest_file,),
             "demo_data_dir": (callback_deprecation_demo_data_dir,),
             "data_dir": (set_callback_paths,),
+            "remote_import_dir": (set_callback_paths,),
             "program_dir": (set_callback_paths,),
             "data_manifest_file": (set_callback_paths,),
             "program_manifest_file": (set_callback_paths,),
@@ -1375,6 +1377,7 @@ class Config:
         rename=True,
         make_new=False,
         variables: dict[str, str] | None = None,
+        remote: bool = False,
     ) -> None:
         """
         Import config items from a (remote or local) YAML file. Existing config items
@@ -1388,6 +1391,8 @@ class Config:
         variables:
             String variables to substitute into the file, where it contains references
             like ``<<var:name>>`` or ``<<var:name[default=value]>>``.
+        remote:
+            Resolve the path relative to the app's ``remote_import_dir``.
         rename:
             If True, the current config will be renamed to the stem of the file specified
             in `file_path`. Ignored if `make_new` is True.
@@ -1396,6 +1401,7 @@ class Config:
             current config. The name of the new config will be the stem of the file
             specified in `file_path`.
         """
+        file_path = self._app.resolve_import_path(file_path, remote=remote)
         self._logger.debug(f"import from file: {file_path!r}")
 
         console = Console()

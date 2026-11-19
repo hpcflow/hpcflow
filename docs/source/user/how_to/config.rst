@@ -3,6 +3,34 @@
 Configuration how-tos
 ---------------------
 
+Import a configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+Import configuration items from a local YAML file or a full remote URL using
+``config import FILE_PATH``. If the application's ``remote_import_dir`` option is
+configured, ``--remote`` accepts a path relative to that directory. MatFlow sets
+this option to ``github://hpcflow:matflow-configs@main``, for example:
+
+.. code-block:: console
+
+    matflow config import --remote cambridge-CSD3.yaml
+
+The Python API supports the same shorthand:
+``config.import_from_file("cambridge-CSD3.yaml", remote=True)``.
+Without the flag, local paths and full remote URLs retain their existing meaning.
+The same remote directory is used by ``env import --remote``.
+
+Set the ``remote_import_dir`` config item to override the application's default,
+just like ``data_dir``:
+
+.. code-block:: console
+
+    matflow config set remote_import_dir github://hpcflow:matflow-configs@main
+
+The value may be an fsspec URL or a local directory. Relative local paths are
+resolved against the configuration directory, and accessibility is checked when
+setting the value. Unsetting this item restores the app-level fallback.
+
 Get and set config items
 ~~~~~~~~~~~~~~~~~~~~~~~~
 

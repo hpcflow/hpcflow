@@ -5,6 +5,26 @@
 
     Actions within {{ app_package_name }} task schemas can declare dependencies on particular {{ app_package_name }} environments. For a task schema to be used within a runnable workflow, these environments must be defined on the user's machine (e.g. in a YAML file, that is pointed to in the app configuration via the ``environment_sources`` key).
 
+    Importing environment recipes
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Environment definitions can be imported from a local or remote YAML file using ``env import``. The source file may contain multiple definitions; select one by name and, when needed, by its specifiers:
+
+    .. code-block:: console
+
+        matflow env import --remote environments/cambridge-CSD3-damask.yaml \
+          --name damask_env \
+          --specifier site cambridge-CSD3 \
+          --specifier version 3.1.0 \
+          --specifier build ib \
+          --var sif_path /path/to/damask-grid_3.1.0-ib.sif
+
+    The selected definition is saved to the configured environment source file. ``--var`` values are substituted into that definition only; unrelated recipes in the source file do not need their variables supplied. Imported environments are not run during import, but their setup and executable commands will run when used, so only import recipes from trusted sources.
+
+    ``--remote`` resolves the path relative to the application's ``remote_import_dir`` option, which MatFlow sets to ``github://hpcflow:matflow-configs@main``. It requires a relative path and an application with that option configured. Without ``--remote``, local file paths and full remote URLs are used unchanged. The Python API also supports ``import_env_from_file(..., remote=True)``.
+
+    The ``remote_import_dir`` config item overrides the app-level default for both environment and configuration imports. It accepts a local directory or an fsspec URL, like ``data_dir``.
+
     Use multiple versions of the same software
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

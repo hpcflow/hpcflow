@@ -2327,6 +2327,60 @@ def _make_env_CLI(app: BaseApp):
             replace=replace,
         )
 
+    @env.command("import")
+    @click.argument("file_path")
+    @click.option(
+        "--remote",
+        is_flag=True,
+        help="Import a path relative to the app's remote import directory.",
+    )
+    @click.option(
+        "-n", "--name", required=True, help="Name of the environment to import."
+    )
+    @click.option(
+        "-s",
+        "--specifier",
+        nargs=2,
+        multiple=True,
+        help="Specifier key and value used to select the environment. May be repeated.",
+    )
+    @click.option(
+        "-v",
+        "--var",
+        "variables",
+        nargs=2,
+        multiple=True,
+        help="Variable name and value to substitute in the selected environment.",
+    )
+    @env_add_replace_opt
+    def import_env(
+        file_path: str,
+        name: str,
+        specifier: tuple[tuple[str, str], ...],
+        variables: tuple[tuple[str, str], ...],
+        replace: bool,
+        remote: bool,
+    ):
+        """Import an environment definition from a local or remote YAML file."""
+        for option_name, option_values in (
+            ("--specifier", specifier),
+            ("--var", variables),
+        ):
+            keys = [key for key, _ in option_values]
+            if len(keys) != len(set(keys)):
+                raise click.BadParameter(
+                    f"Each {option_name} key may only be specified once."
+                )
+
+        app.import_env_from_file(
+            file_path,
+            name,
+            specifiers=dict(specifier),
+            variables=dict(variables),
+            replace=replace,
+            remote=remote,
+        )
+
     @env.command("remove")
     @click.argument("id", required=False)
     @click.option("-n", "--name")

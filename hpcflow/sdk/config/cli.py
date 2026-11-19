@@ -144,6 +144,11 @@ def get_config_CLI(app: BaseApp) -> click.Group:
     @config.command("import")
     @click.argument("file_path")
     @click.option(
+        "--remote",
+        is_flag=True,
+        help="Import a path relative to the app's remote import directory.",
+    )
+    @click.option(
         "--rename/--no-rename",
         default=True,
         help=(
@@ -170,10 +175,15 @@ def get_config_CLI(app: BaseApp) -> click.Group:
         rename: bool,
         new: bool,
         variables: Sequence[tuple[str, str]],
+        remote: bool,
     ):
         """Update the config file with keys from a YAML file."""
         config.import_from_file(
-            file_path, rename=rename, make_new=new, variables=dict(variables)
+            file_path,
+            rename=rename,
+            make_new=new,
+            variables=dict(variables),
+            remote=remote,
         )
 
     @config.command()

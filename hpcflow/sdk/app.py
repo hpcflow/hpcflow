@@ -34,6 +34,7 @@ from hpcflow import __version__
 from hpcflow.sdk.core.utils import (
     read_YAML_str,
     read_YAML_file,
+    substitute_string_vars,
     read_JSON_file,
     write_YAML_file,
     write_JSON_file,
@@ -532,6 +533,8 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
     decoders:
         callable that takes no arguments and returns a mapping between string store types
         (e.g. "zarr", "json") and a dictionary of additional parameter decoders.
+    remote_import_dir:
+        fsspec-compatible base URL for remote configuration and environment imports.
     """
 
     _known_subs_file_name: ClassVar = "known_submissions.txt"
@@ -562,6 +565,7 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         docs_url: str | None = None,
         encoders: Callable | None = None,
         decoders: Callable | None = None,
+        remote_import_dir: str | None = None,
     ):
         SDK_logger.info(f"Generating {self.__class__.__name__} {name!r}.")
 
@@ -581,6 +585,8 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
         self.gh_repo = gh_repo
         #: Configuration options.
         self.config_options = config_options
+        #: Base URL for remote configuration and environment imports.
+        self.remote_import_dir = remote_import_dir
         #: Arguments for pytest.
         self.pytest_args = pytest_args
         #: Directory for scripts.
@@ -4141,6 +4147,93 @@ class BaseApp(MonitoringMixin, metaclass=Singleton):
 
         print(f"Saved a new environment: {env.name!r} to file: {env_source}.")
         return env_source
+
+    def resolve_import_path(self, file_path: str | Path, remote: bool = False) -> str:
+        """Resolve an import path relative to the app's remote import directory."""
+        if not remote:
+            return str(file_path)
+        import_dir = self.config.get("remote_import_dir") or self.remote_import_dir
+        if not import_dir:
+            raise ValueError(
+                "This application has no remote import directory configured."
+            )
+        relative_path = str(file_path).replace("\\", "/")
+        if (
+            ":" in relative_path
+            or relative_path.startswith("/")
+            or ".." in relative_path.split("/")
+        ):
+            raise ValueError(
+                "Remote imports require a path relative to the import directory."
+            )
+        if isinstance(import_dir, Path):
+            return str(import_dir.joinpath(*relative_path.split("/")))
+        return f"{import_dir.rstrip('/')}/{relative_path}"
+
+    def import_env_from_file(
+        self,
+        file_path: str | Path,
+        name: str,
+        specifiers: Mapping[str, str] | None = None,
+        variables: dict[str, str] | None = None,
+        replace: bool = False,
+        *,
+        remote: bool = False,
+    ) -> Path:
+        """Import one environment definition from a local or remote YAML file.
+
+        The imported definition is saved to the configured environment source file.
+        Variable substitutions are applied only to the selected definition.
+        If ``remote`` is True, resolve the path relative to ``remote_import_dir``.
+        """
+        file_path = self.resolve_import_path(file_path, remote=remote)
+        definitions = read_YAML_file(file_path, variables=False)
+        if isinstance(definitions, dict):
+            definitions = [definitions]
+        if not isinstance(definitions, list):
+            raise ValueError(
+                f"Expected an environment definition or list of definitions in "
+                f"{file_path!r}."
+            )
+
+        requested_specifiers = specifiers or {}
+        matches = [
+            definition
+            for definition in definitions
+            if isinstance(definition, dict)
+            and definition.get("name") == name
+            and isinstance(definition.get("specifiers") or {}, dict)
+            and all(
+                (definition.get("specifiers") or {}).get(key) == value
+                for key, value in requested_specifiers.items()
+            )
+        ]
+        if not matches:
+            raise ValueError(
+                f"No environment named {name!r} matching specifiers "
+                f"{requested_specifiers!r} was found in {file_path!r}."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple environments named {name!r} match specifiers "
+                f"{requested_specifiers!r} in {file_path!r}; provide more specifiers "
+                f"to select one."
+            )
+
+        def substitute(value: Any) -> Any:
+            if isinstance(value, str):
+                return substitute_string_vars(value, variables or {})
+            if isinstance(value, list):
+                return [substitute(item) for item in value]
+            if isinstance(value, dict):
+                return {key: substitute(item) for key, item in value.items()}
+            return value
+
+        selected_definition = substitute(matches[0])
+        env_list = self.EnvironmentsList.from_json_like(
+            [selected_definition], shared_data=self._shared_data
+        )
+        return self.save_env(env_list[0], replace=replace)
 
     def env_configure_python(
         self,
