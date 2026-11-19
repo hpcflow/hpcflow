@@ -8,8 +8,9 @@ from hpcflow.app import app as hf
 from hpcflow.sdk.cli import _make_env_CLI
 
 
+@pytest.mark.parametrize("remote", [False, True])
 def test_import_env_from_file_selects_before_substitution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote: bool, modifiable_config
 ) -> None:
     source = tmp_path / "envs.yaml"
     source.write_text(
@@ -37,12 +38,17 @@ def test_import_env_from_file_selects_before_substitution(
     saved_path = tmp_path / "configured_envs.yaml"
     save_env = Mock(return_value=saved_path)
     monkeypatch.setattr(hf, "save_env", save_env)
+    monkeypatch.setattr(hf, "remote_import_dir", tmp_path.as_uri())
+    if remote:
+        hf.config.set("remote_import_dir", str(tmp_path))
+        monkeypatch.setattr(hf, "remote_import_dir", "memory://unused-app-default")
 
     result = hf.import_env_from_file(
-        source,
+        source.name if remote else source,
         "damask_env",
         specifiers={"version": "3.1.0", "build": "ib"},
         variables={"sif_path": "/containers/damask.sif"},
+        remote=remote,
     )
 
     assert result == saved_path
@@ -87,14 +93,19 @@ def test_import_env_from_file_requires_unique_match(
     save_env.assert_not_called()
 
 
-def test_env_import_cli_passes_selection_and_variables() -> None:
+@pytest.mark.parametrize("remote", [False, True])
+def test_env_import_cli_passes_selection_and_variables(remote: bool) -> None:
     app = Mock()
     env_cli, _ = _make_env_CLI(app)
+    file_path = "environments/cambridge-CSD3-damask.yaml"
+    if not remote:
+        file_path = f"github://hpcflow:matflow-configs@main/{file_path}"
     result = CliRunner().invoke(
         env_cli,
         [
             "import",
-            "github://hpcflow:matflow-configs@main/environments/cambridge-CSD3-damask.yaml",
+            *(["--remote"] if remote else []),
+            file_path,
             "--name",
             "damask_env",
             "--specifier",
@@ -108,9 +119,42 @@ def test_env_import_cli_passes_selection_and_variables() -> None:
 
     assert result.exit_code == 0, result.output
     app.import_env_from_file.assert_called_once_with(
-        "github://hpcflow:matflow-configs@main/environments/cambridge-CSD3-damask.yaml",
+        file_path,
         "damask_env",
         specifiers={"version": "3.1.0"},
         variables={"sif_path": "/containers/damask.sif"},
         replace=False,
+        remote=remote,
     )
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    ["environments/cambridge-CSD3.yaml", r"environments\cambridge-CSD3.yaml"],
+)
+def test_remote_import_path(file_path: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hf, "remote_import_dir", "github://hpcflow:matflow-configs@main/")
+    assert hf.resolve_import_path(file_path, remote=True) == (
+        "github://hpcflow:matflow-configs@main/environments/cambridge-CSD3.yaml"
+    )
+
+
+def test_remote_import_requires_configured_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hf, "remote_import_dir", None)
+    with pytest.raises(ValueError, match="no remote import directory"):
+        hf.resolve_import_path("site.yaml", remote=True)
+    assert hf.resolve_import_path("site.yaml") == "site.yaml"
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    ["https://example.com/site.yaml", "/site.yaml", r"C:\site.yaml", "../site.yaml"],
+)
+def test_remote_import_requires_relative_path(
+    file_path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(hf, "remote_import_dir", "github://hpcflow:matflow-configs@main")
+    with pytest.raises(ValueError, match="path relative to the import directory"):
+        hf.resolve_import_path(file_path, remote=True)

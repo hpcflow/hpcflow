@@ -12,7 +12,7 @@
 
     .. code-block:: console
 
-        matflow env import github://hpcflow:matflow-configs@main/environments/cambridge-CSD3-damask.yaml \
+        matflow env import --remote environments/cambridge-CSD3-damask.yaml \
           --name damask_env \
           --specifier site cambridge-CSD3 \
           --specifier version 3.1.0 \
@@ -20,6 +20,10 @@
           --var sif_path /path/to/damask-grid_3.1.0-ib.sif
 
     The selected definition is saved to the configured environment source file. ``--var`` values are substituted into that definition only; unrelated recipes in the source file do not need their variables supplied. Imported environments are not run during import, but their setup and executable commands will run when used, so only import recipes from trusted sources.
+
+    ``--remote`` resolves the path relative to the application's ``remote_import_dir`` option, which MatFlow sets to ``github://hpcflow:matflow-configs@main``. It requires a relative path and an application with that option configured. Without ``--remote``, local file paths and full remote URLs are used unchanged. The Python API also supports ``import_env_from_file(..., remote=True)``.
+
+    The ``remote_import_dir`` config item overrides the app-level default for both environment and configuration imports. It accepts a local directory or an fsspec URL, like ``data_dir``.
 
     Use multiple versions of the same software
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

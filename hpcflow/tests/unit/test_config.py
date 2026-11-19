@@ -396,14 +396,68 @@ def test_import_from_file_variables_SLURM(
     assert hf.config.get("schedulers.slurm.defaults.directives")["--account"] == expected
 
 
-def test_import_from_file_variables_CLI(modifiable_config, tmp_path):
+@pytest.mark.parametrize("remote", [False, True])
+def test_import_from_file_variables_CLI(
+    modifiable_config, tmp_path, monkeypatch, remote: bool
+):
     import_file = tmp_path / "my_import.yaml"
     import_file.write_text(
         "config:\n  machine: <<var:machine[default=default_machine]>>\n"
     )
+    monkeypatch.setattr(hf, "remote_import_dir", tmp_path.as_uri())
+    if remote:
+        hf.config.set("remote_import_dir", str(tmp_path))
+        monkeypatch.setattr(hf, "remote_import_dir", "memory://unused-app-default")
     result = CliRunner().invoke(
         get_config_CLI(hf),
-        ["import", str(import_file), "--no-rename", "--var", "machine", "my_machine"],
+        [
+            "import",
+            import_file.name if remote else str(import_file),
+            *(["--remote"] if remote else []),
+            "--no-rename",
+            "--var",
+            "machine",
+            "my_machine",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert hf.config.machine == "my_machine"
+
+
+@pytest.mark.parametrize("path_type", ["absolute", "relative", "url"])
+def test_remote_import_directory_config(
+    modifiable_config, tmp_path, monkeypatch, path_type: str
+) -> None:
+    directory = tmp_path / "recipes"
+    directory.mkdir()
+    monkeypatch.setattr(hf, "remote_import_dir", "memory://app-default")
+    values = {
+        "absolute": str(directory),
+        "relative": "recipes",
+        "url": directory.as_uri(),
+    }
+    hf.config.set("remote_import_dir", values[path_type])
+    hf.config.save()
+    hf.reload_config(config_dir=tmp_path, warn=False)
+
+    expected_directory = directory.as_uri() if path_type == "url" else directory
+    expected_path = (
+        f"{directory.as_uri()}/site.yaml"
+        if path_type == "url"
+        else str(directory / "site.yaml")
+    )
+    assert hf.config.get("remote_import_dir") == expected_directory
+    assert hf.resolve_import_path("site.yaml", remote=True) == expected_path
+
+    hf.config.unset("remote_import_dir")
+    assert (
+        hf.resolve_import_path("site.yaml", remote=True)
+        == "memory://app-default/site.yaml"
+    )
+
+
+def test_remote_import_directory_requires_existing_path(
+    modifiable_config, tmp_path
+) -> None:
+    with pytest.raises(FileNotFoundError):
+        hf.config.set("remote_import_dir", tmp_path / "missing")

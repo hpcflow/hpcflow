@@ -2330,6 +2330,11 @@ def _make_env_CLI(app: BaseApp):
     @env.command("import")
     @click.argument("file_path")
     @click.option(
+        "--remote",
+        is_flag=True,
+        help="Import a path relative to the app's remote import directory.",
+    )
+    @click.option(
         "-n", "--name", required=True, help="Name of the environment to import."
     )
     @click.option(
@@ -2354,6 +2359,7 @@ def _make_env_CLI(app: BaseApp):
         specifier: tuple[tuple[str, str], ...],
         variables: tuple[tuple[str, str], ...],
         replace: bool,
+        remote: bool,
     ):
         """Import an environment definition from a local or remote YAML file."""
         for option_name, option_values in (
@@ -2372,6 +2378,7 @@ def _make_env_CLI(app: BaseApp):
             specifiers=dict(specifier),
             variables=dict(variables),
             replace=replace,
+            remote=remote,
         )
 
     @env.command("remove")

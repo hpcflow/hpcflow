@@ -23,6 +23,7 @@ rules:
         - data_manifest_file
         - program_manifest_file
         - data_dir
+        - remote_import_dir
         - program_dir
         - default_workflow_path
         - workflow_name_use_dir
@@ -256,6 +257,13 @@ rules:
     doc: >
       If provided, this will be used as the path to the directory containing built-in
       programs. This can be a local path or an fsspec URL.
+    condition:
+      value.is_instance: [str, path]
+
+  - path: [remote_import_dir]
+    doc: >
+      If provided, this overrides the app's remote import directory for configuration
+      and environment imports. This can be a local path or an fsspec URL.
     condition:
       value.is_instance: [str, path]
 
