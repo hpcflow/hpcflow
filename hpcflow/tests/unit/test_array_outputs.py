@@ -256,6 +256,33 @@ def test_array_output_indexed_source_reads_each_chunk_once(
     assert read.call_count == 2
 
 
+def test_array_output_take_reads_each_chunk_once_in_requested_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+    from hpcflow.sdk.persistence.array_outputs import ChunkedArray
+
+    path = tmp_path / "consolidated.zip"
+    values = np.arange(12, dtype=np.int64).reshape(6, 2)
+    write_chunked_array_output(path, _contents(values), chunk_bytes=32)
+    data, _, _ = read_chunked_array_output(LocalFileSystem(), str(path))
+    assert len(data.chunks) == 3
+    read = Mock(wraps=ChunkedArray._read_chunk)
+
+    def tracked_read(chunked: ChunkedArray, index: int) -> np.ndarray:
+        return read(chunked, index)
+
+    monkeypatch.setattr(ChunkedArray, "_read_chunk", tracked_read)
+    # alternate between chunks, which re-reads chunks with a last-chunk cache:
+    indices = [0, 5, 1, 4, 0, 2, 5]
+    result = data.take(indices)
+    assert read.call_count == 3
+    for actual, index in zip(result, indices):
+        np.testing.assert_array_equal(actual, values[index])
+    assert data._archive is None
+    assert data.take([]) == []
+
+
 def test_array_output_streaming_bounds_shape_buffers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
