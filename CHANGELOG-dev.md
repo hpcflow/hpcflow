@@ -1,4 +1,20 @@
 
+<a name="v0.5.0a1"></a>
+## [v0.5.0a1](https://github.com/hpcflow/hpcflow/compare/v0.5.0a0...v0.5.0a1) - 2026.11.23
+
+### ⚡ Performance Improvements
+
+* avoid repeated array-output chunk decompression
+
+### 🐛 Bug Fixes
+
+* separate chunk index variables for type checking
+
+### 👷 Build changes
+
+* update binary download links file [skip ci]
+
+
 <a name="v0.5.0a0"></a>
 ## [v0.5.0a0](https://github.com/hpcflow/hpcflow/compare/v0.4.0...v0.5.0a0) - 2026.11.19
 
