@@ -6581,11 +6581,11 @@ class Workflow(AppAware):
                 positions,
                 archive_indices,
             ) in pending_chunked.values():
-                for position, archive_idx, entry in zip(
+                for position, pending_archive_idx, entry in zip(
                     positions, archive_indices, chunked.take(archive_indices)
                 ):
                     output_arrays[position], output_shapes[position] = trim_entry(
-                        entry, chunked_shapes, archive_idx
+                        entry, chunked_shapes, pending_archive_idx
                     )
 
         combined_metadata = {
