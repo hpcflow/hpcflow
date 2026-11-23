@@ -6459,6 +6459,23 @@ class Workflow(AppAware):
         )
         member_indices: list[int] = []
         member_run_IDs = {record["run_ID"] for _, record, _ in member_rows}
+        # Chunked-archive entries are filled in after the loop, grouped by chunk, so
+        # each chunk is decompressed once however the requested rows are interleaved:
+        pending_chunked: dict[
+            int, tuple[ChunkedArray, np.ndarray | None, list[int], list[int]]
+        ] = {}
+
+        def trim_entry(
+            entry: np.ndarray, shapes: np.ndarray | None, archive_idx: int
+        ) -> tuple[np.ndarray, tuple[int, ...]]:
+            if shapes is None:
+                return entry, entry.shape
+            array_shape = tuple(int(dim) for dim in shapes[archive_idx])
+            return (
+                np.array(entry[tuple(slice(0, dim) for dim in array_shape)]),
+                array_shape,
+            )
+
         for value, record_metadata, record_member_idx in member_rows:
             output_arrays.append(value)
             output_shapes.append(value.shape)
@@ -6535,16 +6552,20 @@ class Workflow(AppAware):
                         np.argsort(selected_members, kind="stable")
                     ]
                 for archive_idx in matching_indices:
-                    entry = data[archive_idx]
-                    if shapes is None:
-                        array_shape = entry.shape
+                    if isinstance(data, ChunkedArray):
+                        pending = pending_chunked.setdefault(
+                            id(data), (data, shapes, [], [])
+                        )
+                        pending[2].append(len(output_arrays))
+                        pending[3].append(int(archive_idx))
+                        output_arrays.append(np.empty(0))  # placeholder
+                        output_shapes.append(())
                     else:
-                        array_shape = tuple(int(dim) for dim in shapes[archive_idx])
-                    array_slices: tuple[slice, ...] = tuple(
-                        slice(0, dim) for dim in array_shape
-                    )
-                    output_arrays.append(np.array(entry[array_slices]))
-                    output_shapes.append(array_shape)
+                        entry, array_shape = trim_entry(
+                            np.array(data[archive_idx]), shapes, int(archive_idx)
+                        )
+                        output_arrays.append(entry)
+                        output_shapes.append(array_shape)
                     member_indices.append(
                         int(archive.member_idx[archive_idx])
                         if archive.member_idx is not None
@@ -6554,6 +6575,18 @@ class Workflow(AppAware):
                         values.append(
                             getattr(archive, key)[archive_idx : archive_idx + 1]
                         )
+            for (
+                chunked,
+                chunked_shapes,
+                positions,
+                archive_indices,
+            ) in pending_chunked.values():
+                for position, pending_archive_idx, entry in zip(
+                    positions, archive_indices, chunked.take(archive_indices)
+                ):
+                    output_arrays[position], output_shapes[position] = trim_entry(
+                        entry, chunked_shapes, pending_archive_idx
+                    )
 
         combined_metadata = {
             key: np.concatenate(values) for key, values in metadata.items()

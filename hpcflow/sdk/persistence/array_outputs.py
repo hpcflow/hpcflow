@@ -9,7 +9,15 @@ from io import BytesIO, BufferedIOBase
 import json
 from pathlib import Path
 import struct
-from typing import Any, BinaryIO, Iterable, Iterator, SupportsIndex, TYPE_CHECKING
+from typing import (
+    Any,
+    BinaryIO,
+    Iterable,
+    Iterator,
+    Sequence,
+    SupportsIndex,
+    TYPE_CHECKING,
+)
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from fsspec.core import OpenFile  # type: ignore
@@ -320,6 +328,27 @@ class ChunkedArray:
             self._cached_index = chunk
         assert self._cached_data is not None
         return self._cached_data[self.row_idx[index]]
+
+    def take(self, indices: Sequence[int] | np.ndarray) -> list[np.ndarray]:
+        """Return copies of the entries at ``indices``, in the requested order.
+
+        Each required chunk is decompressed exactly once, however the entries are
+        interleaved across chunks, and is released before the next chunk is read.
+        """
+        indices = np.asarray(indices, dtype=np.int64)
+        result: list[np.ndarray] = [np.empty(0)] * len(indices)
+        if not len(indices):
+            return result
+        chunks = self.chunk_idx[indices]
+        order = np.argsort(chunks, kind="stable")
+        boundaries = np.flatnonzero(np.diff(chunks[order])) + 1
+        with self.reading():
+            for group in np.split(order, boundaries):
+                data = self._read_chunk(int(chunks[group[0]]))
+                for position in group:
+                    result[position] = np.array(data[self.row_idx[indices[position]]])
+                del data
+        return result
 
     def verify(self) -> None:
         """Read each chunk once to validate its dtype, shape, and ZIP CRC."""

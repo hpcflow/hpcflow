@@ -1235,6 +1235,7 @@ def test_array_output_partial_reads(
         np.testing.assert_array_equal(actual, expected)
     expected_chunks = {int(archive.data.chunk_idx[index]) for index in (0, 2)}
     assert {call.args[1] for call in read.call_args_list} == expected_chunks
+    assert read.call_count == len(expected_chunks)
 
 
 @pytest.mark.parametrize("grouped", [False, True])
