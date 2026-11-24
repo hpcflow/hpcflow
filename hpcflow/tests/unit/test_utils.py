@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from textwrap import dedent
 import pytest
@@ -347,6 +348,18 @@ def test_JSONLikeDirSnapShot_round_trip(tmpdir):
     snap_0 = JSONLikeDirSnapShot()
     snap_0.take(str(tmpdir))
     js_0 = snap_0.to_json_like()
+    snap_0_rl = JSONLikeDirSnapShot(**js_0)
+    assert snap_0._stat_info == snap_0_rl._stat_info
+
+
+def test_JSONLikeDirSnapShot_round_trip_shared_inode(tmp_path: Path):
+    (tmp_path / "a.H").write_text("x")
+    (tmp_path / "lnInclude").mkdir()
+    os.link(tmp_path / "a.H", tmp_path / "lnInclude" / "a.H")
+    snap_0 = JSONLikeDirSnapShot()
+    snap_0.take(str(tmp_path))
+    js_0 = snap_0.to_json_like(use_strings=True)
+    assert {"a.H", str(Path("lnInclude/a.H"))} <= set(js_0["data"])
     snap_0_rl = JSONLikeDirSnapShot(**js_0)
     assert snap_0._stat_info == snap_0_rl._stat_info
 
