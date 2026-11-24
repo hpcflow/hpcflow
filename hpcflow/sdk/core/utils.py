@@ -902,18 +902,19 @@ class JSONLikeDirSnapShot(DirectorySnapshot):
     def to_json_like(self, use_strings: bool = False) -> dict[str, Any]:
         """Export to a dict that is JSON-compatible and can be later reloaded.
 
-        The last two integers in `data` for each path are the keys in
-        `self._inode_to_path`.
+        The last two integers in `data` for each path are the inode and device numbers,
+        which form the keys in `self._inode_to_path`.
 
         """
         # first key is the root path:
         root_path = next(iter(self._stat_info))
 
-        # store efficiently:
-        inode_invert = {v: k for k, v in self._inode_to_path.items()}
+        # take inode keys from each path's stat result, because multiple paths (e.g.
+        # hard links, or symlinks followed by `os.stat`) may share an inode, in which
+        # case `self._inode_to_path` retains only one of them:
         data: dict[str, list] = {
             str(PurePath(cast("str", k)).relative_to(cast("str", root_path))): [
-                str(i) if use_strings else i for i in [*v, *inode_invert[k]]
+                str(i) if use_strings else i for i in [*v, v.st_ino, v.st_dev]
             ]
             for k, v in self._stat_info.items()
         }
